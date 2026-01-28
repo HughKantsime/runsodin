@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+@layer base {
+  body {
+    @apply antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+  
+  code, pre, .mono {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+}
+
+/* Custom scrollbar */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.farm.700') transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.farm.700');
+    border-radius: 3px;
+  }
+}
+
+/* Timeline grid */
+.timeline-grid {
+  display: grid;
+  grid-template-columns: 120px repeat(var(--slot-count, 48), minmax(40px, 1fr));
+  gap: 1px;
+  background: theme('colors.farm.800');
+}
+
+.timeline-slot {
+  min-height: 48px;
+  transition: background-color 0.15s ease;
+}
+
+.timeline-slot:hover {
+  filter: brightness(1.1);
+}
+
+/* Job card animations */
+.job-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.job-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Status indicators */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-dot.pending { @apply bg-status-pending; }
+.status-dot.scheduled { @apply bg-status-scheduled; }
+.status-dot.printing { @apply bg-status-printing animate-pulse; }
+.status-dot.completed { @apply bg-status-completed; }
+.status-dot.failed { @apply bg-status-failed; }
+
+/* Color swatch */
+.color-swatch {
+  @apply w-4 h-4 rounded border border-farm-600;
+}
+
+/* Loading skeleton */
+.skeleton {
+  @apply bg-farm-800 animate-pulse rounded;
+}
+
+/* Drag and drop feedback */
+.drop-target {
+  @apply ring-2 ring-print-500 ring-opacity-50;
+}
+
+.dragging {
+  @apply opacity-50 cursor-grabbing;
+}

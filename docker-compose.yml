@@ -1,0 +1,54 @@
+# PrintFarm Scheduler - Docker Compose
+# 
+# Usage:
+#   docker-compose up -d
+#
+# Access:
+#   - Frontend: http://localhost:8080
+#   - API: http://localhost:8000
+#   - API Docs: http://localhost:8000/docs
+
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: printfarm-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - printfarm-data:/data
+    environment:
+      - DATABASE_URL=sqlite:////data/printfarm.db
+      - SPOOLMAN_URL=${SPOOLMAN_URL:-}
+      - BLACKOUT_START=${BLACKOUT_START:-22:30}
+      - BLACKOUT_END=${BLACKOUT_END:-05:30}
+      - DEBUG=${DEBUG:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    container_name: printfarm-ui
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    environment:
+      - API_URL=http://backend:8000
+
+volumes:
+  printfarm-data:
+    driver: local
+
+# Optional: Connect to existing Spoolman instance
+# networks:
+#   default:
+#     external:
+#       name: spoolman_default
