@@ -1020,3 +1020,120 @@ async def test_spoolman_connection():
                 return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
     except Exception as e:
         return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+@app.get("/api/analytics", tags=["Analytics"])
+def get_analytics(db: Session = Depends(get_db)):
+    """Get analytics data for dashboard."""
+    from sqlalchemy import func
+    
+    # Get all models with profitability data
+    models = db.query(Model).all()
+    
+    # Top models by value per hour
+    models_by_value = sorted(
+        [m for m in models if m.cost_per_item and m.build_time_hours],
+        key=lambda m: (m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
+        reverse=True
+    )[:10]
+    
+    top_by_hour = [{
+        "id": m.id,
+        "name": m.name,
+        "value_per_hour": round((m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
+        "value_per_bed": round(m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1), 2),
+        "build_time_hours": m.build_time_hours,
+        "units_per_bed": m.units_per_bed or 1,
+    } for m in models_by_value]
+    
+    # Worst performers
+    models_by_value_asc = sorted(
+        [m for m in models if m.cost_per_item and m.build_time_hours],
+        key=lambda m: (m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours,
+    )[:10]
+    
+    worst_performers = [{
+        "id": m.id,
+        "name": m.name,
+        "value_per_hour": round((m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours, 2),
+        "value_per_bed": round(m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1), 2),
+        "build_time_hours": m.build_time_hours,
+    } for m in models_by_value_asc]
+    
+    # Jobs stats
+    all_jobs = db.query(Job).all()
+    completed_jobs = [j for j in all_jobs if j.status == "completed"]
+    pending_jobs = [j for j in all_jobs if j.status in ("pending", "scheduled")]
+    
+    # Revenue from completed jobs (estimate from model data)
+    total_revenue = 0
+    total_print_hours = 0
+    for job in completed_jobs:
+        if job.model_id:
+            model = db.query(Model).filter(Model.id == job.model_id).first()
+            if model and model.cost_per_item:
+                total_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
+        if job.duration_hours:
+            total_print_hours += job.duration_hours
+    
+    # Projected revenue from pending jobs
+    projected_revenue = 0
+    for job in pending_jobs:
+        if job.model_id:
+            model = db.query(Model).filter(Model.id == job.model_id).first()
+            if model and model.cost_per_item:
+                projected_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
+    
+    # Printer utilization
+    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printer_stats = []
+    for printer in printers:
+        printer_jobs = [j for j in completed_jobs if j.printer_id == printer.id]
+        hours = sum(j.duration_hours or 0 for j in printer_jobs)
+        printer_stats.append({
+            "id": printer.id,
+            "name": printer.name,
+            "completed_jobs": len(printer_jobs),
+            "total_hours": round(hours, 1),
+        })
+    
+    # Jobs over time (last 30 days)
+    from datetime import datetime, timedelta
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    recent_jobs = db.query(Job).filter(Job.created_at >= thirty_days_ago).all()
+    
+    # Group by date
+    jobs_by_date = {}
+    for job in recent_jobs:
+        date_str = job.created_at.strftime("%Y-%m-%d")
+        if date_str not in jobs_by_date:
+            jobs_by_date[date_str] = {"created": 0, "completed": 0}
+        jobs_by_date[date_str]["created"] += 1
+        if job.status == "completed":
+            jobs_by_date[date_str]["completed"] += 1
+    
+    # Average $/hour across all models
+    valid_models = [m for m in models if m.cost_per_item and m.build_time_hours]
+    if valid_models:
+        avg_value_per_hour = sum(
+            (m.cost_per_item * (m.markup_percent or 300) / 100 * (m.units_per_bed or 1)) / m.build_time_hours
+            for m in valid_models
+        ) / len(valid_models)
+    else:
+        avg_value_per_hour = 0
+    
+    return {
+        "top_by_hour": top_by_hour,
+        "worst_performers": worst_performers,
+        "summary": {
+            "total_models": len(models),
+            "total_jobs": len(all_jobs),
+            "completed_jobs": len(completed_jobs),
+            "pending_jobs": len(pending_jobs),
+            "total_revenue": round(total_revenue, 2),
+            "projected_revenue": round(projected_revenue, 2),
+            "total_print_hours": round(total_print_hours, 1),
+            "avg_value_per_hour": round(avg_value_per_hour, 2),
+        },
+        "printer_stats": printer_stats,
+        "jobs_by_date": jobs_by_date,
+    }
