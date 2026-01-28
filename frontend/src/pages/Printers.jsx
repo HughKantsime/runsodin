@@ -105,19 +105,32 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
     )
   }
 
+  // Shorten long filament names
+  const getShortName = (color) => {
+    if (!color) return 'Empty'
+    // Remove brand prefix like "Bambu Lab"
+    const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
+    let short = color
+    for (const brand of brands) {
+      if (color.startsWith(brand + ' ')) {
+        short = color.slice(brand.length + 1)
+        break
+      }
+    }
+    return short
+  }
+
   return (
-    <div className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors" onClick={() => setIsEditing(true)}>
+    <div className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0" onClick={() => setIsEditing(true)}>
       <div className="text-xs text-farm-500 mb-1">Slot {slot.slot_number}</div>
-      <div className="flex items-center gap-2">
-        {colorHex && (
-          <div 
-            className="w-3 h-3 rounded-full border border-farm-600 flex-shrink-0" 
-            style={{ backgroundColor: `#${colorHex}` }}
-          />
-        )}
-        <div className="text-sm font-medium truncate">{slot.color || 'Empty'}</div>
+      <div className="flex items-center gap-2 min-w-0">
+        <div 
+          className="w-3 h-3 rounded-full border border-farm-600 flex-shrink-0" 
+          style={{ backgroundColor: colorHex ? `#${colorHex}` : '#333' }}
+        />
+        <div className="text-sm font-medium truncate" title={slot.color || 'Empty'}>{getShortName(slot.color)}</div>
       </div>
-      <div className="text-xs text-farm-500">{slot.filament_type}</div>
+      <div className="text-xs text-farm-500">{slot.filament_type || 'PLA'}</div>
     </div>
   )
 }

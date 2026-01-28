@@ -134,6 +134,8 @@ class Model(Base):
     
     # Pricing (optional, from your Pricing sheet)
     cost_per_item = Column(Float)
+    units_per_bed = Column(Integer, default=1)
+    markup_percent = Column(Float, default=300)
     
     # Metadata
     created_at = Column(DateTime, server_default=func.now())

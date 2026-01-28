@@ -5,7 +5,7 @@ Pydantic schemas for API request/response validation.
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, computed_field
 
 
 # Re-define enums here to avoid circular imports
@@ -122,6 +122,8 @@ class ModelBase(BaseModel):
     thumbnail_url: Optional[str] = None
     notes: Optional[str] = None
     cost_per_item: Optional[float] = None
+    units_per_bed: Optional[int] = 1
+    markup_percent: Optional[float] = 300
 
 
 class ModelCreate(ModelBase):
@@ -137,6 +139,8 @@ class ModelUpdate(BaseModel):
     thumbnail_url: Optional[str] = None
     notes: Optional[str] = None
     cost_per_item: Optional[float] = None
+    units_per_bed: Optional[int] = 1
+    markup_percent: Optional[float] = 300
 
 
 class ModelResponse(ModelBase):
@@ -146,6 +150,34 @@ class ModelResponse(ModelBase):
     created_at: datetime
     updated_at: datetime
     required_colors: List[str] = []
+    
+    @computed_field
+    @property
+    def time_per_item(self) -> Optional[float]:
+        if not self.build_time_hours or not self.units_per_bed:
+            return None
+        return round(self.build_time_hours / self.units_per_bed, 2)
+    
+    @computed_field
+    @property
+    def filament_per_item(self) -> Optional[float]:
+        if not self.units_per_bed:
+            return None
+        return round(self.total_filament_grams / self.units_per_bed, 2)
+    
+    @computed_field
+    @property
+    def value_per_bed(self) -> Optional[float]:
+        if not self.cost_per_item or not self.markup_percent:
+            return None
+        return round(self.cost_per_item * (self.markup_percent / 100) * (self.units_per_bed or 1), 2)
+    
+    @computed_field
+    @property
+    def value_per_hour(self) -> Optional[float]:
+        if not self.value_per_bed or not self.build_time_hours:
+            return None
+        return round(self.value_per_bed / self.build_time_hours, 2)
     total_filament_grams: float = 0
 
 

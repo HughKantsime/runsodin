@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Plus, 
@@ -89,6 +89,26 @@ function ModelCard({ model, onEdit, onDelete }) {
             ))}
           </div>
         )}
+        
+        {/* Calculated metrics */}
+        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-farm-800">
+          <div className="text-center">
+            <div className="text-xs text-farm-500"># on Bed</div>
+            <div className="text-sm font-medium">{model.units_per_bed || 1}</div>
+          </div>
+          <div className="text-center">
+            <div className="text-xs text-farm-500">$/Hour</div>
+            <div className="text-sm font-medium text-print-400">
+              {model.value_per_hour ? `$${model.value_per_hour.toFixed(2)}` : '—'}
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="text-xs text-farm-500">Bed Value</div>
+            <div className="text-sm font-medium text-green-400">
+              {model.value_per_bed ? `$${model.value_per_bed.toFixed(2)}` : '—'}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -96,14 +116,41 @@ function ModelCard({ model, onEdit, onDelete }) {
 
 function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   const [formData, setFormData] = useState({
-    name: editingModel?.name || '',
-    category: editingModel?.category || '',
-    build_time_hours: editingModel?.build_time_hours || '',
-    cost_per_item: editingModel?.cost_per_item || '',
-    notes: editingModel?.notes || '',
-    // Simplified color input as comma-separated string
-    colors: editingModel?.required_colors?.join(', ') || '',
+    name: '',
+    category: '',
+    build_time_hours: '',
+    cost_per_item: '',
+    notes: '',
+    colors: '',
+    units_per_bed: 1,
+    markup_percent: 300,
   })
+
+  useEffect(() => {
+    if (editingModel) {
+      setFormData({
+        name: editingModel.name || '',
+        category: editingModel.category || '',
+        build_time_hours: editingModel.build_time_hours || '',
+        cost_per_item: editingModel.cost_per_item || '',
+        notes: editingModel.notes || '',
+        colors: editingModel.required_colors?.join(', ') || '',
+        units_per_bed: editingModel.units_per_bed || 1,
+        markup_percent: editingModel.markup_percent || 300,
+      })
+    } else {
+      setFormData({
+        name: '',
+        category: '',
+        build_time_hours: '',
+        cost_per_item: '',
+        notes: '',
+        colors: '',
+        units_per_bed: 1,
+        markup_percent: 300,
+      })
+    }
+  }, [editingModel])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -122,6 +169,8 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
       cost_per_item: formData.cost_per_item ? Number(formData.cost_per_item) : null,
       notes: formData.notes || null,
       color_requirements: Object.keys(color_requirements).length > 0 ? color_requirements : null,
+      units_per_bed: formData.units_per_bed ? Number(formData.units_per_bed) : 1,
+      markup_percent: formData.markup_percent ? Number(formData.markup_percent) : 300,
     }, editingModel?.id)
     
     setFormData({
@@ -131,6 +180,8 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
       cost_per_item: '',
       notes: '',
       colors: '',
+      units_per_bed: 1,
+      markup_percent: 300,
     })
     onClose()
   }
@@ -173,7 +224,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
               <label className="block text-sm text-farm-400 mb-1">Build Time (hours)</label>
               <input
                 type="number"
-                step="0.5"
+                step="any"
                 min="0"
                 value={formData.build_time_hours}
                 onChange={(e) => setFormData(prev => ({ ...prev, build_time_hours: e.target.value }))}
@@ -206,6 +257,28 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
               className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
               placeholder="e.g., 5.50"
             />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-farm-400 mb-1"># on Bed</label>
+              <input
+                type="number"
+                min="1"
+                value={formData.units_per_bed}
+                onChange={(e) => setFormData(prev => ({ ...prev, units_per_bed: e.target.value }))}
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Markup %</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.markup_percent}
+                onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))}
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
+              />
+            </div>
           </div>
 
           <div>
