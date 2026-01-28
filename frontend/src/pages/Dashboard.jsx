@@ -5,7 +5,9 @@ import {
   CheckCircle, 
   AlertCircle,
   Zap,
-  RefreshCw
+  RefreshCw,
+  XCircle,
+  Trash2
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -84,7 +86,7 @@ function PrinterCard({ printer }) {
   )
 }
 
-function JobQueueItem({ job, onStart, onComplete }) {
+function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   const statusColors = {
     pending: 'border-status-pending',
     scheduled: 'border-status-scheduled',
@@ -119,10 +121,19 @@ function JobQueueItem({ job, onStart, onComplete }) {
           {job.status === 'printing' && (
             <button
               onClick={() => onComplete(job.id)}
-              className="p-2 bg-farm-700 hover:bg-farm-600 rounded-lg transition-colors"
+              className="p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors"
               title="Mark Complete"
             >
               <CheckCircle size={16} />
+            </button>
+          )}
+          {(job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
+            <button
+              onClick={() => onCancel(job.id)}
+              className="p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors"
+              title="Cancel"
+            >
+              <XCircle size={16} />
             </button>
           )}
           <div className={clsx('status-dot', job.status)} />
@@ -267,6 +278,7 @@ export default function Dashboard() {
                   job={job}
                   onStart={(id) => startJob.mutate(id)}
                   onComplete={(id) => completeJob.mutate(id)}
+                  onCancel={(id) => cancelJob.mutate(id)}
                 />
               ))}
             {(!activeJobs || activeJobs.length === 0) && (

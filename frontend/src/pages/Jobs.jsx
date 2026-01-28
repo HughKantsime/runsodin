@@ -74,16 +74,16 @@ function JobRow({ job, onAction }) {
             </button>
           )}
           {job.status === 'printing' && (
-            <>
-              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Complete">
-                <CheckCircle size={16} />
-              </button>
-              <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Cancel">
-                <XCircle size={16} />
-              </button>
-            </>
+            <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Complete">
+              <CheckCircle size={16} />
+            </button>
           )}
-          {(job.status === 'pending' || job.status === 'failed') && (
+          {(job.status === 'scheduled' || job.status === 'printing') && (
+            <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Cancel">
+              <XCircle size={16} />
+            </button>
+          )}
+          {(job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded" title="Delete">
               <Trash2 size={16} />
             </button>

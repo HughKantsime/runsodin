@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Plus, 
@@ -6,16 +6,18 @@ import {
   Trash2,
   Clock,
   Palette,
-  DollarSign
+  DollarSign,
+  Scale,
+  X,
+  ChevronDown
 } from 'lucide-react'
 import clsx from 'clsx'
 
-import { models } from '../api'
+import { models, filaments } from '../api'
 
 function ModelCard({ model, onEdit, onDelete }) {
   return (
     <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
-      {/* Thumbnail placeholder */}
       <div className="h-32 bg-farm-800 flex items-center justify-center">
         {model.thumbnail_url ? (
           <img 
@@ -28,7 +30,6 @@ function ModelCard({ model, onEdit, onDelete }) {
         )}
       </div>
 
-      {/* Content */}
       <div className="p-4">
         <div className="flex items-start justify-between mb-2">
           <div>
@@ -54,7 +55,6 @@ function ModelCard({ model, onEdit, onDelete }) {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="flex items-center gap-4 text-sm text-farm-400 mt-3">
           {model.build_time_hours && (
             <div className="flex items-center gap-1">
@@ -62,10 +62,10 @@ function ModelCard({ model, onEdit, onDelete }) {
               <span>{model.build_time_hours}h</span>
             </div>
           )}
-          {model.required_colors?.length > 0 && (
+          {model.total_filament_grams > 0 && (
             <div className="flex items-center gap-1">
-              <Palette size={14} />
-              <span>{model.required_colors.length} colors</span>
+              <Scale size={14} />
+              <span>{model.total_filament_grams}g</span>
             </div>
           )}
           {model.cost_per_item && (
@@ -76,7 +76,6 @@ function ModelCard({ model, onEdit, onDelete }) {
           )}
         </div>
 
-        {/* Colors */}
         {model.required_colors?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
             {model.required_colors.map((color, i) => (
@@ -90,7 +89,6 @@ function ModelCard({ model, onEdit, onDelete }) {
           </div>
         )}
         
-        {/* Calculated metrics */}
         <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-farm-800">
           <div className="text-center">
             <div className="text-xs text-farm-500"># on Bed</div>
@@ -114,6 +112,182 @@ function ModelCard({ model, onEdit, onDelete }) {
   )
 }
 
+function FilamentSelector({ value, onChange, filamentData, placeholder }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [displayValue, setDisplayValue] = useState(value || '')
+  const containerRef = useRef(null)
+
+  useEffect(() => {
+    setDisplayValue(value || '')
+  }, [value])
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false)
+        setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // When open, filter by search; when closed, show displayValue
+  const filterText = isOpen ? search : ''
+  const filteredFilaments = (filamentData || []).filter(f => {
+    if (!filterText) return true
+    return f.display_name?.toLowerCase().includes(filterText.toLowerCase()) ||
+      f.name?.toLowerCase().includes(filterText.toLowerCase()) ||
+      f.brand?.toLowerCase().includes(filterText.toLowerCase())
+  })
+
+  const spoolmanFilaments = filteredFilaments.filter(f => f.source === 'spoolman')
+  const libraryFilaments = filteredFilaments.filter(f => f.source === 'library')
+
+  const handleSelect = (filament) => {
+    const colorName = filament.display_name || `${filament.brand} ${filament.name} (${filament.material})`
+    onChange(colorName)
+    setDisplayValue(colorName)
+    setSearch('')
+    setIsOpen(false)
+  }
+
+  const handleInputChange = (e) => {
+    const val = e.target.value
+    setSearch(val)
+    setDisplayValue(val)
+    onChange(val)
+  }
+
+  const handleFocus = () => {
+    setIsOpen(true)
+    setSearch('')
+  }
+
+  const handleBlur = () => {
+    setTimeout(() => {
+      setIsOpen(false)
+      setSearch('')
+    }, 150)
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <div className="relative">
+        <input
+          type="text"
+          value={isOpen ? search : displayValue}
+          onChange={handleInputChange}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm pr-8"
+          placeholder={isOpen ? "Type to search..." : placeholder}
+        />
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault()
+            if (isOpen) {
+              setIsOpen(false)
+              setSearch('')
+            } else {
+              setIsOpen(true)
+              setSearch('')
+            }
+          }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-farm-500 hover:text-farm-300"
+        >
+          <ChevronDown size={16} className={clsx(isOpen && "rotate-180 transition-transform")} />
+        </button>
+      </div>
+      
+      {isOpen && (spoolmanFilaments.length > 0 || libraryFilaments.length > 0) && (
+        <div className="absolute z-50 mt-1 w-full max-h-56 overflow-auto bg-farm-800 border border-farm-700 rounded-lg shadow-lg">
+          {spoolmanFilaments.length > 0 && (
+            <>
+              <div className="text-xs text-print-400 font-medium px-3 py-1 bg-farm-900 sticky top-0">From Spoolman</div>
+              {spoolmanFilaments.slice(0, 15).map(f => (
+                <div
+                  key={f.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    handleSelect(f)
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-farm-700 cursor-pointer"
+                >
+                  <div 
+                    className="w-4 h-4 rounded border border-farm-500 flex-shrink-0" 
+                    style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                  />
+                  <span className="text-sm truncate flex-1">{f.name}</span>
+                  {f.remaining_weight && (
+                    <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>
+                  )}
+                </div>
+              ))}
+            </>
+          )}
+          {libraryFilaments.length > 0 && (
+            <>
+              <div className="text-xs text-farm-400 font-medium px-3 py-1 bg-farm-900 sticky top-0">From Library</div>
+              {libraryFilaments.slice(0, 20).map(f => (
+                <div
+                  key={f.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    handleSelect(f)
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-farm-700 cursor-pointer"
+                >
+                  <div 
+                    className="w-4 h-4 rounded border border-farm-500 flex-shrink-0" 
+                    style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                  />
+                  <span className="text-sm truncate">{f.display_name}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ColorSlotInput({ index, color, grams, onChange, onRemove, filamentData }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1">
+        <FilamentSelector
+          value={color}
+          onChange={(val) => onChange(index, 'color', val)}
+          filamentData={filamentData}
+          placeholder={`Color ${index + 1}`}
+        />
+      </div>
+      <div className="w-24">
+        <input
+          type="number"
+          min="0"
+          step="0.1"
+          value={grams}
+          onChange={(e) => onChange(index, 'grams', e.target.value)}
+          className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+          placeholder="grams"
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => onRemove(index)}
+        className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
+
 function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   const [formData, setFormData] = useState({
     name: '',
@@ -121,10 +295,20 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
     build_time_hours: '',
     cost_per_item: '',
     notes: '',
-    colors: '',
     units_per_bed: 1,
     markup_percent: 300,
   })
+  
+  const [colorSlots, setColorSlots] = useState([{ color: '', grams: '' }])
+
+  // Fetch filaments for dropdown
+  const { data: filamentData } = useQuery({
+    queryKey: ['filaments-combined'],
+    queryFn: filaments.combined,
+    enabled: isOpen,
+  })
+
+  // filamentData is passed directly to FilamentSelector
 
   useEffect(() => {
     if (editingModel) {
@@ -134,10 +318,21 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
         build_time_hours: editingModel.build_time_hours || '',
         cost_per_item: editingModel.cost_per_item || '',
         notes: editingModel.notes || '',
-        colors: editingModel.required_colors?.join(', ') || '',
         units_per_bed: editingModel.units_per_bed || 1,
         markup_percent: editingModel.markup_percent || 300,
       })
+      
+      if (editingModel.color_requirements && Object.keys(editingModel.color_requirements).length > 0) {
+        const slots = Object.values(editingModel.color_requirements).map(c => ({
+          color: c.color || '',
+          grams: c.grams || ''
+        }))
+        setColorSlots(slots.length > 0 ? slots : [{ color: '', grams: '' }])
+      } else if (editingModel.required_colors?.length > 0) {
+        setColorSlots(editingModel.required_colors.map(c => ({ color: c, grams: '' })))
+      } else {
+        setColorSlots([{ color: '', grams: '' }])
+      }
     } else {
       setFormData({
         name: '',
@@ -145,21 +340,44 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
         build_time_hours: '',
         cost_per_item: '',
         notes: '',
-        colors: '',
         units_per_bed: 1,
         markup_percent: 300,
       })
+      setColorSlots([{ color: '', grams: '' }])
     }
   }, [editingModel])
+
+  const handleColorChange = (index, field, value) => {
+    setColorSlots(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
+    })
+  }
+
+  const addColorSlot = () => {
+    if (colorSlots.length < 4) {
+      setColorSlots(prev => [...prev, { color: '', grams: '' }])
+    }
+  }
+
+  const removeColorSlot = (index) => {
+    setColorSlots(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const totalFilament = colorSlots.reduce((sum, slot) => sum + (parseFloat(slot.grams) || 0), 0)
 
   const handleSubmit = (e) => {
     e.preventDefault()
     
-    // Parse colors into color_requirements format
-    const colorList = formData.colors.split(',').map(c => c.trim()).filter(Boolean)
     const color_requirements = {}
-    colorList.forEach((color, i) => {
-      color_requirements[`color${i + 1}`] = { color, grams: 0 }
+    colorSlots.forEach((slot, i) => {
+      if (slot.color.trim()) {
+        color_requirements[`color${i + 1}`] = {
+          color: slot.color.trim(),
+          grams: parseFloat(slot.grams) || 0
+        }
+      }
     })
 
     onSubmit({
@@ -179,18 +397,18 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
       build_time_hours: '',
       cost_per_item: '',
       notes: '',
-      colors: '',
       units_per_bed: 1,
       markup_percent: 300,
     })
+    setColorSlots([{ color: '', grams: '' }])
     onClose()
   }
 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-farm-900 rounded-xl w-full max-w-lg p-6 border border-farm-700">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-farm-900 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 border border-farm-700">
         <h2 className="text-xl font-display font-semibold mb-4">
           {editingModel ? 'Edit Model' : 'Add New Model'}
         </h2>
@@ -234,31 +452,62 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
             </div>
           </div>
 
+          {/* Color Requirements */}
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
-            <input
-              type="text"
-              value={formData.colors}
-              onChange={(e) => setFormData(prev => ({ ...prev, colors: e.target.value }))}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
-              placeholder="e.g., black, white, green matte, yellow matte"
-            />
-            <p className="text-xs text-farm-500 mt-1">Comma-separated list of colors</p>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm text-farm-400">
+                Filament Colors & Usage
+                {filamentData?.length > 0 && (
+                  <span className="text-farm-600 ml-2">({filamentData.length} filaments available)</span>
+                )}
+              </label>
+              {colorSlots.length < 4 && (
+                <button
+                  type="button"
+                  onClick={addColorSlot}
+                  className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"
+                >
+                  <Plus size={14} /> Add Color
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {colorSlots.map((slot, i) => (
+                <ColorSlotInput
+                  key={i}
+                  index={i}
+                  color={slot.color}
+                  grams={slot.grams}
+                  onChange={handleColorChange}
+                  onRemove={removeColorSlot}
+                  filamentData={filamentData}
+                />
+              ))}
+            </div>
+            {totalFilament > 0 && (
+              <div className="mt-2 text-sm text-farm-400 flex items-center gap-2">
+                <Scale size={14} />
+                Total filament: <span className="text-white font-medium">{totalFilament.toFixed(1)}g</span>
+              </div>
+            )}
+            <p className="text-xs text-farm-600 mt-1">
+              Select from your filament library or type a custom color
+            </p>
           </div>
 
-          <div>
-            <label className="block text-sm text-farm-400 mb-1">Cost per Item ($)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.cost_per_item}
-              onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
-              placeholder="e.g., 5.50"
-            />
-          </div>
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Cost per Item ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.cost_per_item}
+                onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))}
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
+                placeholder="e.g., 5.50"
+              />
+            </div>
             <div>
               <label className="block text-sm text-farm-400 mb-1"># on Bed</label>
               <input
@@ -269,16 +518,17 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
                 className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
               />
             </div>
-            <div>
-              <label className="block text-sm text-farm-400 mb-1">Markup %</label>
-              <input
-                type="number"
-                min="0"
-                value={formData.markup_percent}
-                onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))}
-                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
-              />
-            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Markup %</label>
+            <input
+              type="number"
+              min="0"
+              value={formData.markup_percent}
+              onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))}
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
+            />
           </div>
 
           <div>
@@ -357,12 +607,10 @@ export default function Models() {
     }
   }
 
-  // Get unique categories
   const categories = [...new Set(modelsData?.map(m => m.category).filter(Boolean))]
 
   return (
     <div className="p-8">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-display font-bold">Models</h1>
@@ -381,7 +629,6 @@ export default function Models() {
         </button>
       </div>
 
-      {/* Category Filter */}
       {categories.length > 0 && (
         <div className="flex gap-2 mb-6 flex-wrap">
           <button
@@ -412,7 +659,6 @@ export default function Models() {
         </div>
       )}
 
-      {/* Models Grid */}
       {isLoading ? (
         <div className="text-center py-12 text-farm-500">Loading models...</div>
       ) : modelsData?.length === 0 ? (
@@ -441,7 +687,6 @@ export default function Models() {
         </div>
       )}
 
-      {/* Modal */}
       <ModelModal
         isOpen={showModal}
         onClose={() => {

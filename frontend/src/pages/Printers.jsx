@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical } from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
 
@@ -135,13 +135,27 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdateSlot, onEdit }) {
+function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdateSlot, onEdit, isDragging, onDragStart, onDragOver, onDragEnd }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden h-fit">
+    <div 
+      className={clsx(
+        "bg-farm-900 rounded-xl border overflow-hidden h-fit transition-all",
+        isDragging ? "border-print-500 opacity-50 scale-95" : "border-farm-800"
+      )}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+    >
       <div className="p-4 border-b border-farm-800 flex items-center justify-between">
-        <div>
-          <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
-          <p className="text-sm text-farm-500">{printer.model || 'Unknown model'}</p>
+        <div className="flex items-center gap-3">
+          <div className="cursor-grab active:cursor-grabbing text-farm-600 hover:text-farm-400">
+            <GripVertical size={18} />
+          </div>
+          <div>
+            <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
+            <p className="text-sm text-farm-500">{printer.model || 'Unknown model'}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => onEdit(printer)} className="p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Printer Settings">
@@ -246,6 +260,8 @@ export default function Printers() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [editingPrinter, setEditingPrinter] = useState(null)
+  const [orderedPrinters, setOrderedPrinters] = useState([])
+  const [draggedId, setDraggedId] = useState(null)
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
@@ -254,6 +270,38 @@ export default function Printers() {
   const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false); setEditingPrinter(null) } })
   const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries(['printers']) })
   const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries(['printers']) })
+  const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries(['printers']) })
+
+  // Sync ordered printers with data
+  useEffect(() => {
+    if (printersData) {
+      setOrderedPrinters(printersData)
+    }
+  }, [printersData])
+
+  const handleDragStart = (e, printerId) => {
+    setDraggedId(printerId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e, targetId) => {
+    e.preventDefault()
+    if (draggedId === null || draggedId === targetId) return
+    const draggedIndex = orderedPrinters.findIndex(p => p.id === draggedId)
+    const targetIndex = orderedPrinters.findIndex(p => p.id === targetId)
+    if (draggedIndex === targetIndex) return
+    const newOrder = [...orderedPrinters]
+    const [dragged] = newOrder.splice(draggedIndex, 1)
+    newOrder.splice(targetIndex, 0, dragged)
+    setOrderedPrinters(newOrder)
+  }
+
+  const handleDragEnd = () => {
+    if (draggedId !== null) {
+      reorderPrinters.mutate(orderedPrinters.map(p => p.id))
+    }
+    setDraggedId(null)
+  }
 
   const handleSubmit = (data, printerId) => {
     if (printerId) {
@@ -293,7 +341,7 @@ export default function Printers() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
-          {printersData?.map((printer) => (
+          {orderedPrinters?.map((printer) => (
             <PrinterCard 
               key={printer.id} 
               printer={printer} 
@@ -301,7 +349,11 @@ export default function Printers() {
               onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }} 
               onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })} 
               onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })} 
-              onEdit={handleEdit} 
+              onEdit={handleEdit}
+              isDragging={draggedId === printer.id}
+              onDragStart={(e) => handleDragStart(e, printer.id)}
+              onDragOver={(e) => handleDragOver(e, printer.id)}
+              onDragEnd={handleDragEnd}
             />
           ))}
         </div>

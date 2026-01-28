@@ -106,7 +106,7 @@ def list_printers(
     query = db.query(Printer)
     if active_only:
         query = query.filter(Printer.is_active == True)
-    return query.all()
+    return query.order_by(Printer.display_order, Printer.id).all()
 
 
 @app.post("/api/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
