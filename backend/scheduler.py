@@ -22,8 +22,8 @@ class SchedulerConfig:
     blackout_start_minute: int = 30
     blackout_end_hour: int = 5
     blackout_end_minute: int = 30
-    setup_duration_slots: int = 1  # 30-min slots for color change
-    slot_duration_minutes: int = 30
+    setup_duration_slots: int = 1  # 15-min slots for color change
+    slot_duration_minutes: int = 15
     horizon_days: int = 7
     
     @classmethod
@@ -86,14 +86,14 @@ class PrinterState:
         self.printer = printer
         self.id = printer.id
         self.name = printer.name
-        self.colors = [c.lower() for c in printer.loaded_colors]
+        self.colors = [c.lower() for c in printer.loaded_colors] if printer.loaded_colors else []
         self.job_count = 0
         self.last_item: Optional[str] = None
         self.last_end_slot: int = 0
     
     def update_colors(self, new_colors: List[str]):
         """Update loaded colors after a job."""
-        self.colors = [c.lower() for c in new_colors]
+        self.colors = [c.lower() for c in new_colors] if new_colors else []
 
 
 class Scheduler:
@@ -101,6 +101,7 @@ class Scheduler:
     The main scheduler that assigns jobs to printers.
     
     Key optimization: minimize filament changes by batching similar-color jobs.
+    Color matching is a PREFERENCE, not a requirement - jobs always get scheduled.
     """
     
     def __init__(self, config: Optional[SchedulerConfig] = None):
@@ -117,10 +118,11 @@ class Scheduler:
         return start_date + timedelta(minutes=slot * self.slot_minutes)
     
     def _round_up_to_next_slot(self, dt: datetime) -> datetime:
-        """Round up to the next slot boundary (e.g., :00 or :30)."""
+        """Round up to the next slot boundary."""
         minutes = dt.minute
-        if minutes % self.slot_minutes != 0:
-            dt = dt + timedelta(minutes=self.slot_minutes - (minutes % self.slot_minutes))
+        remainder = minutes % self.slot_minutes
+        if remainder != 0:
+            dt = dt + timedelta(minutes=self.slot_minutes - remainder)
         return dt.replace(second=0, microsecond=0)
     
     def _is_blackout_time(self, dt: datetime) -> bool:
@@ -138,26 +140,61 @@ class Scheduler:
     def _calculate_color_score(self, loaded_colors: List[str], required_colors: List[str]) -> int:
         """
         Calculate how well a printer's loaded colors match a job's requirements.
-        
-        Scoring:
-        - +25 for each color already loaded
-        - -10 for each color that needs to be loaded
-        - -5 for each extra color loaded that isn't needed
+        Returns 0-100 score (100 = perfect match).
         """
-        loaded_set = set(c.lower() for c in loaded_colors)
+        if not required_colors:
+            return 50  # Neutral score for jobs with no color requirements
+            
+        loaded_set = set(c.lower() for c in loaded_colors) if loaded_colors else set()
         required_set = set(c.lower() for c in required_colors)
         
+        if not required_set:
+            return 50
+            
         matched = len(required_set & loaded_set)
-        missing = len(required_set - loaded_set)
-        extra = len(loaded_set - required_set)
+        total_required = len(required_set)
         
-        return (matched * 25) - (missing * 10) - (extra * 5)
+        # Score is percentage of required colors that are loaded
+        return int((matched / total_required) * 100)
     
     def _requires_setup(self, loaded_colors: List[str], required_colors: List[str]) -> bool:
         """Check if a color change is needed."""
-        loaded_set = set(c.lower() for c in loaded_colors)
+        if not required_colors:
+            return False  # No colors required = no setup needed
+            
+        loaded_set = set(c.lower() for c in loaded_colors) if loaded_colors else set()
         required_set = set(c.lower() for c in required_colors)
+        
         return not required_set.issubset(loaded_set)
+    
+    def _find_first_available_slot(
+        self,
+        printer_id: int,
+        duration_slots: int,
+        usage_map: Dict[Tuple[int, int], str],
+        start_date: datetime,
+        total_slots: int,
+        search_start: int = 0
+    ) -> Optional[int]:
+        """Find the first available slot for a job on a specific printer."""
+        for start_slot in range(search_start, total_slots - duration_slots + 1):
+            start_time = self._slot_to_time(start_slot, start_date)
+            
+            # Skip blackout times for the START of the job
+            if self._is_blackout_time(start_time):
+                continue
+            
+            # Check for conflicts across all needed slots
+            conflict = False
+            for s in range(start_slot, start_slot + duration_slots):
+                if (printer_id, s) in usage_map:
+                    conflict = True
+                    break
+            
+            if not conflict:
+                return start_slot
+        
+        return None
     
     def run(self, db: Session, start_date: Optional[datetime] = None) -> SchedulerResult:
         """
@@ -194,9 +231,10 @@ class Scheduler:
         # Track slot usage: {(printer_id, slot_index): job_id or "SETUP"}
         usage_map: Dict[Tuple[int, int], str] = {}
         
-        # Load and place locked jobs first (Completed, Printing)
+        # Load locked jobs first (Completed, Printing, AND Scheduled)
+        # This prevents double-booking!
         locked_jobs = db.query(Job).filter(
-            Job.status.in_([JobStatus.COMPLETED, JobStatus.PRINTING]),
+            Job.status.in_([JobStatus.COMPLETED, JobStatus.PRINTING, JobStatus.SCHEDULED]),
             Job.printer_id.isnot(None),
             Job.scheduled_start.isnot(None)
         ).all()
@@ -207,7 +245,7 @@ class Scheduler:
                 
             state = printer_states[job.printer_id]
             start_slot = self._time_to_slot(job.scheduled_start, start_date)
-            duration_slots = int(job.effective_duration * (60 // self.slot_minutes))
+            duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
             end_slot = start_slot + duration_slots
             
             # Mark slots as used
@@ -215,19 +253,17 @@ class Scheduler:
                 usage_map[(job.printer_id, s)] = str(job.id)
             
             # Update printer state
-            state.colors = job.colors_list
+            if job.colors_list:
+                state.colors = [c.lower() for c in job.colors_list]
             state.job_count += 1
             state.last_item = job.item_name
-            state.last_end_slot = end_slot
+            state.last_end_slot = max(state.last_end_slot, end_slot)
         
         # Get pending jobs to schedule
         pending_jobs = db.query(Job).filter(
             Job.status == JobStatus.PENDING,
             Job.hold == False
         ).order_by(Job.priority, Job.created_at).all()
-        
-        # Track last item placement globally (for grouping same items)
-        last_item_anywhere: Dict[str, int] = {}  # item_name -> last_end_slot
         
         # Schedule each job
         for job in pending_jobs:
@@ -236,9 +272,7 @@ class Scheduler:
                 printer_states=printer_states,
                 usage_map=usage_map,
                 start_date=start_date,
-                total_slots=total_slots,
-                last_item_anywhere=last_item_anywhere,
-                lookahead_job=None  # Could add lookahead optimization
+                total_slots=total_slots
             )
             
             if best_fit:
@@ -247,9 +281,7 @@ class Scheduler:
                     job=job,
                     fit=best_fit,
                     printer_states=printer_states,
-                    usage_map=usage_map,
-                    start_date=start_date,
-                    last_item_anywhere=last_item_anywhere
+                    usage_map=usage_map
                 )
                 
                 # Update the job in database
@@ -305,98 +337,97 @@ class Scheduler:
         printer_states: Dict[int, PrinterState],
         usage_map: Dict[Tuple[int, int], str],
         start_date: datetime,
-        total_slots: int,
-        last_item_anywhere: Dict[str, int],
-        lookahead_job: Optional[Job] = None
+        total_slots: int
     ) -> Optional[Dict]:
         """
         Find the best printer and time slot for a job.
         
+        Strategy:
+        1. Find first available slot on EACH printer
+        2. Score each option (color match is a bonus, not requirement)
+        3. Pick the best scored option
+        
         Returns dict with assignment details or None if no fit found.
         """
-        best_fit = None
-        best_score = float('-inf')
+        candidates = []
         
-        required_colors = job.colors_list
-        duration_slots = int(job.effective_duration * (60 // self.slot_minutes))
-        
-        # Minimum start slot is "now" (slot 0)
-        now_slot = 0
+        required_colors = job.colors_list or []
+        duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
         
         for printer_id, state in printer_states.items():
+            # Calculate color match score (0-100)
             color_score = self._calculate_color_score(state.colors, required_colors)
             requires_setup = self._requires_setup(state.colors, required_colors)
-            total_slots_needed = duration_slots + (self.config.setup_duration_slots if requires_setup else 0)
             
-            # Search for first available window
-            for start_slot in range(now_slot, total_slots - total_slots_needed + 1):
-                job_start_slot = start_slot + (self.config.setup_duration_slots if requires_setup else 0)
-                job_start_time = self._slot_to_time(job_start_slot, start_date)
-                
-                # Skip blackout times
-                if self._is_blackout_time(job_start_time):
-                    continue
-                
-                # Check for conflicts
-                conflict = False
-                for s in range(start_slot, start_slot + total_slots_needed):
-                    if (printer_id, s) in usage_map:
-                        conflict = True
-                        break
-                
-                if conflict:
-                    continue
-                
-                # Calculate overall score
-                score = color_score
-                score -= 30 if requires_setup else 0
-                score -= state.job_count * 20  # Spread load across printers
-                score -= job.priority * 50  # Higher priority = lower number = better
-                
-                # Bonus for grouping same items
-                if job.item_name in last_item_anywhere:
-                    distance = abs(start_slot - last_item_anywhere[job.item_name])
-                    if distance == 0:
-                        score += 1000
-                    elif distance <= 4:
-                        score += 300
-                    else:
-                        score += 100
-                
-                # Lookahead bonus (if next job matches these colors)
-                if lookahead_job:
-                    lookahead_score = self._calculate_color_score(required_colors, lookahead_job.colors_list)
-                    score += lookahead_score * 0.25
-                
-                if score > best_score:
-                    best_score = score
-                    end_slot = job_start_slot + duration_slots
-                    best_fit = {
-                        "printer_id": printer_id,
-                        "printer_name": state.name,
-                        "start_slot": start_slot,
-                        "job_start_slot": job_start_slot,
-                        "end_slot": end_slot,
-                        "start_time": job_start_time,
-                        "end_time": self._slot_to_time(end_slot, start_date),
-                        "requires_setup": requires_setup,
-                        "match_score": int((color_score / 100) * 100),  # Normalize to 0-100
-                        "score": score
-                    }
-                
-                # First-fit per printer (like original script)
-                break
+            # Add setup time if needed
+            total_slots_needed = duration_slots
+            if requires_setup:
+                total_slots_needed += self.config.setup_duration_slots
+            
+            # Find first available slot on this printer
+            start_slot = self._find_first_available_slot(
+                printer_id=printer_id,
+                duration_slots=total_slots_needed,
+                usage_map=usage_map,
+                start_date=start_date,
+                total_slots=total_slots
+            )
+            
+            if start_slot is None:
+                continue  # No space on this printer
+            
+            # Calculate actual job start (after setup if needed)
+            job_start_slot = start_slot + (self.config.setup_duration_slots if requires_setup else 0)
+            job_start_time = self._slot_to_time(job_start_slot, start_date)
+            end_slot = job_start_slot + duration_slots
+            end_time = self._slot_to_time(end_slot, start_date)
+            
+            # Calculate priority score
+            # Higher score = better fit
+            score = 0
+            
+            # Color match bonus (0-100 points)
+            score += color_score
+            
+            # No setup needed bonus
+            if not requires_setup:
+                score += 50
+            
+            # Earlier start time bonus (prefer filling gaps)
+            score -= start_slot * 0.1
+            
+            # Spread load across printers (slight penalty for busy printers)
+            score -= state.job_count * 5
+            
+            # Priority bonus (higher priority jobs = lower number = more important)
+            score += (5 - job.priority) * 10
+            
+            candidates.append({
+                "printer_id": printer_id,
+                "printer_name": state.name,
+                "start_slot": start_slot,
+                "job_start_slot": job_start_slot,
+                "end_slot": end_slot,
+                "start_time": job_start_time,
+                "end_time": end_time,
+                "requires_setup": requires_setup,
+                "match_score": color_score,
+                "score": score
+            })
         
-        return best_fit
+        if not candidates:
+            return None
+        
+        # Sort by score (highest first) and return best
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates[0]
     
     def _apply_assignment(
         self,
         job: Job,
         fit: Dict,
         printer_states: Dict[int, PrinterState],
-        usage_map: Dict[Tuple[int, int], str],
-        start_date: datetime,
-        last_item_anywhere: Dict[str, int]
+        usage_map: Dict[Tuple[int, int], str]
     ):
         """Apply a job assignment to the state tracking structures."""
         printer_id = fit["printer_id"]
@@ -412,13 +443,11 @@ class Scheduler:
             usage_map[(printer_id, s)] = str(job.id)
         
         # Update printer state
-        state.colors = job.colors_list
+        if job.colors_list:
+            state.colors = [c.lower() for c in job.colors_list]
         state.job_count += 1
         state.last_item = job.item_name
         state.last_end_slot = fit["end_slot"]
-        
-        # Track for grouping
-        last_item_anywhere[job.item_name] = fit["end_slot"]
 
 
 def run_scheduler(db: Session, config: Optional[SchedulerConfig] = None) -> SchedulerResult:
