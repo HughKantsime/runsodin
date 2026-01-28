@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
     
+    # Security - leave empty to disable auth (trusted network mode)
+    api_key: Optional[str] = None
+    
     # Frontend - comma-separated list in .env, e.g. CORS_ORIGINS=http://localhost:3000,http://example.com
     cors_origins: list = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
     

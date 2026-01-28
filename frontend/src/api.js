@@ -1,8 +1,21 @@
 const API_BASE = '/api'
 
+// API Key for authentication - leave empty if auth is disabled
+const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+
 async function fetchAPI(endpoint, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  }
+  
+  // Add API key if configured
+  if (API_KEY) {
+    headers['X-API-Key'] = API_KEY
+  }
+  
   const response = await fetch(API_BASE + endpoint, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers,
     ...options,
   })
   if (!response.ok) {

@@ -10,7 +10,7 @@ from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from pydantic import BaseModel as PydanticBaseModel
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -48,6 +48,21 @@ def get_db():
         db.close()
 
 
+def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+    """Verify API key if authentication is enabled."""
+    # If no API key configured, auth is disabled (trusted network mode)
+    if not settings.api_key:
+        return None
+    
+    if not x_api_key or x_api_key != settings.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+    return x_api_key
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database on startup."""
@@ -71,6 +86,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# API Key authentication middleware
+@app.middleware("http")
+async def authenticate_request(request: Request, call_next):
+    """Check API key for all routes except health check."""
+    # Skip auth for health endpoint and OPTIONS (CORS preflight)
+    if request.url.path == "/health" or request.method == "OPTIONS":
+        return await call_next(request)
+    
+    # If no API key configured, auth is disabled
+    if not settings.api_key:
+        return await call_next(request)
+    
+    # Check the API key
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or api_key != settings.api_key:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or missing API key"}
+        )
+    
+    return await call_next(request)
 
 
 # ============== Health Check ==============
