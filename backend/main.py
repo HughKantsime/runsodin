@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from contextlib import asynccontextmanager
 
+from pydantic import BaseModel as PydanticBaseModel
 from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine
@@ -1136,4 +1137,62 @@ def get_analytics(db: Session = Depends(get_db)):
         },
         "printer_stats": printer_stats,
         "jobs_by_date": jobs_by_date,
+    }
+
+
+class MoveJobRequest(PydanticBaseModel):
+    printer_id: int
+    scheduled_start: datetime
+
+@app.patch("/api/jobs/{job_id}/move", tags=["Jobs"])
+def move_job(
+    job_id: int,
+    request: MoveJobRequest,
+    db: Session = Depends(get_db)
+):
+    """Move a job to a different printer and/or time slot."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Verify printer exists
+    printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    # Calculate end time based on job duration
+    duration_hours = job.effective_duration
+    scheduled_end = request.scheduled_start + timedelta(hours=duration_hours)
+    
+    # Check for conflicts (other jobs on same printer overlapping this time)
+    conflict = db.query(Job).filter(
+        Job.id != job_id,
+        Job.printer_id == request.printer_id,
+        Job.status.in_([JobStatus.SCHEDULED, JobStatus.PRINTING]),
+        Job.scheduled_start < scheduled_end,
+        Job.scheduled_end > request.scheduled_start
+    ).first()
+    
+    if conflict:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Time slot conflicts with job \'{conflict.item_name}\'"
+        )
+    
+    # Update the job
+    job.printer_id = request.printer_id
+    job.scheduled_start = request.scheduled_start
+    job.scheduled_end = scheduled_end
+    if job.status == JobStatus.PENDING:
+        job.status = JobStatus.SCHEDULED
+    
+    db.commit()
+    db.refresh(job)
+    
+    return {
+        "success": True,
+        "job_id": job.id,
+        "printer_id": request.printer_id,
+        "scheduled_start": request.scheduled_start.isoformat(),
+        "scheduled_end": scheduled_end.isoformat()
     }

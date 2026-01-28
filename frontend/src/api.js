@@ -68,3 +68,11 @@ export const filaments = {
 export const analytics = {
   get: () => fetchAPI('/analytics'),
 }
+
+export const jobActions = {
+  move: (jobId, printerId, scheduledStart) => 
+    fetchAPI('/jobs/' + jobId + '/move', { 
+      method: 'PATCH', 
+      body: JSON.stringify({ printer_id: printerId, scheduled_start: scheduledStart })
+    }),
+}
