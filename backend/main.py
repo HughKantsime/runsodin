@@ -8,8 +8,10 @@ printers, jobs, and the scheduling engine.
 from datetime import datetime, timedelta
 from typing import List, Optional
 from contextlib import asynccontextmanager
+import re
+import os
 
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, field_validator
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine
@@ -1000,6 +1002,47 @@ async def get_combined_filaments(db: Session = Depends(get_db)):
     
     return result
 
+
+# ============== Config Schema ==============
+class ConfigUpdate(PydanticBaseModel):
+    """Validated config update request."""
+    spoolman_url: Optional[str] = None
+    blackout_start: Optional[str] = None
+    blackout_end: Optional[str] = None
+    
+    @field_validator('spoolman_url')
+    @classmethod
+    def validate_url(cls, v):
+        if v is None or v == '':
+            return v
+        # Basic URL validation
+        url_pattern = re.compile(
+            r'^https?://'  # http:// or https://
+            r'[a-zA-Z0-9]+'  # domain start
+            r'[a-zA-Z0-9.-]*'  # domain rest
+            r'(:\d+)?'  # optional port
+            r'(/.*)?$'  # optional path
+        )
+        if not url_pattern.match(v):
+            raise ValueError('Invalid URL format. Must be http:// or https://')
+        return v
+    
+    @field_validator('blackout_start', 'blackout_end')
+    @classmethod
+    def validate_time(cls, v):
+        if v is None:
+            return v
+        # Validate HH:MM format
+        time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+        if not time_pattern.match(v):
+            raise ValueError('Invalid time format. Use HH:MM (e.g., 22:30)')
+        return v
+
+
+# Allowed config keys that can be written to .env
+ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
+
+
 # ============== Config Endpoints ==============
 @app.get("/api/config", tags=["Config"])
 def get_config():
@@ -1011,32 +1054,30 @@ def get_config():
     }
 
 @app.put("/api/config", tags=["Config"])
-def update_config(
-    spoolman_url: Optional[str] = None,
-    blackout_start: Optional[str] = None,
-    blackout_end: Optional[str] = None,
-):
+def update_config(config: ConfigUpdate):
     """Update configuration. Writes to .env file."""
-    env_path = "/opt/printfarm-scheduler/backend/.env"
+    # Use environment variable or default path
+    env_path = os.environ.get('ENV_FILE_PATH', '/opt/printfarm-scheduler/backend/.env')
     
-    # Read existing env
+    # Read existing env, only keeping allowed keys
     env_vars = {}
     try:
         with open(env_path, 'r') as f:
             for line in f:
                 if '=' in line:
                     key, val = line.strip().split('=', 1)
+                    # Preserve existing keys (including ones we don't manage like API_KEY)
                     env_vars[key] = val
     except FileNotFoundError:
         pass
     
-    # Update values
-    if spoolman_url is not None:
-        env_vars['SPOOLMAN_URL'] = spoolman_url
-    if blackout_start is not None:
-        env_vars['BLACKOUT_START'] = blackout_start
-    if blackout_end is not None:
-        env_vars['BLACKOUT_END'] = blackout_end
+    # Update only the values that were provided and are allowed
+    if config.spoolman_url is not None:
+        env_vars['SPOOLMAN_URL'] = config.spoolman_url
+    if config.blackout_start is not None:
+        env_vars['BLACKOUT_START'] = config.blackout_start
+    if config.blackout_end is not None:
+        env_vars['BLACKOUT_END'] = config.blackout_end
     
     # Write back
     with open(env_path, 'w') as f:
