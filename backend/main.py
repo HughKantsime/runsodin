@@ -14,10 +14,6 @@ import os
 from pydantic import BaseModel as PydanticBaseModel, field_validator
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
@@ -44,10 +40,6 @@ import crypto
 # Database setup
 engine = create_engine(settings.database_url, echo=settings.debug)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Rate limiter setup
-# Default: 60 requests/minute per IP, configurable via RATE_LIMIT env var
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
 def get_db():
@@ -88,10 +80,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
-
-# Add rate limiter
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS for frontend
 app.add_middleware(
@@ -329,6 +317,144 @@ def update_filament_slot(
     db.commit()
     db.refresh(slot)
     return slot
+
+
+@app.post("/api/printers/{printer_id}/sync-ams", tags=["Printers"])
+def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
+    """
+    Sync AMS filament state from printer.
+    
+    Connects to the printer, reads current AMS state, and updates
+    the filament slots in the database.
+    
+    Requires printer to have:
+    - api_type = "bambu"
+    - api_host = printer IP address
+    - api_key = "serial|access_code"
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    # Check printer has required config
+    if not printer.api_type:
+        raise HTTPException(status_code=400, detail="Printer api_type not configured")
+    if not printer.api_host:
+        raise HTTPException(status_code=400, detail="Printer api_host (IP) not configured")
+    if not printer.api_key:
+        raise HTTPException(status_code=400, detail="Printer api_key not configured")
+    
+    # Currently only Bambu is supported
+    if printer.api_type.lower() != "bambu":
+        raise HTTPException(status_code=400, detail=f"Sync not supported for {printer.api_type}")
+    
+    # Parse credentials (format: "serial|access_code")
+    decrypted_key = crypto.decrypt(printer.api_key)
+    if "|" not in decrypted_key:
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid api_key format. Expected 'serial|access_code'"
+        )
+    
+    serial, access_code = decrypted_key.split("|", 1)
+    
+    # Connect to printer
+    try:
+        from bambu_adapter import BambuPrinter
+        import time
+        
+        bambu = BambuPrinter(
+            ip=printer.api_host,
+            serial=serial,
+            access_code=access_code
+        )
+        
+        if not bambu.connect():
+            raise HTTPException(status_code=503, detail="Failed to connect to printer")
+        
+        # Wait for status update
+        time.sleep(2)
+        status = bambu.get_status()
+        bambu.disconnect()
+        
+    except ImportError:
+        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Printer connection error: {str(e)}")
+    
+    # Map filament types
+    filament_type_map = {
+        "PLA": FilamentType.PLA,
+        "PETG": FilamentType.PETG,
+        "ABS": FilamentType.ABS,
+        "ASA": FilamentType.ASA,
+        "TPU": FilamentType.TPU,
+        "PA": FilamentType.PA,
+        "PC": FilamentType.PC,
+        "PVA": FilamentType.PVA,
+    }
+    
+    # Update slots from AMS state
+    updated_slots = []
+    for ams_slot in status.ams_slots:
+        # Find matching slot in database
+        db_slot = db.query(FilamentSlot).filter(
+            FilamentSlot.printer_id == printer_id,
+            FilamentSlot.slot_number == ams_slot.slot_number
+        ).first()
+        
+        if not db_slot:
+            continue
+        
+        # Parse color hex (Bambu returns 8 char with alpha, we want 6)
+        color_hex = ams_slot.color_hex[:6] if ams_slot.color_hex else None
+        
+        # Map filament type
+        ftype = filament_type_map.get(ams_slot.filament_type.upper(), FilamentType.PLA)
+        
+        # Determine color name from hex (basic mapping)
+        color_name = None
+        if color_hex:
+            color_lower = color_hex.lower()
+            if color_lower in ("000000", "0000000"):
+                color_name = "Black"
+            elif color_lower in ("ffffff", "fffffff"):
+                color_name = "White"
+            else:
+                color_name = f"#{color_hex}"
+        
+        # Update slot
+        if not ams_slot.empty:
+            db_slot.filament_type = ftype
+            db_slot.color = color_name
+            db_slot.color_hex = color_hex
+            db_slot.loaded_at = datetime.utcnow()
+            updated_slots.append({
+                "slot": ams_slot.slot_number,
+                "type": ftype.value,
+                "color": color_name,
+                "color_hex": color_hex
+            })
+        else:
+            # Empty slot
+            db_slot.color = None
+            db_slot.color_hex = None
+            updated_slots.append({
+                "slot": ams_slot.slot_number,
+                "type": db_slot.filament_type.value,
+                "color": None,
+                "empty": True
+            })
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "printer_id": printer_id,
+        "printer_name": printer.name,
+        "slots_synced": len(updated_slots),
+        "slots": updated_slots
+    }
 
 
 # ============== Models ==============
@@ -599,9 +725,7 @@ def reset_job(job_id: int, db: Session = Depends(get_db)):
 # ============== Scheduler ==============
 
 @app.post("/api/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
-@limiter.limit("10/minute")  # Stricter limit for resource-intensive endpoint
 def run_scheduler_endpoint(
-    request: Request,  # Required for rate limiter
     config: Optional[SchedulerConfigSchema] = None,
     db: Session = Depends(get_db)
 ):
@@ -1097,8 +1221,7 @@ def get_config():
     }
 
 @app.put("/api/config", tags=["Config"])
-@limiter.limit("5/minute")  # Stricter limit for config changes
-def update_config(request: Request, config: ConfigUpdate):
+def update_config(config: ConfigUpdate):
     """Update configuration. Writes to .env file."""
     # Use environment variable or default path
     env_path = os.environ.get('ENV_FILE_PATH', '/opt/printfarm-scheduler/backend/.env')

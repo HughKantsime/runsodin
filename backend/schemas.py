@@ -68,6 +68,7 @@ class PrinterBase(BaseModel):
     is_active: bool = True
     api_type: Optional[str] = None
     api_host: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class PrinterCreate(PrinterBase):
@@ -82,6 +83,7 @@ class PrinterUpdate(BaseModel):
     is_active: Optional[bool] = None
     api_type: Optional[str] = None
     api_host: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class PrinterResponse(PrinterBase):
