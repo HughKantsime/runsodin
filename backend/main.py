@@ -14,6 +14,10 @@ import os
 from pydantic import BaseModel as PydanticBaseModel, field_validator
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
@@ -40,6 +44,10 @@ import crypto
 # Database setup
 engine = create_engine(settings.database_url, echo=settings.debug)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Rate limiter setup
+# Default: 60 requests/minute per IP, configurable via RATE_LIMIT env var
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
 def get_db():
@@ -80,6 +88,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+# Add rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS for frontend
 app.add_middleware(
@@ -587,7 +599,9 @@ def reset_job(job_id: int, db: Session = Depends(get_db)):
 # ============== Scheduler ==============
 
 @app.post("/api/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
+@limiter.limit("10/minute")  # Stricter limit for resource-intensive endpoint
 def run_scheduler_endpoint(
+    request: Request,  # Required for rate limiter
     config: Optional[SchedulerConfigSchema] = None,
     db: Session = Depends(get_db)
 ):
@@ -1083,7 +1097,8 @@ def get_config():
     }
 
 @app.put("/api/config", tags=["Config"])
-def update_config(config: ConfigUpdate):
+@limiter.limit("5/minute")  # Stricter limit for config changes
+def update_config(request: Request, config: ConfigUpdate):
     """Update configuration. Writes to .env file."""
     # Use environment variable or default path
     env_path = os.environ.get('ENV_FILE_PATH', '/opt/printfarm-scheduler/backend/.env')
