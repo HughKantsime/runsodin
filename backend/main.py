@@ -34,6 +34,7 @@ from schemas import (
 )
 from scheduler import Scheduler, SchedulerConfig, run_scheduler
 from config import settings
+import crypto
 
 
 # Database setup
@@ -114,6 +115,24 @@ async def authenticate_request(request: Request, call_next):
     return await call_next(request)
 
 
+# ============== Helper Functions ==============
+
+def get_printer_api_key(printer: Printer) -> Optional[str]:
+    """Get decrypted API key for a printer. For internal use only."""
+    if not printer.api_key:
+        return None
+    return crypto.decrypt(printer.api_key)
+
+
+def mask_api_key(api_key: Optional[str]) -> Optional[str]:
+    """Mask an API key for safe display (e.g., '••••••••abc123')."""
+    if not api_key:
+        return None
+    if len(api_key) <= 6:
+        return "••••••••"
+    return "••••••••" + api_key[-6:]
+
+
 # ============== Health Check ==============
 
 @app.get("/health", response_model=HealthCheck, tags=["System"])
@@ -161,13 +180,19 @@ def create_printer(
     if existing:
         raise HTTPException(status_code=400, detail=f"Printer '{printer.name}' already exists")
     
+    # Encrypt api_key if provided
+    encrypted_api_key = None
+    if hasattr(printer, 'api_key') and printer.api_key:
+        encrypted_api_key = crypto.encrypt(printer.api_key)
+    
     db_printer = Printer(
         name=printer.name,
         model=printer.model,
         slot_count=printer.slot_count,
         is_active=printer.is_active,
         api_type=printer.api_type,
-        api_host=printer.api_host
+        api_host=printer.api_host,
+        api_key=encrypted_api_key
     )
     db.add(db_printer)
     db.flush()
@@ -213,6 +238,10 @@ def update_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
     
     update_data = updates.model_dump(exclude_unset=True)
+    
+    # Encrypt api_key if being updated
+    if 'api_key' in update_data and update_data['api_key']:
+        update_data['api_key'] = crypto.encrypt(update_data['api_key'])
     
     # Handle slot_count changes
     if 'slot_count' in update_data and update_data['slot_count'] != printer.slot_count:
