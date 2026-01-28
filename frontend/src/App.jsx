@@ -7,7 +7,9 @@ import {
   Package, 
   ListTodo,
   Settings,
-  Activity
+  Activity,
+  BarChart3,
+  Calculator
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -16,6 +18,8 @@ import Timeline from './pages/Timeline'
 import Jobs from './pages/Jobs'
 import Printers from './pages/Printers'
 import Models from './pages/Models'
+import CalculatorPage from './pages/Calculator'
+import Analytics from './pages/Analytics'
 import SettingsPage from './pages/Settings'
 import { stats } from './api'
 
@@ -62,6 +66,8 @@ function Sidebar() {
         <NavItem to="/jobs" icon={ListTodo}>Jobs</NavItem>
         <NavItem to="/printers" icon={Printer}>Printers</NavItem>
         <NavItem to="/models" icon={Package}>Models</NavItem>
+        <NavItem to="/calculator" icon={Calculator}>Calculator</NavItem>
+        <NavItem to="/analytics" icon={BarChart3}>Analytics</NavItem>
         <NavItem to="/settings" icon={Settings}>Settings</NavItem>
       </nav>
 
@@ -108,6 +114,8 @@ export default function App() {
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/printers" element={<Printers />} />
           <Route path="/models" element={<Models />} />
+            <Route path="/calculator" element={<CalculatorPage />} />
+            <Route path="/analytics" element={<Analytics />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>

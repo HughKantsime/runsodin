@@ -64,3 +64,7 @@ export const filaments = {
   combined: () => fetchAPI('/filaments/combined'),
   add: (data) => fetchAPI('/filaments', { method: 'POST', body: JSON.stringify(data) }),
 }
+
+export const analytics = {
+  get: () => fetchAPI('/analytics'),
+}
