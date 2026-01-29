@@ -21,6 +21,7 @@ import Models from './pages/Models'
 import CalculatorPage from './pages/Calculator'
 import Analytics from './pages/Analytics'
 import SettingsPage from './pages/Settings'
+import Spools from './pages/Spools'
 import { stats } from './api'
 
 function NavItem({ to, icon: Icon, children }) {
@@ -68,6 +69,7 @@ function Sidebar() {
         <NavItem to="/models" icon={Package}>Models</NavItem>
         <NavItem to="/calculator" icon={Calculator}>Calculator</NavItem>
         <NavItem to="/analytics" icon={BarChart3}>Analytics</NavItem>
+        <NavItem to="/spools" icon={Package}>Spools</NavItem>
         <NavItem to="/settings" icon={Settings}>Settings</NavItem>
       </nav>
 
@@ -116,6 +118,7 @@ export default function App() {
           <Route path="/models" element={<Models />} />
             <Route path="/calculator" element={<CalculatorPage />} />
             <Route path="/analytics" element={<Analytics />} />
+          <Route path="/spools" element={<Spools />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
