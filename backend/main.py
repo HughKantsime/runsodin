@@ -394,6 +394,141 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         "PVA": FilamentType.PVA,
     }
     
+    # Import FilamentLibrary model
+    from models import FilamentLibrary
+    
+    # Load local filament library
+    local_library = db.query(FilamentLibrary).all()
+    
+    # Try to fetch Spoolman spools for matching (secondary source)
+    spoolman_spools = []
+    if settings.spoolman_url:
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get(f"{settings.spoolman_url}/api/v1/spool")
+                if resp.status_code == 200:
+                    spoolman_spools = resp.json()
+        except:
+            pass  # Spoolman not available, continue without it
+    
+    def find_library_match(hex_code, filament_type):
+        """Find a local library filament matching the hex code and material type."""
+        if not hex_code:
+            return None
+        
+        hex_lower = hex_code.lower()
+        
+        # First pass: exact hex + material match
+        for f in local_library:
+            if f.color_hex and f.color_hex.lower() == hex_lower:
+                if f.material and f.material.upper() == filament_type.upper():
+                    return f
+        
+        # Second pass: just hex match (any material)
+        for f in local_library:
+            if f.color_hex and f.color_hex.lower() == hex_lower:
+                return f
+        
+        return None
+    
+    def find_spoolman_match(hex_code, filament_type):
+        """Find a Spoolman spool matching the hex code and material type."""
+        if not hex_code or not spoolman_spools:
+            return None
+        
+        hex_lower = hex_code.lower()
+        
+        for spool in spoolman_spools:
+            filament = spool.get("filament", {})
+            spool_hex = filament.get("color_hex", "").lower()
+            spool_material = filament.get("material", "").upper()
+            
+            if spool_hex and hex_lower:
+                if spool_hex == hex_lower:
+                    if spool_material == filament_type.upper():
+                        return spool
+                    return spool
+        
+        return None
+    
+    def get_color_name(hex_code):
+        """Get a human-readable color name from hex code."""
+        if not hex_code:
+            return None
+            
+        hex_lower = hex_code.lower()
+        
+        # Common color mappings
+        color_map = {
+            "000000": "Black",
+            "ffffff": "White",
+            "f5f5f5": "Off White",
+            "ff0000": "Red",
+            "00ff00": "Green",
+            "0000ff": "Blue",
+            "ffff00": "Yellow",
+            "ff00ff": "Magenta",
+            "00ffff": "Cyan",
+            "ffa500": "Orange",
+            "800080": "Purple",
+            "ffc0cb": "Pink",
+            "808080": "Gray",
+            "c0c0c0": "Silver",
+        }
+        
+        if hex_lower in color_map:
+            return color_map[hex_lower]
+        
+        # Analyze the color components
+        try:
+            r = int(hex_lower[0:2], 16)
+            g = int(hex_lower[2:4], 16)
+            b = int(hex_lower[4:6], 16)
+            
+            # Check for grayscale (r ≈ g ≈ b)
+            if abs(r - g) < 25 and abs(g - b) < 25 and abs(r - b) < 25:
+                avg = (r + g + b) // 3
+                if avg < 40:
+                    return "Black"
+                elif avg < 100:
+                    return "Dark Gray"
+                elif avg < 160:
+                    return "Gray"
+                elif avg < 220:
+                    return "Light Gray"
+                else:
+                    return "White"
+            
+            # Find dominant color
+            max_val = max(r, g, b)
+            
+            if r == max_val and r > g + 30 and r > b + 30:
+                if g > 150:
+                    return "Orange" if g < 200 else "Yellow"
+                elif b > 100:
+                    return "Pink"
+                return "Red"
+            elif g == max_val and g > r + 30 and g > b + 30:
+                if b > 150:
+                    return "Teal"
+                return "Green"
+            elif b == max_val and b > r + 30 and b > g + 30:
+                if r > 100:
+                    return "Purple"
+                return "Blue"
+            elif r > 200 and g > 200 and b < 100:
+                return "Yellow"
+            elif r > 200 and g < 150 and b > 200:
+                return "Magenta"
+            elif r < 100 and g > 200 and b > 200:
+                return "Cyan"
+            
+            # Default to hex if we can't determine
+            return f"#{hex_code.upper()}"
+            
+        except:
+            return f"#{hex_code.upper()}"
+    
     # Update slots from AMS state
     updated_slots = []
     for ams_slot in status.ams_slots:
@@ -412,33 +547,75 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         # Map filament type
         ftype = filament_type_map.get(ams_slot.filament_type.upper(), FilamentType.PLA)
         
-        # Determine color name from hex (basic mapping)
-        color_name = None
-        if color_hex:
-            color_lower = color_hex.lower()
-            if color_lower in ("000000", "0000000"):
-                color_name = "Black"
-            elif color_lower in ("ffffff", "fffffff"):
-                color_name = "White"
-            else:
-                color_name = f"#{color_hex}"
-        
         # Update slot
         if not ams_slot.empty:
+            # Priority 1: Match against local filament library
+            library_match = find_library_match(color_hex, ams_slot.filament_type)
+            
+            if library_match:
+                color_name = f"{library_match.brand} {library_match.name}".strip()
+                
+                db_slot.filament_type = ftype
+                db_slot.color = color_name
+                db_slot.color_hex = color_hex
+                db_slot.spoolman_spool_id = None
+                db_slot.loaded_at = datetime.utcnow()
+                updated_slots.append({
+                    "slot": ams_slot.slot_number,
+                    "type": ftype.value,
+                    "color": color_name,
+                    "color_hex": color_hex,
+                    "matched": "library"
+                })
+                continue
+            
+            # Priority 2: Match against Spoolman (if configured)
+            spoolman_match = find_spoolman_match(color_hex, ams_slot.filament_type)
+            
+            if spoolman_match:
+                filament = spoolman_match.get("filament", {})
+                vendor = filament.get("vendor", {})
+                vendor_name = vendor.get("name", "") if vendor else ""
+                filament_name = filament.get("name", "")
+                
+                color_name = f"{vendor_name} {filament_name}".strip() if vendor_name else filament_name
+                spoolman_id = spoolman_match.get("id")
+                
+                db_slot.filament_type = ftype
+                db_slot.color = color_name
+                db_slot.color_hex = color_hex
+                db_slot.spoolman_spool_id = spoolman_id
+                db_slot.loaded_at = datetime.utcnow()
+                updated_slots.append({
+                    "slot": ams_slot.slot_number,
+                    "type": ftype.value,
+                    "color": color_name,
+                    "color_hex": color_hex,
+                    "spoolman_id": spoolman_id,
+                    "matched": "spoolman"
+                })
+                continue
+            
+            # Priority 3: Fall back to color name detection
+            color_name = get_color_name(color_hex)
+            
             db_slot.filament_type = ftype
             db_slot.color = color_name
             db_slot.color_hex = color_hex
+            db_slot.spoolman_spool_id = None
             db_slot.loaded_at = datetime.utcnow()
             updated_slots.append({
                 "slot": ams_slot.slot_number,
                 "type": ftype.value,
                 "color": color_name,
-                "color_hex": color_hex
+                "color_hex": color_hex,
+                "matched": "color_analysis"
             })
         else:
             # Empty slot
             db_slot.color = None
             db_slot.color_hex = None
+            db_slot.spoolman_spool_id = None
             updated_slots.append({
                 "slot": ams_slot.slot_number,
                 "type": db_slot.filament_type.value,
@@ -455,6 +632,65 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         "slots_synced": len(updated_slots),
         "slots": updated_slots
     }
+
+
+class TestConnectionRequest(PydanticBaseModel):
+    """Request body for testing printer connection."""
+    api_type: str
+    api_host: str
+    serial: Optional[str] = None
+    access_code: Optional[str] = None
+
+
+@app.post("/api/printers/test-connection", tags=["Printers"])
+def test_printer_connection(request: TestConnectionRequest):
+    """
+    Test connection to a printer without saving.
+    
+    Used by the UI to validate credentials before saving.
+    """
+    if request.api_type.lower() != "bambu":
+        raise HTTPException(status_code=400, detail=f"Test not supported for {request.api_type}")
+    
+    if not request.serial or not request.access_code:
+        raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
+    
+    try:
+        from bambu_adapter import BambuPrinter
+        import time
+        
+        bambu = BambuPrinter(
+            ip=request.api_host,
+            serial=request.serial,
+            access_code=request.access_code
+        )
+        
+        if not bambu.connect():
+            return {
+                "success": False,
+                "error": "Failed to connect. Check IP, serial, and access code."
+            }
+        
+        # Wait for status
+        time.sleep(2)
+        status = bambu.get_status()
+        bambu.disconnect()
+        
+        return {
+            "success": True,
+            "state": status.state.value,
+            "bed_temp": status.bed_temp,
+            "nozzle_temp": status.nozzle_temp,
+            "ams_slots": len(status.ams_slots)
+        }
+        
+    except ImportError:
+        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 # ============== Models ==============

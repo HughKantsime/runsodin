@@ -1,13 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
+
+// Helper for direct API calls that aren't in api.js yet
+const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+const apiHeaders = {
+  'Content-Type': 'application/json',
+  'X-API-Key': API_KEY
+}
 
 function FilamentSlotEditor({ slot, allFilaments, onSave }) {
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
-  const [selectedFilament, setSelectedFilament] = useState(null)
 
   const filteredFilaments = allFilaments?.filter(f => 
     f.display_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -20,7 +26,6 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
   const libraryFilaments = filteredFilaments.filter(f => f.source === 'library')
 
   const handleSelect = (filament) => {
-    setSelectedFilament(filament)
     onSave({ 
       color: `${filament.brand} ${filament.name}`,
       color_hex: filament.color_hex,
@@ -38,73 +43,6 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
 
   const colorHex = slot.color_hex
 
-  if (isEditing) {
-    return (
-      <div className="bg-farm-700 rounded-lg p-2 min-w-[200px]">
-        <div className="text-xs text-farm-400 mb-1">Slot {slot.slot_number}</div>
-        <div className="relative mb-2">
-          <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-farm-500" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search filaments..."
-            className="w-full bg-farm-800 border border-farm-600 rounded pl-7 pr-2 py-1 text-sm"
-            autoFocus
-          />
-        </div>
-        <div className="max-h-48 overflow-y-auto space-y-1">
-          {spoolmanFilaments.length > 0 && (
-            <>
-              <div className="text-xs text-print-400 font-medium px-1">From Spoolman</div>
-              {spoolmanFilaments.slice(0, 10).map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => handleSelect(f)}
-                  className="w-full flex items-center gap-2 px-2 py-1 hover:bg-farm-600 rounded text-left text-sm"
-                >
-                  <div 
-                    className="w-4 h-4 rounded border border-farm-500" 
-                    style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
-                  />
-                  <span className="truncate flex-1">{f.name}</span>
-                  {f.remaining_weight && (
-                    <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>
-                  )}
-                </button>
-              ))}
-            </>
-          )}
-          {libraryFilaments.length > 0 && (
-            <>
-              <div className="text-xs text-farm-400 font-medium px-1 mt-2">From Library</div>
-              {libraryFilaments.slice(0, 20).map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => handleSelect(f)}
-                  className="w-full flex items-center gap-2 px-2 py-1 hover:bg-farm-600 rounded text-left text-sm"
-                >
-                  <div 
-                    className="w-4 h-4 rounded border border-farm-500" 
-                    style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
-                  />
-                  <span className="truncate">{f.display_name}</span>
-                </button>
-              ))}
-            </>
-          )}
-          {filteredFilaments.length === 0 && (
-            <div className="text-xs text-farm-500 px-1 py-2">No filaments found</div>
-          )}
-        </div>
-        <div className="flex gap-1 mt-2">
-          <button onClick={handleClear} className="flex-1 text-xs bg-farm-600 hover:bg-farm-500 rounded py-1">Clear</button>
-          <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-xs bg-farm-600 hover:bg-farm-500 rounded py-1">Cancel</button>
-        </div>
-      </div>
-    )
-  }
-
   // Shorten long filament names
   const getShortName = (color) => {
     if (!color) return 'Empty'
@@ -117,25 +55,121 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
         break
       }
     }
+    // Also truncate hex codes
+    if (short.length > 12) {
+      return short.slice(0, 10) + '...'
+    }
     return short
   }
 
   return (
-    <div className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0" onClick={() => setIsEditing(true)}>
-      <div className="text-xs text-farm-500 mb-1">Slot {slot.slot_number}</div>
-      <div className="flex items-center gap-2 min-w-0">
-        <div 
-          className="w-3 h-3 rounded-full border border-farm-600 flex-shrink-0" 
-          style={{ backgroundColor: colorHex ? `#${colorHex}` : '#333' }}
-        />
-        <div className="text-sm font-medium truncate" title={slot.color || 'Empty'}>{getShortName(slot.color)}</div>
+    <>
+      <div 
+        className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 overflow-hidden" 
+        onClick={() => setIsEditing(true)}
+      >
+        <div className="text-xs text-farm-500 mb-1">Slot {slot.slot_number}</div>
+        <div className="flex items-center gap-2 min-w-0">
+          <div 
+            className="w-3 h-3 rounded-full border border-farm-600 flex-shrink-0" 
+            style={{ backgroundColor: colorHex ? `#${colorHex}` : '#333' }}
+          />
+          <div className="text-sm font-medium truncate" title={slot.color || 'Empty'}>{getShortName(slot.color)}</div>
+        </div>
+        <div className="text-xs text-farm-500">{slot.filament_type || 'PLA'}</div>
       </div>
-      <div className="text-xs text-farm-500">{slot.filament_type || 'PLA'}</div>
-    </div>
+      
+      {/* Modal overlay for editing */}
+      {isEditing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/50" 
+            onClick={() => { setIsEditing(false); setSearch('') }}
+          />
+          {/* Modal */}
+          <div className="relative bg-farm-800 rounded-xl p-4 w-80 shadow-xl border border-farm-600">
+            <div className="text-sm font-medium text-farm-300 mb-3">Slot {slot.slot_number} - Select Filament</div>
+            <div className="relative mb-3">
+              <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-farm-500" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search filaments..."
+                className="w-full bg-farm-900 border border-farm-600 rounded-lg pl-8 pr-3 py-2 text-sm"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {spoolmanFilaments.length > 0 && (
+                <>
+                  <div className="text-xs text-print-400 font-medium px-1 py-1">From Spoolman</div>
+                  {spoolmanFilaments.slice(0, 15).map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => handleSelect(f)}
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                    >
+                      <div 
+                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                      />
+                      <span className="truncate flex-1">{f.name}</span>
+                      {f.remaining_weight && (
+                        <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>
+                      )}
+                    </button>
+                  ))}
+                </>
+              )}
+              {libraryFilaments.length > 0 && (
+                <>
+                  <div className="text-xs text-farm-400 font-medium px-1 py-1 mt-2">From Library</div>
+                  {libraryFilaments.slice(0, 20).map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => handleSelect(f)}
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                    >
+                      <div 
+                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                      />
+                      <span className="truncate">{f.display_name}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+              {filteredFilaments.length === 0 && (
+                <div className="text-sm text-farm-500 px-1 py-4 text-center">No filaments found</div>
+              )}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={handleClear} className="flex-1 text-sm bg-farm-700 hover:bg-farm-600 rounded-lg py-2">Clear</button>
+              <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-farm-700 hover:bg-farm-600 rounded-lg py-2">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
-function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdateSlot, onEdit, isDragging, onDragStart, onDragOver, onDragEnd }) {
+function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd }) {
+  const [syncing, setSyncing] = useState(false)
+  
+  const handleSyncAms = async () => {
+    setSyncing(true)
+    try {
+      await onSyncAms(printer.id)
+    } finally {
+      setSyncing(false)
+    }
+  }
+  
+  const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.api_key
+  
   return (
     <div 
       className={clsx(
@@ -173,9 +207,23 @@ function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdate
         <div className="flex items-center gap-2 mb-3">
           <Palette size={16} className="text-farm-500" />
           <span className="text-sm text-farm-400">Loaded Filaments</span>
-          <span className="text-xs text-farm-600">(click to edit)</span>
+          {hasBambuConnection ? (
+            <button 
+              onClick={handleSyncAms}
+              disabled={syncing}
+              className="ml-auto text-xs px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded transition-colors disabled:opacity-50"
+              title="Sync filament state from printer"
+            >
+              {syncing ? '⟳ Syncing...' : '↻ Sync AMS'}
+            </button>
+          ) : (
+            <span className="text-xs text-farm-600 ml-auto">(click to edit)</span>
+          )}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+        <div className={clsx(
+          "grid gap-2",
+          printer.filament_slots?.length <= 4 ? "grid-cols-4" : "grid-cols-4"
+        )}>
           {printer.filament_slots?.map((slot) => (
             <FilamentSlotEditor 
               key={slot.id} 
@@ -189,40 +237,130 @@ function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdate
       <div className="px-4 py-3 bg-farm-950 border-t border-farm-800">
         <div className="flex items-center justify-between text-sm">
           <span className="text-farm-500">Status</span>
-          <span className={printer.is_active ? 'text-print-400' : 'text-farm-500'}>{printer.is_active ? 'Active' : 'Inactive'}</span>
+          <div className="flex items-center gap-2">
+            {hasBambuConnection && (
+              <span className="text-xs text-print-400">● Connected</span>
+            )}
+            <span className={printer.is_active ? 'text-print-400' : 'text-farm-500'}>{printer.is_active ? 'Active' : 'Inactive'}</span>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-function PrinterModal({ isOpen, onClose, onSubmit, printer }) {
-  const [formData, setFormData] = useState({ name: '', model: '', slot_count: 4 })
+function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    model: '', 
+    slot_count: 4,
+    api_type: '',
+    api_host: '',
+    serial: '',
+    access_code: ''
+  })
+  const [testStatus, setTestStatus] = useState(null) // null, 'testing', 'success', 'error'
+  const [testMessage, setTestMessage] = useState('')
 
   useEffect(() => {
     if (printer) {
+      // Parse existing api_key if it's Bambu format (serial|access_code)
+      let serial = ''
+      let access_code = ''
+      if (printer.api_key && printer.api_key.includes('|')) {
+        const parts = printer.api_key.split('|')
+        serial = parts[0] || ''
+        access_code = parts[1] || ''
+      }
       setFormData({ 
         name: printer.name || '', 
         model: printer.model || '', 
-        slot_count: printer.slot_count || 4 
+        slot_count: printer.slot_count || 4,
+        api_type: printer.api_type || '',
+        api_host: printer.api_host || '',
+        serial: serial,
+        access_code: access_code
       })
     } else {
-      setFormData({ name: '', model: '', slot_count: 4 })
+      setFormData({ name: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '' })
     }
-  }, [printer])
+    setTestStatus(null)
+    setTestMessage('')
+  }, [printer, isOpen])
+
+  const handleTestConnection = async () => {
+    if (!formData.api_host || !formData.serial || !formData.access_code) {
+      setTestStatus('error')
+      setTestMessage('Please fill in IP, Serial, and Access Code')
+      return
+    }
+    
+    setTestStatus('testing')
+    setTestMessage('Connecting to printer...')
+    
+    try {
+      const response = await fetch('/api/printers/test-connection', {
+        method: 'POST',
+        headers: apiHeaders,
+        body: JSON.stringify({
+          api_type: formData.api_type || 'bambu',
+          api_host: formData.api_host,
+          serial: formData.serial,
+          access_code: formData.access_code
+        })
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        setTestStatus('success')
+        setTestMessage(`Connected! State: ${result.state}, Bed: ${result.bed_temp}°C, ${result.ams_slots || 0} AMS slots`)
+      } else {
+        setTestStatus('error')
+        setTestMessage(result.error || 'Connection failed')
+      }
+    } catch (err) {
+      setTestStatus('error')
+      setTestMessage('Failed to test connection')
+    }
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    
+    // Build the submit data
+    const submitData = {
+      name: formData.name,
+      model: formData.model,
+      slot_count: formData.slot_count
+    }
+    
+    // Add connection info if provided
+    if (formData.api_type) {
+      submitData.api_type = formData.api_type
+    }
+    if (formData.api_host) {
+      submitData.api_host = formData.api_host
+    }
+    if (formData.serial && formData.access_code) {
+      submitData.api_key = `${formData.serial}|${formData.access_code}`
+    }
+    
+    onSubmit(submitData, printer?.id)
+  }
 
   if (!isOpen) return null
 
   const isEditing = !!printer
+  const showBambuFields = formData.api_type === 'bambu'
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-farm-900 rounded-xl w-full max-w-md p-6 border border-farm-700">
+      <div className="bg-farm-900 rounded-xl w-full max-w-md p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-display font-semibold">{isEditing ? 'Edit Printer' : 'Add New Printer'}</h2>
           <button onClick={onClose} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData, printer?.id) }} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-farm-400 mb-1">Printer Name {!isEditing && '*'}</label>
             <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2" placeholder="e.g., X1C, P1S-01" />
@@ -246,6 +384,96 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer }) {
               <p className="text-xs text-amber-400 mt-1">Note: Changing slot count will reset filament colors</p>
             )}
           </div>
+          
+          {/* Printer Connection Section */}
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="block text-sm text-farm-400 mb-2">Printer Connection (Optional)</label>
+            <select 
+              value={formData.api_type} 
+              onChange={(e) => setFormData(prev => ({ ...prev, api_type: e.target.value }))} 
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2"
+            >
+              <option value="">Manual (no connection)</option>
+              <option value="bambu">Bambu Lab (X1C, P1S, A1, etc.)</option>
+              <option value="octoprint" disabled>OctoPrint (coming soon)</option>
+              <option value="moonraker" disabled>Moonraker/Klipper (coming soon)</option>
+            </select>
+          </div>
+          
+          {showBambuFields && (
+            <>
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">Printer IP Address</label>
+                <input 
+                  type="text" 
+                  value={formData.api_host} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, api_host: e.target.value }))} 
+                  className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2" 
+                  placeholder="e.g., 192.168.1.100" 
+                />
+                <p className="text-xs text-farm-500 mt-1">Find this on the printer: Network settings</p>
+              </div>
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">Serial Number</label>
+                <input 
+                  type="text" 
+                  value={formData.serial} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, serial: e.target.value }))} 
+                  className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono" 
+                  placeholder="e.g., 00M09A380700000" 
+                />
+                <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Device Info</p>
+              </div>
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">Access Code</label>
+                <input 
+                  type="text" 
+                  value={formData.access_code} 
+                  onChange={(e) => setFormData(prev => ({ ...prev, access_code: e.target.value }))} 
+                  className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono" 
+                  placeholder="e.g., 12345678" 
+                />
+                <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Network → Access Code</p>
+              </div>
+              
+              {/* Test Connection Button */}
+              <div>
+                <button 
+                  type="button" 
+                  onClick={handleTestConnection}
+                  disabled={testStatus === 'testing'}
+                  className={clsx(
+                    "w-full px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2",
+                    testStatus === 'testing' && "bg-farm-700 text-farm-400 cursor-wait",
+                    testStatus === 'success' && "bg-green-900/50 text-green-400 border border-green-700",
+                    testStatus === 'error' && "bg-red-900/50 text-red-400 border border-red-700",
+                    !testStatus && "bg-farm-700 hover:bg-farm-600 text-farm-200"
+                  )}
+                >
+                  {testStatus === 'testing' ? (
+                    <>
+                      <span className="animate-spin">⟳</span> Testing...
+                    </>
+                  ) : testStatus === 'success' ? (
+                    '✓ Connected!'
+                  ) : testStatus === 'error' ? (
+                    '✗ Failed'
+                  ) : (
+                    'Test Connection'
+                  )}
+                </button>
+                {testMessage && (
+                  <p className={clsx(
+                    "text-xs mt-1",
+                    testStatus === 'success' ? "text-green-400" : testStatus === 'error' ? "text-red-400" : "text-farm-400"
+                  )}>
+                    {testMessage}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+          
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors">Cancel</button>
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
@@ -321,6 +549,23 @@ export default function Printers() {
     setEditingPrinter(null)
   }
 
+  const handleSyncAms = async (printerId) => {
+    try {
+      const response = await fetch(`/api/printers/${printerId}/sync-ams`, {
+        method: 'POST',
+        headers: apiHeaders
+      })
+      const result = await response.json()
+      if (response.ok) {
+        queryClient.invalidateQueries(['printers'])
+      } else {
+        alert(result.detail || 'Sync failed')
+      }
+    } catch (err) {
+      alert('Failed to sync AMS')
+    }
+  }
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -350,6 +595,7 @@ export default function Printers() {
               onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })} 
               onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })} 
               onEdit={handleEdit}
+              onSyncAms={handleSyncAms}
               isDragging={draggedId === printer.id}
               onDragStart={(e) => handleDragStart(e, printer.id)}
               onDragOver={(e) => handleDragOver(e, printer.id)}
