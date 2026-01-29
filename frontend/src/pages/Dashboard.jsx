@@ -57,11 +57,11 @@ function PrinterCard({ printer }) {
     <div className="bg-farm-900 rounded-xl p-4 border border-farm-800">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
-        <span className={clsx('text-sm', statusColor)}>
-          {printer.is_active ? 'Active' : 'Inactive'}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
+          <span className={clsx("text-xs", statusColor)}>{printer.is_active ? "Active" : "Inactive"}</span>
+        </div>
       </div>
-      
       {/* Filament slots - grid layout */}
       <div className="grid grid-cols-4 gap-2">
         {printer.filament_slots?.slice(0, 8).map((slot) => (

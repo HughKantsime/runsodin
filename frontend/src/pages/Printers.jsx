@@ -293,13 +293,16 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
         </div>
       </div>
       <div className="px-4 py-3 bg-farm-950 border-t border-farm-800">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-farm-500">Status</span>
-          <div className="flex items-center gap-2">
-            {hasBambuConnection && (
-              <span className="text-xs text-print-400">● Connected</span>
-            )}
-            <span className={printer.is_active ? 'text-print-400' : 'text-farm-500'}>{printer.is_active ? 'Active' : 'Inactive'}</span>
+        <div className="flex items-center justify-end gap-3 text-sm">
+          {hasBambuConnection && (
+            <div className="flex items-center gap-1.5" title="Connected to printer">
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="text-xs text-farm-400">Connected</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5" title={printer.is_active ? "Printer active" : "Printer inactive"}>
+            <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
+            <span className={`text-xs ${printer.is_active ? "text-farm-400" : "text-farm-500"}`}>{printer.is_active ? "Active" : "Inactive"}</span>
           </div>
         </div>
       </div>
