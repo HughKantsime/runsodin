@@ -174,6 +174,7 @@ class Spool(Base):
     id = Column(Integer, primary_key=True)
     filament_id = Column(Integer, ForeignKey("filament_library.id"), nullable=False)
     qr_code = Column(String(50), unique=True, index=True)
+    rfid_tag = Column(String(32), unique=True, index=True, nullable=True)  # Bambu RFID tag_uid
     
     # Weight tracking
     initial_weight_g = Column(Float, default=1000.0)

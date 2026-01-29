@@ -474,6 +474,12 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         
         return None
     
+    def find_spool_by_rfid(rfid_tag):
+        """Find a tracked spool by RFID tag."""
+        if not rfid_tag:
+            return None
+        return db.query(Spool).filter(Spool.rfid_tag == rfid_tag).first()
+    
     def get_color_name(hex_code):
         """Get a human-readable color name from hex code."""
         if not hex_code:
@@ -574,6 +580,35 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         
         # Update slot
         if not ams_slot.empty:
+            # Priority 0: Match by RFID tag (most reliable)
+            rfid_match = find_spool_by_rfid(ams_slot.rfid_tag)
+            
+            if rfid_match:
+                color_name = f"{rfid_match.filament.brand} {rfid_match.filament.name}".strip() if rfid_match.filament else "Unknown"
+                
+                db_slot.filament_type = ftype
+                db_slot.color = color_name
+                db_slot.color_hex = color_hex
+                db_slot.assigned_spool_id = rfid_match.id
+                db_slot.spool_confirmed = True
+                db_slot.loaded_at = datetime.utcnow()
+                
+                # Update spool location
+                rfid_match.location_printer_id = printer_id
+                rfid_match.location_slot = ams_slot.slot_number
+                rfid_match.storage_location = None
+                
+                updated_slots.append({
+                    "slot": ams_slot.slot_number,
+                    "type": ftype.value,
+                    "color": color_name,
+                    "color_hex": color_hex,
+                    "spool_id": rfid_match.id,
+                    "rfid": ams_slot.rfid_tag,
+                    "matched": "rfid"
+                })
+                continue
+
             # Priority 1: Match against local filament library
             library_match = find_library_match(color_hex, ams_slot.filament_type)
             
