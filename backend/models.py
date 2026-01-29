@@ -211,6 +211,19 @@ class Spool(Base):
         return 0
 
 
+class AuditLog(Base):
+    """Audit log for tracking user actions."""
+    __tablename__ = "audit_logs"
+    
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, server_default=func.now())
+    action = Column(String(50), nullable=False)  # e.g., "create", "update", "delete", "sync"
+    entity_type = Column(String(50))  # e.g., "printer", "spool", "job"
+    entity_id = Column(Integer)
+    details = Column(JSON)  # Additional context
+    ip_address = Column(String(45))  # IPv4 or IPv6
+
+
 class SpoolUsage(Base):
     """Record of filament usage from a spool."""
     __tablename__ = "spool_usage"

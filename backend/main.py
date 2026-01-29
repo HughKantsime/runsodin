@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
 
-from models import (Spool, SpoolUsage, SpoolStatus, 
+from models import (Spool, SpoolUsage, SpoolStatus, AuditLog, 
     Base, Printer, FilamentSlot, Model, Job, JobStatus,
     FilamentType, SchedulerRun, init_db, FilamentLibrary
 )
@@ -59,6 +59,19 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def log_audit(db: Session, action: str, entity_type: str = None, entity_id: int = None, details: dict = None, ip: str = None):
+    """Log an action to the audit log."""
+    entry = AuditLog(
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        details=details,
+        ip_address=ip
+    )
+    db.add(entry)
+    db.commit()
 
 
 def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
@@ -671,6 +684,8 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
 
     db.commit()
     
+    
+    log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "mismatches": len(mismatches)})
     return {
         "success": True,
         "printer_id": printer_id,
@@ -2187,6 +2202,7 @@ def create_spool(spool: SpoolCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_spool)
     
+    log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
     return {
         "id": db_spool.id,
         "qr_code": db_spool.qr_code,
@@ -2330,6 +2346,7 @@ def use_spool(spool_id: int, request: SpoolUseRequest, db: Session = Depends(get
     db.add(usage)
     db.commit()
     
+    log_audit(db, "use", "spool", spool_id, {"weight_used_g": request.weight_used_g, "remaining": spool.remaining_weight_g})
     return {
         "success": True,
         "remaining_weight_g": spool.remaining_weight_g,
@@ -2734,3 +2751,36 @@ def generate_single_label(spool, width, height):
     draw.rectangle([0, 0, width-1, height-1], outline="black", width=2)
     
     return img
+
+
+# ============== Audit Log ==============
+
+@app.get("/api/audit-logs", tags=["Audit"])
+def list_audit_logs(
+    limit: int = 100,
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List audit log entries."""
+    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
+    
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    
+    logs = query.limit(limit).all()
+    
+    return [
+        {
+            "id": log.id,
+            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+            "action": log.action,
+            "entity_type": log.entity_type,
+            "entity_id": log.entity_id,
+            "details": log.details,
+            "ip_address": log.ip_address
+        }
+        for log in logs
+    ]
