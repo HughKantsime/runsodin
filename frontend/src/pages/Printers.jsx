@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
 
@@ -170,6 +170,11 @@ function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdate
   
   const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.api_key
   
+  // Count slots needing attention (assigned but not confirmed, or no spool assigned)
+  const slotsNeedingAttention = printer.filament_slots?.filter(s => 
+    (s.assigned_spool_id && !s.spool_confirmed) || (!s.assigned_spool_id && s.color_hex)
+  ).length || 0
+  
   return (
     <div 
       className={clsx(
@@ -207,6 +212,12 @@ function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdate
         <div className="flex items-center gap-2 mb-3">
           <Palette size={16} className="text-farm-500" />
           <span className="text-sm text-farm-400">Loaded Filaments</span>
+          {slotsNeedingAttention > 0 && (
+            <span className="flex items-center gap-1 text-xs text-yellow-400" title="Slots need spool assignment">
+              <AlertTriangle size={14} />
+              {slotsNeedingAttention}
+            </span>
+          )}
           {hasBambuConnection ? (
             <button 
               onClick={handleSyncAms}

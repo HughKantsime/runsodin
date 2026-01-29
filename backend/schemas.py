@@ -27,6 +27,8 @@ class FilamentSlotBase(BaseModel):
     color: Optional[str] = None
     color_hex: Optional[str] = None
     spoolman_spool_id: Optional[int] = None
+    assigned_spool_id: Optional[int] = None
+    spool_confirmed: Optional[bool] = None
 
 
 class FilamentSlotCreate(FilamentSlotBase):
@@ -38,6 +40,8 @@ class FilamentSlotUpdate(BaseModel):
     color: Optional[str] = None
     color_hex: Optional[str] = None
     spoolman_spool_id: Optional[int] = None
+    assigned_spool_id: Optional[int] = None
+    spool_confirmed: Optional[bool] = None
 
 
 class FilamentSlotResponse(FilamentSlotBase):
