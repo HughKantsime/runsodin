@@ -1,0 +1,504 @@
+
+
+# ============== Spool Management ==============
+
+from models import Spool, SpoolUsage, SpoolStatus
+
+class SpoolCreate(PydanticBaseModel):
+    filament_id: int
+    initial_weight_g: float = 1000.0
+    spool_weight_g: float = 250.0
+    price: Optional[float] = None
+    purchase_date: Optional[datetime] = None
+    vendor: Optional[str] = None
+    lot_number: Optional[str] = None
+    storage_location: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SpoolUpdate(PydanticBaseModel):
+    remaining_weight_g: Optional[float] = None
+    status: Optional[str] = None
+    storage_location: Optional[str] = None
+    notes: Optional[str] = None
+    price: Optional[float] = None
+    vendor: Optional[str] = None
+    lot_number: Optional[str] = None
+
+
+class SpoolResponse(PydanticBaseModel):
+    id: int
+    filament_id: int
+    qr_code: Optional[str]
+    initial_weight_g: float
+    remaining_weight_g: float
+    spool_weight_g: float
+    percent_remaining: float
+    price: Optional[float]
+    purchase_date: Optional[datetime]
+    vendor: Optional[str]
+    lot_number: Optional[str]
+    status: str
+    location_printer_id: Optional[int]
+    location_slot: Optional[int]
+    storage_location: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+    # Include filament info
+    filament_brand: Optional[str] = None
+    filament_name: Optional[str] = None
+    filament_material: Optional[str] = None
+    filament_color_hex: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SpoolLoadRequest(PydanticBaseModel):
+    printer_id: int
+    slot_number: int
+
+
+class SpoolUseRequest(PydanticBaseModel):
+    weight_used_g: float
+    job_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class SpoolWeighRequest(PydanticBaseModel):
+    gross_weight_g: float  # Total weight including spool
+
+
+@app.get("/api/spools", tags=["Spools"])
+def list_spools(
+    status: Optional[str] = None,
+    filament_id: Optional[int] = None,
+    printer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """List all spools with optional filters."""
+    query = db.query(Spool)
+    
+    if status:
+        query = query.filter(Spool.status == status)
+    if filament_id:
+        query = query.filter(Spool.filament_id == filament_id)
+    if printer_id:
+        query = query.filter(Spool.location_printer_id == printer_id)
+    
+    spools = query.all()
+    
+    result = []
+    for s in spools:
+        spool_dict = {
+            "id": s.id,
+            "filament_id": s.filament_id,
+            "qr_code": s.qr_code,
+            "initial_weight_g": s.initial_weight_g,
+            "remaining_weight_g": s.remaining_weight_g,
+            "spool_weight_g": s.spool_weight_g,
+            "percent_remaining": s.percent_remaining,
+            "price": s.price,
+            "purchase_date": s.purchase_date,
+            "vendor": s.vendor,
+            "lot_number": s.lot_number,
+            "status": s.status.value if s.status else None,
+            "location_printer_id": s.location_printer_id,
+            "location_slot": s.location_slot,
+            "storage_location": s.storage_location,
+            "notes": s.notes,
+            "created_at": s.created_at,
+            "filament_brand": s.filament.brand if s.filament else None,
+            "filament_name": s.filament.name if s.filament else None,
+            "filament_material": s.filament.material if s.filament else None,
+            "filament_color_hex": s.filament.color_hex if s.filament else None,
+        }
+        result.append(spool_dict)
+    
+    return result
+
+
+@app.get("/api/spools/{spool_id}", tags=["Spools"])
+def get_spool(spool_id: int, db: Session = Depends(get_db)):
+    """Get a single spool with details."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    return {
+        "id": spool.id,
+        "filament_id": spool.filament_id,
+        "qr_code": spool.qr_code,
+        "initial_weight_g": spool.initial_weight_g,
+        "remaining_weight_g": spool.remaining_weight_g,
+        "spool_weight_g": spool.spool_weight_g,
+        "percent_remaining": spool.percent_remaining,
+        "price": spool.price,
+        "purchase_date": spool.purchase_date,
+        "vendor": spool.vendor,
+        "lot_number": spool.lot_number,
+        "status": spool.status.value if spool.status else None,
+        "location_printer_id": spool.location_printer_id,
+        "location_slot": spool.location_slot,
+        "storage_location": spool.storage_location,
+        "notes": spool.notes,
+        "created_at": spool.created_at,
+        "updated_at": spool.updated_at,
+        "filament_brand": spool.filament.brand if spool.filament else None,
+        "filament_name": spool.filament.name if spool.filament else None,
+        "filament_material": spool.filament.material if spool.filament else None,
+        "filament_color_hex": spool.filament.color_hex if spool.filament else None,
+        "usage_history": [
+            {
+                "id": u.id,
+                "weight_used_g": u.weight_used_g,
+                "used_at": u.used_at,
+                "job_id": u.job_id,
+                "notes": u.notes
+            }
+            for u in spool.usage_history
+        ]
+    }
+
+
+@app.post("/api/spools", tags=["Spools"])
+def create_spool(spool: SpoolCreate, db: Session = Depends(get_db)):
+    """Create a new spool."""
+    # Verify filament exists
+    filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
+    if not filament:
+        raise HTTPException(status_code=404, detail="Filament not found")
+    
+    # Generate QR code
+    import uuid
+    qr_code = f"SPL-{uuid.uuid4().hex[:8].upper()}"
+    
+    db_spool = Spool(
+        filament_id=spool.filament_id,
+        qr_code=qr_code,
+        initial_weight_g=spool.initial_weight_g,
+        remaining_weight_g=spool.initial_weight_g,
+        spool_weight_g=spool.spool_weight_g,
+        price=spool.price,
+        purchase_date=spool.purchase_date,
+        vendor=spool.vendor,
+        lot_number=spool.lot_number,
+        storage_location=spool.storage_location,
+        notes=spool.notes,
+        status=SpoolStatus.ACTIVE
+    )
+    db.add(db_spool)
+    db.commit()
+    db.refresh(db_spool)
+    
+    return {
+        "id": db_spool.id,
+        "qr_code": db_spool.qr_code,
+        "message": "Spool created"
+    }
+
+
+@app.patch("/api/spools/{spool_id}", tags=["Spools"])
+def update_spool(spool_id: int, updates: SpoolUpdate, db: Session = Depends(get_db)):
+    """Update spool details."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    update_data = updates.model_dump(exclude_unset=True)
+    
+    if "status" in update_data:
+        update_data["status"] = SpoolStatus(update_data["status"])
+    
+    for field, value in update_data.items():
+        setattr(spool, field, value)
+    
+    db.commit()
+    db.refresh(spool)
+    
+    return {"success": True, "id": spool.id}
+
+
+@app.delete("/api/spools/{spool_id}", tags=["Spools"])
+def delete_spool(spool_id: int, db: Session = Depends(get_db)):
+    """Delete a spool (or archive it)."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    # Archive instead of delete
+    spool.status = SpoolStatus.ARCHIVED
+    db.commit()
+    
+    return {"success": True, "message": "Spool archived"}
+
+
+@app.post("/api/spools/{spool_id}/load", tags=["Spools"])
+def load_spool(spool_id: int, request: SpoolLoadRequest, db: Session = Depends(get_db)):
+    """Load a spool into a printer slot."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    if request.slot_number < 1 or request.slot_number > printer.slot_count:
+        raise HTTPException(status_code=400, detail=f"Invalid slot number (1-{printer.slot_count})")
+    
+    # Unload any existing spool in that slot
+    existing = db.query(Spool).filter(
+        Spool.location_printer_id == request.printer_id,
+        Spool.location_slot == request.slot_number
+    ).first()
+    if existing and existing.id != spool_id:
+        existing.location_printer_id = None
+        existing.location_slot = None
+    
+    # Update spool location
+    spool.location_printer_id = request.printer_id
+    spool.location_slot = request.slot_number
+    spool.storage_location = None
+    
+    # Update filament slot assignment
+    slot = db.query(FilamentSlot).filter(
+        FilamentSlot.printer_id == request.printer_id,
+        FilamentSlot.slot_number == request.slot_number
+    ).first()
+    if slot:
+        slot.assigned_spool_id = spool_id
+        slot.spool_confirmed = True
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "spool_id": spool_id,
+        "printer": printer.name,
+        "slot": request.slot_number
+    }
+
+
+@app.post("/api/spools/{spool_id}/unload", tags=["Spools"])
+def unload_spool(
+    spool_id: int,
+    storage_location: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Unload a spool from printer to storage."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    # Clear slot assignment
+    if spool.location_printer_id and spool.location_slot:
+        slot = db.query(FilamentSlot).filter(
+            FilamentSlot.printer_id == spool.location_printer_id,
+            FilamentSlot.slot_number == spool.location_slot
+        ).first()
+        if slot and slot.assigned_spool_id == spool_id:
+            slot.assigned_spool_id = None
+            slot.spool_confirmed = False
+    
+    spool.location_printer_id = None
+    spool.location_slot = None
+    spool.storage_location = storage_location
+    
+    db.commit()
+    
+    return {"success": True, "message": "Spool unloaded"}
+
+
+@app.post("/api/spools/{spool_id}/use", tags=["Spools"])
+def use_spool(spool_id: int, request: SpoolUseRequest, db: Session = Depends(get_db)):
+    """Record filament usage from a spool."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    # Deduct weight
+    spool.remaining_weight_g = max(0, spool.remaining_weight_g - request.weight_used_g)
+    
+    # Check if empty
+    if spool.remaining_weight_g <= 0:
+        spool.status = SpoolStatus.EMPTY
+    
+    # Record usage
+    usage = SpoolUsage(
+        spool_id=spool_id,
+        job_id=request.job_id,
+        weight_used_g=request.weight_used_g,
+        notes=request.notes
+    )
+    db.add(usage)
+    db.commit()
+    
+    return {
+        "success": True,
+        "remaining_weight_g": spool.remaining_weight_g,
+        "percent_remaining": spool.percent_remaining,
+        "status": spool.status.value
+    }
+
+
+@app.post("/api/spools/{spool_id}/weigh", tags=["Spools"])
+def weigh_spool(spool_id: int, request: SpoolWeighRequest, db: Session = Depends(get_db)):
+    """Update spool weight from scale measurement."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    # Calculate net filament weight
+    old_weight = spool.remaining_weight_g
+    new_weight = max(0, request.gross_weight_g - spool.spool_weight_g)
+    spool.remaining_weight_g = new_weight
+    
+    # Record as usage if weight decreased
+    if new_weight < old_weight:
+        usage = SpoolUsage(
+            spool_id=spool_id,
+            weight_used_g=old_weight - new_weight,
+            notes="Manual weigh adjustment"
+        )
+        db.add(usage)
+    
+    # Check if empty
+    if spool.remaining_weight_g <= 10:  # Less than 10g = effectively empty
+        spool.status = SpoolStatus.EMPTY
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "old_weight_g": old_weight,
+        "new_weight_g": new_weight,
+        "percent_remaining": spool.percent_remaining
+    }
+
+
+@app.get("/api/spools/{spool_id}/qr", tags=["Spools"])
+def get_spool_qr(spool_id: int, db: Session = Depends(get_db)):
+    """Get QR code data for a spool."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    return {
+        "qr_code": spool.qr_code,
+        "spool_id": spool.id,
+        "filament": f"{spool.filament.brand} {spool.filament.name}" if spool.filament else "Unknown",
+        "material": spool.filament.material if spool.filament else "Unknown",
+        "color_hex": spool.filament.color_hex if spool.filament else None
+    }
+
+
+@app.get("/api/spools/lookup/{qr_code}", tags=["Spools"])
+def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
+    """Look up a spool by QR code."""
+    spool = db.query(Spool).filter(Spool.qr_code == qr_code).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    return get_spool(spool.id, db)
+
+
+@app.post("/api/printers/{printer_id}/slots/{slot_number}/assign", tags=["Spools"])
+def assign_spool_to_slot(
+    printer_id: int,
+    slot_number: int,
+    spool_id: int,
+    db: Session = Depends(get_db)
+):
+    """Assign a spool to a printer slot."""
+    slot = db.query(FilamentSlot).filter(
+        FilamentSlot.printer_id == printer_id,
+        FilamentSlot.slot_number == slot_number
+    ).first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+    
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    # Update slot
+    slot.assigned_spool_id = spool_id
+    slot.spool_confirmed = False  # Needs confirmation
+    
+    # Update spool location
+    spool.location_printer_id = printer_id
+    spool.location_slot = slot_number
+    spool.storage_location = None
+    
+    db.commit()
+    
+    return {"success": True, "message": "Spool assigned, awaiting confirmation"}
+
+
+@app.post("/api/printers/{printer_id}/slots/{slot_number}/confirm", tags=["Spools"])
+def confirm_slot_assignment(
+    printer_id: int,
+    slot_number: int,
+    db: Session = Depends(get_db)
+):
+    """Confirm the spool assignment for a slot."""
+    slot = db.query(FilamentSlot).filter(
+        FilamentSlot.printer_id == printer_id,
+        FilamentSlot.slot_number == slot_number
+    ).first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+    
+    if not slot.assigned_spool_id:
+        raise HTTPException(status_code=400, detail="No spool assigned to confirm")
+    
+    slot.spool_confirmed = True
+    db.commit()
+    
+    return {"success": True, "message": "Spool assignment confirmed"}
+
+
+@app.get("/api/printers/{printer_id}/slots/needs-attention", tags=["Spools"])
+def get_slots_needing_attention(printer_id: int, db: Session = Depends(get_db)):
+    """Get slots that need spool confirmation or have mismatches."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    issues = []
+    for slot in printer.filament_slots:
+        slot_issues = []
+        
+        # No spool assigned but slot has filament
+        if not slot.assigned_spool_id and slot.color_hex:
+            slot_issues.append("No spool assigned")
+        
+        # Spool assigned but not confirmed
+        if slot.assigned_spool_id and not slot.spool_confirmed:
+            slot_issues.append("Awaiting confirmation")
+        
+        # Spool assigned but type/color mismatch
+        if slot.assigned_spool and slot.assigned_spool.filament:
+            spool_fil = slot.assigned_spool.filament
+            if slot.color_hex and spool_fil.color_hex:
+                # Simple mismatch check
+                if slot.color_hex.lower().replace("#", "") != spool_fil.color_hex.lower().replace("#", ""):
+                    slot_issues.append(f"Color mismatch: slot={slot.color_hex}, spool={spool_fil.color_hex}")
+        
+        if slot_issues:
+            issues.append({
+                "slot_number": slot.slot_number,
+                "issues": slot_issues,
+                "current_type": slot.filament_type.value if slot.filament_type else None,
+                "current_color": slot.color,
+                "current_color_hex": slot.color_hex,
+                "assigned_spool_id": slot.assigned_spool_id,
+                "spool_confirmed": slot.spool_confirmed
+            })
+    
+    return {
+        "printer_id": printer_id,
+        "printer_name": printer.name,
+        "slots_needing_attention": len(issues),
+        "slots": issues
+    }
