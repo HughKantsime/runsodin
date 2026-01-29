@@ -526,6 +526,8 @@ export default function Spools() {
   const [loadingSpool, setLoadingSpool] = useState(null)
   const [usingSpool, setUsingSpool] = useState(null)
   const [filter, setFilter] = useState('active')
+  const [sortBy, setSortBy] = useState("printer") // printer, name, remaining, material
+  const [groupByPrinter, setGroupByPrinter] = useState(true)
   
   const { data: spools, isLoading } = useQuery({
     queryKey: ['spools', filter],
@@ -666,27 +668,80 @@ export default function Spools() {
         ))}
       </div>
       
-      {/* Spool grid */}
-      {isLoading ? (
-        <div className="text-center text-farm-400 py-12">Loading spools...</div>
-      ) : spools?.length === 0 ? (
-        <div className="text-center text-farm-400 py-12">
-          No spools found. Add your first spool to get started!
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {spools?.map(spool => (
-            <SpoolCard
-              key={spool.id}
-              spool={spool}
-              onLoad={setLoadingSpool}
-              onUnload={handleUnload}
-              onUse={setUsingSpool}
-              onArchive={handleArchive}
-            />
-          ))}
-        </div>
-      )}
+      {/* Sort controls */}
+      <div className="flex gap-4 mb-6 items-center">
+        <span className="text-sm text-farm-400">Sort by:</span>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-sm text-farm-200"
+        >
+          <option value="printer">Printer/Slot</option>
+          <option value="name">Name</option>
+          <option value="remaining">Remaining %</option>
+          <option value="material">Material</option>
+        </select>
+        <label className="flex items-center gap-2 text-sm text-farm-400">
+          <input
+            type="checkbox"
+            checked={groupByPrinter}
+            onChange={(e) => setGroupByPrinter(e.target.checked)}
+            className="rounded bg-farm-800 border-farm-700"
+          />
+          Group by printer
+        </label>
+      </div>
+      
+      {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
+      {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12">No spools found. Add your first spool to get started!</div>}
+      {!isLoading && spools?.length > 0 && (
+      (() => {
+        if (!spools) return null;
+        let sorted = [...spools];
+        
+        // Sort
+        if (sortBy === "printer") {
+          sorted.sort((a, b) => {
+            if (a.location_printer_id !== b.location_printer_id) return (a.location_printer_id || 999) - (b.location_printer_id || 999);
+            return (a.location_slot || 999) - (b.location_slot || 999);
+          });
+        } else if (sortBy === "name") {
+          sorted.sort((a, b) => `${a.filament_brand} ${a.filament_name}`.localeCompare(`${b.filament_brand} ${b.filament_name}`));
+        } else if (sortBy === "remaining") {
+          sorted.sort((a, b) => (a.percent_remaining || 0) - (b.percent_remaining || 0));
+        } else if (sortBy === "material") {
+          sorted.sort((a, b) => (a.filament_material || "").localeCompare(b.filament_material || ""));
+        }
+        
+        // Group by printer
+        if (groupByPrinter && sortBy === "printer") {
+          const groups = {};
+          sorted.forEach(s => {
+            const key = s.location_printer_id ? `Printer ${s.location_printer_id}` : "Unassigned";
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(s);
+          });
+          
+          return Object.entries(groups).map(([group, groupSpools]) => (
+            <div key={group} className="mb-6">
+              <h3 className="text-lg font-semibold text-farm-200 mb-3">{group}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {groupSpools.map(spool => (
+                  <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
+                ))}
+              </div>
+            </div>
+          ));
+        }
+        
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {sorted.map(spool => (
+              <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
+            ))}
+          </div>
+        );
+      })())}
       
       {/* Modals */}
       {showCreateModal && (

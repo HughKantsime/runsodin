@@ -657,8 +657,8 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
                     filament_id=library_entry.id,
                     qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
                     rfid_tag=ams_slot.rfid_tag,
-                    initial_weight_g=1000.0,
-                    remaining_weight_g=1000.0 * (ams_slot.remaining_percent / 100),
+                    color_hex=color_hex,
+                    remaining_weight_g=max(0, 1000.0 * (ams_slot.remaining_percent / 100)),
                     status=SpoolStatus.ACTIVE,
                     location_printer_id=printer_id,
                     location_slot=ams_slot.slot_number
@@ -2234,7 +2234,7 @@ def list_spools(
             "filament_brand": s.filament.brand if s.filament else None,
             "filament_name": s.filament.name if s.filament else None,
             "filament_material": s.filament.material if s.filament else None,
-            "filament_color_hex": s.filament.color_hex if s.filament else None,
+            "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament else None),
         }
         result.append(spool_dict)
     

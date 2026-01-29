@@ -123,7 +123,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
                 autoFocus
               />
             </div>
-            <div className="max-h-64 overflow-y-auto space-y-1">
+            <div className="max-h-96 overflow-y-auto space-y-1">
               {filteredSpools.length > 0 && (
                 <>
                   <div className="text-xs text-green-400 font-medium px-1 py-1">Tracked Spools</div>
