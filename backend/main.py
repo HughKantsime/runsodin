@@ -518,8 +518,10 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
                 elif b > 100:
                     return "Pink"
                 return "Red"
-            elif g == max_val and g > r + 30 and g > b + 30:
-                if b > 150:
+            elif g == max_val and g > b:
+                if r > 80 and g > 80 and b < g and r < g:
+                    return "Olive Green"
+                elif b > 150:
                     return "Teal"
                 return "Green"
             elif b == max_val and b > r + 30 and b > g + 30:
