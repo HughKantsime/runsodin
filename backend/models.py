@@ -89,6 +89,12 @@ class FilamentType(str, Enum):
             return cls.OTHER
 
 
+
+class SpoolStatus(str, Enum):
+    ACTIVE = "active"
+    EMPTY = "empty"
+    ARCHIVED = "archived"
+
 class Printer(Base):
     """
     A physical 3D printer in the farm.
@@ -146,14 +152,80 @@ class FilamentSlot(Base):
     # Spoolman integration
     spoolman_spool_id = Column(Integer)  # Link to Spoolman spool
     
+    # Local spool tracking
+    assigned_spool_id = Column(Integer, ForeignKey("spools.id"), nullable=True)
+    spool_confirmed = Column(Boolean, default=False)
+    
     # Metadata
     loaded_at = Column(DateTime, server_default=func.now())
     
     # Relationships
     printer = relationship("Printer", back_populates="filament_slots")
+    assigned_spool = relationship("Spool", foreign_keys=[assigned_spool_id])
     
     def __repr__(self):
         return f"<FilamentSlot {self.printer_id}:{self.slot_number} - {self.color}>"
+
+
+class Spool(Base):
+    """Individual physical spool of filament."""
+    __tablename__ = "spools"
+    
+    id = Column(Integer, primary_key=True)
+    filament_id = Column(Integer, ForeignKey("filament_library.id"), nullable=False)
+    qr_code = Column(String(50), unique=True, index=True)
+    
+    # Weight tracking
+    initial_weight_g = Column(Float, default=1000.0)
+    remaining_weight_g = Column(Float, default=1000.0)
+    spool_weight_g = Column(Float, default=250.0)
+    
+    # Purchase info
+    price = Column(Float)
+    purchase_date = Column(DateTime)
+    vendor = Column(String(100))
+    lot_number = Column(String(50))
+    
+    # Status
+    status = Column(SQLEnum(SpoolStatus), default=SpoolStatus.ACTIVE)
+    
+    # Location
+    location_printer_id = Column(Integer, ForeignKey("printers.id"), nullable=True)
+    location_slot = Column(Integer, nullable=True)
+    storage_location = Column(String(100))
+    notes = Column(Text)
+    
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    filament = relationship("FilamentLibrary", back_populates="spools")
+    printer = relationship("Printer", foreign_keys=[location_printer_id])
+    usage_history = relationship("SpoolUsage", back_populates="spool", cascade="all, delete-orphan")
+    
+    @property
+    def percent_remaining(self) -> float:
+        if self.initial_weight_g and self.initial_weight_g > 0:
+            return (self.remaining_weight_g / self.initial_weight_g) * 100
+        return 0
+
+
+class SpoolUsage(Base):
+    """Record of filament usage from a spool."""
+    __tablename__ = "spool_usage"
+    
+    id = Column(Integer, primary_key=True)
+    spool_id = Column(Integer, ForeignKey("spools.id"), nullable=False)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True)
+    weight_used_g = Column(Float, nullable=False)
+    used_at = Column(DateTime, server_default=func.now())
+    notes = Column(String(255))
+    
+    # Relationships
+    spool = relationship("Spool", back_populates="usage_history")
+    job = relationship("Job")
+
 
 
 class Model(Base):
@@ -327,3 +399,6 @@ class FilamentLibrary(Base):
     color_hex = Column(String(6))
     is_custom = Column(Boolean, default=False)  # User-added vs built-in
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    spools = relationship("Spool", back_populates="filament")
