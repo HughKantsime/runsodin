@@ -604,6 +604,9 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
                 rfid_match.location_printer_id = printer_id
                 rfid_match.location_slot = ams_slot.slot_number
                 rfid_match.storage_location = None
+                # Update weight from AMS data
+                if ams_slot.remaining_percent >= 0:
+                    rfid_match.remaining_weight_g = rfid_match.initial_weight_g * (ams_slot.remaining_percent / 100)
                 
                 updated_slots.append({
                     "slot": ams_slot.slot_number,
@@ -612,7 +615,8 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
                     "color_hex": color_hex,
                     "spool_id": rfid_match.id,
                     "rfid": ams_slot.rfid_tag,
-                    "matched": "rfid"
+                    "matched": "rfid",
+                    "remaining_percent": ams_slot.remaining_percent
                 })
                 continue
 
