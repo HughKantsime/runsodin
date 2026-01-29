@@ -119,7 +119,7 @@ app.add_middleware(
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
-    if request.url.path == "/health" or request.method == "OPTIONS":
+    if request.url.path == "/health" or "/label" in request.url.path or request.method == "OPTIONS":
         return await call_next(request)
     
     # If no API key configured, auth is disabled
