@@ -633,6 +633,40 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
                 "empty": True
             })
     
+    # Check for mismatches with assigned spools
+    mismatches = []
+    for db_slot in db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all():
+        if db_slot.assigned_spool_id and db_slot.assigned_spool:
+            spool = db_slot.assigned_spool
+            if spool.filament:
+                # Check color mismatch
+                spool_hex = (spool.filament.color_hex or "").lower().replace("#", "")
+                slot_hex = (db_slot.color_hex or "").lower().replace("#", "")
+                
+                # Color distance check (allow some tolerance)
+                mismatch = False
+                mismatch_reason = []
+                
+                if spool_hex and slot_hex and spool_hex != slot_hex:
+                    # Calculate color distance
+                    try:
+                        r1, g1, b1 = int(spool_hex[0:2], 16), int(spool_hex[2:4], 16), int(spool_hex[4:6], 16)
+                        r2, g2, b2 = int(slot_hex[0:2], 16), int(slot_hex[2:4], 16), int(slot_hex[4:6], 16)
+                        distance = ((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2) ** 0.5
+                        if distance > 60:  # Threshold for "different color"
+                            mismatch = True
+                            mismatch_reason.append(f"Color: spool={spool_hex}, slot={slot_hex}")
+                    except:
+                        pass
+                
+                if mismatch:
+                    db_slot.spool_confirmed = False
+                    mismatches.append({
+                        "slot_number": db_slot.slot_number,
+                        "assigned_spool_id": spool.id,
+                        "reasons": mismatch_reason
+                    })
+
     db.commit()
     
     return {
@@ -640,7 +674,8 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         "printer_id": printer_id,
         "printer_name": printer.name,
         "slots_synced": len(updated_slots),
-        "slots": updated_slots
+        "slots": updated_slots,
+        "mismatches": mismatches
     }
 
 
