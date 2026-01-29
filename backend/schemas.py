@@ -1,6 +1,5 @@
-"""
-Pydantic schemas for API request/response validation.
-"""
+"""Pydantic schemas for API request/response validation."""
+from models import FilamentType
 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -18,16 +17,6 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class FilamentType(str, Enum):
-    PLA = "PLA"
-    PETG = "PETG"
-    ABS = "ABS"
-    ASA = "ASA"
-    TPU = "TPU"
-    PA = "PA"
-    PC = "PC"
-    PVA = "PVA"
-    OTHER = "OTHER"
 
 
 # ============== Filament Slot Schemas ==============
