@@ -208,7 +208,7 @@ class Spool(Base):
     
     @property
     def percent_remaining(self) -> float:
-        if self.initial_weight_g and self.initial_weight_g > 0:
+        if self.initial_weight_g and self.initial_weight_g > 0 and self.remaining_weight_g is not None:
             return (self.remaining_weight_g / self.initial_weight_g) * 100
         return 0
 

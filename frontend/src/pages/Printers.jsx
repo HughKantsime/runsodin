@@ -14,7 +14,6 @@ const apiHeaders = {
 function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
-
   const filteredFilaments = allFilaments?.filter(f => 
     f.display_name.toLowerCase().includes(search.toLowerCase()) ||
     f.brand.toLowerCase().includes(search.toLowerCase()) ||
@@ -26,10 +25,14 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   const libraryFilaments = filteredFilaments.filter(f => f.source === 'library')
   
   // Filter tracked spools
-  const filteredSpools = spools?.filter(s => 
+  const filteredSpools = (spools?.filter(s => 
     s.filament_brand?.toLowerCase().includes(search.toLowerCase()) ||
     s.filament_name?.toLowerCase().includes(search.toLowerCase())
-  ) || []
+  ).sort((a, b) => {
+    if (a.id === slot.assigned_spool_id) return -1;
+    if (b.id === slot.assigned_spool_id) return 1;
+    return 0;
+  })) || []
   
   const handleSelectSpool = async (spool) => {
     // Assign spool to slot via API
@@ -127,7 +130,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
               {filteredSpools.length > 0 && (
                 <>
                   <div className="text-xs text-green-400 font-medium px-1 py-1">Tracked Spools</div>
-                  {filteredSpools.slice(0, 10).map(s => (
+                  {filteredSpools.map(s => (
                     <button
                       key={s.id}
                       onClick={() => handleSelectSpool(s)}
