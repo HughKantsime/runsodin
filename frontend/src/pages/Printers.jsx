@@ -11,7 +11,7 @@ const apiHeaders = {
   'X-API-Key': API_KEY
 }
 
-function FilamentSlotEditor({ slot, allFilaments, onSave }) {
+function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   const [isEditing, setIsEditing] = useState(false)
   const [search, setSearch] = useState('')
 
@@ -24,6 +24,28 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
   // Group by source (spoolman first, then by brand)
   const spoolmanFilaments = filteredFilaments.filter(f => f.source === 'spoolman')
   const libraryFilaments = filteredFilaments.filter(f => f.source === 'library')
+  
+  // Filter tracked spools
+  const filteredSpools = spools?.filter(s => 
+    s.filament_brand?.toLowerCase().includes(search.toLowerCase()) ||
+    s.filament_name?.toLowerCase().includes(search.toLowerCase())
+  ) || []
+  
+  const handleSelectSpool = async (spool) => {
+    // Assign spool to slot via API
+    await fetch(`/api/printers/${printerId}/slots/${slot.slot_number}/assign?spool_id=${spool.id}`, {
+      method: "POST",
+      headers: { "X-API-Key": API_KEY }
+    })
+    onSave({
+      color: `${spool.filament_brand} ${spool.filament_name}`,
+      color_hex: spool.filament_color_hex,
+      filament_type: spool.filament_material,
+      assigned_spool_id: spool.id
+    })
+    setIsEditing(false)
+    setSearch("")
+  }
 
   const handleSelect = (filament) => {
     onSave({ 
@@ -102,6 +124,25 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
               />
             </div>
             <div className="max-h-64 overflow-y-auto space-y-1">
+              {filteredSpools.length > 0 && (
+                <>
+                  <div className="text-xs text-green-400 font-medium px-1 py-1">Tracked Spools</div>
+                  {filteredSpools.slice(0, 10).map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleSelectSpool(s)}
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                    >
+                      <div 
+                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        style={{ backgroundColor: s.filament_color_hex ? `#${s.filament_color_hex}` : "#666" }}
+                      />
+                      <span className="truncate flex-1">{s.filament_brand} {s.filament_name}</span>
+                      <span className="text-xs text-farm-400">{Math.round(s.remaining_weight_g)}g</span>
+                    </button>
+                  ))}
+                </>
+              )}
               {spoolmanFilaments.length > 0 && (
                 <>
                   <div className="text-xs text-print-400 font-medium px-1 py-1">From Spoolman</div>
@@ -156,7 +197,7 @@ function FilamentSlotEditor({ slot, allFilaments, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd }) {
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd }) {
   const [syncing, setSyncing] = useState(false)
   
   const handleSyncAms = async () => {
@@ -237,6 +278,9 @@ function PrinterCard({ printer, allFilaments, onDelete, onToggleActive, onUpdate
         )}>
           {printer.filament_slots?.map((slot) => (
             <FilamentSlotEditor 
+              printerId={printer.id}
+              spools={spools}
+              
               key={slot.id} 
               slot={slot} 
               allFilaments={allFilaments}
@@ -504,6 +548,10 @@ export default function Printers() {
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
+  const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
+    const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }})
+    return res.json()
+  }})
   
   const createPrinter = useMutation({ mutationFn: printers.create, onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false) } })
   const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false); setEditingPrinter(null) } })
@@ -602,6 +650,7 @@ export default function Printers() {
               key={printer.id} 
               printer={printer} 
               allFilaments={filamentsData}
+              spools={spoolsData}
               onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }} 
               onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })} 
               onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })} 
