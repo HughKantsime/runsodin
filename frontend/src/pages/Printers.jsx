@@ -86,22 +86,14 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
     }
     return short
   }
-
   return (
     <>
       <div 
-        className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 overflow-hidden" 
+        className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 text-center" 
         onClick={() => setIsEditing(true)}
       >
-        <div className="text-xs text-farm-500 mb-1">Slot {slot.slot_number}</div>
-        <div className="flex items-center gap-2 min-w-0">
-          <div 
-            className="w-3 h-3 rounded-full border border-farm-600 flex-shrink-0" 
-            style={{ backgroundColor: colorHex ? `#${colorHex}` : '#333' }}
-          />
-          <div className="text-sm font-medium truncate" title={slot.color || 'Empty'}>{getShortName(slot.color)}</div>
-        </div>
-        <div className="text-xs text-farm-500">{slot.filament_type || 'PLA'}</div>
+        <div className="w-full h-3 rounded mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
+        <span className="text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
       </div>
       
       {/* Modal overlay for editing */}
