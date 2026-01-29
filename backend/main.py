@@ -611,41 +611,67 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
 
             # Auto-create spool if RFID exists but not tracked
             if ams_slot.rfid_tag and not rfid_match:
+                import uuid
+                
                 # Find or create filament library entry
                 library_entry = find_library_match(color_hex, ams_slot.filament_type)
-                if library_entry:
-                    import uuid
-                    new_spool = Spool(
-                        filament_id=int(str(library_entry.id).replace("lib_", "")),
-                        qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
-                        rfid_tag=ams_slot.rfid_tag,
-                        initial_weight_g=1000.0,
-                        remaining_weight_g=1000.0 * (ams_slot.remaining_percent / 100),
-                        status=SpoolStatus.ACTIVE,
-                        location_printer_id=printer_id,
-                        location_slot=ams_slot.slot_number
-                    )
-                    db.add(new_spool)
-                    db.flush()  # Get the ID
-                    
-                    color_name = f"{library_entry.brand} {library_entry.name}".strip()
-                    db_slot.filament_type = ftype
-                    db_slot.color = color_name
-                    db_slot.color_hex = color_hex
-                    db_slot.assigned_spool_id = new_spool.id
-                    db_slot.spool_confirmed = True
-                    db_slot.loaded_at = datetime.utcnow()
-                    
-                    updated_slots.append({
-                        "slot": ams_slot.slot_number,
-                        "type": ftype.value,
-                        "color": color_name,
-                        "color_hex": color_hex,
-                        "spool_id": new_spool.id,
-                        "rfid": ams_slot.rfid_tag,
-                        "matched": "rfid_auto_created"
-                    })
-                    continue
+                
+                if not library_entry:
+                    # Check for existing entry by brand+name+material
+                    sub_brand = ams_slot.sub_brand or ams_slot.filament_type
+                    existing = db.query(FilamentLibrary).filter(
+                        FilamentLibrary.brand == "Bambu Lab",
+                        FilamentLibrary.name == sub_brand,
+                        FilamentLibrary.material == ftype.value
+                    ).first()
+                    if existing:
+                        library_entry = existing
+                    else:
+                        # Create new library entry from AMS data
+                        sub_brand = ams_slot.sub_brand or ams_slot.filament_type
+                        new_lib = FilamentLibrary(
+                            brand="Bambu Lab",
+                            name=sub_brand,
+                            material=ftype.value,
+                            color_hex=color_hex
+                        )
+                        db.add(new_lib)
+                        db.flush()
+                        library_entry = new_lib
+                
+                # Create spool
+                new_spool = Spool(
+                    filament_id=library_entry.id,
+                    qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
+                    rfid_tag=ams_slot.rfid_tag,
+                    initial_weight_g=1000.0,
+                    remaining_weight_g=1000.0 * (ams_slot.remaining_percent / 100),
+                    status=SpoolStatus.ACTIVE,
+                    location_printer_id=printer_id,
+                    location_slot=ams_slot.slot_number
+                )
+                db.add(new_spool)
+                db.flush()
+                
+                color_name = f"{library_entry.brand} {library_entry.name}".strip()
+                db_slot.filament_type = ftype
+                db_slot.color = color_name
+                db_slot.color_hex = color_hex
+                db_slot.assigned_spool_id = new_spool.id
+                db_slot.spool_confirmed = True
+                db_slot.loaded_at = datetime.utcnow()
+                
+                updated_slots.append({
+                    "slot": ams_slot.slot_number,
+                    "type": ftype.value,
+                    "color": color_name,
+                    "color_hex": color_hex,
+                    "spool_id": new_spool.id,
+                    "rfid": ams_slot.rfid_tag,
+                    "matched": "rfid_auto_created"
+                })
+                continue
+
 
             # Priority 1: Match against local filament library
             library_match = find_library_match(color_hex, ams_slot.filament_type)
