@@ -1764,7 +1764,7 @@ async def sync_bambu_ams(printer_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Printer has no Bambu config (api_host empty)")
     
     try:
-        parts = printer.api_key.split("|")
+        parts = crypto.decrypt(printer.api_key).split("|")
         if len(parts) != 2:
             raise ValueError()
         serial_number, access_code = parts; ip_address = printer.api_host
