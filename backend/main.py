@@ -415,6 +415,13 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
         "PA": FilamentType.PA,
         "PC": FilamentType.PC,
         "PVA": FilamentType.PVA,
+        "PLA-S": FilamentType.PLA_SUPPORT,
+        "PA-S": FilamentType.PLA_SUPPORT,
+        "PETG-S": FilamentType.PLA_SUPPORT,
+        "PA-CF": FilamentType.NYLON_CF,
+        "PA-GF": FilamentType.NYLON_GF,
+        "PET-CF": FilamentType.PETG_CF,
+        "PLA-CF": FilamentType.PLA_CF,
     }
     
     # Import FilamentLibrary model
@@ -613,8 +620,14 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
             if ams_slot.rfid_tag and not rfid_match:
                 import uuid
                 
-                # Find or create filament library entry
-                library_entry = find_library_match(color_hex, ams_slot.filament_type)
+                # Find or create filament library entry - check sub_brand FIRST
+                sub_brand = ams_slot.sub_brand or ams_slot.filament_type
+                library_entry = db.query(FilamentLibrary).filter(
+                    FilamentLibrary.brand == "Bambu Lab",
+                    FilamentLibrary.name == sub_brand,
+                    FilamentLibrary.material == ftype.value
+                ).first()
+                
                 
                 if not library_entry:
                     # Check for existing entry by brand+name+material
