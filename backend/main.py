@@ -790,7 +790,7 @@ def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
                     except:
                         pass
                 
-                if mismatch:
+                if mismatch and not spool.rfid_tag:
                     db_slot.spool_confirmed = False
                     mismatches.append({
                         "slot_number": db_slot.slot_number,
