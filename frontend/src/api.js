@@ -31,6 +31,7 @@ export const printers = {
   create: (data) => fetchAPI('/printers', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI('/printers/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id) => fetchAPI('/printers/' + id, { method: 'DELETE' }),
+  reorder: (ids) => fetchAPI('/printers/reorder', { method: 'POST', body: JSON.stringify({ printer_ids: ids }) }),
   updateSlot: (printerId, slotNumber, data) => 
     fetchAPI('/printers/' + printerId + '/slots/' + slotNumber, { method: 'PATCH', body: JSON.stringify(data) }),
 }
@@ -88,4 +89,13 @@ export const jobActions = {
       method: 'PATCH', 
       body: JSON.stringify({ printer_id: printerId, scheduled_start: scheduledStart })
     }),
+}
+
+// Print Jobs (MQTT tracked)
+export const printJobs = {
+  list: (params = {}) => {
+    const query = new URLSearchParams(params).toString()
+    return fetchAPI('/print-jobs' + (query ? '?' + query : ''))
+  },
+  stats: () => fetchAPI('/print-jobs/stats'),
 }

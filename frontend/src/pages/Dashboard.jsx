@@ -5,13 +5,13 @@ import {
   CheckCircle, 
   AlertCircle,
   Zap,
-  RefreshCw,
   XCircle,
-  Trash2
+  Activity,
+  Timer
 } from 'lucide-react'
 import clsx from 'clsx'
 
-import { stats, jobs, scheduler, printers } from '../api'
+import { stats, jobs, scheduler, printers, printJobs } from '../api'
 
 function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   const colorClasses = {
@@ -27,9 +27,7 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
         <div>
           <p className="text-sm text-farm-400 mb-1">{label}</p>
           <p className="text-3xl font-bold font-display">{value}</p>
-          {trend && (
-            <p className="text-xs text-farm-500 mt-2">{trend}</p>
-          )}
+          {trend && <p className="text-xs text-farm-500 mt-2">{trend}</p>}
         </div>
         <div className="p-2 bg-farm-800/50 rounded-lg">
           <Icon size={24} />
@@ -39,46 +37,45 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   )
 }
 
-function PrinterCard({ printer }) {
+function PrinterCard({ printer, printerStats }) {
   const statusColor = printer.is_active ? 'text-print-400' : 'text-farm-500'
+  const pStats = printerStats?.find(s => s.printer_id === printer.id)
   
-  // Extract just the color name (last part after brand)
   const getShortName = (color) => {
-    if (!color) return '—'
-    // If it has a brand prefix like "Bambu Lab Black", just show "black"
+    if (!color) return ''
     const parts = color.split(' ')
-    if (parts.length > 2) {
-      return parts.slice(2).join(' ').toLowerCase()
-    }
+    if (parts.length > 2) return parts.slice(2).join(' ').toLowerCase()
     return color.toLowerCase()
   }
+
+  const slots = printer.filament_slots || []
   
   return (
-    <div className="bg-farm-900 rounded-xl p-4 border border-farm-800 h-fit">
+    <div className="bg-farm-900 rounded-xl p-4 border border-farm-800">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
-        <div className="flex items-center gap-1.5">
-          <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
-          <span className={clsx("text-xs", statusColor)}>{printer.is_active ? "Active" : "Inactive"}</span>
+        <div className="flex items-center gap-3">
+          {pStats && (
+            <div className="flex items-center gap-1 text-xs">
+              <Timer size={12} className="text-farm-400" />
+              <span className="text-print-400 font-medium">{pStats.total_hours?.toFixed(1) || 0}h</span>
+              <span className="text-farm-500">({pStats.completed_jobs || 0})</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5">
+            <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
+            <span className={clsx("text-xs", statusColor)}>{printer.is_active ? "Active" : "Inactive"}</span>
+          </div>
         </div>
       </div>
-      {/* Filament slots - grid layout */}
       <div className="grid grid-cols-4 gap-2">
-        {printer.filament_slots?.map((slot) => (
-          <div 
-            key={slot.slot_number}
-            className="bg-farm-800 rounded-lg p-2 text-center min-w-0"
-            title={slot.color || 'Empty'}
-          >
+        {slots.map((slot, idx) => (
+          <div key={idx} className="bg-farm-800 rounded-lg p-2 text-center min-w-0">
             <div 
-              className="w-full h-3 rounded mb-1"
-              style={{ 
-                backgroundColor: slot.color_hex ? `#${slot.color_hex}` : (slot.color ? '#888' : '#333')
-              }}
+              className="w-full h-3 rounded mb-1" 
+              style={{ backgroundColor: slot.color_hex ? `#${slot.color_hex}` : (slot.color ? '#888' : '#333') }} 
             />
-            <span className="text-xs text-farm-500 truncate block">
-              {getShortName(slot.color)}
-            </span>
+            <span className="text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
           </div>
         ))}
       </div>
@@ -96,60 +93,35 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   }
 
   return (
-    <div className={clsx(
-      'bg-farm-900 rounded-lg p-4 border-l-4',
-      statusColors[job.status]
-    )}>
+    <div className={clsx('bg-farm-900 rounded-lg p-4 border-l-4', statusColors[job.status])}>
       <div className="flex items-center justify-between">
         <div>
           <h4 className="font-medium">{job.item_name}</h4>
-          <p className="text-sm text-farm-500">
-            {job.printer_name || 'Unassigned'} • {job.duration_hours || job.effective_duration}h
-          </p>
+          <p className="text-sm text-farm-500">{job.printer_name || 'Unassigned'} • {job.duration_hours || job.effective_duration}h</p>
         </div>
-        
         <div className="flex items-center gap-2">
           {job.status === 'scheduled' && (
-            <button
-              onClick={() => onStart(job.id)}
-              className="p-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors"
-              title="Start Print"
-            >
+            <button onClick={() => onStart(job.id)} className="p-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors" title="Start Print">
               <Play size={16} />
             </button>
           )}
           {job.status === 'printing' && (
-            <button
-              onClick={() => onComplete(job.id)}
-              className="p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors"
-              title="Mark Complete"
-            >
+            <button onClick={() => onComplete(job.id)} className="p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" title="Mark Complete">
               <CheckCircle size={16} />
             </button>
           )}
           {(job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
-            <button
-              onClick={() => onCancel(job.id)}
-              className="p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors"
-              title="Cancel"
-            >
+            <button onClick={() => onCancel(job.id)} className="p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" title="Cancel">
               <XCircle size={16} />
             </button>
           )}
           <div className={clsx('status-dot', job.status)} />
         </div>
       </div>
-      
-      {/* Color chips */}
       {job.colors_list?.length > 0 && (
         <div className="flex gap-1 mt-2">
           {job.colors_list.map((color, i) => (
-            <span 
-              key={i}
-              className="text-xs bg-farm-800 px-2 py-0.5 rounded"
-            >
-              {color}
-            </span>
+            <span key={i} className="text-xs bg-farm-800 px-2 py-0.5 rounded">{color}</span>
           ))}
         </div>
       )}
@@ -157,140 +129,181 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   )
 }
 
+function MqttPrintItem({ job }) {
+  const formatTime = (isoString) => {
+    if (!isoString) return '—'
+    const d = new Date(isoString)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+
+  return (
+    <div className="bg-farm-900 rounded-lg p-4 border-l-4 border-print-500">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="font-medium flex items-center gap-2">
+            <Activity size={14} className="text-print-400 animate-pulse" />
+            {job.job_name || 'Unknown'}
+          </h4>
+          <p className="text-sm text-farm-500">{job.printer_name} • Started {formatTime(job.started_at)}</p>
+        </div>
+        <div className="text-right">
+          {job.total_layers && <p className="text-xs text-farm-500">{job.total_layers} layers</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PrintHistoryItem({ job }) {
+  const statusColors = {
+    running: "border-yellow-500",
+    completed: "border-gray-500",
+    failed: "border-red-500",
+    cancelled: "border-gray-500",
+  }
+
+  const formatDuration = (minutes) => {
+    if (!minutes) return '—'
+    if (minutes < 60) return `${Math.round(minutes)}m`
+    const hrs = Math.floor(minutes / 60)
+    const mins = Math.round(minutes % 60)
+    return `${hrs}h ${mins}m`
+  }
+
+  const formatTime = (isoString) => {
+    if (!isoString) return '—'
+    const d = new Date(isoString)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+
+  return (
+    <div className={clsx('bg-farm-900 rounded-lg p-4 border-l-4', statusColors[job.status] || 'border-farm-700')}>
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="font-medium">{job.job_name || 'Unknown'}</h4>
+          <p className="text-sm text-farm-500">{job.printer_name} • {formatTime(job.started_at)}</p>
+        </div>
+        <div className="text-right">
+          <div className="font-medium text-print-400">{formatDuration(job.duration_minutes)}</div>
+          {job.total_layers && <p className="text-xs text-farm-500">{job.total_layers} layers</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const queryClient = useQueryClient()
 
-  const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['stats'],
-    queryFn: stats.get,
-  })
+  const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: stats.get })
+  const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true) })
+  const { data: activeJobs } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
+  const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 5000 })
+  const { data: printerStats } = useQuery({ queryKey: ['print-jobs-stats'], queryFn: printJobs.stats, refetchInterval: 30000 })
 
-  const { data: printersData } = useQuery({
-    queryKey: ['printers'],
-    queryFn: () => printers.list(true),
-  })
-
-  const { data: activeJobs } = useQuery({
-    queryKey: ['jobs', 'active'],
-    queryFn: () => jobs.list(),
-  })
+  // Split MQTT jobs into running vs completed
+  const runningMqttJobs = allPrintJobs?.filter(j => j.status === 'running') || []
+  const completedMqttJobs = allPrintJobs?.filter(j => j.status !== 'running') || []
 
   const runScheduler = useMutation({
     mutationFn: scheduler.run,
-    onSuccess: () => {
-      queryClient.invalidateQueries(['jobs'])
-      queryClient.invalidateQueries(['stats'])
-    },
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
   })
 
   const startJob = useMutation({
     mutationFn: jobs.start,
-    onSuccess: () => {
-      queryClient.invalidateQueries(['jobs'])
-      queryClient.invalidateQueries(['stats'])
-    },
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
   })
 
   const completeJob = useMutation({
     mutationFn: jobs.complete,
-    onSuccess: () => {
-      queryClient.invalidateQueries(['jobs'])
-      queryClient.invalidateQueries(['stats'])
-    },
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
   })
+
+  const cancelJob = useMutation({
+    mutationFn: jobs.cancel,
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
+  })
+
+  // Calculate currently printing count (scheduled jobs + MQTT running)
+  const currentlyPrinting = statsData?.jobs?.printing || 0
 
   return (
     <div className="p-8">
-      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-display font-bold">Dashboard</h1>
           <p className="text-farm-500 mt-1">Print farm overview</p>
         </div>
-        
-        <button
-          onClick={() => runScheduler.mutate()}
-          disabled={runScheduler.isPending}
-          className={clsx(
-            'flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors',
-            'bg-print-600 hover:bg-print-500 text-white',
-            runScheduler.isPending && 'opacity-50 cursor-not-allowed'
-          )}
-        >
+        <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
+          className={clsx('flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors bg-print-600 hover:bg-print-500 text-white', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
           <Zap size={18} />
           {runScheduler.isPending ? 'Scheduling...' : 'Run Scheduler'}
         </button>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Currently Printing"
-          value={statsData?.jobs?.printing || 0}
-          icon={Play}
-          color="print"
-        />
-        <StatCard
-          label="Scheduled"
-          value={statsData?.jobs?.scheduled || 0}
-          icon={Clock}
-          color="scheduled"
-        />
-        <StatCard
-          label="Pending"
-          value={statsData?.jobs?.pending || 0}
-          icon={AlertCircle}
-          color="pending"
-        />
-        <StatCard
-          label="Completed Today"
-          value={statsData?.jobs?.completed_today || 0}
-          icon={CheckCircle}
-          color="farm"
-        />
+        <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="print" />
+        <StatCard label="Scheduled" value={statsData?.jobs?.scheduled || 0} icon={Clock} color="scheduled" />
+        <StatCard label="Pending" value={statsData?.jobs?.pending || 0} icon={AlertCircle} color="pending" />
+        <StatCard label="Completed Today" value={statsData?.jobs?.completed_today || 0} icon={CheckCircle} color="farm" />
       </div>
 
       <div className="grid grid-cols-3 gap-8">
         {/* Printers */}
         <div className="col-span-2">
           <h2 className="text-xl font-display font-semibold mb-4">Printers</h2>
-          <div className="grid grid-cols-2 gap-4 items-start">
+          <div className="grid grid-cols-2 gap-4">
             {printersData?.map((printer) => (
-              <PrinterCard key={printer.id} printer={printer} />
+              <PrinterCard key={printer.id} printer={printer} printerStats={printerStats} />
             ))}
             {(!printersData || printersData.length === 0) && (
-              <div className="col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">
-                No printers configured. Add printers to get started.
-              </div>
+              <div className="col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">No printers configured.</div>
             )}
           </div>
         </div>
 
-        {/* Job Queue */}
-        <div>
-          <h2 className="text-xl font-display font-semibold mb-4">Active Jobs</h2>
-          <div className="space-y-3">
-            {activeJobs?.filter(j => ['printing', 'scheduled', 'pending'].includes(j.status))
-              .slice(0, 8)
-              .map((job) => (
-                <JobQueueItem 
-                  key={job.id} 
-                  job={job}
-                  onStart={(id) => startJob.mutate(id)}
-                  onComplete={(id) => completeJob.mutate(id)}
-                  onCancel={(id) => cancelJob.mutate(id)}
-                />
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Active Jobs - includes running MQTT prints */}
+          <div>
+            <h2 className="text-xl font-display font-semibold mb-4">Active Jobs</h2>
+            <div className="space-y-3">
+              {/* Running MQTT prints */}
+              {runningMqttJobs.map((job) => (
+                <MqttPrintItem key={`mqtt-${job.id}`} job={job} />
               ))}
-            {(!activeJobs || activeJobs.length === 0) && (
-              <div className="bg-farm-900 rounded-xl p-8 text-center text-farm-500">
-                No active jobs. Create jobs to schedule prints.
-              </div>
-            )}
+              {/* Scheduled jobs from Jobs table */}
+              {activeJobs?.filter(j => ['printing', 'scheduled', 'pending'].includes(j.status))
+                .slice(0, 8)
+                .map((job) => (
+                  <JobQueueItem 
+                    key={job.id} 
+                    job={job}
+                    onStart={(id) => startJob.mutate(id)}
+                    onComplete={(id) => completeJob.mutate(id)}
+                    onCancel={(id) => cancelJob.mutate(id)}
+                  />
+                ))}
+              {runningMqttJobs.length === 0 && (!activeJobs || activeJobs.filter(j => ['printing', 'scheduled', 'pending'].includes(j.status)).length === 0) && (
+                <div className="bg-farm-900 rounded-xl p-6 text-center text-farm-500 text-sm">No active jobs</div>
+              )}
+            </div>
+          </div>
+
+          {/* Recent Prints - only completed/failed/cancelled */}
+          <div>
+            <h2 className="text-xl font-display font-semibold mb-4">Recent Prints</h2>
+            <div className="space-y-3">
+              {completedMqttJobs.slice(0, 10).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
+              {completedMqttJobs.length === 0 && (
+                <div className="bg-farm-900 rounded-xl p-6 text-center text-farm-500 text-sm">No print history yet</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Scheduler Result Toast */}
       {runScheduler.isSuccess && (
         <div className="fixed bottom-4 right-4 bg-print-600 text-white px-4 py-3 rounded-lg shadow-lg">
           Scheduled {runScheduler.data?.scheduled || 0} jobs

@@ -14,7 +14,7 @@ import os
 from pydantic import BaseModel as PydanticBaseModel, field_validator, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
 
@@ -239,6 +239,22 @@ def create_printer(
     db.refresh(db_printer)
     return db_printer
 
+
+
+@app.post("/api/printers/reorder", tags=["Printers"])
+def reorder_printers(
+    data: dict,
+    db: Session = Depends(get_db)
+):
+    """Update printer display order."""
+    printer_ids = data.get("printer_ids", [])
+    for idx, printer_id in enumerate(printer_ids):
+        db.execute(
+            text("UPDATE printers SET display_order = :order WHERE id = :id"),
+            {"order": idx, "id": printer_id}
+        )
+    db.commit()
+    return {"success": True, "order": printer_ids}
 
 @app.get("/api/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
 def get_printer(printer_id: int, db: Session = Depends(get_db)):
@@ -1260,6 +1276,47 @@ def get_timeline(
             colors=job.colors_list
         ))
     
+
+    # Add MQTT-tracked print jobs to timeline
+    mqtt_jobs_query = text("""
+        SELECT pj.*, p.name as printer_name
+        FROM print_jobs pj
+        JOIN printers p ON p.id = pj.printer_id
+        WHERE pj.started_at < :end_date
+        AND (pj.ended_at > :start_date OR pj.ended_at IS NULL)
+    """)
+    mqtt_jobs = db.execute(mqtt_jobs_query, {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat()
+    }).fetchall()
+    
+    for mj in mqtt_jobs:
+        row = dict(mj._mapping)
+        printer = next((p for p in printers if p.id == row["printer_id"]), None)
+        if not printer:
+            continue
+        start_time = datetime.fromisoformat(row["started_at"])
+        end_time = datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else datetime.now()
+        mqtt_status = row["status"]
+        if mqtt_status == "running":
+            job_status = JobStatus.PRINTING
+        elif mqtt_status == "completed":
+            job_status = JobStatus.COMPLETED
+        elif mqtt_status == "failed":
+            job_status = JobStatus.FAILED
+        else:
+            job_status = JobStatus.COMPLETED
+        slots.append(TimelineSlot(
+            start=start_time,
+            end=end_time,
+            printer_id=row["printer_id"],
+            printer_name=printer.name,
+            job_id=None,
+            item_name=row["job_name"] or "MQTT Print",
+            status=job_status,
+            is_setup=False,
+            colors=[]
+        ))
     return TimelineResponse(
         start_date=start_date,
         end_date=end_date,
@@ -1338,6 +1395,14 @@ async def get_stats(db: Session = Depends(get_db)):
         Job.status == JobStatus.COMPLETED,
         Job.actual_end >= datetime.now().replace(hour=0, minute=0, second=0)
     ).count()
+    
+    # Include MQTT-tracked jobs
+    today_start = datetime.now().replace(hour=0, minute=0, second=0).isoformat()
+    mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
+    mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed' AND ended_at >= :today"), {"today": today_start}).scalar() or 0
+    
+    printing_jobs += mqtt_printing
+    completed_today += mqtt_completed_today
     
     total_models = db.query(Model).count()
     
@@ -2900,3 +2965,157 @@ def list_audit_logs(
         }
         for log in logs
     ]
+
+# ============== MQTT Print Jobs / Live Status ==============
+
+@app.get("/api/print-jobs", tags=["Print Jobs"])
+def get_print_jobs(
+    printer_id: Optional[int] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """Get print job history from MQTT tracking."""
+    from datetime import datetime as dt
+    from sqlalchemy import text
+    
+    # Build query dynamically
+    sql = """
+        SELECT pj.*, p.name as printer_name
+        FROM print_jobs pj
+        JOIN printers p ON p.id = pj.printer_id
+        WHERE 1=1
+    """
+    params = {}
+    
+    if printer_id is not None:
+        sql += " AND pj.printer_id = :printer_id"
+        params["printer_id"] = printer_id
+    if status is not None:
+        sql += " AND pj.status = :status"
+        params["status"] = status
+    
+    sql += " ORDER BY pj.started_at DESC LIMIT :limit"
+    params["limit"] = limit
+    
+    result = db.execute(text(sql), params).fetchall()
+    
+    jobs = []
+    for row in result:
+        job = dict(row._mapping)
+        if job.get('ended_at') and job.get('started_at'):
+            try:
+                start = dt.fromisoformat(job['started_at'])
+                end = dt.fromisoformat(job['ended_at'])
+                job['duration_minutes'] = round((end - start).total_seconds() / 60, 1)
+            except:
+                job['duration_minutes'] = None
+        else:
+            job['duration_minutes'] = None
+        jobs.append(job)
+    
+    return jobs
+
+@app.get("/api/print-jobs/stats", tags=["Print Jobs"])
+def get_print_job_stats(db: Session = Depends(get_db)):
+    """Get aggregated print job statistics."""
+    query = text("""
+        SELECT 
+            p.id as printer_id,
+            p.name as printer_name,
+            COUNT(*) as total_jobs,
+            SUM(CASE WHEN pj.status = 'completed' THEN 1 ELSE 0 END) as completed_jobs,
+            SUM(CASE WHEN pj.status = 'failed' THEN 1 ELSE 0 END) as failed_jobs,
+            SUM(CASE WHEN pj.status = 'running' THEN 1 ELSE 0 END) as running_jobs,
+            ROUND(SUM(
+                CASE WHEN pj.ended_at IS NOT NULL 
+                THEN (julianday(pj.ended_at) - julianday(pj.started_at)) * 24 
+                ELSE 0 END
+            ), 2) as total_hours
+        FROM print_jobs pj
+        JOIN printers p ON p.id = pj.printer_id
+        GROUP BY p.id
+        ORDER BY total_hours DESC
+    """)
+    result = db.execute(query).fetchall()
+    return [dict(row._mapping) for row in result]
+
+@app.get("/api/printers/{printer_id}/live-status", tags=["Printers"])
+def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
+    """Get real-time status from printer via MQTT."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    if not printer.api_host or not printer.api_key:
+        return {"error": "Printer not configured for MQTT"}
+    
+    try:
+        parts = crypto.decrypt(printer.api_key).split("|")
+        if len(parts) != 2:
+            return {"error": "Invalid credentials format"}
+        serial, access_code = parts
+    except:
+        return {"error": "Could not decrypt credentials"}
+    
+    # Quick MQTT connection to get status
+    from bambu_adapter import BambuPrinter
+    import time
+    
+    status_data = {}
+    def on_status(status):
+        nonlocal status_data
+        status_data = status.raw_data.get('print', {})
+    
+    try:
+        bp = BambuPrinter(
+            ip=printer.api_host,
+            serial=serial,
+            access_code=access_code,
+            on_status_update=on_status
+        )
+        if bp.connect():
+            # Wait for first status
+            timeout = 5
+            start = time.time()
+            while not status_data and (time.time() - start) < timeout:
+                time.sleep(0.2)
+            bp.disconnect()
+            
+            if status_data:
+                return {
+                    "printer_id": printer_id,
+                    "printer_name": printer.name,
+                    "gcode_state": status_data.get('gcode_state'),
+                    "job_name": status_data.get('subtask_name'),
+                    "progress": status_data.get('mc_percent'),
+                    "layer": status_data.get('layer_num'),
+                    "total_layers": status_data.get('total_layer_num'),
+                    "time_remaining": status_data.get('mc_remaining_time'),
+                    "bed_temp": status_data.get('bed_temper'),
+                    "bed_target": status_data.get('bed_target_temper'),
+                    "nozzle_temp": status_data.get('nozzle_temper'),
+                    "nozzle_target": status_data.get('nozzle_target_temper'),
+                    "wifi_signal": status_data.get('wifi_signal'),
+                }
+            else:
+                return {"error": "Timeout waiting for status"}
+        else:
+            return {"error": "Connection failed"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/printers/live-status", tags=["Printers"])
+def get_all_printers_live_status(db: Session = Depends(get_db)):
+    """Get real-time status from all Bambu printers."""
+    printers = db.query(Printer).filter(
+        Printer.api_host.isnot(None),
+        Printer.api_key.isnot(None)
+    ).all()
+    
+    results = []
+    for printer in printers:
+        status = get_printer_live_status(printer.id, db)
+        results.append(status)
+    
+    return results
