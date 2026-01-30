@@ -82,6 +82,15 @@ function PrinterCard({ printer, printerStats }) {
     </div>
   )
 }
+function formatHours(hours) {
+  if (!hours) return "—"
+  const mins = Math.round(hours * 60)
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  const m = mins % 60
+  return m > 0 ? `${hrs}h ${m}m` : `${hrs}h`
+}
+
 
 function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   const statusColors = {
@@ -97,7 +106,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
       <div className="flex items-center justify-between">
         <div>
           <h4 className="font-medium">{job.item_name}</h4>
-          <p className="text-sm text-farm-500">{job.printer_name || 'Unassigned'} • {job.duration_hours || job.effective_duration}h</p>
+          <p className="text-sm text-farm-500">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
         <div className="flex items-center gap-2">
           {job.status === 'scheduled' && (
@@ -121,7 +130,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
       {job.colors_list?.length > 0 && (
         <div className="flex gap-1 mt-2">
           {job.colors_list.map((color, i) => (
-            <span key={i} className="text-xs bg-farm-800 px-2 py-0.5 rounded">{color}</span>
+            <div key={i} className="w-5 h-5 rounded-full border border-farm-600" style={{ backgroundColor: color }} title={color} />
           ))}
         </div>
       )}

@@ -99,3 +99,29 @@ export const printJobs = {
   },
   stats: () => fetchAPI('/print-jobs/stats'),
 }
+
+export const printFiles = {
+  upload: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${API_BASE}/print-files/upload`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY },
+      body: formData
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      throw new Error(err.detail || 'Upload failed')
+    }
+    return response.json()
+  },
+  list: () => fetchAPI('/print-files'),
+  get: (id) => fetchAPI(`/print-files/${id}`),
+  delete: (id) => fetchAPI(`/print-files/${id}`, { method: 'DELETE' }),
+  schedule: (fileId, printerId) => {
+    const url = printerId 
+      ? `/print-files/${fileId}/schedule?printer_id=${printerId}`
+      : `/print-files/${fileId}/schedule`
+    return fetchAPI(url, { method: 'POST' })
+  }
+}

@@ -12,7 +12,7 @@ import re
 import os
 
 from pydantic import BaseModel as PydanticBaseModel, field_validator, ConfigDict
-from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -3119,3 +3119,194 @@ def get_all_printers_live_status(db: Session = Depends(get_db)):
         results.append(status)
     
     return results
+
+
+# ============== 3MF Upload ==============
+import tempfile
+import json as json_lib
+from threemf_parser import parse_3mf
+
+@app.post("/api/print-files/upload", tags=["Print Files"])
+async def upload_3mf(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """Upload and parse a .3mf file."""
+    if not file.filename.endswith('.3mf'):
+        raise HTTPException(status_code=400, detail="Only .3mf files are supported")
+    
+    # Save to temp file for parsing
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.3mf') as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+    
+    try:
+        # Parse the file
+        metadata = parse_3mf(tmp_path)
+        if not metadata:
+            raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
+        
+        # Store in database
+        result = db.execute(text("""
+            INSERT INTO print_files (
+                filename, project_name, print_time_seconds, total_weight_grams,
+                layer_count, layer_height, nozzle_diameter, printer_model,
+                supports_used, bed_type, filaments_json, thumbnail_b64
+            ) VALUES (
+                :filename, :project_name, :print_time_seconds, :total_weight_grams,
+                :layer_count, :layer_height, :nozzle_diameter, :printer_model,
+                :supports_used, :bed_type, :filaments_json, :thumbnail_b64
+            )
+        """), {
+            "filename": file.filename,
+            "project_name": metadata.project_name,
+            "print_time_seconds": metadata.print_time_seconds,
+            "total_weight_grams": metadata.total_weight_grams,
+            "layer_count": metadata.layer_count,
+            "layer_height": metadata.layer_height,
+            "nozzle_diameter": metadata.nozzle_diameter,
+            "printer_model": metadata.printer_model,
+            "supports_used": metadata.supports_used,
+            "bed_type": metadata.bed_type,
+            "filaments_json": json_lib.dumps([{
+                "slot": f.slot,
+                "type": f.type,
+                "color": f.color,
+                "used_meters": f.used_meters,
+                "used_grams": f.used_grams
+            } for f in metadata.filaments]),
+            "thumbnail_b64": metadata.thumbnail_b64
+        })
+        db.commit()
+        
+        file_id = result.lastrowid
+        
+        return {
+            "id": file_id,
+            "filename": file.filename,
+            "project_name": metadata.project_name,
+            "print_time_seconds": metadata.print_time_seconds,
+            "print_time_formatted": metadata.print_time_formatted(),
+            "total_weight_grams": metadata.total_weight_grams,
+            "layer_count": metadata.layer_count,
+            "filaments": [{
+                "slot": f.slot,
+                "type": f.type,
+                "color": f.color,
+                "used_grams": f.used_grams
+            } for f in metadata.filaments],
+            "thumbnail_b64": metadata.thumbnail_b64,
+            "is_sliced": metadata.print_time_seconds > 0
+        }
+    finally:
+        # Clean up temp file
+        import os
+        os.unlink(tmp_path)
+
+
+@app.get("/api/print-files", tags=["Print Files"])
+def list_print_files(
+    limit: int = Query(default=20, ge=1, le=100),
+    include_scheduled: bool = False,
+    db: Session = Depends(get_db)
+):
+    """List uploaded print files."""
+    query = """
+        SELECT pf.*, j.status as job_status, j.item_name as job_name
+        FROM print_files pf
+        LEFT JOIN jobs j ON j.id = pf.job_id
+    """
+    if not include_scheduled:
+        query += " WHERE pf.job_id IS NULL"
+    query += " ORDER BY pf.uploaded_at DESC LIMIT :limit"
+    
+    results = db.execute(text(query), {"limit": limit}).fetchall()
+    
+    files = []
+    for row in results:
+        r = dict(row._mapping)
+        r['filaments'] = json_lib.loads(r['filaments_json']) if r['filaments_json'] else []
+        del r['filaments_json']
+        r['print_time_formatted'] = f"{r['print_time_seconds'] // 3600}h {(r['print_time_seconds'] % 3600) // 60}m" if r['print_time_seconds'] >= 3600 else f"{r['print_time_seconds'] // 60}m"
+        files.append(r)
+    
+    return files
+
+
+@app.get("/api/print-files/{file_id}", tags=["Print Files"])
+def get_print_file(file_id: int, db: Session = Depends(get_db)):
+    """Get details of a specific print file."""
+    result = db.execute(text("SELECT * FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="Print file not found")
+    
+    r = dict(result._mapping)
+    r['filaments'] = json_lib.loads(r['filaments_json']) if r['filaments_json'] else []
+    del r['filaments_json']
+    r['print_time_formatted'] = f"{r['print_time_seconds'] // 3600}h {(r['print_time_seconds'] % 3600) // 60}m" if r['print_time_seconds'] >= 3600 else f"{r['print_time_seconds'] // 60}m"
+    
+    return r
+
+
+@app.delete("/api/print-files/{file_id}", tags=["Print Files"])
+def delete_print_file(file_id: int, db: Session = Depends(get_db)):
+    """Delete an uploaded print file."""
+    result = db.execute(text("SELECT id FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="Print file not found")
+    
+    db.execute(text("DELETE FROM print_files WHERE id = :id"), {"id": file_id})
+    db.commit()
+    return {"deleted": True}
+
+
+@app.post("/api/print-files/{file_id}/schedule", tags=["Print Files"])
+def schedule_print_file(
+    file_id: int,
+    printer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """Create a job from an uploaded print file."""
+    # Get the print file
+    result = db.execute(text("SELECT * FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="Print file not found")
+    
+    pf = dict(result._mapping)
+    if pf['job_id']:
+        raise HTTPException(status_code=400, detail="File already scheduled")
+    
+    filaments = json_lib.loads(pf['filaments_json']) if pf['filaments_json'] else []
+    colors = [f['color'] for f in filaments]
+    
+    # Create the job
+    job_result = db.execute(text("""
+        INSERT INTO jobs (
+            item_name, duration_hours, colors_required, quantity, priority, status, printer_id, hold, is_locked
+        ) VALUES (
+            :item_name, :duration_hours, :colors_required, 1, 5, 'PENDING', :printer_id, 0, 0
+        )
+    """), {
+        "item_name": pf['project_name'],
+        "duration_hours": pf['print_time_seconds'] / 3600.0,
+        "colors_required": ','.join(colors),
+        "printer_id": printer_id
+    })
+    db.commit()
+    
+    job_id = job_result.lastrowid
+    
+    # Link the print file to the job
+    db.execute(text("UPDATE print_files SET job_id = :job_id WHERE id = :id"), {
+        "job_id": job_id,
+        "id": file_id
+    })
+    db.commit()
+    
+    return {
+        "job_id": job_id,
+        "file_id": file_id,
+        "project_name": pf['project_name'],
+        "status": "pending"
+    }
