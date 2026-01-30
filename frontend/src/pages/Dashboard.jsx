@@ -54,7 +54,7 @@ function PrinterCard({ printer }) {
   }
   
   return (
-    <div className="bg-farm-900 rounded-xl p-4 border border-farm-800">
+    <div className="bg-farm-900 rounded-xl p-4 border border-farm-800 h-fit">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
         <div className="flex items-center gap-1.5">
@@ -64,7 +64,7 @@ function PrinterCard({ printer }) {
       </div>
       {/* Filament slots - grid layout */}
       <div className="grid grid-cols-4 gap-2">
-        {printer.filament_slots?.slice(0, 8).map((slot) => (
+        {printer.filament_slots?.map((slot) => (
           <div 
             key={slot.slot_number}
             className="bg-farm-800 rounded-lg p-2 text-center min-w-0"
@@ -254,7 +254,7 @@ export default function Dashboard() {
         {/* Printers */}
         <div className="col-span-2">
           <h2 className="text-xl font-display font-semibold mb-4">Printers</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 items-start">
             {printersData?.map((printer) => (
               <PrinterCard key={printer.id} printer={printer} />
             ))}
