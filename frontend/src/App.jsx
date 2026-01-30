@@ -10,7 +10,8 @@ import {
   Activity,
   BarChart3,
   Calculator,
-  Upload as UploadIcon
+  Upload as UploadIcon,
+  Shield
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -24,6 +25,8 @@ import Analytics from './pages/Analytics'
 import SettingsPage from './pages/Settings'
 import Spools from './pages/Spools'
 import Upload from './pages/Upload'
+import Login from './pages/Login'
+import Admin from './pages/Admin'
 import { stats } from './api'
 
 function NavItem({ to, icon: Icon, children }) {
@@ -74,6 +77,7 @@ function Sidebar() {
         <NavItem to="/analytics" icon={BarChart3}>Analytics</NavItem>
         <NavItem to="/spools" icon={Package}>Spools</NavItem>
         <NavItem to="/settings" icon={Settings}>Settings</NavItem>
+        <NavItem to="/admin" icon={Shield}>Admin</NavItem>
       </nav>
 
       {/* Quick Stats */}
@@ -124,6 +128,8 @@ export default function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/spools" element={<Spools />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="/login" element={<Login />} />
         </Routes>
       </main>
     </div>

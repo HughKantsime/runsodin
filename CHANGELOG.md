@@ -1,5 +1,40 @@
 # PrintFarm Scheduler Changelog
 
+## v0.7.0 - User Management & Authentication (2026-01-30)
+
+### Authentication System
+- JWT-based authentication with 24-hour token expiry
+- Password hashing with bcrypt
+- Role-based access control (admin/operator/viewer)
+
+### Login Page (/login)
+- Clean login form with PrintFarm branding
+- Token stored in localStorage
+- Redirects to dashboard on success
+
+### Admin Page (/admin)
+- User management for administrators
+- Create, edit, delete users
+- Assign roles and enable/disable accounts
+- View last login timestamps
+
+### Database
+- New `users` table with migration
+- Fields: username, email, password_hash, role, is_active, last_login
+
+### API Endpoints
+- `POST /api/auth/login` - Authenticate and get JWT token
+- `GET /api/auth/me` - Get current user info
+- `GET /api/users` - List users (admin only)
+- `POST /api/users` - Create user (admin only)
+- `PATCH /api/users/{id}` - Update user (admin only)
+- `DELETE /api/users/{id}` - Delete user (admin only)
+
+### Security Notes
+- Auth is optional - existing API key still works
+- Admin page requires login + admin role
+- Set JWT_SECRET_KEY env var in production
+
 ## v0.6.0 - 3MF Upload and Auto-Schedule (2026-01-30)
 
 ### New Feature: .3mf File Upload

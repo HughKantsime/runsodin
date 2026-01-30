@@ -125,3 +125,72 @@ export const printFiles = {
     return fetchAPI(url, { method: 'POST' })
   }
 }
+
+// Auth
+export const auth = {
+  login: async (username, password) => {
+    const formData = new URLSearchParams()
+    formData.append('username', username)
+    formData.append('password', password)
+    const response = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData
+    })
+    if (!response.ok) {
+      const err = await response.json()
+      throw new Error(err.detail || 'Login failed')
+    }
+    return response.json()
+  },
+  me: async () => {
+    const token = localStorage.getItem('token')
+    if (!token) return null
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!response.ok) return null
+    return response.json()
+  }
+}
+
+// Users (admin only)
+export const users = {
+  list: async () => {
+    const token = localStorage.getItem('token')
+    const response = await fetch(`${API_BASE}/users`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!response.ok) throw new Error('Failed to fetch users')
+    return response.json()
+  },
+  create: async (data) => {
+    const token = localStorage.getItem('token')
+    const response = await fetch(`${API_BASE}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) throw new Error('Failed to create user')
+    return response.json()
+  },
+  update: async (id, data) => {
+    const token = localStorage.getItem('token')
+    const response = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) throw new Error('Failed to update user')
+    return response.json()
+  },
+  delete: async (id) => {
+    const token = localStorage.getItem('token')
+    const response = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!response.ok) throw new Error('Failed to delete user')
+    return response.json()
+  }
+}

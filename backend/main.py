@@ -18,6 +18,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
 
+from auth import (
+    Token, UserCreate, UserResponse,
+    verify_password, hash_password, create_access_token, decode_token, has_permission
+)
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 from models import (Spool, SpoolUsage, SpoolStatus, AuditLog, 
     Base, Printer, FilamentSlot, Model, Job, JobStatus,
     FilamentType, SchedulerRun, init_db, FilamentLibrary
@@ -59,6 +66,28 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Auth helpers
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    if not token:
+        return None
+    token_data = decode_token(token)
+    if not token_data:
+        return None
+    user = db.execute(text("SELECT * FROM users WHERE username = :username"),
+                      {"username": token_data.username}).fetchone()
+    if not user:
+        return None
+    return dict(user._mapping)
+
+def require_role(required_role: str):
+    async def role_checker(current_user: dict = Depends(get_current_user)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if not has_permission(current_user["role"], required_role):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return current_user
+    return role_checker
 
 
 def log_audit(db: Session, action: str, entity_type: str = None, entity_id: int = None, details: dict = None, ip: str = None):
@@ -119,7 +148,7 @@ app.add_middleware(
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
-    if request.url.path == "/health" or "/label" in request.url.path or request.method == "OPTIONS":
+    if request.url.path == "/health" or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.method == "OPTIONS":
         return await call_next(request)
     
     # If no API key configured, auth is disabled
@@ -3310,3 +3339,67 @@ def schedule_print_file(
         "project_name": pf['project_name'],
         "status": "pending"
     }
+
+
+# ============== Auth Endpoints ==============
+@app.post("/api/auth/login", response_model=Token, tags=["Auth"])
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.execute(text("SELECT * FROM users WHERE username = :username"), 
+                      {"username": form_data.username}).fetchone()
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="Account disabled")
+    
+    db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"), 
+               {"now": datetime.now(), "id": user.id})
+    db.commit()
+    
+    access_token = create_access_token(data={"sub": user.username, "role": user.role})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/auth/me", tags=["Auth"])
+async def get_me(current_user: dict = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"username": current_user["username"], "email": current_user["email"], "role": current_user["role"]}
+
+@app.get("/api/users", tags=["Users"])
+async def list_users(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at FROM users")).fetchall()
+    return [dict(u._mapping) for u in users]
+
+@app.post("/api/users", tags=["Users"])
+async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    password_hash = hash_password(user.password)
+    try:
+        db.execute(text("""
+            INSERT INTO users (username, email, password_hash, role) 
+            VALUES (:username, :email, :password_hash, :role)
+        """), {"username": user.username, "email": user.email, "password_hash": password_hash, "role": user.role})
+        db.commit()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Username or email already exists")
+    return {"status": "created"}
+
+@app.patch("/api/users/{user_id}", tags=["Users"])
+async def update_user(user_id: int, updates: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    if 'password' in updates and updates['password']:
+        updates['password_hash'] = hash_password(updates.pop('password'))
+    else:
+        updates.pop('password', None)
+    
+    if updates:
+        set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
+        updates['id'] = user_id
+        db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)
+        db.commit()
+    return {"status": "updated"}
+
+@app.delete("/api/users/{user_id}", tags=["Users"])
+async def delete_user(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    if current_user["id"] == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+    db.commit()
+    return {"status": "deleted"}
