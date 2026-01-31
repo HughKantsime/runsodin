@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, X, Printer, Play } from 'lucide-react'
+import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, X, Printer, Play, Trash2 } from 'lucide-react'
 import clsx from 'clsx'
 
 import { printFiles, printers } from '../api'
@@ -141,7 +141,7 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="flex items-center gap-3">
               <Clock size={20} className="text-farm-500" />
-              <div>
+              <div className="flex items-center gap-2">
                 <p className="text-sm text-farm-500">Print Time</p>
                 <p className="font-medium">{data.print_time_formatted || 'Unknown'}</p>
               </div>
@@ -149,7 +149,7 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
             
             <div className="flex items-center gap-3">
               <Scale size={20} className="text-farm-500" />
-              <div>
+              <div className="flex items-center gap-2">
                 <p className="text-sm text-farm-500">Weight</p>
                 <p className="font-medium">{data.total_weight_grams}g</p>
               </div>
@@ -157,7 +157,7 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
             
             <div className="flex items-center gap-3">
               <Layers size={20} className="text-farm-500" />
-              <div>
+              <div className="flex items-center gap-2">
                 <p className="text-sm text-farm-500">Layers</p>
                 <p className="font-medium">{data.layer_count}</p>
               </div>
@@ -165,7 +165,7 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
             
             <div className="flex items-center gap-3">
               <Printer size={20} className="text-farm-500" />
-              <div>
+              <div className="flex items-center gap-2">
                 <p className="text-sm text-farm-500">Sliced For</p>
                 <p className="font-medium">{data.printer_model || 'Unknown'}</p>
               </div>
@@ -253,6 +253,11 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
 }
 
 function RecentUploads() {
+  const queryClient = useQueryClient()
+  const deleteMutation = useMutation({
+    mutationFn: (id) => printFiles.delete(id),
+    onSuccess: () => queryClient.invalidateQueries(["print-files"])
+  })
   const { data: files } = useQuery({
     queryKey: ['print-files'],
     queryFn: () => printFiles.list()
@@ -274,14 +279,14 @@ function RecentUploads() {
                   className="w-12 h-12 rounded object-contain bg-farm-950"
                 />
               )}
-              <div>
+              <div className="flex items-center gap-2">
                 <p className="font-medium">{f.project_name}</p>
                 <p className="text-sm text-farm-500">
                   {f.print_time_formatted} • {f.total_weight_grams}g
                 </p>
               </div>
             </div>
-            <div>
+            <div className="flex items-center gap-2">
               {f.job_id ? (
                 <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded">
                   Scheduled
@@ -291,6 +296,7 @@ function RecentUploads() {
                   Not scheduled
                 </span>
               )}
+              <button onClick={() => deleteMutation.mutate(f.id)} className="p-1 text-farm-500 hover:text-red-400 transition-colors" title="Delete"><Trash2 size={16} /></button>
             </div>
           </div>
         ))}

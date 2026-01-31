@@ -1157,6 +1157,20 @@ def fail_job(job_id: int, notes: Optional[str] = None, db: Session = Depends(get
     
     db.commit()
     db.refresh(job)
+
+@app.post("/api/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
+def cancel_job(job_id: int, db: Session = Depends(get_db)):
+    """Cancel a pending or scheduled job."""
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
+        raise HTTPException(status_code=400, detail="Can only cancel pending or scheduled jobs")
+    job.status = JobStatus.CANCELLED
+    job.is_locked = True
+    db.commit()
+    db.refresh(job)
+    return job
     return job
 
 

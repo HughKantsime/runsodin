@@ -11,7 +11,8 @@ import {
   BarChart3,
   Calculator,
   Upload as UploadIcon,
-  Shield
+  Shield,
+  LogOut
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -106,6 +107,7 @@ function Sidebar() {
           <Activity size={14} className="text-print-500" />
           <span>System Online</span>
         </div>
+        <button onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("user"); window.location.href = "/login"; }} className="flex items-center gap-2 text-farm-500 hover:text-red-400 text-sm mt-2 transition-colors"><LogOut size={14} />Logout</button>
       </div>
     </aside>
   )
