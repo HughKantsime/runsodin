@@ -1,3 +1,12 @@
+import { resolveColor } from "../utils/colorMap"
+
+function formatHours(h) {
+  if (!h) return "—"
+  if (h < 1) return Math.round(h * 60) + "m"
+  const hrs = Math.floor(h)
+  const mins = Math.round((h - hrs) * 60)
+  return mins > 0 ? hrs + "h " + mins + "m" : hrs + "h"
+}
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search } from 'lucide-react'
@@ -56,13 +65,13 @@ function JobRow({ job, onAction }) {
       <td className="px-4 py-3">
         {job.colors_list?.length > 0 ? (
           <div className="flex gap-1 flex-wrap">
-            {job.colors_list.slice(0, 4).map((color, i) => (
-              <span key={i} className="text-xs bg-farm-800 px-2 py-0.5 rounded">{color}</span>
+            {job.colors_list.map((color, i) => (
+              <span key={i} className="w-5 h-5 rounded-full border border-farm-700 flex items-center justify-center" style={{ backgroundColor: resolveColor(color) || "#333" }} title={color}>{!resolveColor(color) && <span className="text-[10px] text-farm-400">?</span>}</span>
             ))}
           </div>
         ) : '—'}
       </td>
-      <td className="px-4 py-3 text-sm text-farm-400">{job.duration_hours}h</td>
+      <td className="px-4 py-3 text-sm text-farm-400">{formatHours(job.duration_hours)}</td>
       <td className="px-4 py-3 text-sm text-farm-400">
         {job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}
       </td>

@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Routes, Route, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { 
@@ -12,7 +13,10 @@ import {
   Calculator,
   Upload as UploadIcon,
   Shield,
-  LogOut
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Menu
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -30,7 +34,7 @@ import Login from './pages/Login'
 import Admin from './pages/Admin'
 import { stats } from './api'
 
-function NavItem({ to, icon: Icon, children }) {
+function NavItem({ to, icon: Icon, children, collapsed }) {
   return (
     <NavLink
       to={to}
@@ -43,13 +47,14 @@ function NavItem({ to, icon: Icon, children }) {
         )
       }
     >
-      <Icon size={20} />
-      <span className="font-medium">{children}</span>
+      <Icon size={20} className="flex-shrink-0" />
+      {!collapsed && <span className="font-medium">{children}</span>}
     </NavLink>
   )
 }
 
 function Sidebar() {
+  const [collapsed, setCollapsed] = useState(false)
   const { data: statsData } = useQuery({
     queryKey: ['stats'],
     queryFn: stats.get,
@@ -57,32 +62,32 @@ function Sidebar() {
   })
 
   return (
-    <aside className="w-64 bg-farm-950 border-r border-farm-800 flex flex-col">
+    <aside className={clsx("bg-farm-950 border-r border-farm-800 flex flex-col transition-all duration-300", collapsed ? "w-16" : "w-64")}>
       {/* Logo */}
-      <div className="p-6 border-b border-farm-800">
-        <h1 className="text-xl font-display font-bold text-farm-100">
+      <div className="p-6 border-b border-farm-800 flex items-center justify-between">
+        <div>{!collapsed && <><h1 className="text-xl font-display font-bold text-farm-100">
           PrintFarm
         </h1>
-        <p className="text-sm text-farm-500 mt-1">Scheduler</p>
+        <p className="text-sm text-farm-500 mt-1">Scheduler</p></>}</div><button onClick={() => setCollapsed(!collapsed)} className="text-farm-400 hover:text-farm-200 transition-colors">{collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}</button>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
-        <NavItem to="/" icon={LayoutDashboard}>Dashboard</NavItem>
-        <NavItem to="/timeline" icon={Calendar}>Timeline</NavItem>
-        <NavItem to="/jobs" icon={ListTodo}>Jobs</NavItem>
-        <NavItem to="/upload" icon={UploadIcon}>Upload</NavItem>
-        <NavItem to="/printers" icon={Printer}>Printers</NavItem>
-        <NavItem to="/models" icon={Package}>Models</NavItem>
-        <NavItem to="/calculator" icon={Calculator}>Calculator</NavItem>
-        <NavItem to="/analytics" icon={BarChart3}>Analytics</NavItem>
-        <NavItem to="/spools" icon={Package}>Spools</NavItem>
-        <NavItem to="/settings" icon={Settings}>Settings</NavItem>
-        <NavItem to="/admin" icon={Shield}>Admin</NavItem>
+        <NavItem collapsed={collapsed} to="/" icon={LayoutDashboard}>Dashboard</NavItem>
+        <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>
+        <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>
+        <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>
+        <NavItem collapsed={collapsed} to="/printers" icon={Printer}>Printers</NavItem>
+        <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>
+        <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>
+        <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>
+        <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>
+        <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>
+        <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>
       </nav>
 
       {/* Quick Stats */}
-      {statsData && (
+      {statsData && !collapsed && (
         <div className="p-4 border-t border-farm-800">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-farm-900 rounded-lg p-3">
@@ -105,9 +110,9 @@ function Sidebar() {
       <div className="p-4 border-t border-farm-800">
         <div className="flex items-center gap-2 text-farm-500 text-sm">
           <Activity size={14} className="text-print-500" />
-          <span>System Online</span>
+          {!collapsed && <span>System Online</span>}
         </div>
-        <button onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("user"); window.location.href = "/login"; }} className="flex items-center gap-2 text-farm-500 hover:text-red-400 text-sm mt-2 transition-colors"><LogOut size={14} />Logout</button>
+        <button onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("user"); window.location.href = "/login"; }} className="flex items-center gap-2 text-farm-500 hover:text-red-400 text-sm mt-2 transition-colors"><LogOut size={14} />{!collapsed && "Logout"}</button>
       </div>
     </aside>
   )
