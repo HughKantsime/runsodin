@@ -109,6 +109,7 @@ class Printer(Base):
     slot_count = Column(Integer, default=4)  # Number of AMS slots
     is_active = Column(Boolean, default=True)  # Available for scheduling
     display_order = Column(Integer, default=0)  # For manual ordering in UI
+    camera_url = Column(String, nullable=True)  # RTSP camera URL
     
     # Optional: for future printer API integration
     api_type = Column(String(50))  # "bambu", "octoprint", "moonraker", etc.

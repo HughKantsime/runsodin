@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Routes, Route, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { 
-  LayoutDashboard, 
+  LayoutDashboard, Video, 
   Calendar, 
   Printer, 
   Package, 
@@ -32,6 +32,7 @@ import Spools from './pages/Spools'
 import Upload from './pages/Upload'
 import Login from './pages/Login'
 import Admin from './pages/Admin'
+import Cameras from "./pages/Cameras"
 import { stats } from './api'
 
 function NavItem({ to, icon: Icon, children, collapsed }) {
@@ -83,6 +84,7 @@ function Sidebar() {
         <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>
         <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>
         <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>
+        <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>
         <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>
       </nav>
 
@@ -136,6 +138,7 @@ export default function App() {
           <Route path="/spools" element={<Spools />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/cameras" element={<Cameras />} />
           <Route path="/login" element={<Login />} />
         </Routes>
       </main>

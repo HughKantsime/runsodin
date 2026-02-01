@@ -7,7 +7,8 @@ import {
   Zap,
   XCircle,
   Activity,
-  Timer
+  Timer,
+  Video
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -65,6 +66,11 @@ function PrinterCard({ printer, printerStats }) {
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
             <span className={clsx("text-xs", statusColor)}>{printer.is_active ? "Active" : "Inactive"}</span>
+          {printer.camera_url && (
+            <a href="/cameras" className="p-1 hover:bg-farm-700 rounded transition-colors" title="View camera">
+              <Video size={14} className="text-farm-400" />
+            </a>
+          )}
           </div>
         </div>
       </div>

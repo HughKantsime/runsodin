@@ -12,7 +12,7 @@ import re
 import os
 
 from pydantic import BaseModel as PydanticBaseModel, field_validator, ConfigDict
-from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -3417,3 +3417,57 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
     db.commit()
     return {"status": "deleted"}
+
+# Camera endpoints
+@app.get("/api/cameras", tags=["Cameras"])
+def list_cameras(db: Session = Depends(get_db)):
+    """List all printers with camera URLs."""
+    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_url != None).all()
+    return [{"id": p.id, "name": p.name, "camera_url": p.camera_url} for p in printers]
+
+@app.get("/api/cameras/{printer_id}/stream", tags=["Cameras"])
+def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
+    """Get go2rtc stream info for a printer camera."""
+    import httpx
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not printer.camera_url:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    stream_name = f"printer_{printer_id}"
+    
+    # Register stream with go2rtc
+    try:
+        httpx.post(
+            "http://127.0.0.1:1984/api/streams",
+            json={stream_name: {"name": stream_name, "url": printer.camera_url}},
+            timeout=5
+        )
+    except Exception:
+        pass  # go2rtc may already have the stream
+    
+    return {
+        "printer_id": printer_id,
+        "printer_name": printer.name,
+        "stream_name": stream_name,
+        "webrtc_url": f"/api/cameras/{printer_id}/webrtc"
+    }
+
+@app.post("/api/cameras/{printer_id}/webrtc", tags=["Cameras"])
+async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends(get_db)):
+    """Proxy WebRTC signaling to go2rtc."""
+    import httpx
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not printer.camera_url:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    stream_name = f"printer_{printer_id}"
+    body = await request.body()
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"http://127.0.0.1:1984/api/webrtc?src={stream_name}",
+            content=body,
+            headers={"Content-Type": request.headers.get("content-type", "application/sdp")}
+        )
+    
+    return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))

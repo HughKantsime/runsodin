@@ -62,6 +62,7 @@ class PrinterBase(BaseModel):
     api_type: Optional[str] = None
     api_host: Optional[str] = None
     api_key: Optional[str] = None
+    camera_url: Optional[str] = None
 
 
 class PrinterCreate(PrinterBase):
@@ -77,6 +78,7 @@ class PrinterUpdate(BaseModel):
     api_type: Optional[str] = None
     api_host: Optional[str] = None
     api_key: Optional[str] = None
+    camera_url: Optional[str] = None
 
 
 class PrinterResponse(PrinterBase):
