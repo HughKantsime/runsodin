@@ -3,11 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Video, VideoOff, Maximize2, Grid, LayoutGrid } from 'lucide-react'
 import CameraModal from '../components/CameraModal'
 
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:8000/api'
-  : 'http://' + window.location.hostname + ':8000/api'
-
+const API_BASE = '/api'
 const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+
+
 
 function CameraCard({ camera, onExpand }) {
   const videoRef = useRef(null)
@@ -53,7 +52,7 @@ function CameraCard({ camera, onExpand }) {
       const token = localStorage.getItem('token')
       const headers = {
         'Content-Type': 'application/sdp',
-        'X-API-Key': API_KEY
+        'X-API-Key': API_KEY,
       }
       if (token) headers['Authorization'] = 'Bearer ' + token
 

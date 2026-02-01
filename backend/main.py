@@ -3418,32 +3418,74 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     db.commit()
     return {"status": "deleted"}
 
+import yaml
+
+GO2RTC_CONFIG = "/opt/printfarm-scheduler/go2rtc/go2rtc.yaml"
+
+def get_camera_url(printer):
+    """Get RTSP URL for a printer - from camera_url field or auto-generated from Bambu credentials."""
+    if printer.camera_url:
+        return printer.camera_url
+    if printer.api_key and printer.api_host:
+        try:
+            parts = crypto.decrypt(printer.api_key).split("|")
+            if len(parts) == 2:
+                return f"rtsps://bblp:{parts[1]}@{printer.api_host}:322/streaming/live/1"
+        except Exception:
+            pass
+    return None
+
+def sync_go2rtc_config(db: Session):
+    """Regenerate go2rtc config from printer camera URLs."""
+    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    streams = {}
+    for p in printers:
+        url = get_camera_url(p)
+        if url:
+            streams[f"printer_{p.id}"] = url
+    config = {
+        "api": {"listen": "127.0.0.1:1984"},
+        "webrtc": {"listen": "127.0.0.1:8555"},
+        "streams": streams
+    }
+    with open(GO2RTC_CONFIG, "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
+
 # Camera endpoints
 @app.get("/api/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db)):
-    """List all printers with camera URLs."""
-    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_url != None).all()
-    return [{"id": p.id, "name": p.name, "camera_url": p.camera_url} for p in printers]
+    """List all printers with cameras (Bambu printers with credentials or manual camera_url)."""
+    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    cameras = []
+    for p in printers:
+        camera_url = p.camera_url
+        if not camera_url and p.api_key and p.api_host:
+            try:
+                parts = crypto.decrypt(p.api_key).split("|")
+                if len(parts) == 2:
+                    access_code = parts[1]
+                    camera_url = f"rtsps://bblp:{access_code}@{p.api_host}:322/streaming/live/1"
+            except Exception:
+                pass
+        if camera_url:
+            cameras.append({"id": p.id, "name": p.name, "has_camera": True})
+    return cameras
 
 @app.get("/api/cameras/{printer_id}/stream", tags=["Cameras"])
 def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
     """Get go2rtc stream info for a printer camera."""
-    import httpx
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not printer.camera_url:
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    camera_url = get_camera_url(printer)
+    if not camera_url:
         raise HTTPException(status_code=404, detail="Camera not found")
     
     stream_name = f"printer_{printer_id}"
     
-    # Register stream with go2rtc
-    try:
-        httpx.post(
-            "http://127.0.0.1:1984/api/streams",
-            json={stream_name: {"name": stream_name, "url": printer.camera_url}},
-            timeout=5
-        )
-    except Exception:
-        pass  # go2rtc may already have the stream
+    # Ensure go2rtc config is up to date
+    sync_go2rtc_config(db)
     
     return {
         "printer_id": printer_id,
@@ -3457,7 +3499,11 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     """Proxy WebRTC signaling to go2rtc."""
     import httpx
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer or not printer.camera_url:
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    camera_url = get_camera_url(printer)
+    if not camera_url:
         raise HTTPException(status_code=404, detail="Camera not found")
     
     stream_name = f"printer_{printer_id}"

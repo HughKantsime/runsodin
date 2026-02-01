@@ -1,7 +1,9 @@
 api:
-  listen: "127.0.0.1:1984"
-
+  listen: 127.0.0.1:1984
 webrtc:
-  listen: "127.0.0.1:8555"
-
-streams: {}
+  listen: 127.0.0.1:8555
+streams:
+  printer_1: "rtsps://bblp:95640461@192.168.72.210:322/streaming/live/1"
+  printer_2: "rtsps://bblp:42100464@192.168.72.121:322/streaming/live/1"
+  printer_3: "rtsps://bblp:26613948@192.168.72.12:322/streaming/live/1"
+  printer_4: "rtsps://bblp:461fe80f@192.168.72.23:322/streaming/live/1"
