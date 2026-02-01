@@ -2,7 +2,7 @@
 
 A self-hosted, ITAR/CMMC-compliant job scheduler and monitoring system for 3D print farms. Built for environments where data can't leave the network.
 
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![React](https://img.shields.io/badge/react-18-blue)
@@ -54,6 +54,7 @@ PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It t
 - Per-printer performance metrics
 
 ## Architecture
+
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Web Frontend                              │
@@ -79,10 +80,10 @@ PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It t
 
 | Printer | Status | Features |
 |---------|--------|----------|
-| Bambu Lab X1C | ✅ Full | MQTT, AMS/RFID, camera, file send |
-| Bambu Lab P1S | ✅ Full | MQTT, AMS/RFID, camera |
-| Bambu Lab A1 | ✅ Full | MQTT, AMS/RFID, camera |
-| Bambu Lab H2D | ✅ Full | MQTT, camera |
+| Bambu Lab X1C | ✅ Full | MQTT, AMS/RFID, camera ✅, file send |
+| Bambu Lab P1S | ✅ Full | MQTT, AMS/RFID (no camera hardware) |
+| Bambu Lab A1 | ✅ Full | MQTT, AMS/RFID (no LAN Live View) |
+| Bambu Lab H2D | ✅ Full | MQTT, camera ✅ |
 | Anycubic Kobra S1 | 🔄 Basic | Manual tracking |
 
 ## Quick Start
@@ -95,6 +96,7 @@ PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It t
 - go2rtc (for camera feeds)
 
 ### Installation
+
 ```bash
 git clone https://github.com/HughKantsime/printfarm-scheduler.git
 cd printfarm-scheduler
@@ -117,6 +119,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ### Camera Setup (Optional)
+
 ```bash
 # Install go2rtc
 wget https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_linux_amd64
@@ -179,13 +182,17 @@ Core endpoints:
 - [x] .3mf upload with color extraction
 - [x] User authentication (JWT + API key)
 - [x] Role-based access control
-- [x] Camera feeds via go2rtc
+- [x] Camera feeds via go2rtc (validated on X1C & H2D)
 - [x] Analytics dashboard
 - [x] Collapsible sidebar UI
+- [x] Upload → Model auto-creation
 - [ ] Send .3mf directly to printer
 - [ ] Auto-deduct filament on job complete
+- [ ] Schedule from Models page
 - [ ] SSL/TLS (nginx reverse proxy)
 - [ ] Mobile responsive layout
+- [ ] Database backups
+- [ ] Sortable columns on Jobs page
 - [ ] AI print failure detection via camera
 - [ ] Multi-site federation
 - [ ] Enterprise edition (white-label, SSO, multi-tenant)
