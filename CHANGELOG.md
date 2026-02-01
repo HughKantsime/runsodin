@@ -1,5 +1,18 @@
 # PrintFarm Scheduler Changelog
 
+## v0.8.3 - Sidebar Navigation Overhaul (2026-02-01)
+
+### Sidebar Grouping
+- Reorganized nav into workflow-based groups: Monitor, Work, Library, Analyze, System
+- Visual separators with subtle group labels (uppercase, small text)
+- Labels hidden when sidebar collapsed (divider lines remain)
+- Group labels permission-aware — hidden when user has no access to any page in group
+
+### Collapsed Sidebar Fix
+- Icons properly centered in collapsed mode (removed left padding bias)
+- Logo/chevron header centered with tighter padding when collapsed
+
+
 ## v0.8.2 - Role-Based UI Permissions (2026-01-31)
 
 ### RBAC UI Enforcement

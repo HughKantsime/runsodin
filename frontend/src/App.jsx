@@ -42,7 +42,7 @@ function NavItem({ to, icon: Icon, children, collapsed }) {
       to={to}
       className={({ isActive }) =>
         clsx(
-          'flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors',
+          collapsed ? 'flex items-center justify-center py-2.5 rounded-lg transition-colors' : 'flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors',
           isActive 
             ? 'bg-farm-800 text-print-400' 
             : 'text-farm-400 hover:bg-farm-900 hover:text-farm-200'
@@ -52,6 +52,19 @@ function NavItem({ to, icon: Icon, children, collapsed }) {
       <Icon size={20} className="flex-shrink-0" />
       {!collapsed && <span className="font-medium">{children}</span>}
     </NavLink>
+  )
+}
+
+function NavGroup({ label, collapsed }) {
+  return (
+    <div className="pt-4 pb-1">
+      <div className="border-t border-farm-800" />
+      {!collapsed && (
+        <span className="text-[10px] uppercase tracking-widest text-farm-600 font-semibold px-4 mt-2 block">
+          {label}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -66,7 +79,7 @@ function Sidebar() {
   return (
     <aside className={clsx("bg-farm-950 border-r border-farm-800 flex flex-col transition-all duration-300", collapsed ? "w-16" : "w-64")}>
       {/* Logo */}
-      <div className="p-6 border-b border-farm-800 flex items-center justify-between">
+      <div className={clsx("border-b border-farm-800 flex items-center", collapsed ? "p-3 justify-center" : "p-6 justify-between")}>
         <div>{!collapsed && <><h1 className="text-xl font-display font-bold text-farm-100">
           PrintFarm
         </h1>
@@ -75,17 +88,30 @@ function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
+        {/* Monitor */}
         {canAccessPage('dashboard') && <NavItem collapsed={collapsed} to="/" icon={LayoutDashboard}>Dashboard</NavItem>}
-        {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
-        {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
-        {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
         {canAccessPage('printers') && <NavItem collapsed={collapsed} to="/printers" icon={Printer}>Printers</NavItem>}
-        {canAccessPage('models') && <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>}
-        {canAccessPage('calculator') && <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>}
-        {canAccessPage('analytics') && <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>}
-        {canAccessPage('spools') && <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>}
-        {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
         {canAccessPage('cameras') && <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>}
+
+        {/* Work */}
+        {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed} />}
+        {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
+        {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
+        {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
+
+        {/* Library */}
+        {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed} />}
+        {canAccessPage('models') && <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>}
+        {canAccessPage('spools') && <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>}
+
+        {/* Analyze */}
+        {(canAccessPage("analytics") || canAccessPage("calculator")) && <NavGroup label="Analyze" collapsed={collapsed} />}
+        {canAccessPage('analytics') && <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>}
+        {canAccessPage('calculator') && <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>}
+
+        {/* System */}
+        {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed} />}
+        {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
         {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
       </nav>
 
