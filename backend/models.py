@@ -266,6 +266,8 @@ class Model(Base):
     # For display/organization
     category = Column(String(100))  # e.g., "Mini Critters", "Retail Display"
     thumbnail_url = Column(String(500))
+    thumbnail_b64 = Column(Text)  # Base64 thumbnail from .3mf
+    print_file_id = Column(Integer)  # Link to print_files if auto-created
     notes = Column(Text)
     
     # Pricing (optional, from your Pricing sheet)

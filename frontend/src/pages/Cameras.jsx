@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Video, VideoOff, Maximize2, Grid, LayoutGrid } from 'lucide-react'
+import { Video, VideoOff, Maximize2, Rows3, LayoutGrid, Columns3 } from 'lucide-react'
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
@@ -121,6 +121,7 @@ function CameraCard({ camera, onExpand }) {
 export default function Cameras() {
   const [expandedCamera, setExpandedCamera] = useState(null)
   const [columns, setColumns] = useState(2)
+  const [filter, setFilter] = useState('')
 
   const { data: cameras, isLoading } = useQuery({
     queryKey: ['cameras'],
@@ -135,6 +136,10 @@ export default function Cameras() {
     refetchInterval: 30000
   })
 
+  const filteredCameras = (cameras || []).filter(cam =>
+    !filter || cam.name.toLowerCase().includes(filter.toLowerCase())
+  )
+
   const gridClass = columns === 1
     ? 'grid-cols-1'
     : columns === 2
@@ -147,15 +152,23 @@ export default function Cameras() {
         <div>
           <h2 className="text-2xl font-display font-bold">Cameras</h2>
           <p className="text-sm text-farm-500 mt-1">
-            {cameras ? cameras.length : 0} camera{cameras?.length !== 1 ? 's' : ''} available
+            {filteredCameras.length} camera{filteredCameras.length !== 1 ? 's' : ''} available
           </p>
         </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            placeholder="Filter cameras..."
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm w-40 placeholder-farm-600 focus:outline-none focus:border-farm-500"
+          />
         <div className="flex items-center gap-2 bg-farm-900 rounded-lg p-1">
           <button
             onClick={() => setColumns(1)}
             className={'p-2 rounded ' + (columns === 1 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}
           >
-            <Grid size={16} />
+            <Rows3 size={16} />
           </button>
           <button
             onClick={() => setColumns(2)}
@@ -167,8 +180,9 @@ export default function Cameras() {
             onClick={() => setColumns(3)}
             className={'p-2 rounded ' + (columns === 3 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}
           >
-            <Video size={16} />
+            <Columns3 size={16} />
           </button>
+        </div>
         </div>
       </div>
 
@@ -176,7 +190,7 @@ export default function Cameras() {
         <div className="text-center text-farm-500 py-12">Loading cameras...</div>
       )}
 
-      {cameras && cameras.length === 0 && (
+      {filteredCameras.length === 0 && !isLoading && (
         <div className="text-center text-farm-500 py-12">
           <VideoOff size={48} className="mx-auto mb-4 text-farm-600" />
           <p>No cameras configured</p>
@@ -184,9 +198,9 @@ export default function Cameras() {
         </div>
       )}
 
-      {cameras && cameras.length > 0 && (
+      {filteredCameras.length > 0 && (
         <div className={'grid gap-4 ' + gridClass}>
-          {cameras.map(camera => (
+          {filteredCameras.map(camera => (
             <CameraCard
               key={camera.id}
               camera={camera}

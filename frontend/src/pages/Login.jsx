@@ -107,7 +107,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-farm-600 text-sm mt-6">
-          PrintFarm Scheduler v0.6.0
+          PrintFarm Scheduler v0.9.0
         </p>
       </div>
     </div>

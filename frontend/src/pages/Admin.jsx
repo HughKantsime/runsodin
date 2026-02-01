@@ -14,7 +14,7 @@ const API_BASE = '/api'
 const fetchUsers = async () => {
   const token = localStorage.getItem('token')
   const response = await fetch(`${API_BASE}/users`, {
-    headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce', 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+    headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
   })
   if (!response.ok) throw new Error('Failed to fetch users')
   return response.json()
@@ -197,7 +197,7 @@ export default function Admin() {
       const token = localStorage.getItem('token')
       const response = await fetch(`${API_BASE}/users/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce', 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+        headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
       })
       if (!response.ok) throw new Error('Failed to delete user')
     },

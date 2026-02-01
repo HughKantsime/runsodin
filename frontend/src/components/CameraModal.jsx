@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { X } from 'lucide-react'
+import { X, Maximize2, Minimize2, Monitor } from 'lucide-react'
 
 export default function CameraModal({ printer, onClose }) {
   const videoRef = useRef(null)
   const pcRef = useRef(null)
   const [status, setStatus] = useState('connecting')
   const [error, setError] = useState(null)
+  const [size, setSize] = useState('small') // small, large, fullscreen
 
   useEffect(() => {
     if (!printer) return
@@ -17,6 +18,17 @@ export default function CameraModal({ printer, onClose }) {
       }
     }
   }, [printer])
+
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        if (size === 'fullscreen') setSize('large')
+        else onClose()
+      }
+    }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [size, onClose])
 
   const startWebRTC = async () => {
     try {
@@ -44,17 +56,14 @@ export default function CameraModal({ printer, onClose }) {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      const API_BASE = '/api'
-
       const token = localStorage.getItem('token')
       const headers = {
         'Content-Type': 'application/sdp',
         'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce',
-
       }
       if (token) headers['Authorization'] = 'Bearer ' + token
 
-      const response = await fetch(API_BASE + '/cameras/' + printer.id + '/webrtc', {
+      const response = await fetch('/api/cameras/' + printer.id + '/webrtc', {
         method: 'POST',
         headers: headers,
         body: offer.sdp
@@ -76,25 +85,28 @@ export default function CameraModal({ printer, onClose }) {
   if (!printer) return null
 
   const dotColor = status === 'live'
-    ? 'bg-green-500 animate-pulse'
+    ? 'bg-green-500'
     : status === 'connecting'
       ? 'bg-yellow-500 animate-pulse'
       : 'bg-red-500'
 
+  const sizeClasses = size === 'fullscreen'
+    ? 'fixed inset-0 z-[60] bg-black'
+    : size === 'large'
+      ? 'fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4'
+      : 'fixed bottom-4 right-4 z-50'
+
+  const containerClasses = size === 'fullscreen'
+    ? 'w-full h-full flex flex-col'
+    : size === 'large'
+      ? 'bg-farm-950 rounded-xl border border-farm-800 w-full max-w-5xl flex flex-col'
+      : 'bg-farm-950 rounded-xl border border-farm-800 shadow-2xl w-96 flex flex-col'
+
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-farm-950 rounded-xl border border-farm-800 w-full max-w-4xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-4 border-b border-farm-800">
-          <div className="flex items-center gap-3">
-            <div className={'w-2 h-2 rounded-full ' + dotColor} />
-            <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
-            <span className="text-sm text-farm-500 capitalize">{status}</span>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-farm-800 rounded-lg transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="relative aspect-video bg-black">
+    <div className={sizeClasses} onClick={size !== 'small' ? onClose : undefined}>
+      <div className={containerClasses} onClick={e => e.stopPropagation()}>
+        {/* Video */}
+        <div className={size === 'fullscreen' ? 'flex-1 relative bg-black' : 'relative aspect-video bg-black rounded-t-xl overflow-hidden'}>
           <video
             ref={videoRef}
             autoPlay
@@ -104,7 +116,7 @@ export default function CameraModal({ printer, onClose }) {
           />
           {status === 'connecting' && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-farm-400 text-sm">Connecting to camera...</div>
+              <div className="text-farm-400 text-sm animate-pulse">Connecting...</div>
             </div>
           )}
           {status === 'error' && (
@@ -112,6 +124,60 @@ export default function CameraModal({ printer, onClose }) {
               <div className="text-red-400 text-sm">{error || 'Connection failed'}</div>
             </div>
           )}
+          {/* Controls overlay - top right */}
+          <div className="absolute top-2 right-2 flex items-center gap-1">
+            {size === 'small' && (
+              <button
+                onClick={() => setSize('large')}
+                className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                title="Expand"
+              >
+                <Maximize2 size={14} />
+              </button>
+            )}
+            {size === 'large' && (
+              <>
+                <button
+                  onClick={() => setSize('small')}
+                  className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                  title="Minimize"
+                >
+                  <Minimize2 size={14} />
+                </button>
+                <button
+                  onClick={() => setSize('fullscreen')}
+                  className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                  title="Fullscreen"
+                >
+                  <Monitor size={14} />
+                </button>
+              </>
+            )}
+            {size === 'fullscreen' && (
+              <button
+                onClick={() => setSize('large')}
+                className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                title="Exit fullscreen"
+              >
+                <Minimize2 size={14} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+              title="Close"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+        {/* Status bar */}
+        <div className={'flex items-center justify-between px-3 py-2 ' + (size === 'fullscreen' ? 'bg-black/90' : 'border-t border-farm-800')}>
+          <div className="flex items-center gap-2">
+            <div className={'w-2 h-2 rounded-full ' + dotColor} />
+            <span className="font-medium text-sm">{printer.name}</span>
+          </div>
+          <span className="text-xs text-farm-500 capitalize">{status}</span>
         </div>
       </div>
     </div>

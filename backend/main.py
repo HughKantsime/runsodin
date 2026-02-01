@@ -995,6 +995,49 @@ def delete_model(model_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@app.post("/api/models/{model_id}/schedule", tags=["Models"])
+def schedule_from_model(
+    model_id: int,
+    printer_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """Create a print job from a model."""
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    colors = []
+    if model.color_requirements:
+        req = model.color_requirements if isinstance(model.color_requirements, dict) else json_lib.loads(model.color_requirements)
+        for slot_key in sorted(req.keys()):
+            slot = req[slot_key]
+            if isinstance(slot, dict) and slot.get("color"):
+                colors.append(slot["color"])
+    
+    job_result = db.execute(text("""
+        INSERT INTO jobs (
+            item_name, model_id, duration_hours, colors_required,
+            quantity, priority, status, printer_id, hold, is_locked
+        ) VALUES (
+            :item_name, :model_id, :duration_hours, :colors_required,
+            1, 5, 'PENDING', :printer_id, 0, 0
+        )
+    """), {
+        "item_name": model.name,
+        "model_id": model.id,
+        "duration_hours": model.build_time_hours or 0,
+        "colors_required": ','.join(colors),
+        "printer_id": printer_id
+    })
+    db.commit()
+    
+    return {
+        "job_id": job_result.lastrowid,
+        "model_id": model.id,
+        "model_name": model.name,
+        "status": "pending"
+    }
+
 # ============== Jobs ==============
 
 @app.get("/api/jobs", response_model=List[JobResponse], tags=["Jobs"])
@@ -3225,6 +3268,38 @@ async def upload_3mf(
         
         file_id = result.lastrowid
         
+        # Auto-create a Model entry from the uploaded .3mf
+        color_req = {}
+        for f_item in metadata.filaments:
+            color_req[f"slot{f_item.slot}"] = {
+                "color": f_item.color,
+                "grams": round(f_item.used_grams, 2) if f_item.used_grams else 0
+            }
+        
+        fil_type = "PLA"
+        if metadata.filaments:
+            fil_type = metadata.filaments[0].type or "PLA"
+        
+        model_result = db.execute(text("""
+            INSERT INTO models (
+                name, build_time_hours, default_filament_type,
+                color_requirements, thumbnail_b64, print_file_id, category
+            ) VALUES (
+                :name, :build_time_hours, :filament_type,
+                :color_requirements, :thumbnail_b64, :print_file_id, :category
+            )
+        """), {
+            "name": metadata.project_name,
+            "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
+            "filament_type": fil_type,
+            "color_requirements": json_lib.dumps(color_req),
+            "thumbnail_b64": metadata.thumbnail_b64,
+            "print_file_id": file_id,
+            "category": "Uploaded"
+        })
+        db.commit()
+        model_id = model_result.lastrowid
+        
         return {
             "id": file_id,
             "filename": file.filename,
@@ -3240,7 +3315,8 @@ async def upload_3mf(
                 "used_grams": f.used_grams
             } for f in metadata.filaments],
             "thumbnail_b64": metadata.thumbnail_b64,
-            "is_sliced": metadata.print_time_seconds > 0
+            "is_sliced": metadata.print_time_seconds > 0,
+            "model_id": model_id
         }
     finally:
         # Clean up temp file
@@ -3454,22 +3530,31 @@ def sync_go2rtc_config(db: Session):
 # Camera endpoints
 @app.get("/api/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db)):
-    """List all printers with cameras (Bambu printers with credentials or manual camera_url)."""
+    """List printers with active camera streams in go2rtc."""
+    import httpx
+    
+    # Check which streams go2rtc actually has configured
+    active_streams = set()
+    try:
+        resp = httpx.get("http://127.0.0.1:1984/api/streams", timeout=2.0)
+        if resp.status_code == 200:
+            streams = resp.json()
+            for key in streams:
+                # Stream names are "printer_{id}"
+                if key.startswith("printer_"):
+                    try:
+                        active_streams.add(int(key.split("_")[1]))
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    
     printers = db.query(Printer).filter(Printer.is_active == True).all()
     cameras = []
     for p in printers:
-        camera_url = p.camera_url
-        if not camera_url and p.api_key and p.api_host:
-            try:
-                parts = crypto.decrypt(p.api_key).split("|")
-                if len(parts) == 2:
-                    access_code = parts[1]
-                    camera_url = f"rtsps://bblp:{access_code}@{p.api_host}:322/streaming/live/1"
-            except Exception:
-                pass
-        if camera_url:
-            cameras.append({"id": p.id, "name": p.name, "has_camera": True})
-    return cameras
+        if p.id in active_streams:
+            cameras.append({"id": p.id, "name": p.name, "has_camera": True, "display_order": p.display_order or 0})
+    return sorted(cameras, key=lambda x: x.get("display_order", 0))
 
 @app.get("/api/cameras/{printer_id}/stream", tags=["Cameras"])
 def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):

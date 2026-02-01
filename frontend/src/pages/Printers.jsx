@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
+import { Video } from 'lucide-react'
 import { canDo } from '../permissions'
+import CameraModal from '../components/CameraModal'
 
 // Helper for direct API calls that aren't in api.js yet
 const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
@@ -193,7 +195,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd }) {
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick }) {
   const [syncing, setSyncing] = useState(false)
   
   const handleSyncAms = async () => {
@@ -239,6 +241,9 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           </button>}
           {canDo('printers.edit') && <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} title={printer.is_active ? 'Deactivate' : 'Activate'}>
             {printer.is_active ? <Power size={18} /> : <PowerOff size={18} />}
+          </button>}
+          {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="View camera">
+            <Video size={18} />
           </button>}
           {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
             <Trash2 size={18} />
@@ -539,6 +544,19 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
 }
 
 export default function Printers() {
+  const [cameraTarget, setCameraTarget] = useState(null)
+  const { data: activeCameras } = useQuery({
+    queryKey: ['cameras'],
+    queryFn: async () => {
+      const token = localStorage.getItem('token')
+      const headers = { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const response = await fetch('/api/cameras', { headers })
+      if (!response.ok) return []
+      return response.json()
+    }
+  })
+  const cameraIds = new Set((activeCameras || []).map(c => c.id))
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [editingPrinter, setEditingPrinter] = useState(null)
@@ -655,6 +673,8 @@ export default function Printers() {
               onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })} 
               onEdit={handleEdit}
               onSyncAms={handleSyncAms}
+              hasCamera={cameraIds.has(printer.id)}
+              onCameraClick={setCameraTarget}
               isDragging={draggedId === printer.id}
               onDragStart={(e) => handleDragStart(e, printer.id)}
               onDragOver={(e) => handleDragOver(e, printer.id)}
@@ -664,6 +684,7 @@ export default function Printers() {
         </div>
       )}
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
+      {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
     </div>
   )
 }

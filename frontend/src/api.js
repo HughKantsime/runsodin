@@ -65,6 +65,7 @@ export const models = {
   create: (data) => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI('/models/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id) => fetchAPI('/models/' + id, { method: 'DELETE' }),
+  schedule: (id, printerId) => fetchAPI('/models/' + id + '/schedule' + (printerId ? '?printer_id=' + printerId : ''), { method: 'POST' }),
 }
 
 export const scheduler = {

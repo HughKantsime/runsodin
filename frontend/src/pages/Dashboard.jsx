@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Play, 
@@ -11,6 +12,7 @@ import {
   Video
 } from 'lucide-react'
 import clsx from 'clsx'
+import CameraModal from '../components/CameraModal'
 
 import { stats, jobs, scheduler, printers, printJobs } from '../api'
 import { canDo } from '../permissions'
@@ -39,7 +41,7 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   )
 }
 
-function PrinterCard({ printer, printerStats }) {
+function PrinterCard({ printer, hasCamera, onCameraClick, printerStats }) {
   const statusColor = printer.is_active ? 'text-print-400' : 'text-farm-500'
   const pStats = printerStats?.find(s => s.printer_id === printer.id)
   
@@ -67,10 +69,10 @@ function PrinterCard({ printer, printerStats }) {
           <div className="flex items-center gap-1.5">
             <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
             <span className={clsx("text-xs", statusColor)}>{printer.is_active ? "Active" : "Inactive"}</span>
-          {(printer.camera_url || printer.api_host) && (
-            <a href="/cameras" className="p-1 hover:bg-farm-700 rounded transition-colors" title="View camera">
+          {hasCamera && (
+            <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-farm-700 rounded transition-colors" title="View camera">
               <Video size={14} className="text-farm-400" />
-            </a>
+            </button>
           )}
           </div>
         </div>
@@ -211,6 +213,20 @@ function PrintHistoryItem({ job }) {
 export default function Dashboard() {
   const queryClient = useQueryClient()
 
+  const [cameraTarget, setCameraTarget] = useState(null)
+  const { data: activeCameras } = useQuery({
+    queryKey: ['cameras'],
+    queryFn: async () => {
+      const token = localStorage.getItem('token')
+      const headers = { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const response = await fetch('/api/cameras', { headers })
+      if (!response.ok) return []
+      return response.json()
+    }
+  })
+  const cameraIds = new Set((activeCameras || []).map(c => c.id))
+
   const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: stats.get })
   const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true) })
   const { data: activeJobs } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
@@ -271,7 +287,7 @@ export default function Dashboard() {
           <h2 className="text-xl font-display font-semibold mb-4">Printers</h2>
           <div className="grid grid-cols-2 gap-4">
             {printersData?.map((printer) => (
-              <PrinterCard key={printer.id} printer={printer} printerStats={printerStats} />
+              <PrinterCard key={printer.id} printer={printer} printerStats={printerStats} hasCamera={cameraIds.has(printer.id)} onCameraClick={setCameraTarget} />
             ))}
             {(!printersData || printersData.length === 0) && (
               <div className="col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">No printers configured.</div>
@@ -325,6 +341,7 @@ export default function Dashboard() {
           Scheduled {runScheduler.data?.scheduled || 0} jobs
         </div>
       )}
+      {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
     </div>
   )
 }

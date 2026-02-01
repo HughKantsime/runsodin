@@ -9,18 +9,26 @@ import {
   DollarSign,
   Scale,
   X,
-  ChevronDown
+  ChevronDown,
+  CalendarPlus,
+  Printer as PrinterIcon
 } from 'lucide-react'
 import clsx from 'clsx'
 
-import { models, filaments } from '../api'
+import { models, filaments, printers } from '../api'
 import { canDo } from '../permissions'
 
-function ModelCard({ model, onEdit, onDelete }) {
+function ModelCard({ model, onEdit, onDelete, onSchedule }) {
   return (
     <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
       <div className="h-32 bg-farm-800 flex items-center justify-center">
-        {model.thumbnail_url ? (
+        {model.thumbnail_b64 ? (
+          <img 
+            src={`data:image/png;base64,${model.thumbnail_b64}`}
+            alt={model.name}
+            className="h-full w-full object-contain bg-farm-950 p-1"
+          />
+        ) : model.thumbnail_url ? (
           <img 
             src={model.thumbnail_url} 
             alt={model.name}
@@ -41,6 +49,13 @@ function ModelCard({ model, onEdit, onDelete }) {
           </div>
           
           <div className="flex items-center gap-1">
+            {canDo('models.create') && <button
+              onClick={() => onSchedule(model)}
+              className="p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+              title="Schedule print job"
+            >
+              <CalendarPlus size={14} />
+            </button>}
             {canDo('models.edit') && <button
               onClick={() => onEdit(model)}
               className="p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
@@ -567,6 +582,8 @@ export default function Models() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [editingModel, setEditingModel] = useState(null)
+  const [scheduleModel, setScheduleModel] = useState(null)
+  const [selectedPrinter, setSelectedPrinter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
   const { data: modelsData, isLoading } = useQuery({
