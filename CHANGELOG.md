@@ -1,5 +1,20 @@
 # PrintFarm Scheduler Changelog
 
+## v0.8.1 - Route Protection & Auth Enforcement (2026-01-31)
+
+### Frontend Auth
+- ProtectedRoute wrapper checks JWT expiry before rendering any page
+- Expired or missing tokens redirect to /login automatically
+- Login page renders without sidebar (clean standalone view)
+- JWT token included on all API requests alongside API key
+- 401 responses auto-clear stored token and redirect to login
+
+### Security
+- No pages accessible without valid JWT (except /login)
+- Token expiry validated client-side via decoded JWT payload
+- Consistent auth headers on all fetchAPI calls
+
+
 ## v0.8.0 - Camera Feeds & UI Polish (2026-01-31)
 
 ### Camera Infrastructure

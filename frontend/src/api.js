@@ -13,11 +13,23 @@ async function fetchAPI(endpoint, options = {}) {
   if (API_KEY) {
     headers['X-API-Key'] = API_KEY
   }
+
+  // Add JWT token if available
+  const token = localStorage.getItem("token")
+  if (token) {
+    headers["Authorization"] = "Bearer " + token
+  }
   
   const response = await fetch(API_BASE + endpoint, {
     headers,
     ...options,
   })
+  if (response.status === 401) {
+    localStorage.removeItem("token")
+    localStorage.removeItem("user")
+    window.location.href = "/login"
+    return
+  }
   if (!response.ok) {
     throw new Error('API error: ' + response.status)
   }
@@ -109,7 +121,13 @@ export const printFiles = {
       headers: { 'X-API-Key': API_KEY },
       body: formData
     })
-    if (!response.ok) {
+    if (response.status === 401) {
+    localStorage.removeItem("token")
+    localStorage.removeItem("user")
+    window.location.href = "/login"
+    return
+  }
+  if (!response.ok) {
       const err = await response.json()
       throw new Error(err.detail || 'Upload failed')
     }
@@ -137,7 +155,13 @@ export const auth = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData
     })
-    if (!response.ok) {
+    if (response.status === 401) {
+    localStorage.removeItem("token")
+    localStorage.removeItem("user")
+    window.location.href = "/login"
+    return
+  }
+  if (!response.ok) {
       const err = await response.json()
       throw new Error(err.detail || 'Login failed')
     }

@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Routes, Route, NavLink } from 'react-router-dom'
+import { useState, useEffect } from "react"
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { 
   LayoutDashboard, Video, 
@@ -120,28 +120,58 @@ function Sidebar() {
   )
 }
 
+
+function isTokenValid() {
+  const token = localStorage.getItem('token')
+  if (!token) return false
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return payload.exp * 1000 > Date.now()
+  } catch {
+    return false
+  }
+}
+
+function ProtectedRoute({ children }) {
+  const location = useLocation()
+  if (!isTokenValid()) {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+  return children
+}
+
 export default function App() {
+  const location = useLocation()
+  
+  // Show login page without sidebar
+  if (location.pathname === '/login') {
+    return <Login />
+  }
+
   return (
-    <div className="h-screen flex">
-      <Sidebar />
-      
-      <main className="flex-1 overflow-auto bg-farm-950">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/timeline" element={<Timeline />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/printers" element={<Printers />} />
-          <Route path="/models" element={<Models />} />
+    <ProtectedRoute>
+      <div className="h-screen flex">
+        <Sidebar />
+        
+        <main className="flex-1 overflow-auto bg-farm-950">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/timeline" element={<Timeline />} />
+            <Route path="/jobs" element={<Jobs />} />
+            <Route path="/printers" element={<Printers />} />
+            <Route path="/models" element={<Models />} />
             <Route path="/calculator" element={<CalculatorPage />} />
             <Route path="/analytics" element={<Analytics />} />
-          <Route path="/upload" element={<Upload />} />
-          <Route path="/spools" element={<Spools />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/admin" element={<Admin />} />
-          <Route path="/cameras" element={<Cameras />} />
-          <Route path="/login" element={<Login />} />
-        </Routes>
-      </main>
-    </div>
+            <Route path="/upload" element={<Upload />} />
+            <Route path="/spools" element={<Spools />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/cameras" element={<Cameras />} />
+          </Routes>
+        </main>
+      </div>
+    </ProtectedRoute>
   )
 }
