@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { canAccessPage, canDo, getCurrentUser } from './permissions'
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { 
@@ -74,18 +75,18 @@ function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
-        <NavItem collapsed={collapsed} to="/" icon={LayoutDashboard}>Dashboard</NavItem>
-        <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>
-        <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>
-        <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>
-        <NavItem collapsed={collapsed} to="/printers" icon={Printer}>Printers</NavItem>
-        <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>
-        <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>
-        <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>
-        <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>
-        <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>
-        <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>
-        <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>
+        {canAccessPage('dashboard') && <NavItem collapsed={collapsed} to="/" icon={LayoutDashboard}>Dashboard</NavItem>}
+        {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
+        {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
+        {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
+        {canAccessPage('printers') && <NavItem collapsed={collapsed} to="/printers" icon={Printer}>Printers</NavItem>}
+        {canAccessPage('models') && <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>}
+        {canAccessPage('calculator') && <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>}
+        {canAccessPage('analytics') && <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>}
+        {canAccessPage('spools') && <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>}
+        {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
+        {canAccessPage('cameras') && <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>}
+        {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
       </nav>
 
       {/* Quick Stats */}

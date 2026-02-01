@@ -13,6 +13,7 @@ import {
 import clsx from 'clsx'
 
 import { stats, jobs, scheduler, printers, printJobs } from '../api'
+import { canDo } from '../permissions'
 
 function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   const colorClasses = {
@@ -115,17 +116,17 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
           <p className="text-sm text-farm-500">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
         <div className="flex items-center gap-2">
-          {job.status === 'scheduled' && (
+          {canDo('dashboard.actions') && job.status === 'scheduled' && (
             <button onClick={() => onStart(job.id)} className="p-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors" title="Start Print">
               <Play size={16} />
             </button>
           )}
-          {job.status === 'printing' && (
+          {canDo('dashboard.actions') && job.status === 'printing' && (
             <button onClick={() => onComplete(job.id)} className="p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" title="Mark Complete">
               <CheckCircle size={16} />
             </button>
           )}
-          {(job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
+          {canDo('dashboard.actions') && (job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
             <button onClick={() => onCancel(job.id)} className="p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" title="Cancel">
               <XCircle size={16} />
             </button>
@@ -250,11 +251,11 @@ export default function Dashboard() {
           <h1 className="text-3xl font-display font-bold">Dashboard</h1>
           <p className="text-farm-500 mt-1">Print farm overview</p>
         </div>
-        <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
+        {canDo('dashboard.actions') && <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
           className={clsx('flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors bg-print-600 hover:bg-print-500 text-white', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
           <Zap size={18} />
           {runScheduler.isPending ? 'Scheduling...' : 'Run Scheduler'}
-        </button>
+        </button>}
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-8">

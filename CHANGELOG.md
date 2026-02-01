@@ -1,5 +1,26 @@
 # PrintFarm Scheduler Changelog
 
+## v0.8.2 - Role-Based UI Permissions (2026-01-31)
+
+### RBAC UI Enforcement
+- New permissions.js config: centralized role-based access control
+- Nav items hidden based on role (viewer cannot see Upload, Settings, Admin)
+- Action buttons hidden per role across all pages
+- JWT decoded client-side for role detection
+
+### Per-Page Controls
+- Dashboard: Run Scheduler, job start/complete/cancel buttons (operator+)
+- Jobs: New Job, cancel, delete buttons (operator+)
+- Printers: Add Printer (admin only), edit/delete, Sync AMS, slot editing (operator+)
+- Models: Add Model, edit (operator+), delete (admin only)
+- Spools: Add Spool, load/unload, record usage (operator+), archive (admin only)
+
+### Permission Matrix
+- Viewer: read-only access to all pages, no action buttons
+- Operator: full day-to-day operations (create, edit, schedule)
+- Admin: full access including add/delete printers, delete models/spools, settings, user management
+
+
 ## v0.8.1 - Route Protection & Auth Enforcement (2026-01-31)
 
 ### Frontend Auth

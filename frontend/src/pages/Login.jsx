@@ -35,7 +35,7 @@ export default function Login() {
       
       // Store token
       localStorage.setItem('token', data.access_token)
-      localStorage.setItem('user', JSON.stringify(data.user))
+      const payload = JSON.parse(atob(data.access_token.split('.')[1])); localStorage.setItem('user', JSON.stringify({ username: payload.sub, role: payload.role }))
       
       // Redirect to dashboard
       navigate('/')

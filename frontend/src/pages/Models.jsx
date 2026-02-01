@@ -14,6 +14,7 @@ import {
 import clsx from 'clsx'
 
 import { models, filaments } from '../api'
+import { canDo } from '../permissions'
 
 function ModelCard({ model, onEdit, onDelete }) {
   return (
@@ -40,18 +41,18 @@ function ModelCard({ model, onEdit, onDelete }) {
           </div>
           
           <div className="flex items-center gap-1">
-            <button
+            {canDo('models.edit') && <button
               onClick={() => onEdit(model)}
               className="p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
             >
               <Pencil size={14} />
-            </button>
-            <button
+            </button>}
+            {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
               className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
             >
               <Trash2 size={14} />
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -617,7 +618,7 @@ export default function Models() {
           <p className="text-farm-500 mt-1">Print model library</p>
         </div>
         
-        <button
+        {canDo('models.create') && <button
           onClick={() => {
             setEditingModel(null)
             setShowModal(true)
@@ -626,7 +627,7 @@ export default function Models() {
         >
           <Plus size={18} />
           Add Model
-        </button>
+        </button>}
       </div>
 
       {categories.length > 0 && (

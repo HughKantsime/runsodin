@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
+import { canDo } from '../permissions'
 
 // Helper for direct API calls that aren't in api.js yet
 const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
@@ -90,7 +91,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
     <>
       <div 
         className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 text-center" 
-        onClick={() => setIsEditing(true)}
+        onClick={() => { if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
       >
         <div className="w-full h-3 rounded mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
         <span className="text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
@@ -233,15 +234,15 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => onEdit(printer)} className="p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Printer Settings">
+          {canDo('printers.edit') && <button onClick={() => onEdit(printer)} className="p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Printer Settings">
             <Settings size={18} />
-          </button>
-          <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} title={printer.is_active ? 'Deactivate' : 'Activate'}>
+          </button>}
+          {canDo('printers.edit') && <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} title={printer.is_active ? 'Deactivate' : 'Activate'}>
             {printer.is_active ? <Power size={18} /> : <PowerOff size={18} />}
-          </button>
-          <button onClick={() => onDelete(printer.id)} className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
+          </button>}
+          {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
             <Trash2 size={18} />
-          </button>
+          </button>}
         </div>
       </div>
       <div className="p-4">
@@ -254,7 +255,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
               {slotsNeedingAttention}
             </span>
           )}
-          {hasBambuConnection ? (
+          {canDo('printers.slots') && hasBambuConnection ? (
             <button 
               onClick={handleSyncAms}
               disabled={syncing}
@@ -630,16 +631,16 @@ export default function Printers() {
           <h1 className="text-3xl font-display font-bold">Printers</h1>
           <p className="text-farm-500 mt-1">Manage your print farm</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors">
+        {canDo('printers.add') && <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors">
           <Plus size={18} /> Add Printer
-        </button>
+        </button>}
       </div>
       {isLoading ? (
         <div className="text-center py-12 text-farm-500">Loading printers...</div>
       ) : printersData?.length === 0 ? (
         <div className="bg-farm-900 rounded-xl border border-farm-800 p-12 text-center">
           <p className="text-farm-500 mb-4">No printers configured yet.</p>
-          <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors">Add Your First Printer</button>
+          {canDo('printers.add') && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors">Add Your First Printer</button>}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">

@@ -13,6 +13,7 @@ import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search } f
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers } from '../api'
+import { canDo } from '../permissions'
 
 const statusOptions = [
   { value: '', label: 'All Status' },
@@ -87,12 +88,12 @@ function JobRow({ job, onAction }) {
               <CheckCircle size={16} />
             </button>
           )}
-          {(job.status === 'scheduled' || job.status === 'printing') && (
+          {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
             <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Cancel">
               <XCircle size={16} />
             </button>
           )}
-          {(job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
+          {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded" title="Delete">
               <Trash2 size={16} />
             </button>
@@ -248,9 +249,9 @@ export default function Jobs() {
           <h1 className="text-3xl font-display font-bold">Jobs</h1>
           <p className="text-farm-500 mt-1">Manage print queue</p>
         </div>
-        <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg">
+        {canDo('jobs.create') && <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg">
           <Plus size={18} /> New Job
-        </button>
+        </button>}
       </div>
 
       <div className="flex items-center gap-4 mb-6">

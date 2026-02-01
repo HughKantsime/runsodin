@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X } from 'lucide-react'
 import clsx from 'clsx'
+import { canDo } from '../permissions'
 
 const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
 const API_BASE = '/api'
@@ -164,7 +165,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
       
       {/* Actions */}
       <div className="flex gap-2">
-        {spool.location_printer_id ? (
+        {canDo('spools.edit') && spool.location_printer_id ? (
           <button
             onClick={() => onUnload(spool)}
             className="flex-1 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-200 flex items-center justify-center gap-1"
@@ -172,7 +173,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
             <Package size={14} />
             Unload
           </button>
-        ) : (
+        ) : canDo('spools.edit') ? (
           <button
             onClick={() => onLoad(spool)}
             className="flex-1 px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded text-sm text-white flex items-center justify-center gap-1"
@@ -180,7 +181,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
             <Printer size={14} />
             Load
           </button>
-        )}
+        ) : null}
         <a
           href={`${API_BASE}/spools/${spool.id}/label`}
           target="_blank"
@@ -189,14 +190,14 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
         >
           <QrCode size={14} />
         </a>
-        <button
+        {canDo('spools.edit') && <button
           onClick={() => onUse(spool)}
           className="px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-200 flex items-center justify-center"
           title="Record usage"
         >
           <Scale size={14} />
-        </button>
-        {spool.status !== 'archived' && (
+        </button>}
+        {canDo('spools.delete') && spool.status !== 'archived' && (
           <button
             onClick={() => onArchive(spool)}
             className="px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded text-sm text-farm-200 hover:text-red-400 flex items-center justify-center"
@@ -609,13 +610,13 @@ export default function Spools() {
           <h1 className="text-2xl font-display font-bold text-farm-100">Spools</h1>
           <p className="text-farm-400 mt-1">Track your filament inventory</p>
         </div>
-        <button
+        {canDo('spools.edit') && <button
           onClick={() => setShowCreateModal(true)}
           className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
         >
           <Plus size={20} />
           Add Spool
-        </button>
+        </button>}
       </div>
       
       {/* Stats */}
