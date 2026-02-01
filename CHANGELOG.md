@@ -1,11 +1,47 @@
 # PrintFarm Scheduler Changelog
 
+## v0.8.0 - Camera Feeds & UI Polish (2026-01-31)
+
+### Camera Infrastructure
+- go2rtc integration for RTSP → WebRTC stream conversion
+- Auto-detect Bambu printer cameras from encrypted credentials (no manual URL config)
+- WebRTC signaling proxy through backend with API key authentication
+- go2rtc config auto-generated and synced from database
+- Streams use RTSPS on port 322 with per-printer access codes
+
+### Cameras Page (/cameras)
+- Grid view of all active camera feeds
+- Configurable layout: 1, 2, or 3 column grid
+- Live/connecting/error status indicators
+- Expand button for full-size modal overlay
+
+### Camera Modal
+- Quick-look video overlay from any page
+- WebRTC streaming with automatic connection management
+- Status indicator and printer name header
+
+### UI Polish
+- Collapsible sidebar with icons-only mode (smooth transition)
+- Color name resolver for Bambu filament names (e.g., "Caramel Matte" → #C68E5B)
+- Circular color swatches on Jobs page (replacing pill badges)
+- Duration formatting: "2h 15m" instead of "0.45h"
+- Camera icon on dashboard printer cards for printers with feeds
+
+### Backend
+- `camera_url` field on printers table with migration
+- `get_camera_url()` helper with auto-generation from Bambu credentials
+- `sync_go2rtc_config()` for dynamic stream management
+- `/api/cameras` - list printers with available feeds
+- `/api/cameras/{id}/stream` - get stream info and sync go2rtc
+- `/api/cameras/{id}/webrtc` - WebRTC signaling proxy
+
 ## v0.7.0 - User Management & Authentication (2026-01-30)
 
 ### Authentication System
 - JWT-based authentication with 24-hour token expiry
 - Password hashing with bcrypt
 - Role-based access control (admin/operator/viewer)
+- Logout button in sidebar
 
 ### Login Page (/login)
 - Clean login form with PrintFarm branding
@@ -29,6 +65,10 @@
 - `POST /api/users` - Create user (admin only)
 - `PATCH /api/users/{id}` - Update user (admin only)
 - `DELETE /api/users/{id}` - Delete user (admin only)
+
+### Other
+- Delete uploaded files endpoint
+- Cancel job endpoint
 
 ### Security Notes
 - Auth is optional - existing API key still works
@@ -93,13 +133,45 @@
 - All views respect display_order
 
 ## v0.5.1 - UI Polish (2026-01-29)
-- Dashboard 9-slot layout for H2D
+- Dashboard auto-fit card heights
+- Always use 4 columns for filament slots
+- Simplified status display with green/red dots
+- Printers page slot display matches dashboard style
 - Needs-attention warnings fixed for RFID-matched spools
-- Slot editor improvements
 
 ## v0.5.0 - RFID Auto-Tracking (2026-01-28)
 - RFID spool detection from AMS
-- Auto-create spools and library entries
+- Auto-create spools and library entries from unknown RFID tags
 - Per-spool color tracking
 - Weight sync from AMS percentage
 - Support filament detection (PLA-S, PA-CF, etc.)
+- Tracked spool assignment in slot editor
+- Needs-attention indicator for unassigned slots
+- Deduplicate library entries by brand+name+material
+
+## v0.4.0 - Spool Management and Audit Logging (2026-01-28)
+- Spools page with sorting and grouping
+- Spool weight tracking
+- Audit logging system
+- Label endpoint authentication bypass
+
+## v0.3.0 - Analytics and Calculator (2026-01-28)
+- Analytics dashboard with revenue tracking
+- Value-per-hour calculations
+- Print cost calculator
+- Per-printer performance metrics
+
+## v0.2.0 - Printers and Timeline (2026-01-27)
+- Printers management page
+- Filament slot editor
+- Timeline/Gantt view
+- Drag-and-drop job scheduling
+- Spoolman integration
+
+## v0.1.0 - Initial Release (2026-01-27)
+- Core scheduling engine with color-match scoring
+- Job queue management
+- Printer and filament state tracking
+- React frontend with dashboard
+- FastAPI backend with SQLite
+- Docker support
