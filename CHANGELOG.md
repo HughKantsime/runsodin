@@ -1,5 +1,29 @@
 # PrintFarm Scheduler Changelog
 
+## v0.9.2 - Sidebar & Branding Polish (2026-02-02)
+
+### Sidebar Improvements
+- Collapsible nav groups — click section headers (Work, Library, Analyze, System) to expand/collapse
+- Chevron indicators rotate to show open/closed state
+- Pinned footer — quick stats and logout stay anchored at bottom, only nav scrolls
+- Fixed double scrollbar on pages with long sidebar content
+- Logo + app name displayed side by side (matching live preview layout)
+
+### Branding Scope Refinement
+- Structural UI colors (dashboard cards, stat values, text, borders) no longer affected by branding
+- Only accent buttons (Run Scheduler, action buttons) respond to brand primary color
+- Data display values (Active, durations, stat numbers) stay fixed green
+- System Online indicator hardcoded green (health status, not brand color)
+- Live preview footer dot matches actual behavior
+
+### Static Asset Serving
+- `/static/branding/*` exempt from API key auth (logos/favicons load on login page)
+- Vite dev proxy forwards `/static` to backend
+
+### Build Improvements
+- App version injected at build time from VERSION file via Vite define
+- No more hardcoded version strings in frontend source
+
 ## v0.9.1 - White-Label Branding (2026-02-02)
 
 ### White-Label Branding System (Enterprise)
@@ -155,10 +179,6 @@
 - `POST /api/users` - Create user (admin only)
 - `PATCH /api/users/{id}` - Update user (admin only)
 - `DELETE /api/users/{id}` - Delete user (admin only)
-
-### Other
-- Delete uploaded files endpoint
-- Cancel job endpoint
 
 ### Security Notes
 - Auth is optional - existing API key still works

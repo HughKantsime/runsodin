@@ -21,6 +21,7 @@ import {
   Menu,
   X,
   Palette,
+  ChevronDown,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -62,15 +63,25 @@ function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
 }
 
 
-function NavGroup({ label, collapsed }) {
+function NavGroup({ label, collapsed, open, onToggle }) {
   return (
     <div className="pt-4 pb-1">
       <div style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} />
       {!collapsed && (
-        <span className="text-[10px] uppercase tracking-widest font-semibold px-4 mt-2 block"
-          style={{ color: 'var(--brand-text-muted)' }}>
-          {label}
-        </span>
+        <button
+          onClick={onToggle}
+          className="flex items-center justify-between w-full px-4 mt-2 group"
+        >
+          <span className="text-[10px] uppercase tracking-widest font-semibold"
+            style={{ color: 'var(--brand-text-muted)' }}>
+            {label}
+          </span>
+          <ChevronDown
+            size={12}
+            className={clsx("transition-transform duration-200", open ? "" : "-rotate-90")}
+            style={{ color: 'var(--brand-text-muted)' }}
+          />
+        </button>
       )}
     </div>
   )
@@ -79,6 +90,8 @@ function NavGroup({ label, collapsed }) {
 
 function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [sections, setSections] = useState({ work: true, library: true, analyze: true, system: true })
+  const toggle = (key) => setSections(s => ({ ...s, [key]: !s[key] }))
   const branding = useBranding()
 
   const { data: statsData } = useQuery({
@@ -89,7 +102,7 @@ function Sidebar() {
 
   return (
     <aside 
-      className={clsx("flex flex-col transition-all duration-300", collapsed ? "w-16" : "w-64")}
+      className={clsx("flex flex-col h-full transition-all duration-300", collapsed ? "w-16" : "w-64")}
       style={{ 
         backgroundColor: 'var(--brand-sidebar-bg)',
         borderRight: '1px solid var(--brand-sidebar-border)',
@@ -102,18 +115,19 @@ function Sidebar() {
       >
         <div>
           {!collapsed && (
-            <>
-              {branding.logo_url ? (
+            <div className="flex items-center gap-3">
+              {branding.logo_url && (
                 <img src={branding.logo_url} alt={branding.app_name} className="h-8 object-contain" />
-              ) : (
-                <h1 className="text-xl font-display font-bold" style={{ color: 'var(--brand-text-primary)' }}>
+              )}
+              <div>
+                <h1 className="text-base font-display font-bold leading-tight" style={{ color: 'var(--brand-text-primary)' }}>
                   {branding.app_name}
                 </h1>
-              )}
-              <p className="text-sm mt-1" style={{ color: 'var(--brand-text-muted)' }}>
-                {branding.app_subtitle}
-              </p>
-            </>
+                <p className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>
+                  {branding.app_subtitle}
+                </p>
+              </div>
+            </div>
           )}
         </div>
         <button 
@@ -126,38 +140,46 @@ function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
         {/* Monitor */}
         {canAccessPage('dashboard') && <NavItem collapsed={collapsed} to="/" icon={LayoutDashboard}>Dashboard</NavItem>}
         {canAccessPage('printers') && <NavItem collapsed={collapsed} to="/printers" icon={Printer}>Printers</NavItem>}
         {canAccessPage('cameras') && <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>}
 
         {/* Work */}
-        {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed} />}
-        {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
-        {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
-        {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
+        {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed} open={sections.work} onToggle={() => toggle("work")} />}
+        {(collapsed || sections.work) && <>
+          {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
+          {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
+          {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
+        </>}
 
         {/* Library */}
-        {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed} />}
-        {canAccessPage('models') && <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>}
-        {canAccessPage('spools') && <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>}
+        {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed} open={sections.library} onToggle={() => toggle("library")} />}
+        {(collapsed || sections.library) && <>
+          {canAccessPage('models') && <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>}
+          {canAccessPage('spools') && <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>}
+        </>}
 
         {/* Analyze */}
-        {(canAccessPage("analytics") || canAccessPage("calculator")) && <NavGroup label="Analyze" collapsed={collapsed} />}
-        {canAccessPage('analytics') && <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>}
-        {canAccessPage('calculator') && <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>}
+        {(canAccessPage("analytics") || canAccessPage("calculator")) && <NavGroup label="Analyze" collapsed={collapsed} open={sections.analyze} onToggle={() => toggle("analyze")} />}
+        {(collapsed || sections.analyze) && <>
+          {canAccessPage('analytics') && <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>}
+          {canAccessPage('calculator') && <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>}
+        </>}
 
         {/* System */}
-        {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed} />}
-        {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
-        {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
-        {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/branding" icon={Palette}>Branding</NavItem>}
+        {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed} open={sections.system} onToggle={() => toggle("system")} />}
+        {(collapsed || sections.system) && <>
+          {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
+          {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
+          {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/branding" icon={Palette}>Branding</NavItem>}
+        </>}
       </nav>
 
       {/* Quick Stats */}
       {statsData && !collapsed && (
-        <div className="p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+        <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
               <div className="text-2xl font-bold" style={{ color: 'var(--brand-accent)' }}>
@@ -176,9 +198,9 @@ function Sidebar() {
       )}
 
       {/* Footer */}
-      <div className="p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+      <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
         <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--brand-sidebar-text)' }}>
-          <Activity size={14} style={{ color: 'var(--brand-primary)' }} />
+          <Activity size={14} className="text-green-500" />
           {!collapsed && <span>{branding.footer_text}</span>}
         </div>
         <button
@@ -232,7 +254,7 @@ export default function App() {
 
   return (
     <ProtectedRoute>
-      <div className="h-screen flex">
+      <div className="h-screen flex overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <Routes>

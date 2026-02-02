@@ -131,7 +131,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-sm mt-6" style={{ color: 'var(--brand-text-muted)' }}>
-          {branding.app_name} {branding.app_subtitle} v0.9.1
+          {branding.app_name} {branding.app_subtitle} v{__APP_VERSION__}
         </p>
       </div>
     </div>

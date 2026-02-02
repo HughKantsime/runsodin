@@ -453,7 +453,7 @@ export default function Branding() {
                   color: draft.text_muted,
                 }}
               >
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: draft.primary_color }} />
+                <div className="w-2 h-2 rounded-full bg-green-500" />
                 {draft.footer_text}
               </div>
             </div>
