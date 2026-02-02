@@ -99,26 +99,26 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
   
   return (
     <div className={clsx(
-      "bg-farm-900 rounded-lg p-4 border border-farm-800 hover:border-farm-700 transition-colors",
+      "bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800 hover:border-farm-700 transition-colors",
       isArchived && "opacity-50"
     )}>
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
           {spool.filament_color_hex && (
             <div 
-              className="w-8 h-8 rounded-full border-2 border-farm-700"
+              className="w-7 h-7 md:w-8 md:h-8 rounded-full border-2 border-farm-700 flex-shrink-0"
               style={{ backgroundColor: `#${spool.filament_color_hex}` }}
             />
           )}
-          <div>
-            <h3 className="font-medium text-farm-100">
+          <div className="min-w-0">
+            <h3 className="font-medium text-farm-100 text-sm md:text-base truncate">
               {spool.filament_brand} {spool.filament_name}
             </h3>
-            <p className="text-sm text-farm-400">{spool.filament_material}</p>
+            <p className="text-xs md:text-sm text-farm-400">{spool.filament_material}</p>
           </div>
         </div>
         <span className={clsx(
-          "px-2 py-1 rounded text-xs font-medium",
+          "px-2 py-1 rounded text-xs font-medium flex-shrink-0 ml-2",
           spool.status === 'active' ? "bg-green-500/20 text-green-400" :
           spool.status === 'empty' ? "bg-red-500/20 text-red-400" :
           "bg-gray-500/20 text-gray-400"
@@ -129,7 +129,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
       
       {/* Weight bar */}
       <div className="mb-3">
-        <div className="flex justify-between text-sm mb-1">
+        <div className="flex justify-between text-xs md:text-sm mb-1">
           <span className="text-farm-400">Remaining</span>
           <span className="text-farm-200">{spool.remaining_weight_g?.toFixed(0)}g / {spool.initial_weight_g?.toFixed(0)}g</span>
         </div>
@@ -142,7 +142,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
       </div>
       
       {/* Location */}
-      <div className="text-sm text-farm-400 mb-3">
+      <div className="text-xs md:text-sm text-farm-400 mb-3">
         {spool.location_printer_id ? (
           <span className="flex items-center gap-1">
             <Printer size={14} />
@@ -159,40 +159,40 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
       </div>
       
       {/* QR Code */}
-      <div className="text-xs text-farm-500 mb-3 font-mono">
+      <div className="text-xs text-farm-500 mb-3 font-mono truncate">
         {spool.qr_code}
       </div>
       
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex gap-1.5 md:gap-2 flex-wrap">
         {canDo('spools.edit') && spool.location_printer_id ? (
           <button
             onClick={() => onUnload(spool)}
-            className="flex-1 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-200 flex items-center justify-center gap-1"
+            className="flex-1 min-w-0 px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
           >
-            <Package size={14} />
-            Unload
+            <Package size={14} className="flex-shrink-0" />
+            <span className="truncate">Unload</span>
           </button>
         ) : canDo('spools.edit') ? (
           <button
             onClick={() => onLoad(spool)}
-            className="flex-1 px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded text-sm text-white flex items-center justify-center gap-1"
+            className="flex-1 min-w-0 px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded text-xs md:text-sm text-white flex items-center justify-center gap-1"
           >
-            <Printer size={14} />
-            Load
+            <Printer size={14} className="flex-shrink-0" />
+            <span className="truncate">Load</span>
           </button>
         ) : null}
         <a
           href={`${API_BASE}/spools/${spool.id}/label`}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
         >
           <QrCode size={14} />
         </a>
         {canDo('spools.edit') && <button
           onClick={() => onUse(spool)}
-          className="px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
           title="Record usage"
         >
           <Scale size={14} />
@@ -200,7 +200,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
         {canDo('spools.delete') && spool.status !== 'archived' && (
           <button
             onClick={() => onArchive(spool)}
-            className="px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded text-sm text-farm-200 hover:text-red-400 flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded text-xs md:text-sm text-farm-200 hover:text-red-400 flex items-center justify-center"
             title="Archive"
           >
             <Archive size={14} />
@@ -231,10 +231,10 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
   }
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-farm-900 rounded-lg p-6 w-full max-w-md border border-farm-700">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-farm-100">Add New Spool</h2>
+          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Add New Spool</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
             <X size={20} />
           </button>
@@ -258,7 +258,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
             </select>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
             <div>
               <label className="block text-sm text-farm-400 mb-1">Net Weight (g)</label>
               <input
@@ -279,7 +279,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
             <div>
               <label className="block text-sm text-farm-400 mb-1">Vendor</label>
               <input
@@ -353,10 +353,10 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
   }
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-farm-900 rounded-lg p-6 w-full max-w-md border border-farm-700">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-farm-100">Load Spool</h2>
+          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Load Spool</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
             <X size={20} />
           </button>
@@ -365,11 +365,11 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
         <div className="mb-4 p-3 bg-farm-800 rounded flex items-center gap-3">
           {spool.filament_color_hex && (
             <div 
-              className="w-6 h-6 rounded-full border border-farm-600"
+              className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
               style={{ backgroundColor: `#${spool.filament_color_hex}` }}
             />
           )}
-          <span className="text-farm-200">
+          <span className="text-farm-200 truncate">
             {spool.filament_brand} {spool.filament_name}
           </span>
         </div>
@@ -449,10 +449,10 @@ function UseSpoolModal({ spool, onClose, onUse }) {
   }
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-farm-900 rounded-lg p-6 w-full max-w-md border border-farm-700">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-farm-100">Record Usage</h2>
+          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Record Usage</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
             <X size={20} />
           </button>
@@ -462,11 +462,11 @@ function UseSpoolModal({ spool, onClose, onUse }) {
           <div className="flex items-center gap-3 mb-2">
             {spool.filament_color_hex && (
               <div 
-                className="w-6 h-6 rounded-full border border-farm-600"
+                className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
                 style={{ backgroundColor: `#${spool.filament_color_hex}` }}
               />
             )}
-            <span className="text-farm-200">
+            <span className="text-farm-200 truncate">
               {spool.filament_brand} {spool.filament_name}
             </span>
           </div>
@@ -603,98 +603,102 @@ export default function Spools() {
   const loadedSpools = activeSpools.filter(s => s.location_printer_id)
   
   return (
-    <div className="p-6">
+    <div className="p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-3">
         <div>
-          <h1 className="text-2xl font-display font-bold text-farm-100">Spools</h1>
-          <p className="text-farm-400 mt-1">Track your filament inventory</p>
+          <h1 className="text-xl md:text-2xl font-display font-bold text-farm-100">Spools</h1>
+          <p className="text-farm-400 mt-1 text-sm">Track your filament inventory</p>
         </div>
         {canDo('spools.edit') && <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
+          className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white text-sm self-start sm:self-auto"
         >
-          <Plus size={20} />
+          <Plus size={18} />
           Add Spool
         </button>}
       </div>
       
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-farm-900 rounded-lg p-4 border border-farm-800">
-          <div className="text-2xl font-bold text-farm-100">{activeSpools.length}</div>
-          <div className="text-sm text-farm-400">Active Spools</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+          <div className="text-xl md:text-2xl font-bold text-farm-100">{activeSpools.length}</div>
+          <div className="text-xs md:text-sm text-farm-400">Active Spools</div>
         </div>
-        <div className="bg-farm-900 rounded-lg p-4 border border-farm-800">
-          <div className="text-2xl font-bold text-print-400">{loadedSpools.length}</div>
-          <div className="text-sm text-farm-400">Loaded</div>
+        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+          <div className="text-xl md:text-2xl font-bold text-print-400">{loadedSpools.length}</div>
+          <div className="text-xs md:text-sm text-farm-400">Loaded</div>
         </div>
-        <div className="bg-farm-900 rounded-lg p-4 border border-farm-800">
-          <div className="text-2xl font-bold text-yellow-400">{lowSpools.length}</div>
-          <div className="text-sm text-farm-400">Low (&lt;20%)</div>
+        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+          <div className="text-xl md:text-2xl font-bold text-yellow-400">{lowSpools.length}</div>
+          <div className="text-xs md:text-sm text-farm-400">Low (&lt;20%)</div>
         </div>
-        <div className="bg-farm-900 rounded-lg p-4 border border-farm-800">
-          <div className="text-2xl font-bold text-farm-100">
+        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+          <div className="text-xl md:text-2xl font-bold text-farm-100">
             {activeSpools.reduce((sum, s) => sum + (s.remaining_weight_g || 0), 0).toFixed(0)}g
           </div>
-          <div className="text-sm text-farm-400">Total Filament</div>
+          <div className="text-xs md:text-sm text-farm-400">Total Filament</div>
         </div>
       </div>
       
       {/* Low warning */}
       {lowSpools.length > 0 && (
-        <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3">
-          <AlertTriangle className="text-yellow-500" size={20} />
-          <span className="text-yellow-200">
+        <div className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3">
+          <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
+          <span className="text-yellow-200 text-sm md:text-base">
             {lowSpools.length} spool{lowSpools.length > 1 ? 's' : ''} running low on filament
           </span>
         </div>
       )}
       
-      {/* Filter tabs */}
-      <div className="flex gap-2 mb-6">
-        {['active', 'empty', 'archived', 'all'].map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={clsx(
-              "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-              filter === f
-                ? "bg-print-600 text-white"
-                : "bg-farm-800 text-farm-400 hover:bg-farm-700"
-            )}
+      {/* Filter tabs + Sort controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4 md:mb-6">
+        {/* Filter tabs */}
+        <div className="flex gap-1.5 md:gap-2 flex-wrap">
+          {['active', 'empty', 'archived', 'all'].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={clsx(
+                "px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-colors",
+                filter === f
+                  ? "bg-print-600 text-white"
+                  : "bg-farm-800 text-farm-400 hover:bg-farm-700"
+              )}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+        
+        {/* Sort controls */}
+        <div className="flex gap-3 items-center sm:ml-auto">
+          <span className="text-xs md:text-sm text-farm-400">Sort:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="bg-farm-800 border border-farm-700 rounded px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-farm-200"
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
-      </div>
-      
-      {/* Sort controls */}
-      <div className="flex gap-4 mb-6 items-center">
-        <span className="text-sm text-farm-400">Sort by:</span>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          className="bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-sm text-farm-200"
-        >
-          <option value="printer">Printer/Slot</option>
-          <option value="name">Name</option>
-          <option value="remaining">Remaining %</option>
-          <option value="material">Material</option>
-        </select>
-        <label className="flex items-center gap-2 text-sm text-farm-400">
-          <input
-            type="checkbox"
-            checked={groupByPrinter}
-            onChange={(e) => setGroupByPrinter(e.target.checked)}
-            className="rounded bg-farm-800 border-farm-700"
-          />
-          Group by printer
-        </label>
+            <option value="printer">Printer/Slot</option>
+            <option value="name">Name</option>
+            <option value="remaining">Remaining %</option>
+            <option value="material">Material</option>
+          </select>
+          <label className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-farm-400">
+            <input
+              type="checkbox"
+              checked={groupByPrinter}
+              onChange={(e) => setGroupByPrinter(e.target.checked)}
+              className="rounded bg-farm-800 border-farm-700"
+            />
+            <span className="hidden sm:inline">Group by printer</span>
+            <span className="sm:hidden">Group</span>
+          </label>
+        </div>
       </div>
       
       {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
-      {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12">No spools found. Add your first spool to get started!</div>}
+      {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
       {!isLoading && spools?.length > 0 && (
       (() => {
         if (!spools) return null;
@@ -724,9 +728,9 @@ export default function Spools() {
           });
           
           return Object.entries(groups).map(([group, groupSpools]) => (
-            <div key={group} className="mb-6">
-              <h3 className="text-lg font-semibold text-farm-200 mb-3">{group}</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div key={group} className="mb-4 md:mb-6">
+              <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                 {groupSpools.map(spool => (
                   <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
                 ))}
@@ -736,7 +740,7 @@ export default function Spools() {
         }
         
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
             {sorted.map(spool => (
               <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
             ))}

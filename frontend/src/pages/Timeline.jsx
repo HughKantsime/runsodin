@@ -13,10 +13,8 @@ import clsx from 'clsx'
 
 import { timeline, printers, jobActions } from '../api'
 
-// Parse date string as UTC (backend returns without Z)
 function parseUTC(dateStr) {
   if (!dateStr) return null
-  // If no timezone indicator, assume UTC
   if (!dateStr.endsWith('Z') && !dateStr.includes('+')) {
     dateStr = dateStr + 'Z'
   }
@@ -65,7 +63,7 @@ function TimelineHeader({ startDate, days, slotWidth }) {
   return (
     <div className="flex bg-farm-900 border-b border-farm-700 sticky top-0 z-10">
       <div 
-        className="flex-shrink-0 bg-farm-900 border-r border-farm-700 px-3 py-2 font-medium"
+        className="flex-shrink-0 bg-farm-900 border-r border-farm-700 px-3 py-2 font-medium text-sm"
         style={{ width: PRINTER_COL_WIDTH }}
       >
         Printer
@@ -89,7 +87,7 @@ function TimelineDateHeader({ startDate, days, slotWidth }) {
       <div
         key={d}
         className={clsx(
-          'flex-shrink-0 text-center py-1 border-r border-farm-700',
+          'flex-shrink-0 text-center py-1 border-r border-farm-700 text-sm',
           isToday ? 'bg-print-900/30 text-print-400' : 'text-farm-400'
         )}
         style={{ width: slotWidth * slotsPerDay }}
@@ -138,7 +136,6 @@ export default function Timeline() {
   const [days, setDays] = useState(7)
   const [slotWidth, setSlotWidth] = useState(20)
   
-  // All drag state in one ref to avoid closure issues
   const dragRef = useRef({
     active: false,
     job: null,
@@ -147,7 +144,6 @@ export default function Timeline() {
     newStartTime: null
   })
   
-  // Just for UI updates
   const [dragUI, setDragUI] = useState({ active: false, printerId: null, left: 0, width: 0, label: '', jobId: null })
 
   const { data: printersData } = useQuery({
@@ -172,7 +168,6 @@ export default function Timeline() {
     }
   })
 
-  // Set up drag handlers once
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!dragRef.current.active || !containerRef.current) return
@@ -200,12 +195,10 @@ export default function Timeline() {
         
         const newTime = new Date(startDate.getTime() + idx * SLOT_MINUTES * 60 * 1000)
         
-        // Store in ref
         dragRef.current.printerId = targetPrinterId
         dragRef.current.slotIndex = idx
         dragRef.current.newStartTime = newTime
         
-        // Update UI
         setDragUI({
           active: true,
           printerId: targetPrinterId,
@@ -231,7 +224,6 @@ export default function Timeline() {
         })
       }
       
-      // Reset
       dragRef.current = { active: false, job: null, printerId: null, slotIndex: null, newStartTime: null }
       setDragUI({ active: false, printerId: null, left: 0, width: 0, label: '', jobId: null })
     }
@@ -276,32 +268,33 @@ export default function Timeline() {
       className={clsx("h-full flex flex-col", dragUI.active && "cursor-grabbing select-none")}
       ref={containerRef}
     >
-      <div className="flex items-center justify-between p-4 border-b border-farm-800 bg-farm-950">
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 md:p-4 border-b border-farm-800 bg-farm-950">
         <div className="flex items-center gap-2">
-          <button onClick={goToPrevWeek} className="p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
-            <ChevronLeft size={20} />
+          <button onClick={goToPrevWeek} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+            <ChevronLeft size={18} />
           </button>
-          <button onClick={goToToday} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg flex items-center gap-2">
-            <CalendarIcon size={16} />
+          <button onClick={goToToday} className="px-3 py-1.5 md:px-4 md:py-2 bg-farm-800 hover:bg-farm-700 rounded-lg flex items-center gap-2 text-sm">
+            <CalendarIcon size={14} />
             Today
           </button>
-          <button onClick={goToNextWeek} className="p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
-            <ChevronRight size={20} />
+          <button onClick={goToNextWeek} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+            <ChevronRight size={18} />
           </button>
-          <span className="ml-4 text-farm-400">
+          <span className="ml-2 text-farm-400 text-xs md:text-sm hidden sm:inline">
             {format(startDate, 'MMM d')} — {format(addDays(startDate, days - 1), 'MMM d, yyyy')}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          {dragUI.active && <span className="text-sm text-print-400 mr-4">Drop at: {dragUI.label}</span>}
-          <button onClick={() => setSlotWidth(w => Math.max(10, w - 5))} className="p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
-            <ZoomOut size={18} />
+          {dragUI.active && <span className="text-xs text-print-400 mr-2">{dragUI.label}</span>}
+          <button onClick={() => setSlotWidth(w => Math.max(10, w - 5))} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+            <ZoomOut size={16} />
           </button>
-          <button onClick={() => setSlotWidth(w => Math.min(60, w + 5))} className="p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
-            <ZoomIn size={18} />
+          <button onClick={() => setSlotWidth(w => Math.min(60, w + 5))} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+            <ZoomIn size={16} />
           </button>
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
             <option value={3}>3 days</option>
             <option value={7}>1 week</option>
             <option value={14}>2 weeks</option>
@@ -311,7 +304,7 @@ export default function Timeline() {
 
       <div className="flex-1 overflow-auto relative">
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-farm-500">Loading...</div>
+          <div className="flex items-center justify-center h-64 text-farm-500 text-sm">Loading...</div>
         ) : (
           <div className="min-w-max">
             <TimelineDateHeader startDate={startDate} days={days} slotWidth={slotWidth} />
@@ -343,9 +336,7 @@ export default function Timeline() {
                     style={{ height: ROW_HEIGHT }}
                   >
                     <div className="flex-shrink-0 bg-farm-950 border-r border-farm-700 px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
-                      <div>
-                        <div className="font-medium text-sm">{printer.name}</div>
-                      </div>
+                      <div className="font-medium text-sm truncate">{printer.name}</div>
                     </div>
                     
                     <div className="flex-1 relative bg-farm-900/50 timeline-grid" data-printer-id={printer.id}>
@@ -401,12 +392,13 @@ export default function Timeline() {
         )}
       </div>
 
-      <div className="p-4 border-t border-farm-800 bg-farm-950 flex items-center gap-6">
-        <span className="text-sm text-farm-500">Status:</span>
+      {/* Status legend */}
+      <div className="p-2 md:p-4 border-t border-farm-800 bg-farm-950 flex items-center gap-3 md:gap-6 flex-wrap">
+        <span className="text-xs md:text-sm text-farm-500">Status:</span>
         {Object.entries(statusColors).map(([status, color]) => (
-          <div key={status} className="flex items-center gap-2">
-            <div className={clsx('w-3 h-3 rounded', color)} />
-            <span className="text-sm text-farm-400 capitalize">{status}</span>
+          <div key={status} className="flex items-center gap-1.5">
+            <div className={clsx('w-2.5 h-2.5 md:w-3 md:h-3 rounded', color)} />
+            <span className="text-xs md:text-sm text-farm-400 capitalize">{status}</span>
           </div>
         ))}
       </div>

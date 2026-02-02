@@ -1,14 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock, User, AlertCircle } from 'lucide-react'
-
-// NOTE: This page is not wired up yet. To enable:
-// 1. Add route in App.jsx: <Route path="/login" element={<Login />} />
-// 2. Add auth context provider
-// 3. Add login API endpoint
+import { useBranding } from '../BrandingContext'
 
 export default function Login() {
   const navigate = useNavigate()
+  const branding = useBranding()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -32,11 +29,14 @@ export default function Login() {
       }
 
       const data = await response.json()
-      
       // Store token
       localStorage.setItem('token', data.access_token)
-      const payload = JSON.parse(atob(data.access_token.split('.')[1])); localStorage.setItem('user', JSON.stringify({ username: payload.sub, role: payload.role }))
-      
+      const payload = JSON.parse(atob(data.access_token.split('.')[1]));
+      localStorage.setItem('user', JSON.stringify({
+        username: payload.sub,
+        role: payload.role
+      }))
+
       // Redirect to dashboard
       navigate('/')
     } catch (err) {
@@ -47,13 +47,26 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-farm-950 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="w-full max-w-md">
-        <div className="bg-farm-900 rounded-xl border border-farm-800 p-8">
+        <div className="rounded-xl p-8"
+          style={{ 
+            backgroundColor: 'var(--brand-card-bg)',
+            border: '1px solid var(--brand-card-border)',
+          }}>
           {/* Logo */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-display font-bold text-print-400">PRINTFARM</h1>
-            <p className="text-farm-500 mt-1">Scheduler</p>
+            {branding.logo_url ? (
+              <img src={branding.logo_url} alt={branding.app_name} className="h-12 mx-auto mb-2" />
+            ) : (
+              <h1 className="text-3xl font-display font-bold" style={{ color: 'var(--brand-accent)' }}>
+                {branding.app_name.toUpperCase()}
+              </h1>
+            )}
+            <p className="mt-1" style={{ color: 'var(--brand-text-muted)' }}>
+              {branding.app_subtitle}
+            </p>
           </div>
 
           {/* Error */}
@@ -67,14 +80,19 @@ export default function Login() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm text-farm-400 mb-2">Username</label>
+              <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Username</label>
               <div className="relative">
-                <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+                <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-farm-800 border border-farm-700 rounded-lg py-3 pl-10 pr-4 focus:outline-none focus:border-print-500"
+                  className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
+                  style={{
+                    backgroundColor: 'var(--brand-input-bg)',
+                    border: '1px solid var(--brand-input-border)',
+                    color: 'var(--brand-text-primary)',
+                  }}
                   placeholder="Enter username"
                   required
                 />
@@ -82,14 +100,19 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm text-farm-400 mb-2">Password</label>
+              <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Password</label>
               <div className="relative">
-                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-farm-800 border border-farm-700 rounded-lg py-3 pl-10 pr-4 focus:outline-none focus:border-print-500"
+                  className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
+                  style={{
+                    backgroundColor: 'var(--brand-input-bg)',
+                    border: '1px solid var(--brand-input-border)',
+                    color: 'var(--brand-text-primary)',
+                  }}
                   placeholder="Enter password"
                   required
                 />
@@ -99,15 +122,16 @@ export default function Login() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-print-600 hover:bg-print-500 disabled:bg-farm-700 text-white font-medium py-3 rounded-lg transition-colors"
+              className="w-full font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+              style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-farm-600 text-sm mt-6">
-          PrintFarm Scheduler v0.9.0
+        <p className="text-center text-sm mt-6" style={{ color: 'var(--brand-text-muted)' }}>
+          {branding.app_name} {branding.app_subtitle} v0.9.1
         </p>
       </div>
     </div>

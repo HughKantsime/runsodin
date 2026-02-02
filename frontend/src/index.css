@@ -1,3 +1,26 @@
+:root {
+  /* Brand colors - overridden at runtime by BrandingContext */
+  --brand-primary: #22c55e;
+  --brand-accent: #4ade80;
+  --brand-sidebar-bg: #1a1917;
+  --brand-sidebar-border: #3b3934;
+  --brand-sidebar-text: #8a8679;
+  --brand-sidebar-active-bg: #3b3934;
+  --brand-sidebar-active-text: #4ade80;
+  --brand-content-bg: #1a1917;
+  --brand-card-bg: #33312d;
+  --brand-card-border: #3b3934;
+  --brand-text-primary: #e5e4e1;
+  --brand-text-secondary: #8a8679;
+  --brand-text-muted: #58554a;
+  --brand-input-bg: #3b3934;
+  --brand-input-border: #47453d;
+  /* Brand fonts */
+  --brand-font-display: system-ui, -apple-system, sans-serif;
+  --brand-font-body: system-ui, -apple-system, sans-serif;
+  --brand-font-mono: ui-monospace, monospace;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -6,15 +29,15 @@
 @layer base {
   body {
     @apply antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: system-ui, -apple-system, sans-serif;
   }
   
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-family: system-ui, -apple-system, sans-serif;
   }
   
   code, pre, .mono {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: ui-monospace, monospace;
   }
 }
 

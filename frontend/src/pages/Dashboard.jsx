@@ -26,15 +26,15 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   }
 
   return (
-    <div className={clsx('rounded-xl p-5', colorClasses[color])}>
+    <div className={clsx('rounded-xl p-4 md:p-5', colorClasses[color])}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-farm-400 mb-1">{label}</p>
-          <p className="text-3xl font-bold font-display">{value}</p>
+          <p className="text-xs md:text-sm text-farm-400 mb-1">{label}</p>
+          <p className="text-2xl md:text-3xl font-bold font-display">{value}</p>
           {trend && <p className="text-xs text-farm-500 mt-2">{trend}</p>}
         </div>
         <div className="p-2 bg-farm-800/50 rounded-lg">
-          <Icon size={24} />
+          <Icon size={20} className="md:w-6 md:h-6" />
         </div>
       </div>
     </div>
@@ -57,10 +57,10 @@ function PrinterCard({ printer, hasCamera, onCameraClick, printerStats }) {
   return (
     <div className="bg-farm-900 rounded-xl p-4 border border-farm-800">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-semibold text-lg">{printer.name}</h3>
-        <div className="flex items-center gap-3">
+        <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.name}</h3>
+        <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
           {pStats && (
-            <div className="flex items-center gap-1 text-xs">
+            <div className="flex items-center gap-1 text-xs hidden sm:flex">
               <Timer size={12} className="text-farm-400" />
               <span className="text-print-400 font-medium">{pStats.total_hours?.toFixed(1) || 0}h</span>
               <span className="text-farm-500">({pStats.completed_jobs || 0})</span>
@@ -77,14 +77,14 @@ function PrinterCard({ printer, hasCamera, onCameraClick, printerStats }) {
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-4 gap-1.5 md:gap-2">
         {slots.map((slot, idx) => (
-          <div key={idx} className="bg-farm-800 rounded-lg p-2 text-center min-w-0">
+          <div key={idx} className="bg-farm-800 rounded-lg p-1.5 md:p-2 text-center min-w-0">
             <div 
-              className="w-full h-3 rounded mb-1" 
+              className="w-full h-2.5 md:h-3 rounded mb-1" 
               style={{ backgroundColor: slot.color_hex ? `#${slot.color_hex}` : (slot.color ? '#888' : '#333') }} 
             />
-            <span className="text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
+            <span className="text-[10px] md:text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
           </div>
         ))}
       </div>
@@ -111,26 +111,26 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   }
 
   return (
-    <div className={clsx('bg-farm-900 rounded-lg p-4 border-l-4', statusColors[job.status])}>
+    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4', statusColors[job.status])}>
       <div className="flex items-center justify-between">
-        <div>
-          <h4 className="font-medium">{job.item_name}</h4>
-          <p className="text-sm text-farm-500">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
+        <div className="min-w-0 mr-2">
+          <h4 className="font-medium truncate">{job.item_name}</h4>
+          <p className="text-sm text-farm-500 truncate">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
           {canDo('dashboard.actions') && job.status === 'scheduled' && (
-            <button onClick={() => onStart(job.id)} className="p-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors" title="Start Print">
-              <Play size={16} />
+            <button onClick={() => onStart(job.id)} className="p-1.5 md:p-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors" title="Start Print">
+              <Play size={14} className="md:w-4 md:h-4" />
             </button>
           )}
           {canDo('dashboard.actions') && job.status === 'printing' && (
-            <button onClick={() => onComplete(job.id)} className="p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" title="Mark Complete">
-              <CheckCircle size={16} />
+            <button onClick={() => onComplete(job.id)} className="p-1.5 md:p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" title="Mark Complete">
+              <CheckCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
           {canDo('dashboard.actions') && (job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
-            <button onClick={() => onCancel(job.id)} className="p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" title="Cancel">
-              <XCircle size={16} />
+            <button onClick={() => onCancel(job.id)} className="p-1.5 md:p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" title="Cancel">
+              <XCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
           <div className={clsx('status-dot', job.status)} />
@@ -139,7 +139,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
       {job.colors_list?.length > 0 && (
         <div className="flex gap-1 mt-2">
           {job.colors_list.map((color, i) => (
-            <div key={i} className="w-5 h-5 rounded-full border border-farm-600" style={{ backgroundColor: color }} title={color} />
+            <div key={i} className="w-4 h-4 md:w-5 md:h-5 rounded-full border border-farm-600" style={{ backgroundColor: color }} title={color} />
           ))}
         </div>
       )}
@@ -155,16 +155,16 @@ function MqttPrintItem({ job }) {
   }
 
   return (
-    <div className="bg-farm-900 rounded-lg p-4 border-l-4 border-print-500">
+    <div className="bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border-print-500">
       <div className="flex items-center justify-between">
-        <div>
-          <h4 className="font-medium flex items-center gap-2">
-            <Activity size={14} className="text-print-400 animate-pulse" />
-            {job.job_name || 'Unknown'}
+        <div className="min-w-0 mr-2">
+          <h4 className="font-medium flex items-center gap-2 truncate">
+            <Activity size={14} className="text-print-400 animate-pulse flex-shrink-0" />
+            <span className="truncate">{job.job_name || 'Unknown'}</span>
           </h4>
-          <p className="text-sm text-farm-500">{job.printer_name} • Started {formatTime(job.started_at)}</p>
+          <p className="text-sm text-farm-500 truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
         </div>
-        <div className="text-right">
+        <div className="text-right flex-shrink-0">
           {job.total_layers && <p className="text-xs text-farm-500">{job.total_layers} layers</p>}
         </div>
       </div>
@@ -195,13 +195,13 @@ function PrintHistoryItem({ job }) {
   }
 
   return (
-    <div className={clsx('bg-farm-900 rounded-lg p-4 border-l-4', statusColors[job.status] || 'border-farm-700')}>
+    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4', statusColors[job.status] || 'border-farm-700')}>
       <div className="flex items-center justify-between">
-        <div>
-          <h4 className="font-medium">{job.job_name || 'Unknown'}</h4>
-          <p className="text-sm text-farm-500">{job.printer_name} • {formatTime(job.started_at)}</p>
+        <div className="min-w-0 mr-2">
+          <h4 className="font-medium truncate">{job.job_name || 'Unknown'}</h4>
+          <p className="text-sm text-farm-500 truncate">{job.printer_name} • {formatTime(job.started_at)}</p>
         </div>
-        <div className="text-right">
+        <div className="text-right flex-shrink-0">
           <div className="font-medium text-print-400">{formatDuration(job.duration_minutes)}</div>
           {job.total_layers && <p className="text-xs text-farm-500">{job.total_layers} layers</p>}
         </div>
@@ -261,36 +261,36 @@ export default function Dashboard() {
   const currentlyPrinting = statsData?.jobs?.printing || 0
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 md:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold">Dashboard</h1>
-          <p className="text-farm-500 mt-1">Print farm overview</p>
+          <h1 className="text-2xl md:text-3xl font-display font-bold">Dashboard</h1>
+          <p className="text-farm-500 mt-1 text-sm md:text-base">Print farm overview</p>
         </div>
         {canDo('dashboard.actions') && <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
-          className={clsx('flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-colors bg-print-600 hover:bg-print-500 text-white', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
+          className={clsx('flex items-center gap-2 px-4 md:px-5 py-2 md:py-2.5 rounded-lg font-medium transition-colors bg-print-600 hover:bg-print-500 text-white text-sm md:text-base self-start sm:self-auto', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
           <Zap size={18} />
           {runScheduler.isPending ? 'Scheduling...' : 'Run Scheduler'}
         </button>}
       </div>
 
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
         <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="print" />
         <StatCard label="Scheduled" value={statsData?.jobs?.scheduled || 0} icon={Clock} color="scheduled" />
         <StatCard label="Pending" value={statsData?.jobs?.pending || 0} icon={AlertCircle} color="pending" />
         <StatCard label="Completed Today" value={statsData?.jobs?.completed_today || 0} icon={CheckCircle} color="farm" />
       </div>
 
-      <div className="grid grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
         {/* Printers */}
-        <div className="col-span-2">
-          <h2 className="text-xl font-display font-semibold mb-4">Printers</h2>
-          <div className="grid grid-cols-2 gap-4">
+        <div className="lg:col-span-2">
+          <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Printers</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {printersData?.map((printer) => (
               <PrinterCard key={printer.id} printer={printer} printerStats={printerStats} hasCamera={cameraIds.has(printer.id)} onCameraClick={setCameraTarget} />
             ))}
             {(!printersData || printersData.length === 0) && (
-              <div className="col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">No printers configured.</div>
+              <div className="col-span-1 md:col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">No printers configured.</div>
             )}
           </div>
         </div>
@@ -299,7 +299,7 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* Active Jobs - includes running MQTT prints */}
           <div>
-            <h2 className="text-xl font-display font-semibold mb-4">Active Jobs</h2>
+            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Active Jobs</h2>
             <div className="space-y-3">
               {/* Running MQTT prints */}
               {runningMqttJobs.map((job) => (
@@ -325,7 +325,7 @@ export default function Dashboard() {
 
           {/* Recent Prints - only completed/failed/cancelled */}
           <div>
-            <h2 className="text-xl font-display font-semibold mb-4">Recent Prints</h2>
+            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Recent Prints</h2>
             <div className="space-y-3">
               {completedMqttJobs.slice(0, 10).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
               {completedMqttJobs.length === 0 && (
@@ -337,7 +337,7 @@ export default function Dashboard() {
       </div>
 
       {runScheduler.isSuccess && (
-        <div className="fixed bottom-4 right-4 bg-print-600 text-white px-4 py-3 rounded-lg shadow-lg">
+        <div className="fixed bottom-4 right-4 bg-print-600 text-white px-4 py-3 rounded-lg shadow-lg z-30">
           Scheduled {runScheduler.data?.scheduled || 0} jobs
         </div>
       )}

@@ -3,7 +3,8 @@ import { canAccessPage, canDo, getCurrentUser } from './permissions'
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { 
-  LayoutDashboard, Video, 
+  LayoutDashboard,
+  Video, 
   Calendar, 
   Printer, 
   Package, 
@@ -17,10 +18,12 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  Menu
+  Menu,
+  X,
+  Palette,
 } from 'lucide-react'
 import clsx from 'clsx'
-
+import { useBranding } from './BrandingContext'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
 import Jobs from './pages/Jobs'
@@ -34,19 +37,22 @@ import Upload from './pages/Upload'
 import Login from './pages/Login'
 import Admin from './pages/Admin'
 import Cameras from "./pages/Cameras"
+import Branding from './pages/Branding'
 import { stats } from './api'
 
-function NavItem({ to, icon: Icon, children, collapsed }) {
+
+function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
   return (
-    <NavLink
+    <NavLink 
       to={to}
-      className={({ isActive }) =>
-        clsx(
-          collapsed ? 'flex items-center justify-center py-2.5 rounded-lg transition-colors' : 'flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors',
-          isActive 
-            ? 'bg-farm-800 text-print-400' 
-            : 'text-farm-400 hover:bg-farm-900 hover:text-farm-200'
-        )
+      onClick={onClick}
+      className={({ isActive }) => clsx(
+        collapsed ? 'flex items-center justify-center py-2.5 rounded-lg transition-colors' 
+                  : 'flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors',
+      )}
+      style={({ isActive }) => isActive
+        ? { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-active-text)' }
+        : { color: 'var(--brand-sidebar-text)' }
       }
     >
       <Icon size={20} className="flex-shrink-0" />
@@ -55,12 +61,14 @@ function NavItem({ to, icon: Icon, children, collapsed }) {
   )
 }
 
+
 function NavGroup({ label, collapsed }) {
   return (
     <div className="pt-4 pb-1">
-      <div className="border-t border-farm-800" />
+      <div style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} />
       {!collapsed && (
-        <span className="text-[10px] uppercase tracking-widest text-farm-600 font-semibold px-4 mt-2 block">
+        <span className="text-[10px] uppercase tracking-widest font-semibold px-4 mt-2 block"
+          style={{ color: 'var(--brand-text-muted)' }}>
           {label}
         </span>
       )}
@@ -68,8 +76,11 @@ function NavGroup({ label, collapsed }) {
   )
 }
 
+
 function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const branding = useBranding()
+
   const { data: statsData } = useQuery({
     queryKey: ['stats'],
     queryFn: stats.get,
@@ -77,13 +88,41 @@ function Sidebar() {
   })
 
   return (
-    <aside className={clsx("bg-farm-950 border-r border-farm-800 flex flex-col transition-all duration-300", collapsed ? "w-16" : "w-64")}>
+    <aside 
+      className={clsx("flex flex-col transition-all duration-300", collapsed ? "w-16" : "w-64")}
+      style={{ 
+        backgroundColor: 'var(--brand-sidebar-bg)',
+        borderRight: '1px solid var(--brand-sidebar-border)',
+      }}
+    >
       {/* Logo */}
-      <div className={clsx("border-b border-farm-800 flex items-center", collapsed ? "p-3 justify-center" : "p-6 justify-between")}>
-        <div>{!collapsed && <><h1 className="text-xl font-display font-bold text-farm-100">
-          PrintFarm
-        </h1>
-        <p className="text-sm text-farm-500 mt-1">Scheduler</p></>}</div><button onClick={() => setCollapsed(!collapsed)} className="text-farm-400 hover:text-farm-200 transition-colors">{collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}</button>
+      <div 
+        className={clsx("flex items-center", collapsed ? "p-3 justify-center" : "p-6 justify-between")}
+        style={{ borderBottom: '1px solid var(--brand-sidebar-border)' }}
+      >
+        <div>
+          {!collapsed && (
+            <>
+              {branding.logo_url ? (
+                <img src={branding.logo_url} alt={branding.app_name} className="h-8 object-contain" />
+              ) : (
+                <h1 className="text-xl font-display font-bold" style={{ color: 'var(--brand-text-primary)' }}>
+                  {branding.app_name}
+                </h1>
+              )}
+              <p className="text-sm mt-1" style={{ color: 'var(--brand-text-muted)' }}>
+                {branding.app_subtitle}
+              </p>
+            </>
+          )}
+        </div>
+        <button 
+          onClick={() => setCollapsed(!collapsed)} 
+          className="transition-colors"
+          style={{ color: 'var(--brand-sidebar-text)' }}
+        >
+          {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+        </button>
       </div>
 
       {/* Navigation */}
@@ -113,35 +152,47 @@ function Sidebar() {
         {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed} />}
         {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
         {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
+        {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/branding" icon={Palette}>Branding</NavItem>}
       </nav>
 
       {/* Quick Stats */}
       {statsData && !collapsed && (
-        <div className="p-4 border-t border-farm-800">
+        <div className="p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-farm-900 rounded-lg p-3">
-              <div className="text-2xl font-bold text-print-400">
+            <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
+              <div className="text-2xl font-bold" style={{ color: 'var(--brand-accent)' }}>
                 {statsData.jobs?.printing || 0}
               </div>
-              <div className="text-xs text-farm-500">Printing</div>
+              <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Printing</div>
             </div>
-            <div className="bg-farm-900 rounded-lg p-3">
+            <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
               <div className="text-2xl font-bold text-status-pending">
                 {statsData.jobs?.pending || 0}
               </div>
-              <div className="text-xs text-farm-500">Pending</div>
+              <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Pending</div>
             </div>
           </div>
         </div>
       )}
 
       {/* Footer */}
-      <div className="p-4 border-t border-farm-800">
-        <div className="flex items-center gap-2 text-farm-500 text-sm">
-          <Activity size={14} className="text-print-500" />
-          {!collapsed && <span>System Online</span>}
+      <div className="p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+        <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--brand-sidebar-text)' }}>
+          <Activity size={14} style={{ color: 'var(--brand-primary)' }} />
+          {!collapsed && <span>{branding.footer_text}</span>}
         </div>
-        <button onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("user"); window.location.href = "/login"; }} className="flex items-center gap-2 text-farm-500 hover:text-red-400 text-sm mt-2 transition-colors"><LogOut size={14} />{!collapsed && "Logout"}</button>
+        <button
+          onClick={() => {
+            localStorage.removeItem("token");
+            localStorage.removeItem("user");
+            window.location.href = "/login";
+          }}
+          className="flex items-center gap-2 hover:text-red-400 text-sm mt-2 transition-colors"
+          style={{ color: 'var(--brand-sidebar-text)' }}
+        >
+          <LogOut size={14} />
+          {!collapsed && "Logout"}
+        </button>
       </div>
     </aside>
   )
@@ -159,6 +210,7 @@ function isTokenValid() {
   }
 }
 
+
 function ProtectedRoute({ children }) {
   const location = useLocation()
   if (!isTokenValid()) {
@@ -169,9 +221,10 @@ function ProtectedRoute({ children }) {
   return children
 }
 
+
 export default function App() {
   const location = useLocation()
-  
+
   // Show login page without sidebar
   if (location.pathname === '/login') {
     return <Login />
@@ -181,8 +234,7 @@ export default function App() {
     <ProtectedRoute>
       <div className="h-screen flex">
         <Sidebar />
-        
-        <main className="flex-1 overflow-auto bg-farm-950">
+        <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/timeline" element={<Timeline />} />
@@ -196,6 +248,7 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/cameras" element={<Cameras />} />
+            <Route path="/branding" element={<Branding />} />
           </Routes>
         </main>
       </div>

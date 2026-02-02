@@ -1,5 +1,49 @@
 # PrintFarm Scheduler Changelog
 
+## v0.9.1 - White-Label Branding (2026-02-02)
+
+### White-Label Branding System (Enterprise)
+- Full admin UI at `/branding` for customizing deployment appearance
+- 15 brandable colors: primary, accent, sidebar (5), content (3), text (3), inputs (2)
+- System font selection for display, body, and mono typefaces
+- Zero external dependencies — all fonts resolve locally (ITAR/airgapped safe)
+- Live preview panel with mini sidebar, content area, login screen, and color palette
+- Logo and favicon upload with local static file serving
+- Customizable app name, subtitle, footer text, and support URL
+
+### CSS Variable Architecture
+- Tailwind config remapped to CSS custom properties with hex fallbacks
+- All existing components automatically respond to branding changes
+- BrandingContext provider injects runtime CSS variables on page load
+- Status colors (pending/failed/printing) remain semantic and unbranded
+- Font families flow through CSS variables to all Tailwind font-* classes
+
+### Branding API
+- `GET /api/branding` — public endpoint (renders before auth on login page)
+- `PUT /api/branding` — admin-only, save branding configuration
+- `POST /api/branding/logo` / `POST /api/branding/favicon` — file uploads
+- `DELETE /api/branding/logo` — remove uploaded logo
+- Branding endpoint exempt from API key middleware
+
+### Login Page
+- Renders branding (logo, app name, colors) before authentication
+- All form elements use CSS variables for consistent theming
+
+## v0.9.0 - Mobile Responsive Design (2026-02-01)
+
+### Mobile Layout
+- Responsive sidebar: collapsible hamburger menu on mobile viewports
+- Touch-friendly navigation with slide-out drawer
+- Mobile-optimized card layouts across all pages
+- Responsive grid adjustments for Dashboard, Printers, Analytics
+- Touch targets sized for mobile interaction (44px minimum)
+
+### UI Improvements
+- Sidebar overlay with backdrop on mobile
+- Smooth transitions between mobile and desktop layouts
+- Viewport-aware component rendering
+- Consistent spacing and typography scaling across breakpoints
+
 ## v0.8.3 - Sidebar Navigation Overhaul (2026-02-01)
 
 ### Sidebar Grouping
@@ -11,7 +55,6 @@
 ### Collapsed Sidebar Fix
 - Icons properly centered in collapsed mode (removed left padding bias)
 - Logo/chevron header centered with tighter padding when collapsed
-
 
 ## v0.8.2 - Role-Based UI Permissions (2026-01-31)
 
@@ -33,7 +76,6 @@
 - Operator: full day-to-day operations (create, edit, schedule)
 - Admin: full access including add/delete printers, delete models/spools, settings, user management
 
-
 ## v0.8.1 - Route Protection & Auth Enforcement (2026-01-31)
 
 ### Frontend Auth
@@ -47,7 +89,6 @@
 - No pages accessible without valid JWT (except /login)
 - Token expiry validated client-side via decoded JWT payload
 - Consistent auth headers on all fetchAPI calls
-
 
 ## v0.8.0 - Camera Feeds & UI Polish (2026-01-31)
 

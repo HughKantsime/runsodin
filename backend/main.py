@@ -17,6 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
+import shutil
+from fastapi.staticfiles import StaticFiles
+from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 
 from auth import (
     Token, UserCreate, UserResponse,
@@ -142,13 +145,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static files for branding assets (logos, favicons)
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 
 # API Key authentication middleware
 @app.middleware("http")
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
-    if request.url.path == "/health" or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.method == "OPTIONS":
+    if request.url.path == "/health" or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/branding") or request.method == "OPTIONS":
         return await call_next(request)
     
     # If no API key configured, auth is disabled
@@ -1519,6 +1527,9 @@ async def get_stats(db: Session = Depends(get_db)):
 
 # ============== Spoolman Integration ==============
 import httpx
+import shutil
+from fastapi.staticfiles import StaticFiles
+from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 
 SPOOLMAN_URL = "http://192.168.68.103:7912"
 
@@ -3602,3 +3613,73 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
         )
     
     return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
+
+
+# ============== Branding (White-Label) ==============
+
+@app.get("/api/branding", tags=["Branding"])
+async def get_branding(db: Session = Depends(get_db)):
+    """Get branding config. PUBLIC - no auth required."""
+    return branding_to_dict(get_or_create_branding(db))
+
+
+@app.put("/api/branding", tags=["Branding"])
+async def update_branding(data: dict, db: Session = Depends(get_db)):
+    """Update branding config. Admin only."""
+    branding = get_or_create_branding(db)
+    for key, value in data.items():
+        if key in UPDATABLE_FIELDS:
+            setattr(branding, key, value)
+    branding.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(branding)
+    return branding_to_dict(branding)
+
+
+@app.post("/api/branding/logo", tags=["Branding"])
+async def upload_logo(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Upload brand logo. Admin only."""
+    allowed = {"image/png", "image/jpeg", "image/svg+xml", "image/webp"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail="File type not allowed")
+    upload_dir = os.path.join(os.path.dirname(__file__), "static", "branding")
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = file.filename.split(".")[-1] if "." in file.filename else "png"
+    filename = f"logo.{ext}"
+    with open(os.path.join(upload_dir, filename), "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    branding = get_or_create_branding(db)
+    branding.logo_url = f"/static/branding/{filename}"
+    db.commit()
+    return {"logo_url": branding.logo_url}
+
+
+@app.post("/api/branding/favicon", tags=["Branding"])
+async def upload_favicon(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Upload favicon. Admin only."""
+    allowed = {"image/png", "image/x-icon", "image/svg+xml", "image/webp"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail="File type not allowed")
+    upload_dir = os.path.join(os.path.dirname(__file__), "static", "branding")
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = file.filename.split(".")[-1] if "." in file.filename else "png"
+    filename = f"favicon.{ext}"
+    with open(os.path.join(upload_dir, filename), "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    branding = get_or_create_branding(db)
+    branding.favicon_url = f"/static/branding/{filename}"
+    db.commit()
+    return {"favicon_url": branding.favicon_url}
+
+
+@app.delete("/api/branding/logo", tags=["Branding"])
+async def remove_logo(db: Session = Depends(get_db)):
+    """Remove brand logo. Admin only."""
+    branding = get_or_create_branding(db)
+    if branding.logo_url:
+        filepath = os.path.join(os.path.dirname(__file__), branding.logo_url.lstrip("/"))
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    branding.logo_url = None
+    db.commit()
+    return {"logo_url": None}
