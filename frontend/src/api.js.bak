@@ -63,7 +63,6 @@ export const models = {
   getVariants: (id) => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId, variantId) => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
   list: () => fetchAPI('/models'),
-  listWithPricing: (category) => fetchAPI('/models-with-pricing' + (category ? '?category=' + category : '')),
   get: (id) => fetchAPI('/models/' + id),
   create: (data) => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI('/models/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -242,14 +241,3 @@ export const permissions = {
   update: (data) => fetchAPI('/permissions', { method: 'PUT', body: JSON.stringify(data) }),
   reset: () => fetchAPI('/permissions/reset', { method: 'POST' }),
 }
-// Pricing Config
-export const pricingConfig = {
-  get: () => fetchAPI('/pricing-config'),
-  update: (data) => fetchAPI('/pricing-config', { method: 'PUT', body: JSON.stringify(data) }),
-}
-
-// Model Cost Calculator
-export const modelCost = {
-  calculate: (modelId) => fetchAPI(`/models/${modelId}/cost`),
-}
-

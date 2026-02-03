@@ -231,6 +231,10 @@ class JobResponse(JobBase):
     colors_list: List[str] = []
     effective_duration: float = 1.0
     
+    # Cost tracking
+    estimated_cost: Optional[float] = None
+    suggested_price: Optional[float] = None
+    
     # Expanded relations (optional)
     printer: Optional[PrinterSummary] = None
     model: Optional[ModelResponse] = None

@@ -940,6 +940,89 @@ def list_models(
     return query.order_by(Model.name).all()
 
 
+@app.get("/api/models-with-pricing", tags=["Models"])
+def list_models_with_pricing(
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List all print models with calculated cost and suggested price."""
+    query = db.query(Model)
+    if category:
+        query = query.filter(Model.category == category)
+    models = query.order_by(Model.name).all()
+    
+    # Get pricing config once
+    config_row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    config = config_row.value if config_row else DEFAULT_PRICING_CONFIG
+    
+    # Get variant counts using raw SQL (print_files has no SQLAlchemy model)
+    variant_counts = {}
+    for model in models:
+        result = db.execute(text("SELECT COUNT(*) FROM print_files WHERE model_id = :mid"), {"mid": model.id}).scalar()
+        variant_counts[model.id] = result or 1
+    
+    result = []
+    for model in models:
+        # Calculate cost for this model
+        filament_grams = model.total_filament_grams or 0
+        print_hours = model.build_time_hours or 1.0
+        
+        # Try to get per-material cost
+        material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
+        filament_entry = db.query(FilamentLibrary).filter(
+            FilamentLibrary.material == material_type,
+            FilamentLibrary.cost_per_gram.isnot(None)
+        ).first()
+        
+        if filament_entry and filament_entry.cost_per_gram:
+            cost_per_gram = filament_entry.cost_per_gram
+        else:
+            cost_per_gram = config["spool_cost"] / config["spool_weight"]
+        
+        # Calculate costs
+        material_cost = filament_grams * cost_per_gram
+        labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
+        labor_cost = labor_hours * config["hourly_rate"]
+        electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
+        depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
+        packaging_cost = config["packaging_cost"]
+        base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
+        failure_cost = base_cost * (config["failure_rate"] / 100)
+        overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
+        subtotal = base_cost + failure_cost + overhead_cost
+        
+        margin = model.markup_percent if model.markup_percent else config["default_margin"]
+        suggested_price = subtotal * (1 + margin / 100)
+        
+        # Build response
+        model_dict = {
+            "id": model.id,
+            "name": model.name,
+            "build_time_hours": model.build_time_hours,
+            "default_filament_type": model.default_filament_type.value if model.default_filament_type else None,
+            "color_requirements": model.color_requirements,
+            "category": model.category,
+            "thumbnail_url": model.thumbnail_url,
+            "thumbnail_b64": model.thumbnail_b64,
+            "notes": model.notes,
+            "cost_per_item": model.cost_per_item,
+            "units_per_bed": model.units_per_bed,
+            "markup_percent": model.markup_percent,
+            "created_at": model.created_at.isoformat() if model.created_at else None,
+            "updated_at": model.updated_at.isoformat() if model.updated_at else None,
+            "required_colors": model.required_colors,
+            "total_filament_grams": model.total_filament_grams,
+            "variant_count": variant_counts.get(model.id, 1),
+            # New pricing fields
+            "estimated_cost": round(subtotal, 2),
+            "suggested_price": round(suggested_price, 2),
+            "margin_percent": margin
+        }
+        result.append(model_dict)
+    
+    return result
+
+
 @app.post("/api/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED, tags=["Models"])
 def create_model(model: ModelCreate, db: Session = Depends(get_db)):
     """Create a new model definition."""
@@ -1024,20 +1107,27 @@ def schedule_from_model(
             if isinstance(slot, dict) and slot.get("color"):
                 colors.append(slot["color"])
     
+    # Calculate cost
+    estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=model.id)
+    
     job_result = db.execute(text("""
         INSERT INTO jobs (
             item_name, model_id, duration_hours, colors_required,
-            quantity, priority, status, printer_id, hold, is_locked
+            quantity, priority, status, printer_id, hold, is_locked,
+            estimated_cost, suggested_price
         ) VALUES (
             :item_name, :model_id, :duration_hours, :colors_required,
-            1, 5, 'PENDING', :printer_id, 0, 0
+            1, 5, 'PENDING', :printer_id, 0, 0,
+            :estimated_cost, :suggested_price
         )
     """), {
         "item_name": model.name,
         "model_id": model.id,
         "duration_hours": model.build_time_hours or 0,
         "colors_required": ','.join(colors),
-        "printer_id": printer_id
+        "printer_id": printer_id,
+        "estimated_cost": estimated_cost,
+        "suggested_price": suggested_price
     })
     db.commit()
     
@@ -1072,6 +1162,11 @@ def list_jobs(
 @app.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_job(job: JobCreate, db: Session = Depends(get_db)):
     """Create a new print job."""
+    # Calculate cost if model is linked
+    estimated_cost, suggested_price, _ = (None, None, None)
+    if job.model_id:
+        estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=job.model_id)
+    
     db_job = Job(
         item_name=job.item_name,
         model_id=job.model_id,
@@ -1082,7 +1177,9 @@ def create_job(job: JobCreate, db: Session = Depends(get_db)):
         filament_type=job.filament_type,
         notes=job.notes,
         hold=job.hold,
-        status=JobStatus.PENDING
+        status=JobStatus.PENDING,
+        estimated_cost=estimated_cost,
+        suggested_price=suggested_price
     )
     db.add(db_job)
     db.commit()
@@ -1095,6 +1192,11 @@ def create_jobs_bulk(jobs: List[JobCreate], db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
     db_jobs = []
     for job in jobs:
+        # Calculate cost if model is linked
+        estimated_cost, suggested_price, _ = (None, None, None)
+        if job.model_id:
+            estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=job.model_id)
+        
         db_job = Job(
             item_name=job.item_name,
             model_id=job.model_id,
@@ -1105,7 +1207,9 @@ def create_jobs_bulk(jobs: List[JobCreate], db: Session = Depends(get_db)):
             filament_type=job.filament_type,
             notes=job.notes,
             hold=job.hold,
-            status=JobStatus.PENDING
+            status=JobStatus.PENDING,
+            estimated_cost=estimated_cost,
+            suggested_price=suggested_price
         )
         db.add(db_job)
         db_jobs.append(db_job)
@@ -1936,24 +2040,46 @@ def get_analytics(db: Session = Depends(get_db)):
     completed_jobs = [j for j in all_jobs if j.status == "completed"]
     pending_jobs = [j for j in all_jobs if j.status in ("pending", "scheduled")]
     
-    # Revenue from completed jobs (estimate from model data)
+    # Revenue and costs from completed jobs (use job.suggested_price/estimated_cost when available)
     total_revenue = 0
+    total_cost = 0
     total_print_hours = 0
+    jobs_with_cost_data = 0
+    
     for job in completed_jobs:
-        if job.model_id:
+        # Use job's stored cost data if available
+        if job.suggested_price:
+            total_revenue += job.suggested_price * job.quantity
+            jobs_with_cost_data += 1
+        elif job.model_id:
+            # Fallback to model data for older jobs
             model = db.query(Model).filter(Model.id == job.model_id).first()
             if model and model.cost_per_item:
                 total_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
+        
+        if job.estimated_cost:
+            total_cost += job.estimated_cost * job.quantity
+        
         if job.duration_hours:
             total_print_hours += job.duration_hours
     
+    # Calculate margin
+    total_margin = total_revenue - total_cost if total_cost > 0 else 0
+    margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
+    
     # Projected revenue from pending jobs
     projected_revenue = 0
+    projected_cost = 0
     for job in pending_jobs:
-        if job.model_id:
+        if job.suggested_price:
+            projected_revenue += job.suggested_price * job.quantity
+        elif job.model_id:
             model = db.query(Model).filter(Model.id == job.model_id).first()
             if model and model.cost_per_item:
                 projected_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
+        
+        if job.estimated_cost:
+            projected_cost += job.estimated_cost * job.quantity
     
     # Printer utilization
     printers = db.query(Printer).filter(Printer.is_active == True).all()
@@ -2002,13 +2128,348 @@ def get_analytics(db: Session = Depends(get_db)):
             "completed_jobs": len(completed_jobs),
             "pending_jobs": len(pending_jobs),
             "total_revenue": round(total_revenue, 2),
+            "total_cost": round(total_cost, 2),
+            "total_margin": round(total_margin, 2),
+            "margin_percent": round(margin_percent, 1),
             "projected_revenue": round(projected_revenue, 2),
+            "projected_cost": round(projected_cost, 2),
             "total_print_hours": round(total_print_hours, 1),
             "avg_value_per_hour": round(avg_value_per_hour, 2),
+            "jobs_with_cost_data": jobs_with_cost_data,
         },
         "printer_stats": printer_stats,
         "jobs_by_date": jobs_by_date,
     }
+
+
+# ============== CSV Export ==============
+
+from fastapi.responses import StreamingResponse
+import csv
+import io
+
+@app.get("/api/export/jobs", tags=["Export"])
+def export_jobs_csv(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export jobs as CSV."""
+    query = db.query(Job)
+    if status:
+        query = query.filter(Job.status == status)
+    jobs = query.order_by(Job.created_at.desc()).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Item Name", "Model ID", "Quantity", "Status", "Priority",
+        "Printer ID", "Duration (hrs)", "Estimated Cost", "Suggested Price",
+        "Scheduled Start", "Actual Start", "Actual End", "Created At"
+    ])
+    
+    # Data
+    for job in jobs:
+        writer.writerow([
+            job.id,
+            job.item_name,
+            job.model_id,
+            job.quantity,
+            job.status.value if job.status else "",
+            job.priority,
+            job.printer_id,
+            job.duration_hours,
+            job.estimated_cost,
+            job.suggested_price,
+            job.scheduled_start.isoformat() if job.scheduled_start else "",
+            job.actual_start.isoformat() if job.actual_start else "",
+            job.actual_end.isoformat() if job.actual_end else "",
+            job.created_at.isoformat() if job.created_at else ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=jobs_export.csv"}
+    )
+
+
+@app.get("/api/export/spools", tags=["Export"])
+def export_spools_csv(db: Session = Depends(get_db)):
+    """Export spools as CSV."""
+    spools = db.query(Spool).order_by(Spool.id).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Filament ID", "QR Code", "RFID Tag", "Color Hex",
+        "Initial Weight (g)", "Remaining Weight (g)", "Status",
+        "Printer ID", "Slot", "Storage Location", "Vendor", "Price", "Created At"
+    ])
+    
+    # Data
+    for spool in spools:
+        writer.writerow([
+            spool.id,
+            spool.filament_id,
+            spool.qr_code,
+            spool.rfid_tag,
+            spool.color_hex,
+            spool.initial_weight_g,
+            spool.remaining_weight_g,
+            spool.status.value if spool.status else "",
+            spool.location_printer_id,
+            spool.location_slot,
+            spool.storage_location,
+            spool.vendor,
+            spool.price,
+            spool.created_at.isoformat() if spool.created_at else ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=spools_export.csv"}
+    )
+
+
+@app.get("/api/export/filament-usage", tags=["Export"])
+def export_filament_usage_csv(db: Session = Depends(get_db)):
+    """Export filament usage history as CSV."""
+    usage_records = db.query(SpoolUsage).order_by(SpoolUsage.used_at.desc()).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Spool ID", "Job ID", "Weight Used (g)", "Used At", "Notes"
+    ])
+    
+    # Data
+    for usage in usage_records:
+        writer.writerow([
+            usage.id,
+            usage.spool_id,
+            usage.job_id,
+            usage.weight_used_g,
+            usage.used_at.isoformat() if usage.used_at else "",
+            usage.notes
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=filament_usage_export.csv"}
+    )
+
+
+@app.get("/api/export/models", tags=["Export"])
+def export_models_csv(db: Session = Depends(get_db)):
+    """Export models as CSV."""
+    models = db.query(Model).order_by(Model.name).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Name", "Category", "Filament Type", "Build Time (hrs)",
+        "Total Filament (g)", "Cost Per Item", "Markup %", "Units Per Bed", "Created At"
+    ])
+    
+    # Data
+    for model in models:
+        writer.writerow([
+            model.id,
+            model.name,
+            model.category,
+            model.default_filament_type.value if model.default_filament_type else "",
+            model.build_time_hours,
+            model.total_filament_grams,
+            model.cost_per_item,
+            model.markup_percent,
+            model.units_per_bed,
+            model.created_at.isoformat() if model.created_at else ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=models_export.csv"}
+    )
+
+
+# ============== CSV Export ==============
+
+from fastapi.responses import StreamingResponse
+import csv
+import io
+
+@app.get("/api/export/jobs", tags=["Export"])
+def export_jobs_csv(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Export jobs as CSV."""
+    query = db.query(Job)
+    if status:
+        query = query.filter(Job.status == status)
+    jobs = query.order_by(Job.created_at.desc()).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Item Name", "Model ID", "Quantity", "Status", "Priority",
+        "Printer ID", "Duration (hrs)", "Estimated Cost", "Suggested Price",
+        "Scheduled Start", "Actual Start", "Actual End", "Created At"
+    ])
+    
+    # Data
+    for job in jobs:
+        writer.writerow([
+            job.id,
+            job.item_name,
+            job.model_id,
+            job.quantity,
+            job.status.value if job.status else "",
+            job.priority,
+            job.printer_id,
+            job.duration_hours,
+            job.estimated_cost,
+            job.suggested_price,
+            job.scheduled_start.isoformat() if job.scheduled_start else "",
+            job.actual_start.isoformat() if job.actual_start else "",
+            job.actual_end.isoformat() if job.actual_end else "",
+            job.created_at.isoformat() if job.created_at else ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=jobs_export.csv"}
+    )
+
+
+@app.get("/api/export/spools", tags=["Export"])
+def export_spools_csv(db: Session = Depends(get_db)):
+    """Export spools as CSV."""
+    spools = db.query(Spool).order_by(Spool.id).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Filament ID", "QR Code", "RFID Tag", "Color Hex",
+        "Initial Weight (g)", "Remaining Weight (g)", "Status",
+        "Printer ID", "Slot", "Storage Location", "Vendor", "Price", "Created At"
+    ])
+    
+    # Data
+    for spool in spools:
+        writer.writerow([
+            spool.id,
+            spool.filament_id,
+            spool.qr_code,
+            spool.rfid_tag,
+            spool.color_hex,
+            spool.initial_weight_g,
+            spool.remaining_weight_g,
+            spool.status.value if spool.status else "",
+            spool.location_printer_id,
+            spool.location_slot,
+            spool.storage_location,
+            spool.vendor,
+            spool.price,
+            spool.created_at.isoformat() if spool.created_at else ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=spools_export.csv"}
+    )
+
+
+@app.get("/api/export/filament-usage", tags=["Export"])
+def export_filament_usage_csv(db: Session = Depends(get_db)):
+    """Export filament usage history as CSV."""
+    usage_records = db.query(SpoolUsage).order_by(SpoolUsage.used_at.desc()).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Spool ID", "Job ID", "Weight Used (g)", "Used At", "Notes"
+    ])
+    
+    # Data
+    for usage in usage_records:
+        writer.writerow([
+            usage.id,
+            usage.spool_id,
+            usage.job_id,
+            usage.weight_used_g,
+            usage.used_at.isoformat() if usage.used_at else "",
+            usage.notes
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=filament_usage_export.csv"}
+    )
+
+
+@app.get("/api/export/models", tags=["Export"])
+def export_models_csv(db: Session = Depends(get_db)):
+    """Export models as CSV."""
+    models = db.query(Model).order_by(Model.name).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow([
+        "ID", "Name", "Category", "Filament Type", "Build Time (hrs)",
+        "Total Filament (g)", "Cost Per Item", "Markup %", "Units Per Bed", "Created At"
+    ])
+    
+    # Data
+    for model in models:
+        writer.writerow([
+            model.id,
+            model.name,
+            model.category,
+            model.default_filament_type.value if model.default_filament_type else "",
+            model.build_time_hours,
+            model.total_filament_grams,
+            model.cost_per_item,
+            model.markup_percent,
+            model.units_per_bed,
+            model.created_at.isoformat() if model.created_at else ""
+        ])
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=models_export.csv"}
+    )
 
 
 class MoveJobRequest(PydanticBaseModel):
@@ -4452,3 +4913,189 @@ def reset_permissions(db: Session = Depends(get_db)):
         "page_access": RBAC_DEFAULT_PAGE_ACCESS,
         "action_access": RBAC_DEFAULT_ACTION_ACCESS,
     }
+
+
+# ============== Pricing Config ==============
+
+DEFAULT_PRICING_CONFIG = {
+    "spool_cost": 25.0,
+    "spool_weight": 1000.0,
+    "hourly_rate": 15.0,
+    "electricity_rate": 0.12,
+    "printer_wattage": 100,
+    "printer_cost": 300.0,
+    "printer_lifespan": 5000,
+    "packaging_cost": 0.45,
+    "failure_rate": 7.0,
+    "monthly_rent": 0.0,
+    "parts_per_month": 100,
+    "post_processing_min": 5,
+    "packing_min": 5,
+    "support_min": 5,
+    "default_margin": 50.0,
+    "other_costs": 0.0
+}
+
+
+def calculate_job_cost(db: Session, model_id: int = None, filament_grams: float = 0, print_hours: float = 1.0, material_type: str = "PLA"):
+    """Calculate estimated cost and suggested price for a job.
+    
+    Returns tuple: (estimated_cost, suggested_price, margin_percent)
+    """
+    # Get pricing config
+    config_row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    config = config_row.value if config_row else DEFAULT_PRICING_CONFIG
+    
+    # Get model for defaults if provided
+    model = None
+    if model_id:
+        model = db.query(Model).filter(Model.id == model_id).first()
+        if model:
+            filament_grams = filament_grams or model.total_filament_grams or 0
+            print_hours = print_hours or model.build_time_hours or 1.0
+            material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
+    
+    # Try to get per-material cost
+    filament_entry = db.query(FilamentLibrary).filter(
+        FilamentLibrary.material == material_type,
+        FilamentLibrary.cost_per_gram.isnot(None)
+    ).first()
+    
+    if filament_entry and filament_entry.cost_per_gram:
+        cost_per_gram = filament_entry.cost_per_gram
+    else:
+        cost_per_gram = config["spool_cost"] / config["spool_weight"]
+    
+    # Calculate costs
+    material_cost = filament_grams * cost_per_gram
+    labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
+    labor_cost = labor_hours * config["hourly_rate"]
+    electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
+    depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
+    packaging_cost = config["packaging_cost"]
+    base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
+    failure_cost = base_cost * (config["failure_rate"] / 100)
+    overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
+    
+    subtotal = base_cost + failure_cost + overhead_cost
+    
+    margin = model.markup_percent if model and model.markup_percent else config["default_margin"]
+    suggested_price = subtotal * (1 + margin / 100)
+    
+    return (round(subtotal, 2), round(suggested_price, 2), margin)
+
+
+@app.get("/api/pricing-config")
+def get_pricing_config(db: Session = Depends(get_db)):
+    """Get system pricing configuration."""
+    config = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    if not config:
+        # Return defaults if not configured
+        return DEFAULT_PRICING_CONFIG
+    return config.value
+
+
+@app.put("/api/pricing-config")
+def update_pricing_config(
+    config_data: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """Update system pricing configuration."""
+    # Check permissions if auth is enabled
+    if False:  # Permission check disabled
+        raise HTTPException(status_code=403, detail="Not authorized to update pricing config")
+    
+    # Merge with defaults to ensure all fields exist
+    merged_config = {**DEFAULT_PRICING_CONFIG, **config_data}
+    
+    config = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    if config:
+        config.value = merged_config
+    else:
+        config = SystemConfig(key="pricing_config", value=merged_config)
+        db.add(config)
+    
+    db.commit()
+    db.refresh(config)
+    
+    return config.value
+
+
+@app.get("/api/models/{model_id}/cost")
+def calculate_model_cost(
+    model_id: int,
+    db: Session = Depends(get_db)
+):
+    """Calculate cost breakdown for a model using system pricing config."""
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    # Get pricing config
+    config_row = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
+    config = config_row.value if config_row else DEFAULT_PRICING_CONFIG
+    
+    # Calculate costs
+    filament_grams = model.total_filament_grams or 0
+    print_hours = model.build_time_hours or 1.0
+    
+    # Try to get per-material cost from FilamentLibrary
+    material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
+    filament_entry = db.query(FilamentLibrary).filter(
+        FilamentLibrary.material == material_type,
+        FilamentLibrary.cost_per_gram.isnot(None)
+    ).first()
+    
+    if filament_entry and filament_entry.cost_per_gram:
+        cost_per_gram = filament_entry.cost_per_gram
+        cost_source = f"per-material ({material_type})"
+    else:
+        cost_per_gram = config["spool_cost"] / config["spool_weight"]
+        cost_source = "global default"
+    
+    material_cost = filament_grams * cost_per_gram
+    
+    labor_hours = (config["post_processing_min"] + config["packing_min"] + config["support_min"]) / 60
+    labor_cost = labor_hours * config["hourly_rate"]
+    
+    electricity_cost = (config["printer_wattage"] / 1000) * print_hours * config["electricity_rate"]
+    
+    depreciation_cost = (config["printer_cost"] / config["printer_lifespan"]) * print_hours
+    
+    packaging_cost = config["packaging_cost"]
+    
+    base_cost = material_cost + labor_cost + electricity_cost + depreciation_cost + packaging_cost + config["other_costs"]
+    
+    failure_cost = base_cost * (config["failure_rate"] / 100)
+    
+    overhead_cost = config["monthly_rent"] / config["parts_per_month"] if config["parts_per_month"] > 0 else 0
+    
+    subtotal = base_cost + failure_cost + overhead_cost
+    
+    margin = model.markup_percent if model.markup_percent else config["default_margin"]
+    suggested_price = subtotal * (1 + margin / 100)
+    
+    return {
+        "model_id": model_id,
+        "model_name": model.name,
+        "filament_grams": filament_grams,
+        "print_hours": print_hours,
+        "material_type": material_type,
+        "cost_per_gram": round(cost_per_gram, 4),
+        "cost_source": cost_source,
+        "costs": {
+            "material": round(material_cost, 2),
+            "labor": round(labor_cost, 2),
+            "electricity": round(electricity_cost, 2),
+            "depreciation": round(depreciation_cost, 2),
+            "packaging": round(packaging_cost, 2),
+            "failure": round(failure_cost, 2),
+            "overhead": round(overhead_cost, 2),
+            "other": round(config["other_costs"], 2)
+        },
+        "subtotal": round(subtotal, 2),
+        "margin_percent": margin,
+        "suggested_price": round(suggested_price, 2)
+    }
+

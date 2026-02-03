@@ -348,6 +348,10 @@ class Job(Base):
     # Notes
     notes = Column(Text)
     
+    # Cost tracking (calculated at job creation)
+    estimated_cost = Column(Float, nullable=True)
+    suggested_price = Column(Float, nullable=True)
+    
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -415,6 +419,7 @@ class FilamentLibrary(Base):
     name = Column(String, nullable=False)
     material = Column(String, default="PLA")
     color_hex = Column(String(6))
+    cost_per_gram = Column(Float, nullable=True)  # Per-material pricing ($/g)
     is_custom = Column(Boolean, default=False)  # User-added vs built-in
     created_at = Column(DateTime, default=datetime.utcnow)
     

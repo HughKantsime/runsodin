@@ -90,6 +90,17 @@ function ModelCard({ model, onEdit, onDelete, onSchedule }) {
           )}
         </div>
         
+        {(model.estimated_cost > 0 || model.suggested_price > 0) && (
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-farm-800">
+            <div className="text-xs text-farm-500">
+              Cost: <span className="text-farm-300">${model.estimated_cost?.toFixed(2) || '—'}</span>
+            </div>
+            <div className="text-xs font-medium text-green-400">
+              ${model.suggested_price?.toFixed(2) || '—'}
+            </div>
+          </div>
+        )}
+        
         {model.required_colors?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
             {model.required_colors.map((color, i) => (
@@ -462,7 +473,7 @@ export default function Models() {
   const [selectedPrinter, setSelectedPrinter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
-  const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter], queryFn: () => models.list(categoryFilter || null) })
+  const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter], queryFn: () => models.listWithPricing(categoryFilter || null) })
   const createModel = useMutation({ mutationFn: models.create, onSuccess: () => queryClient.invalidateQueries(['models']) })
   const updateModel = useMutation({ mutationFn: ({ id, data }) => models.update(id, data), onSuccess: () => queryClient.invalidateQueries(['models']) })
   const deleteModel = useMutation({ mutationFn: models.delete, onSuccess: () => queryClient.invalidateQueries(['models']) })

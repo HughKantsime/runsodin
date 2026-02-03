@@ -150,6 +150,40 @@ export default function Analytics() {
           icon={Clock}
         />
       </div>
+      
+      {/* Cost & Margin Row */}
+      {(summary.total_cost > 0 || summary.total_margin > 0) && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+          <StatCard
+            title="Total Cost"
+            value={`$${(summary.total_cost || 0).toFixed(2)}`}
+            subtitle="completed jobs"
+            icon={DollarSign}
+            color="text-red-400"
+          />
+          <StatCard
+            title="Total Margin"
+            value={`$${(summary.total_margin || 0).toFixed(2)}`}
+            subtitle={`${(summary.margin_percent || 0).toFixed(1)}% margin`}
+            icon={TrendingUp}
+            color="text-green-400"
+          />
+          <StatCard
+            title="Projected Cost"
+            value={`$${(summary.projected_cost || 0).toFixed(2)}`}
+            subtitle="pending jobs"
+            icon={Target}
+            color="text-orange-400"
+          />
+          <StatCard
+            title="Jobs w/ Cost Data"
+            value={summary.jobs_with_cost_data || 0}
+            subtitle={`of ${summary.completed_jobs} completed`}
+            icon={Clock}
+            color="text-blue-400"
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <RankingTable

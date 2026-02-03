@@ -555,7 +555,8 @@ function EditFilamentModal({ filament, onClose, onSave }) {
     brand: filament?.brand || '',
     name: filament?.name || '',
     material: filament?.material || 'PLA',
-    color_hex: filament?.color_hex || ''
+    color_hex: filament?.color_hex || '',
+    cost_per_gram: filament?.cost_per_gram || ''
   })
 
   const handleSubmit = (e) => {
@@ -641,6 +642,20 @@ function EditFilamentModal({ filament, onClose, onSave }) {
                 )}
               </div>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Cost per Gram ($/g)</label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              value={form.cost_per_gram}
+              onChange={(e) => setForm({ ...form, cost_per_gram: e.target.value })}
+              placeholder="0.025 (leave blank for global default)"
+              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+            />
+            <p className="text-xs text-farm-500 mt-1">Used for cost calculation. Leave blank to use system default.</p>
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -782,6 +797,11 @@ function FilamentLibraryView() {
                   <span className="px-2 py-0.5 bg-farm-800 rounded text-xs text-farm-400 flex-shrink-0">
                     {f.material}
                   </span>
+                  {f.cost_per_gram && (
+                    <span className="px-2 py-0.5 bg-green-900/50 rounded text-xs text-green-400 flex-shrink-0">
+                      ${f.cost_per_gram}/g
+                    </span>
+                  )}
                 </div>
 
                 {canDo('spools.edit') && (

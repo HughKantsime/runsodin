@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle } from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet } from 'lucide-react'
 
 const API_KEY = import.meta.env.VITE_API_KEY
 const apiHeaders = {
@@ -311,6 +311,51 @@ export default function Settings() {
         <p className="text-xs text-farm-500 mt-3">
           Backups use SQLite's online backup API — safe to create while the system is running.
         </p>
+      </div>
+
+      {/* Data Export */}
+      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <div className="flex items-center gap-2 md:gap-3 mb-4">
+          <FileSpreadsheet size={18} className="text-print-400" />
+          <h2 className="text-lg md:text-xl font-display font-semibold">Data Export</h2>
+        </div>
+        <p className="text-sm text-farm-400 mb-4">
+          Export your data as CSV files for analysis, reporting, or backup purposes.
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <a
+            href="/api/export/jobs"
+            download="jobs_export.csv"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Download size={16} />
+            Jobs
+          </a>
+          <a
+            href="/api/export/models"
+            download="models_export.csv"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Download size={16} />
+            Models
+          </a>
+          <a
+            href="/api/export/spools"
+            download="spools_export.csv"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Download size={16} />
+            Spools
+          </a>
+          <a
+            href="/api/export/filament-usage"
+            download="filament_usage_export.csv"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Download size={16} />
+            Filament Usage
+          </a>
+        </div>
       </div>
 
       {/* Save Button */}
