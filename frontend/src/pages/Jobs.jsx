@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers } from '../api'
@@ -31,6 +31,8 @@ const priorityOptions = [
   { value: 4, label: '4 - Low' },
   { value: 5, label: '5 - Lowest' },
 ]
+
+const statusOrder = { printing: 0, scheduled: 1, pending: 2, failed: 3, completed: 4 }
 
 function JobRow({ job, onAction }) {
   const statusColors = {
@@ -102,6 +104,11 @@ function JobRow({ job, onAction }) {
       </td>
     </tr>
   )
+}
+
+function SortIcon({ field, sortField, sortDirection }) {
+  if (sortField !== field) return <ArrowUpDown size={12} className="opacity-30" />
+  return sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
 }
 
 function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
@@ -193,6 +200,8 @@ export default function Jobs() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [sortField, setSortField] = useState('priority')
+  const [sortDirection, setSortDirection] = useState('asc')
 
   const { data: jobsData, isLoading } = useQuery({
     queryKey: ['jobs', statusFilter],
@@ -238,9 +247,29 @@ export default function Jobs() {
     }
   }
 
-  const filteredJobs = jobsData?.filter(job => 
+  const toggleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  const filteredJobs = (jobsData?.filter(job => 
     !searchQuery || job.item_name.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || []
+  ) || []).sort((a, b) => {
+    const dir = sortDirection === 'asc' ? 1 : -1
+    switch (sortField) {
+      case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
+      case 'item_name': return dir * (a.item_name || '').localeCompare(b.item_name || '')
+      case 'priority': return dir * ((a.priority || 99) - (b.priority || 99))
+      case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
+      case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
+      case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0) - new Date(b.scheduled_start || 0))
+      default: return 0
+    }
+  })
 
   return (
     <div className="p-4 md:p-8">
@@ -280,13 +309,25 @@ export default function Jobs() {
           <table className="w-full min-w-[600px]">
             <thead className="bg-farm-950 border-b border-farm-800">
               <tr>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Status</th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Item</th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Pri</th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Printer</th>
+                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('status')}>
+                  <div className="flex items-center gap-1">Status <SortIcon field="status" sortField={sortField} sortDirection={sortDirection} /></div>
+                </th>
+                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('item_name')}>
+                  <div className="flex items-center gap-1">Item <SortIcon field="item_name" sortField={sortField} sortDirection={sortDirection} /></div>
+                </th>
+                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('priority')}>
+                  <div className="flex items-center gap-1">Pri <SortIcon field="priority" sortField={sortField} sortDirection={sortDirection} /></div>
+                </th>
+                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('printer')}>
+                  <div className="flex items-center gap-1">Printer <SortIcon field="printer" sortField={sortField} sortDirection={sortDirection} /></div>
+                </th>
                 <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell">Colors</th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden md:table-cell">Duration</th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell">Scheduled</th>
+                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden md:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('duration_hours')}>
+                  <div className="flex items-center gap-1">Duration <SortIcon field="duration_hours" sortField={sortField} sortDirection={sortDirection} /></div>
+                </th>
+                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('scheduled_start')}>
+                  <div className="flex items-center gap-1">Scheduled <SortIcon field="scheduled_start" sortField={sortField} sortDirection={sortDirection} /></div>
+                </th>
                 <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Actions</th>
               </tr>
             </thead>

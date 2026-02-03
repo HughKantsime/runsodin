@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock, User, AlertCircle } from 'lucide-react'
 import { useBranding } from '../BrandingContext'
+import { refreshPermissions } from '../permissions'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -36,6 +37,9 @@ export default function Login() {
         username: payload.sub,
         role: payload.role
       }))
+
+      // Fetch and cache RBAC permissions
+      await refreshPermissions()
 
       // Redirect to dashboard
       navigate('/')

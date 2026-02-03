@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, X, Printer, Play, Trash2 } from 'lucide-react'
+import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 
-import { printFiles, printers } from '../api'
+import { printFiles } from '../api'
 
 function DropZone({ onFileSelect, isUploading }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -60,18 +61,9 @@ function FilamentBadge({ filament }) {
   )
 }
 
-function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
-  const { data: printersList } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true) })
-  const [selectedPrinter, setSelectedPrinter] = useState(null)
-  
-  const compatiblePrinters = printersList?.filter(p => {
-    if (!data.filaments || data.filaments.length === 0) return true
-    return p.is_active
-  }) || []
-  
+function UploadSuccess({ data, onUploadAnother, onViewLibrary }) {
   return (
     <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
-      {/* Stacks vertically on mobile, side by side on md+ */}
       <div className="flex flex-col md:flex-row">
         {/* Thumbnail */}
         <div className="w-full md:w-64 h-48 md:h-64 bg-farm-950 flex-shrink-0">
@@ -84,9 +76,23 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
         
         {/* Details */}
         <div className="flex-1 p-4 md:p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
+              <Check size={14} className="text-white" />
+            </div>
+            <span className="text-green-400 font-medium text-sm">
+                  {data?.is_new_model === false ? 'Added as variant to existing model' : 'Added to Model Library'}
+                </span>
+                {data?.printer_model && data.printer_model !== 'Unknown' && (
+                  <span className="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+                    {data.printer_model}
+                  </span>
+                )}
+          </div>
+          
           <h2 className="text-xl md:text-2xl font-display font-bold mb-4">{data.project_name}</h2>
           
-          <div className="grid grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
+          <div className="grid grid-cols-2 gap-3 md:gap-4 mb-4">
             <div className="flex items-center gap-2 md:gap-3">
               <Clock size={18} className="text-farm-500 flex-shrink-0" />
               <div>
@@ -117,37 +123,29 @@ function PrintPreview({ data, onSchedule, onCancel, isScheduling }) {
             </div>
           </div>
           
-          <div className="mb-4 md:mb-6">
-            <p className="text-sm text-farm-500 mb-2">Filaments Required</p>
-            <div className="flex flex-wrap gap-2">
-              {data.filaments?.map((f, i) => (<FilamentBadge key={i} filament={f} />))}
-            </div>
-          </div>
-          
-          {!data.is_sliced ? (
-            <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3 md:p-4 mb-4">
-              <p className="text-amber-400 text-sm">This file is not sliced. Print time and filament usage are unknown.</p>
-            </div>
-          ) : (
+          {data.filaments?.length > 0 && (
             <div className="mb-4">
-              <p className="text-sm text-farm-500 mb-2">Schedule on Printer</p>
+              <p className="text-sm text-farm-500 mb-2">Filaments</p>
               <div className="flex flex-wrap gap-2">
-                {compatiblePrinters.map(p => (
-                  <button key={p.id} onClick={() => setSelectedPrinter(p.id)} className={clsx('px-3 py-1.5 md:px-4 md:py-2 rounded-lg border transition-colors text-sm', selectedPrinter === p.id ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 hover:border-farm-500')}>{p.name}</button>
-                ))}
-                <button onClick={() => setSelectedPrinter(null)} className={clsx('px-3 py-1.5 md:px-4 md:py-2 rounded-lg border transition-colors text-sm', selectedPrinter === null ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 hover:border-farm-500')}>Auto-assign</button>
+                {data.filaments.map((f, i) => (<FilamentBadge key={i} filament={f} />))}
               </div>
+            </div>
+          )}
+
+          {!data.is_sliced && (
+            <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3 mb-4">
+              <p className="text-amber-400 text-sm">This file is not sliced. Print time and filament usage are estimates.</p>
             </div>
           )}
         </div>
       </div>
       
       <div className="flex justify-end gap-3 p-3 md:p-4 bg-farm-950 border-t border-farm-800">
-        <button onClick={onCancel} disabled={isScheduling} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-farm-700 hover:bg-farm-800 transition-colors text-sm">
-          <X size={16} /> Cancel
+        <button onClick={onUploadAnother} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-farm-700 hover:bg-farm-800 transition-colors text-sm">
+          <UploadIcon size={16} /> Upload Another
         </button>
-        <button onClick={() => onSchedule(selectedPrinter)} disabled={isScheduling || !data.is_sliced} className={clsx('flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg font-medium transition-colors text-sm', data.is_sliced ? 'bg-print-600 hover:bg-print-500 text-white' : 'bg-farm-700 text-farm-500 cursor-not-allowed')}>
-          <Play size={16} /> {isScheduling ? 'Scheduling...' : 'Schedule Print'}
+        <button onClick={onViewLibrary} className="flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg bg-print-600 hover:bg-print-500 text-white font-medium transition-colors text-sm">
+          View in Library <ArrowRight size={16} />
         </button>
       </div>
     </div>
@@ -180,7 +178,7 @@ function RecentUploads() {
               {f.job_id ? (
                 <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded">Scheduled</span>
               ) : (
-                <span className="text-xs bg-farm-800 text-farm-400 px-2 py-1 rounded hidden sm:inline">Not scheduled</span>
+                <span className="text-xs bg-print-900/50 text-print-400 px-2 py-1 rounded hidden sm:inline">In Library</span>
               )}
               <button onClick={() => deleteMutation.mutate(f.id)} className="p-1 text-farm-500 hover:text-red-400 transition-colors" title="Delete"><Trash2 size={16} /></button>
             </div>
@@ -193,31 +191,29 @@ function RecentUploads() {
 
 export default function Upload() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [uploadedFile, setUploadedFile] = useState(null)
   
   const uploadMutation = useMutation({
     mutationFn: printFiles.upload,
-    onSuccess: (data) => { setUploadedFile(data); queryClient.invalidateQueries(['print-files']) }
-  })
-  
-  const scheduleMutation = useMutation({
-    mutationFn: ({ fileId, printerId }) => printFiles.schedule(fileId, printerId),
-    onSuccess: () => { setUploadedFile(null); queryClient.invalidateQueries(['print-files']); queryClient.invalidateQueries(['jobs']) }
+    onSuccess: (data) => { setUploadedFile(data); queryClient.invalidateQueries(['print-files']); queryClient.invalidateQueries(['models']) }
   })
   
   const handleFileSelect = (file) => uploadMutation.mutate(file)
-  const handleSchedule = (printerId) => { if (uploadedFile) scheduleMutation.mutate({ fileId: uploadedFile.id, printerId }) }
-  const handleCancel = () => setUploadedFile(null)
   
   return (
     <div className="p-4 md:p-8">
       <div className="mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-display font-bold">Upload Print File</h1>
-        <p className="text-farm-500 text-sm mt-1">Upload a sliced .3mf file to schedule a print</p>
+        <p className="text-farm-500 text-sm mt-1">Upload .3mf files to add to your model library</p>
       </div>
       
       {uploadedFile ? (
-        <PrintPreview data={uploadedFile} onSchedule={handleSchedule} onCancel={handleCancel} isScheduling={scheduleMutation.isPending} />
+        <UploadSuccess 
+          data={uploadedFile} 
+          onUploadAnother={() => setUploadedFile(null)}
+          onViewLibrary={() => navigate('/models')}
+        />
       ) : (
         <>
           <DropZone onFileSelect={handleFileSelect} isUploading={uploadMutation.isPending} />

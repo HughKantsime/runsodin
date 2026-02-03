@@ -22,7 +22,7 @@ import {
   X,
   Palette,
   ChevronDown,
-} from 'lucide-react'
+ Wrench, } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
 import Dashboard from './pages/Dashboard'
@@ -37,6 +37,8 @@ import Spools from './pages/Spools'
 import Upload from './pages/Upload'
 import Login from './pages/Login'
 import Admin from './pages/Admin'
+import Maintenance from './pages/Maintenance'
+import Permissions from './pages/Permissions'
 import Cameras from "./pages/Cameras"
 import Branding from './pages/Branding'
 import { stats } from './api'
@@ -147,11 +149,12 @@ function Sidebar() {
         {canAccessPage('cameras') && <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>}
 
         {/* Work */}
-        {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed} open={sections.work} onToggle={() => toggle("work")} />}
+        {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("maintenance")) && <NavGroup label="Work" collapsed={collapsed} open={sections.work} onToggle={() => toggle("work")} />}
         {(collapsed || sections.work) && <>
           {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
           {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
           {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
+          {canAccessPage('maintenance') && <NavItem collapsed={collapsed} to="/maintenance" icon={Wrench}>Maintenance</NavItem>}
         </>}
 
         {/* Library */}
@@ -173,6 +176,7 @@ function Sidebar() {
         {(collapsed || sections.system) && <>
           {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
           {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
+          {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/permissions" icon={Shield}>Permissions</NavItem>}
           {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/branding" icon={Palette}>Branding</NavItem>}
         </>}
       </nav>
@@ -269,7 +273,9 @@ export default function App() {
             <Route path="/spools" element={<Spools />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<Admin />} />
-            <Route path="/cameras" element={<Cameras />} />
+            <Route path="/permissions" element={<Permissions />} />
+              <Route path="/maintenance" element={<Maintenance />} />
+              <Route path="/cameras" element={<Cameras />} />
             <Route path="/branding" element={<Branding />} />
           </Routes>
         </main>

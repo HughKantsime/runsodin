@@ -50,6 +50,24 @@ PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It t
 - Live preview with mini sidebar, content area, and login screen mockup
 - All components respond to branding via CSS variables with Tailwind fallbacks
 
+### Maintenance Tracking
+- Fleet status overview with health indicators per printer
+- Configurable maintenance task templates (nozzle changes, belt tension, HEPA filter, etc.)
+- Interval-based reminders per printer model
+- Maintenance history log with timestamps and notes
+
+### RBAC Permissions Management
+- Visual permissions editor for admins
+- Role matrix with toggle switches for page access and actions
+- Granular control: which roles can view/edit jobs, models, spools, printers
+- Permission changes take effect on next login
+
+### Multi-Variant Models
+- Upload same model sliced for different printers
+- Automatic variant linking by normalized model name
+- Schedule modal shows compatible printers with green indicators
+- Printer profile extracted from .3mf metadata
+
 ### Analytics & Reporting
 - Printer utilization stats
 - Revenue tracking and value-per-hour calculations

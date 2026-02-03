@@ -1,3 +1,94 @@
+## v0.11.0 - Maintenance, RBAC & Multi-Variant Models (2026-02-02)
+
+### Maintenance Tracking System
+- New Maintenance page with three tabs: Fleet Status, Task Templates, History
+- Per-printer maintenance tracking: print hours, nozzle changes, belt tension, build plate, HEPA filter
+- Task templates with configurable intervals per printer model
+- Maintenance log history with timestamps and notes
+- Maintenance moved to Work nav group (alongside Jobs, Timeline, Upload)
+
+### RBAC Permissions Management
+- New Permissions page (admin-only) under System nav group
+- Visual role matrix with toggle switches for page access and action permissions
+- Role summary cards showing permission counts per role
+- Grouped permission tables: Monitor, Work, Library, Analyze, System
+- Backend stores permissions in SystemConfig table
+- Frontend caches permissions in localStorage, refreshes on login
+- Protected combos: admin can't lock self out of admin/settings pages
+
+### Multi-Variant Models
+- Upload same model sliced for different printers → variants linked automatically
+- Printer profile extracted from .3mf `project_settings.config` (reliable source)
+- Model name normalization: strips `(X1C)`, `(H2D)` suffixes for matching
+- Schedule modal shows variant badges (X1C, A1, H2D, etc.)
+- Compatible printers highlighted with green dot indicator
+- Printers sorted: compatible first, incompatible dimmed
+- New endpoints: `GET /api/models/{id}/variants`, `DELETE /api/models/{id}/variants/{vid}`
+
+### Model Card Improvements
+- Removed unused pricing grid (# on Bed, $/Hour, Bed Value)
+- Filament type badge displayed below model name
+- Variant count badge when model has multiple variants
+- Color requirements shown as colored dots instead of hex codes
+- Smart time formatting: minutes for <1hr, hours otherwise
+- Thumbnails now included in API response
+
+### Backend Changes
+- Added `model_id` column to print_files table (variant linking)
+- Added `SystemConfig` model for RBAC permission storage
+- Fixed .3mf parser: handles multi-nozzle format `0.4,0.4`
+- Added `extract_printer_model_from_settings()` for reliable printer detection
+- Added `_normalize_model_name()` for variant matching
+- Added `thumbnail_b64` to ModelResponse schema
+
+## v0.10.0 - Workflow Pipeline & Filament Library (2026-02-02)
+
+### Upload → Model → Schedule Workflow
+- Upload .3mf → auto-creates Model in library (returns `model_id`)
+- Upload page shows green ✓ with "View in Library" button
+- Models page → Schedule button → printer picker modal → creates pending job
+- Jobs page displays work orders for operators
+
+### Filament Library System
+- Full CRUD for filament library: create, read, update, delete
+- New Filament Library tab on Spools page
+- Browse by brand, filter by material type
+- Support for Bambu specialty types (PLA-CF, PETG-CF, TPU, etc.)
+- Handles `lib_5` ID format for library items
+- Combined endpoint merges library + Spoolman
+
+### Auto-Deduct Filament
+- Job completion triggers automatic filament deduction
+- Per-slot weight tracking from `color_requirements`
+- Fallback to `print_file.filaments_json` for gram amounts
+- SpoolUsage audit trail with job reference
+- Summary appended to job notes
+
+### Database Backups
+- SQLite online backup API (safe while running)
+- Create, list, download, delete backups
+- Backups UI on Settings page
+- Backend stores in `backend/backups/` (gitignored)
+
+### Jobs Page Enhancements
+- 6 sortable columns: status, item, priority, printer, duration, scheduled
+- Click column headers to sort ascending/descending
+- Status and search filtering
+
+### Security Hardening
+- Removed hardcoded API key from 8 frontend files
+- All API calls use `import.meta.env.VITE_API_KEY`
+- Real IPs scrubbed from source (Spoolman, printers)
+- `go2rtc.yaml` gitignored, `.example` committed
+- `dist/` and `backend/backups/` gitignored
+
+### Bug Fixes
+- Fixed duplicate filament endpoint block (~150 lines dead code removed)
+- Fixed `models.list()` category filter in api.js
+- Fixed file upload: sends both API key + JWT
+- Restored accidentally deleted filament functions
+- Added missing Pydantic classes for filament operations
+
 # PrintFarm Scheduler Changelog
 
 ## v0.9.2 - Sidebar & Branding Polish (2026-02-02)

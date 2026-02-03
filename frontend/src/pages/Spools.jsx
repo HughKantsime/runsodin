@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X } from 'lucide-react'
+import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette } from 'lucide-react'
 import clsx from 'clsx'
 import { canDo } from '../permissions'
 
-const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+const API_KEY = import.meta.env.VITE_API_KEY
 const API_BASE = '/api'
 
 const apiHeaders = {
@@ -77,6 +77,33 @@ const filamentApi = {
   list: async () => {
     const res = await fetch(`${API_BASE}/filaments`, { headers: apiHeaders })
     return res.json()
+  },
+  create: async (data) => {
+    const res = await fetch(`${API_BASE}/filaments`, {
+      method: 'POST',
+      headers: apiHeaders,
+      body: JSON.stringify(data)
+    })
+    return res.json()
+  },
+  update: async ({ id, ...data }) => {
+    const res = await fetch(`${API_BASE}/filaments/${id}`, {
+      method: 'PATCH',
+      headers: apiHeaders,
+      body: JSON.stringify(data)
+    })
+    return res.json()
+  },
+  remove: async (id) => {
+    const res = await fetch(`${API_BASE}/filaments/${id}`, {
+      method: 'DELETE',
+      headers: apiHeaders
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.detail || 'Delete failed')
+    }
+    return true
   }
 }
 
@@ -87,9 +114,9 @@ const printersApi = {
   }
 }
 
+// ==================== Spool Components ====================
+
 function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
-  const [showActions, setShowActions] = useState(false)
-  
   const percentRemaining = spool.percent_remaining || 0
   const isLow = percentRemaining < 20
   const isEmpty = spool.status === 'empty'
@@ -521,13 +548,317 @@ function UseSpoolModal({ spool, onClose, onUse }) {
   )
 }
 
+// ==================== Filament Library Components ====================
+
+function EditFilamentModal({ filament, onClose, onSave }) {
+  const [form, setForm] = useState({
+    brand: filament?.brand || '',
+    name: filament?.name || '',
+    material: filament?.material || 'PLA',
+    color_hex: filament?.color_hex || ''
+  })
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onSave({ id: filament.id, ...form })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg md:text-xl font-semibold text-farm-100">
+            {filament ? 'Edit Filament' : 'Add Filament'}
+          </h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Brand</label>
+            <input
+              type="text"
+              value={form.brand}
+              onChange={(e) => setForm({ ...form, brand: e.target.value })}
+              required
+              placeholder="Bambu Lab, Polymaker, eSUN..."
+              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Name</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              required
+              placeholder="Matte Black, Silk Gold..."
+              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 md:gap-4">
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Material</label>
+              <select
+                value={form.material}
+                onChange={(e) => setForm({ ...form, material: e.target.value })}
+                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              >
+                <option value="PLA">PLA</option>
+                <option value="PLA-S">PLA-S (Support)</option>
+                <option value="PLA-CF">PLA-CF</option>
+                <option value="PETG">PETG</option>
+                <option value="ABS">ABS</option>
+                <option value="ASA">ASA</option>
+                <option value="TPU">TPU</option>
+                <option value="PA">Nylon (PA)</option>
+                <option value="PA-CF">PA-CF</option>
+                <option value="PC">Polycarbonate</option>
+                <option value="PVA">PVA (Support)</option>
+                <option value="HIPS">HIPS</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Color Hex</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={form.color_hex}
+                  onChange={(e) => setForm({ ...form, color_hex: e.target.value.replace('#', '') })}
+                  placeholder="FF5733"
+                  maxLength={6}
+                  className="flex-1 bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 font-mono"
+                />
+                {form.color_hex && form.color_hex.length >= 3 && (
+                  <div
+                    className="w-10 h-10 rounded border border-farm-600 flex-shrink-0"
+                    style={{ backgroundColor: `#${form.color_hex}` }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+            >
+              {filament ? 'Save Changes' : 'Add Filament'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function FilamentLibraryView() {
+  const queryClient = useQueryClient()
+  const [editingFilament, setEditingFilament] = useState(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [materialFilter, setMaterialFilter] = useState('all')
+
+  const { data: filaments, isLoading } = useQuery({
+    queryKey: ['filaments'],
+    queryFn: filamentApi.list
+  })
+
+  const createMutation = useMutation({
+    mutationFn: filamentApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['filaments'])
+      setShowAddModal(false)
+    }
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: filamentApi.update,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['filaments'])
+      setEditingFilament(null)
+    }
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: filamentApi.remove,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['filaments'])
+      setDeleteConfirm(null)
+    }
+  })
+
+  // Get unique materials for filter
+  const materials = [...new Set(filaments?.map(f => f.material) || [])]
+
+  const filtered = filaments?.filter(f =>
+    materialFilter === 'all' || f.material === materialFilter
+  ) || []
+
+  // Group by brand
+  const grouped = {}
+  filtered.forEach(f => {
+    if (!grouped[f.brand]) grouped[f.brand] = []
+    grouped[f.brand].push(f)
+  })
+
+  return (
+    <>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-3">
+        <div>
+          <p className="text-farm-400 text-sm">{filaments?.length || 0} filament types in library</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <select
+            value={materialFilter}
+            onChange={(e) => setMaterialFilter(e.target.value)}
+            className="bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-sm text-farm-200"
+          >
+            <option value="all">All Materials</option>
+            {materials.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          {canDo('spools.edit') && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white text-sm"
+            >
+              <Plus size={16} />
+              Add Filament
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isLoading && <div className="text-center text-farm-400 py-12">Loading filaments...</div>}
+
+      {!isLoading && filtered.length === 0 && (
+        <div className="text-center text-farm-500 py-12 text-sm">
+          No filaments found. Add filament types to build your library.
+        </div>
+      )}
+
+      {/* Filament table grouped by brand */}
+      {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([brand, brandFilaments]) => (
+        <div key={brand} className="mb-6">
+          <h3 className="text-sm font-semibold text-farm-300 mb-2 uppercase tracking-wide">{brand}</h3>
+          <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
+            {brandFilaments.map((f, idx) => (
+              <div
+                key={f.id}
+                className={clsx(
+                  "flex items-center justify-between px-3 md:px-4 py-2.5 md:py-3 gap-3",
+                  idx > 0 && "border-t border-farm-800"
+                )}
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {f.color_hex ? (
+                    <div
+                      className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
+                      style={{ backgroundColor: `#${f.color_hex}` }}
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full border border-farm-700 bg-farm-800 flex-shrink-0 flex items-center justify-center">
+                      <Palette size={12} className="text-farm-500" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <span className="text-sm text-farm-100 truncate block">{f.name}</span>
+                  </div>
+                  <span className="px-2 py-0.5 bg-farm-800 rounded text-xs text-farm-400 flex-shrink-0">
+                    {f.material}
+                  </span>
+                </div>
+
+                {canDo('spools.edit') && (
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => setEditingFilament(f)}
+                      className="p-1.5 bg-farm-800 hover:bg-farm-700 rounded text-farm-300 hover:text-farm-100 transition-colors"
+                      title="Edit"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    {deleteConfirm === f.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => deleteMutation.mutate(f.id)}
+                          disabled={deleteMutation.isPending}
+                          className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded text-white text-xs font-medium"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm(null)}
+                          className="px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded text-farm-200 text-xs"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteConfirm(f.id)}
+                        className="p-1.5 bg-farm-800 hover:bg-red-900 rounded text-farm-300 hover:text-red-400 transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* Modals */}
+      {showAddModal && (
+        <EditFilamentModal
+          filament={null}
+          onClose={() => setShowAddModal(false)}
+          onSave={(data) => {
+            const { id, ...rest } = data
+            createMutation.mutate(rest)
+          }}
+        />
+      )}
+
+      {editingFilament && (
+        <EditFilamentModal
+          filament={editingFilament}
+          onClose={() => setEditingFilament(null)}
+          onSave={updateMutation.mutate}
+        />
+      )}
+    </>
+  )
+}
+
+// ==================== Main Page ====================
+
 export default function Spools() {
   const queryClient = useQueryClient()
+  const [view, setView] = useState('spools') // 'spools' | 'library'
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [loadingSpool, setLoadingSpool] = useState(null)
   const [usingSpool, setUsingSpool] = useState(null)
   const [filter, setFilter] = useState('active')
-  const [sortBy, setSortBy] = useState("printer") // printer, name, remaining, material
+  const [sortBy, setSortBy] = useState("printer")
   const [groupByPrinter, setGroupByPrinter] = useState(true)
   
   const { data: spools, isLoading } = useQuery({
@@ -610,145 +941,175 @@ export default function Spools() {
           <h1 className="text-xl md:text-2xl font-display font-bold text-farm-100">Spools</h1>
           <p className="text-farm-400 mt-1 text-sm">Track your filament inventory</p>
         </div>
-        {canDo('spools.edit') && <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white text-sm self-start sm:self-auto"
-        >
-          <Plus size={18} />
-          Add Spool
-        </button>}
-      </div>
-      
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
-        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-          <div className="text-xl md:text-2xl font-bold text-farm-100">{activeSpools.length}</div>
-          <div className="text-xs md:text-sm text-farm-400">Active Spools</div>
-        </div>
-        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-          <div className="text-xl md:text-2xl font-bold text-print-400">{loadedSpools.length}</div>
-          <div className="text-xs md:text-sm text-farm-400">Loaded</div>
-        </div>
-        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-          <div className="text-xl md:text-2xl font-bold text-yellow-400">{lowSpools.length}</div>
-          <div className="text-xs md:text-sm text-farm-400">Low (&lt;20%)</div>
-        </div>
-        <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-          <div className="text-xl md:text-2xl font-bold text-farm-100">
-            {activeSpools.reduce((sum, s) => sum + (s.remaining_weight_g || 0), 0).toFixed(0)}g
-          </div>
-          <div className="text-xs md:text-sm text-farm-400">Total Filament</div>
-        </div>
-      </div>
-      
-      {/* Low warning */}
-      {lowSpools.length > 0 && (
-        <div className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3">
-          <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
-          <span className="text-yellow-200 text-sm md:text-base">
-            {lowSpools.length} spool{lowSpools.length > 1 ? 's' : ''} running low on filament
-          </span>
-        </div>
-      )}
-      
-      {/* Filter tabs + Sort controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4 md:mb-6">
-        {/* Filter tabs */}
-        <div className="flex gap-1.5 md:gap-2 flex-wrap">
-          {['active', 'empty', 'archived', 'all'].map(f => (
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex bg-farm-800 rounded-lg p-0.5">
             <button
-              key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => setView('spools')}
               className={clsx(
-                "px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-colors",
-                filter === f
-                  ? "bg-print-600 text-white"
-                  : "bg-farm-800 text-farm-400 hover:bg-farm-700"
+                "px-3 py-1.5 rounded text-xs md:text-sm font-medium transition-colors",
+                view === 'spools' ? "bg-print-600 text-white" : "text-farm-400 hover:text-farm-200"
               )}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              Spools
             </button>
-          ))}
-        </div>
-        
-        {/* Sort controls */}
-        <div className="flex gap-3 items-center sm:ml-auto">
-          <span className="text-xs md:text-sm text-farm-400">Sort:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="bg-farm-800 border border-farm-700 rounded px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-farm-200"
-          >
-            <option value="printer">Printer/Slot</option>
-            <option value="name">Name</option>
-            <option value="remaining">Remaining %</option>
-            <option value="material">Material</option>
-          </select>
-          <label className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-farm-400">
-            <input
-              type="checkbox"
-              checked={groupByPrinter}
-              onChange={(e) => setGroupByPrinter(e.target.checked)}
-              className="rounded bg-farm-800 border-farm-700"
-            />
-            <span className="hidden sm:inline">Group by printer</span>
-            <span className="sm:hidden">Group</span>
-          </label>
+            <button
+              onClick={() => setView('library')}
+              className={clsx(
+                "px-3 py-1.5 rounded text-xs md:text-sm font-medium transition-colors flex items-center gap-1.5",
+                view === 'library' ? "bg-print-600 text-white" : "text-farm-400 hover:text-farm-200"
+              )}
+            >
+              <Beaker size={14} />
+              Filament Library
+            </button>
+          </div>
+          {view === 'spools' && canDo('spools.edit') && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white text-sm"
+            >
+              <Plus size={18} />
+              Add Spool
+            </button>
+          )}
         </div>
       </div>
-      
-      {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
-      {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
-      {!isLoading && spools?.length > 0 && (
-      (() => {
-        if (!spools) return null;
-        let sorted = [...spools];
-        
-        // Sort
-        if (sortBy === "printer") {
-          sorted.sort((a, b) => {
-            if (a.location_printer_id !== b.location_printer_id) return (a.location_printer_id || 999) - (b.location_printer_id || 999);
-            return (a.location_slot || 999) - (b.location_slot || 999);
-          });
-        } else if (sortBy === "name") {
-          sorted.sort((a, b) => `${a.filament_brand} ${a.filament_name}`.localeCompare(`${b.filament_brand} ${b.filament_name}`));
-        } else if (sortBy === "remaining") {
-          sorted.sort((a, b) => (a.percent_remaining || 0) - (b.percent_remaining || 0));
-        } else if (sortBy === "material") {
-          sorted.sort((a, b) => (a.filament_material || "").localeCompare(b.filament_material || ""));
-        }
-        
-        // Group by printer
-        if (groupByPrinter && sortBy === "printer") {
-          const groups = {};
-          sorted.forEach(s => {
-            const key = s.location_printer_id ? `Printer ${s.location_printer_id}` : "Unassigned";
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(s);
-          });
+
+      {/* Filament Library View */}
+      {view === 'library' && <FilamentLibraryView />}
+
+      {/* Spools View */}
+      {view === 'spools' && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+              <div className="text-xl md:text-2xl font-bold text-farm-100">{activeSpools.length}</div>
+              <div className="text-xs md:text-sm text-farm-400">Active Spools</div>
+            </div>
+            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+              <div className="text-xl md:text-2xl font-bold text-print-400">{loadedSpools.length}</div>
+              <div className="text-xs md:text-sm text-farm-400">Loaded</div>
+            </div>
+            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+              <div className="text-xl md:text-2xl font-bold text-yellow-400">{lowSpools.length}</div>
+              <div className="text-xs md:text-sm text-farm-400">Low (&lt;20%)</div>
+            </div>
+            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
+              <div className="text-xl md:text-2xl font-bold text-farm-100">
+                {activeSpools.reduce((sum, s) => sum + (s.remaining_weight_g || 0), 0).toFixed(0)}g
+              </div>
+              <div className="text-xs md:text-sm text-farm-400">Total Filament</div>
+            </div>
+          </div>
           
-          return Object.entries(groups).map(([group, groupSpools]) => (
-            <div key={group} className="mb-4 md:mb-6">
-              <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
+          {/* Low warning */}
+          {lowSpools.length > 0 && (
+            <div className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3">
+              <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
+              <span className="text-yellow-200 text-sm md:text-base">
+                {lowSpools.length} spool{lowSpools.length > 1 ? 's' : ''} running low on filament
+              </span>
+            </div>
+          )}
+          
+          {/* Filter tabs + Sort controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4 md:mb-6">
+            <div className="flex gap-1.5 md:gap-2 flex-wrap">
+              {['active', 'empty', 'archived', 'all'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={clsx(
+                    "px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-colors",
+                    filter === f
+                      ? "bg-print-600 text-white"
+                      : "bg-farm-800 text-farm-400 hover:bg-farm-700"
+                  )}
+                >
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
+            
+            <div className="flex gap-3 items-center sm:ml-auto">
+              <span className="text-xs md:text-sm text-farm-400">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-farm-800 border border-farm-700 rounded px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-farm-200"
+              >
+                <option value="printer">Printer/Slot</option>
+                <option value="name">Name</option>
+                <option value="remaining">Remaining %</option>
+                <option value="material">Material</option>
+              </select>
+              <label className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-farm-400">
+                <input
+                  type="checkbox"
+                  checked={groupByPrinter}
+                  onChange={(e) => setGroupByPrinter(e.target.checked)}
+                  className="rounded bg-farm-800 border-farm-700"
+                />
+                <span className="hidden sm:inline">Group by printer</span>
+                <span className="sm:hidden">Group</span>
+              </label>
+            </div>
+          </div>
+          
+          {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
+          {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
+          {!isLoading && spools?.length > 0 && (
+          (() => {
+            if (!spools) return null;
+            let sorted = [...spools];
+            
+            if (sortBy === "printer") {
+              sorted.sort((a, b) => {
+                if (a.location_printer_id !== b.location_printer_id) return (a.location_printer_id || 999) - (b.location_printer_id || 999);
+                return (a.location_slot || 999) - (b.location_slot || 999);
+              });
+            } else if (sortBy === "name") {
+              sorted.sort((a, b) => `${a.filament_brand} ${a.filament_name}`.localeCompare(`${b.filament_brand} ${b.filament_name}`));
+            } else if (sortBy === "remaining") {
+              sorted.sort((a, b) => (a.percent_remaining || 0) - (b.percent_remaining || 0));
+            } else if (sortBy === "material") {
+              sorted.sort((a, b) => (a.filament_material || "").localeCompare(b.filament_material || ""));
+            }
+            
+            if (groupByPrinter && sortBy === "printer") {
+              const groups = {};
+              sorted.forEach(s => {
+                const key = s.location_printer_id ? `Printer ${s.location_printer_id}` : "Unassigned";
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(s);
+              });
+              
+              return Object.entries(groups).map(([group, groupSpools]) => (
+                <div key={group} className="mb-4 md:mb-6">
+                  <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
+                    {groupSpools.map(spool => (
+                      <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
+                    ))}
+                  </div>
+                </div>
+              ));
+            }
+            
+            return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-                {groupSpools.map(spool => (
+                {sorted.map(spool => (
                   <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
                 ))}
               </div>
-            </div>
-          ));
-        }
-        
-        return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-            {sorted.map(spool => (
-              <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
-            ))}
-          </div>
-        );
-      })())}
+            );
+          })())}
+        </>
+      )}
       
-      {/* Modals */}
+      {/* Spool Modals */}
       {showCreateModal && (
         <CreateSpoolModal
           filaments={filaments}

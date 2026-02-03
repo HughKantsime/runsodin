@@ -1,9 +1,0 @@
-api:
-  listen: 127.0.0.1:1984
-webrtc:
-  listen: 0.0.0.0:8555
-  candidates:
-    - 192.168.70.200:8555
-streams:
-  printer_1: "rtsps://bblp:95640461@192.168.72.210:322/streaming/live/1"
-  printer_4: "rtsps://bblp:461fe80f@192.168.72.23:322/streaming/live/1"

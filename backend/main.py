@@ -6,6 +6,7 @@ printers, jobs, and the scheduling engine.
 """
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional
 from contextlib import asynccontextmanager
 import re
@@ -30,7 +31,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 from models import (Spool, SpoolUsage, SpoolStatus, AuditLog, 
     Base, Printer, FilamentSlot, Model, Job, JobStatus,
-    FilamentType, SchedulerRun, init_db, FilamentLibrary
+    FilamentType, SchedulerRun, init_db, FilamentLibrary,
+    MaintenanceTask, MaintenanceLog, SystemConfig
 )
 
 # Bambu Lab Integration
@@ -1170,7 +1172,7 @@ def start_job(job_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/jobs/{job_id}/complete", response_model=JobResponse, tags=["Jobs"])
 def complete_job(job_id: int, db: Session = Depends(get_db)):
-    """Mark a job as completed."""
+    """Mark a job as completed and auto-deduct filament from loaded spools."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1187,6 +1189,74 @@ def complete_job(job_id: int, db: Session = Depends(get_db)):
                 slot = next((s for s in printer.filament_slots if s.slot_number == i + 1), None)
                 if slot:
                     slot.color = color
+    
+    # ---- Auto-deduct filament from spools ----
+    deductions = []
+    slot_grams = {}  # {slot_number: grams_to_deduct}
+    
+    # Source 1: Model color_requirements (has per-slot gram amounts)
+    if job.model_id:
+        model = db.query(Model).filter(Model.id == job.model_id).first()
+        if model and model.color_requirements:
+            req = model.color_requirements if isinstance(model.color_requirements, dict) else json_lib.loads(model.color_requirements)
+            for i, slot_key in enumerate(sorted(req.keys())):
+                slot_data = req[slot_key]
+                if isinstance(slot_data, dict) and slot_data.get("grams"):
+                    slot_grams[i + 1] = float(slot_data["grams"])
+    
+    # Source 2: Linked print file filaments (fallback if model has no gram data)
+    if not slot_grams:
+        # Check if a print_file is linked to this job
+        pf_row = db.execute(text(
+            "SELECT filaments_json FROM print_files WHERE job_id = :jid LIMIT 1"
+        ), {"jid": job.id}).first()
+        if pf_row and pf_row[0]:
+            try:
+                pf_filaments = json_lib.loads(pf_row[0]) if isinstance(pf_row[0], str) else pf_row[0]
+                for i, fil in enumerate(pf_filaments):
+                    grams = fil.get("used_grams") or fil.get("weight_grams")
+                    if grams:
+                        slot_grams[i + 1] = float(grams)
+            except (json_lib.JSONDecodeError, TypeError):
+                pass
+    
+    # Apply deductions to spools loaded on this printer
+    if slot_grams and job.printer_id:
+        loaded_spools = db.query(Spool).filter(
+            Spool.location_printer_id == job.printer_id,
+            Spool.status == SpoolStatus.ACTIVE
+        ).all()
+        
+        spool_by_slot = {s.location_slot: s for s in loaded_spools if s.location_slot}
+        
+        for slot_num, grams in slot_grams.items():
+            spool = spool_by_slot.get(slot_num)
+            if spool and grams > 0:
+                old_weight = spool.remaining_weight_g
+                spool.remaining_weight_g = max(0, spool.remaining_weight_g - grams)
+                
+                # Create usage record for audit trail
+                usage = SpoolUsage(
+                    spool_id=spool.id,
+                    weight_used_g=grams,
+                    job_id=job.id,
+                    notes=f"Auto-deducted on job #{job.id} complete ({job.item_name})"
+                )
+                db.add(usage)
+                
+                deductions.append({
+                    "spool_id": spool.id,
+                    "slot": slot_num,
+                    "deducted_g": round(grams, 1),
+                    "remaining_g": round(spool.remaining_weight_g, 1)
+                })
+    
+    if deductions:
+        deduct_summary = "; ".join(
+            f"Slot {d['slot']}: -{d['deducted_g']}g (spool #{d['spool_id']})" 
+            for d in deductions
+        )
+        job.notes = f"{job.notes or ''}\nFilament deducted: {deduct_summary}".strip()
     
     db.commit()
     db.refresh(job)
@@ -1531,7 +1601,7 @@ import shutil
 from fastapi.staticfiles import StaticFiles
 from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 
-SPOOLMAN_URL = "http://192.168.68.103:7912"
+SPOOLMAN_URL = "http://localhost:7912"
 
 @app.get("/api/spoolman/spools", tags=["Spoolman"])
 async def get_spoolman_spools():
@@ -1555,8 +1625,23 @@ async def get_spoolman_filaments():
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to connect to Spoolman: {str(e)}")
 
-# ============== Filament Library ==============
-from models import FilamentLibrary
+
+
+
+
+class FilamentCreateRequest(PydanticBaseModel):
+    brand: str
+    name: str
+    material: str = "PLA"
+    color_hex: Optional[str] = None
+
+
+class FilamentUpdateRequest(PydanticBaseModel):
+    brand: Optional[str] = None
+    name: Optional[str] = None
+    material: Optional[str] = None
+    color_hex: Optional[str] = None
+
 
 @app.get("/api/filaments", tags=["Filaments"])
 def list_filaments(
@@ -1564,7 +1649,7 @@ def list_filaments(
     material: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get filaments from library. If Spoolman is connected, merge with Spoolman data."""
+    """Get filaments from library."""
     query = db.query(FilamentLibrary)
     if brand:
         query = query.filter(FilamentLibrary.brand == brand)
@@ -1572,8 +1657,6 @@ def list_filaments(
         query = query.filter(FilamentLibrary.material == material)
     
     library_filaments = query.all()
-    
-    # Format response
     result = []
     for f in library_filaments:
         result.append({
@@ -1585,35 +1668,29 @@ def list_filaments(
             "color_hex": f.color_hex,
             "display_name": f"{f.brand} {f.name} ({f.material})",
         })
-    
     return result
 
+
 @app.post("/api/filaments", tags=["Filaments"])
-def add_custom_filament(
-    brand: str,
-    name: str,
-    material: str = "PLA",
-    color_hex: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
+def add_custom_filament(data: FilamentCreateRequest, db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
     filament = FilamentLibrary(
-        brand=brand,
-        name=name,
-        material=material,
-        color_hex=color_hex,
+        brand=data.brand,
+        name=data.name,
+        material=data.material,
+        color_hex=data.color_hex,
         is_custom=True
     )
     db.add(filament)
     db.commit()
-    return {"id": filament.id, "message": "Filament added"}
+    return {"id": filament.id, "brand": filament.brand, "name": filament.name, "message": "Filament added"}
+
 
 @app.get("/api/filaments/combined", tags=["Filaments"])
 async def get_combined_filaments(db: Session = Depends(get_db)):
     """Get filaments from both Spoolman (if available) and local library."""
     result = []
     
-    # Try Spoolman first
     if settings.spoolman_url:
         try:
             async with httpx.AsyncClient() as client:
@@ -1633,9 +1710,8 @@ async def get_combined_filaments(db: Session = Depends(get_db)):
                             "display_name": f"{filament.get('name')} ({filament.get('material')}) - {int(spool.get('remaining_weight', 0))}g",
                         })
         except:
-            pass  # Spoolman not available, continue with library
+            pass
     
-    # Add library filaments
     library = db.query(FilamentLibrary).all()
     for f in library:
         result.append({
@@ -1650,103 +1726,75 @@ async def get_combined_filaments(db: Session = Depends(get_db)):
     
     return result
 
-# ============== Filament Library ==============
-from models import FilamentLibrary
 
-@app.get("/api/filaments", tags=["Filaments"])
-def list_filaments(
-    brand: Optional[str] = None,
-    material: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Get filaments from library. If Spoolman is connected, merge with Spoolman data."""
-    query = db.query(FilamentLibrary)
-    if brand:
-        query = query.filter(FilamentLibrary.brand == brand)
-    if material:
-        query = query.filter(FilamentLibrary.material == material)
+@app.get("/api/filaments/{filament_id}", tags=["Filaments"])
+def get_filament(filament_id: str, db: Session = Depends(get_db)):
+    """Get a specific filament from the library."""
+    fid_str = filament_id.replace("lib_", "")
+    try:
+        fid = int(fid_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filament ID")
     
-    library_filaments = query.all()
-    
-    # Format response
-    result = []
-    for f in library_filaments:
-        result.append({
-            "id": f"lib_{f.id}",
-            "source": "library",
-            "brand": f.brand,
-            "name": f.name,
-            "material": f.material,
-            "color_hex": f.color_hex,
-            "display_name": f"{f.brand} {f.name} ({f.material})",
-        })
-    
-    return result
+    filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == fid).first()
+    if not filament:
+        raise HTTPException(status_code=404, detail="Filament not found")
+    return {
+        "id": f"lib_{filament.id}",
+        "source": "library",
+        "brand": filament.brand,
+        "name": filament.name,
+        "material": filament.material,
+        "color_hex": filament.color_hex,
+        "is_custom": getattr(filament, 'is_custom', False),
+        "display_name": f"{filament.brand} {filament.name} ({filament.material})",
+    }
 
-@app.post("/api/filaments", tags=["Filaments"])
-def add_custom_filament(
-    brand: str,
-    name: str,
-    material: str = "PLA",
-    color_hex: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Add a custom filament to the library."""
-    filament = FilamentLibrary(
-        brand=brand,
-        name=name,
-        material=material,
-        color_hex=color_hex,
-        is_custom=True
-    )
-    db.add(filament)
+
+@app.patch("/api/filaments/{filament_id}", tags=["Filaments"])
+def update_filament(filament_id: str, updates: FilamentUpdateRequest, db: Session = Depends(get_db)):
+    """Update a filament in the library."""
+    fid_str = filament_id.replace("lib_", "")
+    try:
+        fid = int(fid_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filament ID")
+    
+    filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == fid).first()
+    if not filament:
+        raise HTTPException(status_code=404, detail="Filament not found")
+    
+    update_data = updates.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(filament, field, value)
+    
     db.commit()
-    return {"id": filament.id, "message": "Filament added"}
-
-@app.get("/api/filaments/combined", tags=["Filaments"])
-async def get_combined_filaments(db: Session = Depends(get_db)):
-    """Get filaments from both Spoolman (if available) and local library."""
-    result = []
-    
-    # Try Spoolman first
-    if settings.spoolman_url:
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
-                if resp.status_code == 200:
-                    spools = resp.json()
-                    for spool in spools:
-                        filament = spool.get("filament", {})
-                        result.append({
-                            "id": f"spool_{spool['id']}",
-                            "source": "spoolman",
-                            "brand": filament.get("vendor", {}).get("name", "Unknown"),
-                            "name": filament.get("name", "Unknown"),
-                            "material": filament.get("material", "PLA"),
-                            "color_hex": filament.get("color_hex"),
-                            "remaining_weight": spool.get("remaining_weight"),
-                            "display_name": f"{filament.get('name')} ({filament.get('material')}) - {int(spool.get('remaining_weight', 0))}g",
-                        })
-        except:
-            pass  # Spoolman not available, continue with library
-    
-    # Add library filaments
-    library = db.query(FilamentLibrary).all()
-    for f in library:
-        result.append({
-            "id": f"lib_{f.id}",
-            "source": "library",
-            "brand": f.brand,
-            "name": f.name,
-            "material": f.material,
-            "color_hex": f.color_hex,
-            "display_name": f"{f.brand} {f.name} ({f.material})",
-        })
-    
-    return result
+    return {
+        "id": f"lib_{filament.id}",
+        "brand": filament.brand,
+        "name": filament.name,
+        "material": filament.material,
+        "color_hex": filament.color_hex,
+        "message": "Filament updated"
+    }
 
 
-# ============== Config Schema ==============
+@app.delete("/api/filaments/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
+def delete_filament(filament_id: str, db: Session = Depends(get_db)):
+    """Delete a filament from the library."""
+    fid_str = filament_id.replace("lib_", "")
+    try:
+        fid = int(fid_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filament ID")
+    
+    filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == fid).first()
+    if not filament:
+        raise HTTPException(status_code=404, detail="Filament not found")
+    db.delete(filament)
+    db.commit()
+
+
 class ConfigUpdate(PydanticBaseModel):
     """Validated config update request."""
     spoolman_url: Optional[str] = None
@@ -3223,6 +3271,19 @@ import tempfile
 import json as json_lib
 from threemf_parser import parse_3mf
 
+
+def _normalize_model_name(name: str) -> str:
+    """Strip printer model suffixes for variant matching."""
+    import re
+    # Patterns: " (X1C)", " (H2D)", "_P1S", " - A1", etc.
+    patterns = [
+        r'\s*[\(\[\-_]\s*(X1C?|X1E|H2D|P1[SP]|A1(\s*Mini)?|Kobra\s*S1)\s*[\)\]]?\s*$',
+    ]
+    result = name
+    for p in patterns:
+        result = re.sub(p, '', result, flags=re.IGNORECASE)
+    return result.strip()
+
 @app.post("/api/print-files/upload", tags=["Print Files"])
 async def upload_3mf(
     file: UploadFile = File(...),
@@ -3279,7 +3340,12 @@ async def upload_3mf(
         
         file_id = result.lastrowid
         
-        # Auto-create a Model entry from the uploaded .3mf
+        # Check for existing model with same name (multi-variant support)
+        normalized_name = _normalize_model_name(metadata.project_name)
+        existing_model = db.execute(text(
+            "SELECT id FROM models WHERE name = :name OR name = :raw_name LIMIT 1"
+        ), {"name": normalized_name, "raw_name": metadata.project_name}).fetchone()
+        
         color_req = {}
         for f_item in metadata.filaments:
             color_req[f"slot{f_item.slot}"] = {
@@ -3291,25 +3357,38 @@ async def upload_3mf(
         if metadata.filaments:
             fil_type = metadata.filaments[0].type or "PLA"
         
-        model_result = db.execute(text("""
-            INSERT INTO models (
-                name, build_time_hours, default_filament_type,
-                color_requirements, thumbnail_b64, print_file_id, category
-            ) VALUES (
-                :name, :build_time_hours, :filament_type,
-                :color_requirements, :thumbnail_b64, :print_file_id, :category
-            )
-        """), {
-            "name": metadata.project_name,
-            "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
-            "filament_type": fil_type,
-            "color_requirements": json_lib.dumps(color_req),
-            "thumbnail_b64": metadata.thumbnail_b64,
-            "print_file_id": file_id,
-            "category": "Uploaded"
-        })
-        db.commit()
-        model_id = model_result.lastrowid
+        if existing_model:
+            # Attach as variant to existing model
+            model_id = existing_model[0]
+            is_new_model = False
+            db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
+                       {"mid": model_id, "fid": file_id})
+            db.commit()
+        else:
+            # Create new model
+            model_result = db.execute(text("""
+                INSERT INTO models (
+                    name, build_time_hours, default_filament_type,
+                    color_requirements, thumbnail_b64, print_file_id, category
+                ) VALUES (
+                    :name, :build_time_hours, :filament_type,
+                    :color_requirements, :thumbnail_b64, :print_file_id, :category
+                )
+            """), {
+                "name": normalized_name,  # Use normalized name for model
+                "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
+                "filament_type": fil_type,
+                "color_requirements": json_lib.dumps(color_req),
+                "thumbnail_b64": metadata.thumbnail_b64,
+                "print_file_id": file_id,
+                "category": "Uploaded"
+            })
+            db.commit()
+            model_id = model_result.lastrowid
+            is_new_model = True
+            db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
+                       {"mid": model_id, "fid": file_id})
+            db.commit()
         
         return {
             "id": file_id,
@@ -3327,7 +3406,9 @@ async def upload_3mf(
             } for f in metadata.filaments],
             "thumbnail_b64": metadata.thumbnail_b64,
             "is_sliced": metadata.print_time_seconds > 0,
-            "model_id": model_id
+            "model_id": model_id,
+            "is_new_model": is_new_model,
+            "printer_model": metadata.printer_model
         }
     finally:
         # Clean up temp file
@@ -3683,3 +3764,691 @@ async def remove_logo(db: Session = Depends(get_db)):
     branding.logo_url = None
     db.commit()
     return {"logo_url": None}
+
+
+# ============== Database Backups ==============
+
+@app.post("/api/backups", tags=["System"])
+def create_backup(db: Session = Depends(get_db)):
+    """Create a database backup using SQLite online backup API."""
+    import sqlite3 as sqlite3_mod
+    
+    backup_dir = Path(__file__).parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+    
+    # Resolve DB file path from engine URL
+    engine_url = str(db.get_bind().url)
+    if "///" in engine_url:
+        db_path = engine_url.split("///", 1)[1]
+    else:
+        db_path = "printfarm.db"
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db_path)
+    
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    backup_name = f"printfarm_backup_{timestamp}.db"
+    backup_path = str(backup_dir / backup_name)
+    
+    # Use SQLite online backup API — safe while DB is in use
+    src = sqlite3_mod.connect(db_path)
+    dst = sqlite3_mod.connect(backup_path)
+    src.backup(dst)
+    dst.close()
+    src.close()
+    
+    size = os.path.getsize(backup_path)
+    
+    log_audit(db, "backup_created", "system", details={"filename": backup_name, "size_bytes": size})
+    
+    return {
+        "filename": backup_name,
+        "size_bytes": size,
+        "size_mb": round(size / 1048576, 2),
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/api/backups", tags=["System"])
+def list_backups():
+    """List all database backups."""
+    backup_dir = Path(__file__).parent / "backups"
+    if not backup_dir.exists():
+        return []
+    
+    backups = []
+    for f in sorted(backup_dir.glob("printfarm_backup_*.db"), reverse=True):
+        stat = f.stat()
+        backups.append({
+            "filename": f.name,
+            "size_bytes": stat.st_size,
+            "size_mb": round(stat.st_size / 1048576, 2),
+            "created_at": datetime.utcfromtimestamp(stat.st_mtime).isoformat(),
+        })
+    return backups
+
+
+@app.get("/api/backups/{filename}", tags=["System"])
+def download_backup(filename: str):
+    """Download a database backup file."""
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    backup_dir = Path(__file__).parent / "backups"
+    backup_path = backup_dir / filename
+    
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    from starlette.responses import FileResponse
+    return FileResponse(
+        path=str(backup_path),
+        filename=filename,
+        media_type="application/octet-stream"
+    )
+
+
+@app.delete("/api/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
+def delete_backup(filename: str, db: Session = Depends(get_db)):
+    """Delete a database backup."""
+    if "/" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    backup_dir = Path(__file__).parent / "backups"
+    backup_path = backup_dir / filename
+    
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    backup_path.unlink()
+    log_audit(db, "backup_deleted", "system", details={"filename": filename})
+
+
+
+# ============== Maintenance Tracking (v0.11.0) ==============
+
+
+class MaintenanceTaskCreate(PydanticBaseModel):
+    name: str
+    description: Optional[str] = None
+    printer_model_filter: Optional[str] = None
+    interval_print_hours: Optional[float] = None
+    interval_days: Optional[int] = None
+    estimated_cost: float = 0
+    estimated_downtime_min: int = 30
+
+
+class MaintenanceTaskUpdate(PydanticBaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    printer_model_filter: Optional[str] = None
+    interval_print_hours: Optional[float] = None
+    interval_days: Optional[int] = None
+    estimated_cost: Optional[float] = None
+    estimated_downtime_min: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class MaintenanceLogCreate(PydanticBaseModel):
+    printer_id: int
+    task_id: Optional[int] = None
+    task_name: str
+    performed_by: Optional[str] = None
+    notes: Optional[str] = None
+    cost: float = 0
+    downtime_minutes: int = 0
+
+
+@app.get("/api/maintenance/tasks", tags=["Maintenance"])
+def list_maintenance_tasks(db: Session = Depends(get_db)):
+    """List all maintenance task templates."""
+    tasks = db.query(MaintenanceTask).order_by(MaintenanceTask.name).all()
+    return [{
+        "id": t.id,
+        "name": t.name,
+        "description": t.description,
+        "printer_model_filter": t.printer_model_filter,
+        "interval_print_hours": t.interval_print_hours,
+        "interval_days": t.interval_days,
+        "estimated_cost": t.estimated_cost,
+        "estimated_downtime_min": t.estimated_downtime_min,
+        "is_active": t.is_active,
+    } for t in tasks]
+
+
+@app.post("/api/maintenance/tasks", tags=["Maintenance"])
+def create_maintenance_task(data: MaintenanceTaskCreate, db: Session = Depends(get_db)):
+    """Create a new maintenance task template."""
+    task = MaintenanceTask(
+        name=data.name,
+        description=data.description,
+        printer_model_filter=data.printer_model_filter,
+        interval_print_hours=data.interval_print_hours,
+        interval_days=data.interval_days,
+        estimated_cost=data.estimated_cost,
+        estimated_downtime_min=data.estimated_downtime_min,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return {"id": task.id, "name": task.name, "message": "Task created"}
+
+
+@app.patch("/api/maintenance/tasks/{task_id}", tags=["Maintenance"])
+def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, db: Session = Depends(get_db)):
+    """Update a maintenance task template."""
+    task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(task, field, value)
+    db.commit()
+    return {"id": task.id, "message": "Task updated"}
+
+
+@app.delete("/api/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
+def delete_maintenance_task(task_id: int, db: Session = Depends(get_db)):
+    """Delete a maintenance task template and its logs."""
+    task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    db.delete(task)
+    db.commit()
+
+
+@app.get("/api/maintenance/logs", tags=["Maintenance"])
+def list_maintenance_logs(
+    printer_id: Optional[int] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db)
+):
+    """List maintenance logs, optionally filtered by printer."""
+    query = db.query(MaintenanceLog).order_by(MaintenanceLog.performed_at.desc())
+    if printer_id:
+        query = query.filter(MaintenanceLog.printer_id == printer_id)
+    logs = query.limit(limit).all()
+    return [{
+        "id": l.id,
+        "printer_id": l.printer_id,
+        "task_id": l.task_id,
+        "task_name": l.task_name,
+        "performed_at": l.performed_at.isoformat() if l.performed_at else None,
+        "performed_by": l.performed_by,
+        "notes": l.notes,
+        "cost": l.cost,
+        "downtime_minutes": l.downtime_minutes,
+        "print_hours_at_service": l.print_hours_at_service,
+    } for l in logs]
+
+
+@app.post("/api/maintenance/logs", tags=["Maintenance"])
+def create_maintenance_log(data: MaintenanceLogCreate, db: Session = Depends(get_db)):
+    """Log a maintenance action performed on a printer."""
+    printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    # Compute current total print hours for this printer (from completed jobs)
+    result = db.execute(text(
+        "SELECT COALESCE(SUM(duration_hours), 0) FROM jobs "
+        "WHERE printer_id = :pid AND status = 'completed'"
+    ), {"pid": data.printer_id}).scalar()
+    total_hours = float(result or 0)
+
+    log = MaintenanceLog(
+        printer_id=data.printer_id,
+        task_id=data.task_id,
+        task_name=data.task_name,
+        performed_by=data.performed_by,
+        notes=data.notes,
+        cost=data.cost,
+        downtime_minutes=data.downtime_minutes,
+        print_hours_at_service=total_hours,
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return {"id": log.id, "message": "Maintenance logged", "print_hours_at_service": total_hours}
+
+
+@app.delete("/api/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
+def delete_maintenance_log(log_id: int, db: Session = Depends(get_db)):
+    """Delete a maintenance log entry."""
+    log = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Log not found")
+    db.delete(log)
+    db.commit()
+
+
+@app.get("/api/maintenance/status", tags=["Maintenance"])
+def get_maintenance_status(db: Session = Depends(get_db)):
+    """Get maintenance status for all active printers. Returns per-printer task health."""
+    printers = db.query(Printer).filter(Printer.is_active == True).order_by(Printer.name).all()
+    tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active == True).all()
+
+    # Total print hours per printer (computed from completed jobs)
+    hours_rows = db.execute(text(
+        "SELECT printer_id, COALESCE(SUM(duration_hours), 0) as total_hours "
+        "FROM jobs WHERE status = 'completed' AND printer_id IS NOT NULL "
+        "GROUP BY printer_id"
+    )).fetchall()
+    hours_map = {row[0]: float(row[1]) for row in hours_rows}
+
+    # Latest maintenance log per (printer_id, task_id)
+    all_logs = db.query(MaintenanceLog).all()
+    log_map = {}
+    for log in all_logs:
+        key = (log.printer_id, log.task_id)
+        if key not in log_map or (log.performed_at and log_map[key].performed_at and log.performed_at > log_map[key].performed_at):
+            log_map[key] = log
+
+    now = datetime.utcnow()
+    result = []
+
+    for printer in printers:
+        total_hours = hours_map.get(printer.id, 0)
+        printer_tasks = []
+        worst_status = "ok"
+
+        for task in tasks:
+            # Filter: does this task apply to this printer?
+            if task.printer_model_filter:
+                if task.printer_model_filter.lower() not in (printer.model or "").lower():
+                    continue
+
+            last_log = log_map.get((printer.id, task.id))
+
+            if last_log and last_log.performed_at:
+                hours_since = total_hours - (last_log.print_hours_at_service or 0)
+                days_since = (now - last_log.performed_at).days
+                last_serviced = last_log.performed_at.isoformat()
+                last_by = last_log.performed_by
+            else:
+                hours_since = total_hours
+                days_since = (now - printer.created_at).days if printer.created_at else 0
+                last_serviced = None
+                last_by = None
+
+            # Determine status
+            task_status = "ok"
+            progress = 0.0
+
+            if task.interval_print_hours and task.interval_print_hours > 0:
+                pct = (hours_since / task.interval_print_hours) * 100
+                progress = max(progress, pct)
+                if hours_since >= task.interval_print_hours:
+                    task_status = "overdue"
+                elif hours_since >= task.interval_print_hours * 0.8:
+                    task_status = "due_soon"
+
+            if task.interval_days and task.interval_days > 0:
+                pct = (days_since / task.interval_days) * 100
+                progress = max(progress, pct)
+                if days_since >= task.interval_days:
+                    task_status = "overdue"
+                elif days_since >= task.interval_days * 0.8:
+                    if task_status != "overdue":
+                        task_status = "due_soon"
+
+            if task_status == "overdue":
+                worst_status = "overdue"
+            elif task_status == "due_soon" and worst_status == "ok":
+                worst_status = "due_soon"
+
+            printer_tasks.append({
+                "task_id": task.id,
+                "task_name": task.name,
+                "description": task.description,
+                "interval_print_hours": task.interval_print_hours,
+                "interval_days": task.interval_days,
+                "hours_since_service": round(hours_since, 1),
+                "days_since_service": days_since,
+                "last_serviced": last_serviced,
+                "last_by": last_by,
+                "status": task_status,
+                "progress_percent": round(min(progress, 150), 1),
+            })
+
+        result.append({
+            "printer_id": printer.id,
+            "printer_name": printer.name,
+            "printer_model": printer.model,
+            "total_print_hours": round(total_hours, 1),
+            "tasks": sorted(printer_tasks, key=lambda t: {"overdue": 0, "due_soon": 1, "ok": 2}.get(t["status"], 3)),
+            "overall_status": worst_status,
+        })
+
+    # Sort: overdue printers first
+    result.sort(key=lambda p: {"overdue": 0, "due_soon": 1, "ok": 2}.get(p["overall_status"], 3))
+    return result
+
+
+@app.post("/api/maintenance/seed-defaults", tags=["Maintenance"])
+def seed_default_maintenance_tasks(db: Session = Depends(get_db)):
+    """Seed default maintenance tasks for common Bambu Lab printer models."""
+    defaults = [
+        # Universal tasks (all printers)
+        {"name": "General Cleaning", "description": "Clean build plate, wipe exterior, clear debris from print area",
+         "printer_model_filter": None, "interval_print_hours": 50, "interval_days": 14,
+         "estimated_cost": 0, "estimated_downtime_min": 15},
+        {"name": "Nozzle Inspection", "description": "Check nozzle for wear, clogs, or damage — replace if needed",
+         "printer_model_filter": None, "interval_print_hours": 500, "interval_days": None,
+         "estimated_cost": 8, "estimated_downtime_min": 15},
+        {"name": "Build Plate Check", "description": "Inspect build plate surface — clean, re-level, or replace if worn",
+         "printer_model_filter": None, "interval_print_hours": 1000, "interval_days": 180,
+         "estimated_cost": 30, "estimated_downtime_min": 10},
+        {"name": "Belt Tension Check", "description": "Verify X/Y belt tension and adjust if loose",
+         "printer_model_filter": None, "interval_print_hours": 500, "interval_days": None,
+         "estimated_cost": 0, "estimated_downtime_min": 20},
+        {"name": "Firmware Update Check", "description": "Check for and apply firmware updates",
+         "printer_model_filter": None, "interval_print_hours": None, "interval_days": 30,
+         "estimated_cost": 0, "estimated_downtime_min": 15},
+        # X1C / X1E specific
+        {"name": "Carbon Rod Lubrication", "description": "Lubricate carbon rods on X/Y axes (X1 series)",
+         "printer_model_filter": "X1", "interval_print_hours": 200, "interval_days": None,
+         "estimated_cost": 5, "estimated_downtime_min": 20},
+        {"name": "HEPA Filter Replacement", "description": "Replace HEPA filter in enclosure (X1 series)",
+         "printer_model_filter": "X1", "interval_print_hours": 500, "interval_days": 90,
+         "estimated_cost": 12, "estimated_downtime_min": 5},
+        {"name": "Purge Wiper Replacement", "description": "Replace purge/wiper assembly (X1 series)",
+         "printer_model_filter": "X1", "interval_print_hours": 200, "interval_days": None,
+         "estimated_cost": 6, "estimated_downtime_min": 10},
+        # P1S specific
+        {"name": "HEPA Filter Replacement", "description": "Replace HEPA filter in enclosure (P1S)",
+         "printer_model_filter": "P1S", "interval_print_hours": 500, "interval_days": 90,
+         "estimated_cost": 12, "estimated_downtime_min": 5},
+        {"name": "Carbon Rod Lubrication", "description": "Lubricate carbon rods on X/Y axes (P1S)",
+         "printer_model_filter": "P1S", "interval_print_hours": 200, "interval_days": None,
+         "estimated_cost": 5, "estimated_downtime_min": 20},
+        # A1 specific
+        {"name": "Hotend Cleaning", "description": "Clean hotend assembly and check for leaks (A1 series)",
+         "printer_model_filter": "A1", "interval_print_hours": 300, "interval_days": None,
+         "estimated_cost": 0, "estimated_downtime_min": 20},
+    ]
+
+    created = 0
+    skipped = 0
+    for d in defaults:
+        existing = db.query(MaintenanceTask).filter(
+            MaintenanceTask.name == d["name"],
+            MaintenanceTask.printer_model_filter == d["printer_model_filter"]
+        ).first()
+        if not existing:
+            task = MaintenanceTask(**d)
+            db.add(task)
+            created += 1
+        else:
+            skipped += 1
+
+    db.commit()
+    return {"message": f"Seeded {created} tasks ({skipped} already existed)", "created": created, "skipped": skipped}
+
+
+
+
+# ============== Model Variants (v0.11.0) ==============
+
+@app.get("/api/models/{model_id}/variants", tags=["Models"])
+def get_model_variants(model_id: int, db: Session = Depends(get_db)):
+    """Get all print file variants for a model."""
+    model = db.execute(text("SELECT id, name FROM models WHERE id = :id"), {"id": model_id}).fetchone()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    variants = db.execute(text("""
+        SELECT id, filename, printer_model, print_time_seconds, total_weight_grams,
+               nozzle_diameter, layer_height, uploaded_at
+        FROM print_files WHERE model_id = :model_id ORDER BY uploaded_at DESC
+    """), {"model_id": model_id}).fetchall()
+    
+    return {
+        "model_id": model_id,
+        "model_name": model[1],
+        "variants": [{
+            "id": v[0], "filename": v[1], "printer_model": v[2] or "Unknown",
+            "print_time_seconds": v[3], "print_time_hours": round(v[3]/3600.0, 2) if v[3] else 0,
+            "total_weight_grams": v[4], "nozzle_diameter": v[5], "layer_height": v[6], "uploaded_at": v[7]
+        } for v in variants]
+    }
+
+
+@app.delete("/api/models/{model_id}/variants/{variant_id}", tags=["Models"])
+def delete_model_variant(model_id: int, variant_id: int, db: Session = Depends(get_db)):
+    """Delete a variant from a model."""
+    v = db.execute(text("SELECT id FROM print_files WHERE id=:id AND model_id=:mid"),
+                   {"id": variant_id, "mid": model_id}).fetchone()
+    if not v:
+        raise HTTPException(status_code=404, detail="Variant not found")
+    
+    db.execute(text("DELETE FROM print_files WHERE id = :id"), {"id": variant_id})
+    db.commit()
+    remaining = db.execute(text("SELECT COUNT(*) FROM print_files WHERE model_id=:mid"),
+                           {"mid": model_id}).scalar()
+    return {"message": "Variant deleted", "remaining": remaining}
+
+# ============== RBAC Permissions (v0.11.0) ==============
+
+RBAC_DEFAULT_PAGE_ACCESS = {
+    "dashboard": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "timeline": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "jobs": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "printers": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "models": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "spools": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "cameras": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "analytics": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "calculator": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "upload": [
+        "admin",
+        "operator"
+    ],
+    "maintenance": [
+        "admin",
+        "operator"
+    ],
+    "settings": [
+        "admin"
+    ],
+    "admin": [
+        "admin"
+    ],
+    "branding": [
+        "admin"
+    ]
+}
+
+RBAC_DEFAULT_ACTION_ACCESS = {
+    "jobs.create": [
+        "admin",
+        "operator"
+    ],
+    "jobs.edit": [
+        "admin",
+        "operator"
+    ],
+    "jobs.cancel": [
+        "admin",
+        "operator"
+    ],
+    "jobs.delete": [
+        "admin",
+        "operator"
+    ],
+    "jobs.start": [
+        "admin",
+        "operator"
+    ],
+    "jobs.complete": [
+        "admin",
+        "operator"
+    ],
+    "printers.add": [
+        "admin"
+    ],
+    "printers.edit": [
+        "admin",
+        "operator"
+    ],
+    "printers.delete": [
+        "admin"
+    ],
+    "printers.slots": [
+        "admin",
+        "operator"
+    ],
+    "printers.reorder": [
+        "admin",
+        "operator"
+    ],
+    "models.create": [
+        "admin",
+        "operator"
+    ],
+    "models.edit": [
+        "admin",
+        "operator"
+    ],
+    "models.delete": [
+        "admin"
+    ],
+    "spools.edit": [
+        "admin",
+        "operator"
+    ],
+    "spools.delete": [
+        "admin"
+    ],
+    "timeline.move": [
+        "admin",
+        "operator"
+    ],
+    "upload.upload": [
+        "admin",
+        "operator"
+    ],
+    "upload.schedule": [
+        "admin",
+        "operator"
+    ],
+    "upload.delete": [
+        "admin",
+        "operator"
+    ],
+    "maintenance.log": [
+        "admin",
+        "operator"
+    ],
+    "maintenance.tasks": [
+        "admin"
+    ],
+    "dashboard.actions": [
+        "admin",
+        "operator"
+    ]
+}
+
+
+def _get_rbac(db: Session):
+    row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
+    if row and row.value:
+        data = row.value
+        return {
+            "page_access": data.get("page_access", RBAC_DEFAULT_PAGE_ACCESS),
+            "action_access": data.get("action_access", RBAC_DEFAULT_ACTION_ACCESS),
+        }
+    return {
+        "page_access": RBAC_DEFAULT_PAGE_ACCESS,
+        "action_access": RBAC_DEFAULT_ACTION_ACCESS,
+    }
+
+
+@app.get("/api/permissions", tags=["RBAC"])
+def get_permissions(db: Session = Depends(get_db)):
+    """Get current RBAC permission map. Public (needed at login)."""
+    return _get_rbac(db)
+
+
+class RBACUpdateRequest(PydanticBaseModel):
+    page_access: dict
+    action_access: dict
+
+
+@app.put("/api/permissions", tags=["RBAC"])
+def update_permissions(data: RBACUpdateRequest, db: Session = Depends(get_db)):
+    """Update RBAC permissions. Admin only."""
+    valid_roles = {"admin", "operator", "viewer"}
+    for key, roles in data.page_access.items():
+        if not isinstance(roles, list):
+            raise HTTPException(400, f"page_access.{key} must be a list")
+        for r in roles:
+            if r not in valid_roles:
+                raise HTTPException(400, f"Invalid role '{r}' in page_access.{key}")
+        if key in ("admin", "settings") and "admin" not in roles:
+            raise HTTPException(400, f"Cannot remove admin from '{key}' page")
+
+    for key, roles in data.action_access.items():
+        if not isinstance(roles, list):
+            raise HTTPException(400, f"action_access.{key} must be a list")
+        for r in roles:
+            if r not in valid_roles:
+                raise HTTPException(400, f"Invalid role '{r}' in action_access.{key}")
+
+    value = {"page_access": data.page_access, "action_access": data.action_access}
+    row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
+    if row:
+        row.value = value
+    else:
+        row = SystemConfig(key="rbac_permissions", value=value)
+        db.add(row)
+    db.commit()
+    return {"message": "Permissions updated", **value}
+
+
+@app.post("/api/permissions/reset", tags=["RBAC"])
+def reset_permissions(db: Session = Depends(get_db)):
+    """Reset permissions to defaults. Admin only."""
+    row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return {
+        "message": "Reset to defaults",
+        "page_access": RBAC_DEFAULT_PAGE_ACCESS,
+        "action_access": RBAC_DEFAULT_ACTION_ACCESS,
+    }

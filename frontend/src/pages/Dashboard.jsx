@@ -218,7 +218,7 @@ export default function Dashboard() {
     queryKey: ['cameras'],
     queryFn: async () => {
       const token = localStorage.getItem('token')
-      const headers = { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
       if (token) headers['Authorization'] = 'Bearer ' + token
       const response = await fetch('/api/cameras', { headers })
       if (!response.ok) return []

@@ -8,7 +8,7 @@ const API_BASE = '/api'
 const fetchUsers = async () => {
   const token = localStorage.getItem('token')
   const response = await fetch(`${API_BASE}/users`, {
-    headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+    headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY }
   })
   if (!response.ok) throw new Error('Failed to fetch users')
   return response.json()
@@ -83,7 +83,7 @@ export default function Admin() {
   const createUser = useMutation({
     mutationFn: async (userData) => {
       const token = localStorage.getItem('token')
-      const response = await fetch(`${API_BASE}/users`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }, body: JSON.stringify(userData) })
+      const response = await fetch(`${API_BASE}/users`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY }, body: JSON.stringify(userData) })
       if (!response.ok) throw new Error('Failed to create user')
       return response.json()
     },
@@ -93,7 +93,7 @@ export default function Admin() {
   const updateUser = useMutation({
     mutationFn: async ({ id, ...userData }) => {
       const token = localStorage.getItem('token')
-      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }, body: JSON.stringify(userData) })
+      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY }, body: JSON.stringify(userData) })
       if (!response.ok) throw new Error('Failed to update user')
       return response.json()
     },
@@ -103,7 +103,7 @@ export default function Admin() {
   const deleteUser = useMutation({
     mutationFn: async (id) => {
       const token = localStorage.getItem('token')
-      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' } })
+      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY } })
       if (!response.ok) throw new Error('Failed to delete user')
     },
     onSuccess: () => queryClient.invalidateQueries(['users'])

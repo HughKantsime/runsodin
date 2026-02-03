@@ -59,7 +59,7 @@ export default function CameraModal({ printer, onClose }) {
       const token = localStorage.getItem('token')
       const headers = {
         'Content-Type': 'application/sdp',
-        'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce',
+        'X-API-Key': import.meta.env.VITE_API_KEY,
       }
       if (token) headers['Authorization'] = 'Bearer ' + token
 

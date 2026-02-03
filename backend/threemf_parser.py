@@ -8,6 +8,42 @@ import xml.etree.ElementTree as ET
 import json
 import base64
 from pathlib import Path
+
+def _friendly_printer_name(model_id: str) -> str:
+    """Convert Bambu internal codes to friendly names."""
+    mappings = {
+        'BL-P001': 'P1S', 'BL-P002': 'P1P',
+        'BL-A001': 'A1', 'BL-A003': 'A1 Mini',
+        'C11': 'X1C', 'C12': 'X1E', 'C13': 'X1',
+        'N1': 'A1', 'N2S': 'A1 Mini',
+        'O1D': 'X1C',
+    }
+    for code, name in mappings.items():
+        if code.lower() in model_id.lower():
+            return name
+    return model_id
+
+
+def extract_printer_model_from_settings(zf: zipfile.ZipFile) -> str:
+    """Extract printer_model from project_settings.config (more reliable than slice_info)."""
+    try:
+        if 'Metadata/project_settings.config' in zf.namelist():
+            with zf.open('Metadata/project_settings.config') as f:
+                content = f.read().decode('utf-8')
+                import json
+                data = json.loads(content)
+                # Look for printer_model key
+                pm = data.get('printer_model', '')
+                if pm:
+                    # Clean up "Bambu Lab X1C" -> "X1C", "Bambu Lab H2D" -> "H2D"
+                    if 'Bambu Lab ' in pm:
+                        return pm.replace('Bambu Lab ', '').strip()
+                    return pm
+    except Exception as e:
+        print(f"Error extracting printer_model from settings: {e}")
+    return None
+
+
 from typing import Optional, List
 from dataclasses import dataclass, asdict
 
@@ -110,8 +146,8 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
                 total_weight_grams=float(slice_info.get('weight', 0)),
                 layer_count=layer_count,
                 layer_height=plate_info.get('layer_height', 0.2) if plate_info else 0.2,
-                nozzle_diameter=float(slice_info.get('nozzle_diameters', 0.4)),
-                printer_model=slice_info.get('printer_model_id', 'Unknown'),
+                nozzle_diameter=float(str(slice_info.get('nozzle_diameters', 0.4)).split(',')[0]),
+                printer_model=extract_printer_model_from_settings(zf) or slice_info.get('printer_model_id', 'Unknown'),
                 supports_used=slice_info.get('support_used', 'false').lower() == 'true',
                 bed_type=plate_info.get('bed_type', 'Unknown') if plate_info else 'Unknown',
                 filaments=filaments,

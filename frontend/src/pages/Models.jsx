@@ -21,12 +21,12 @@ import { canDo } from '../permissions'
 function ModelCard({ model, onEdit, onDelete, onSchedule }) {
   return (
     <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
-      <div className="h-28 md:h-32 bg-farm-800 flex items-center justify-center">
+      <div className="h-28 md:h-32 bg-farm-950 flex items-center justify-center">
         {model.thumbnail_b64 ? (
           <img 
             src={`data:image/png;base64,${model.thumbnail_b64}`}
             alt={model.name}
-            className="h-full w-full object-contain bg-farm-950 p-1"
+            className="h-full w-full object-contain p-1"
           />
         ) : model.thumbnail_url ? (
           <img 
@@ -35,17 +35,21 @@ function ModelCard({ model, onEdit, onDelete, onSchedule }) {
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="text-4xl text-farm-700">🖨️</div>
+          <div className="text-4xl text-farm-700">📦</div>
         )}
       </div>
-
       <div className="p-3 md:p-4">
         <div className="flex items-start justify-between mb-2 gap-1">
           <div className="min-w-0">
             <h3 className="font-medium text-sm md:text-base truncate">{model.name}</h3>
-            {model.category && (
-              <span className="text-xs text-farm-500">{model.category}</span>
-            )}
+            <div className="flex items-center gap-2 mt-0.5">
+              {model.default_filament_type && (
+                <span className="text-xs px-1.5 py-0.5 bg-farm-800 text-farm-400 rounded">{model.default_filament_type}</span>
+              )}
+              {model.variant_count > 1 && (
+                <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded">{model.variant_count} variants</span>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -70,59 +74,34 @@ function ModelCard({ model, onEdit, onDelete, onSchedule }) {
             </button>}
           </div>
         </div>
-
+        
         <div className="flex items-center gap-3 md:gap-4 text-xs md:text-sm text-farm-400 mt-3">
-          {model.build_time_hours && (
+          {model.build_time_hours > 0 && (
             <div className="flex items-center gap-1">
               <Clock size={12} />
-              <span>{model.build_time_hours}h</span>
+              <span>{model.build_time_hours < 1 ? `${Math.round(model.build_time_hours * 60)}m` : `${model.build_time_hours.toFixed(1)}h`}</span>
             </div>
           )}
           {model.total_filament_grams > 0 && (
             <div className="flex items-center gap-1">
               <Scale size={12} />
-              <span>{model.total_filament_grams}g</span>
-            </div>
-          )}
-          {model.cost_per_item && (
-            <div className="flex items-center gap-1">
-              <DollarSign size={12} />
-              <span>${model.cost_per_item.toFixed(2)}</span>
+              <span>{model.total_filament_grams.toFixed(0)}g</span>
             </div>
           )}
         </div>
-
+        
         {model.required_colors?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
             {model.required_colors.map((color, i) => (
-              <span 
+              <div 
                 key={i}
-                className="text-xs bg-farm-800 px-2 py-0.5 rounded"
-              >
-                {color}
-              </span>
+                className="w-5 h-5 rounded-full border border-farm-600"
+                style={{ backgroundColor: color }}
+                title={color}
+              />
             ))}
           </div>
         )}
-        
-        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-farm-800">
-          <div className="text-center">
-            <div className="text-[10px] md:text-xs text-farm-500"># on Bed</div>
-            <div className="text-sm font-medium">{model.units_per_bed || 1}</div>
-          </div>
-          <div className="text-center">
-            <div className="text-[10px] md:text-xs text-farm-500">$/Hour</div>
-            <div className="text-sm font-medium text-print-400">
-              {model.value_per_hour ? `$${model.value_per_hour.toFixed(2)}` : '—'}
-            </div>
-          </div>
-          <div className="text-center">
-            <div className="text-[10px] md:text-xs text-farm-500">Bed Value</div>
-            <div className="text-sm font-medium text-green-400">
-              {model.value_per_bed ? `$${model.value_per_bed.toFixed(2)}` : '—'}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   )
@@ -362,6 +341,119 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   )
 }
 
+function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
+  const { data: printersData } = useQuery({ 
+    queryKey: ['printers'], 
+    queryFn: () => printers.list(true),
+    enabled: isOpen 
+  })
+  const { data: variantsData } = useQuery({
+    queryKey: ['model-variants', model?.id],
+    queryFn: () => models.getVariants(model.id),
+    enabled: isOpen && !!model?.id
+  })
+  const [selectedPrinter, setSelectedPrinter] = useState(null)
+
+  useEffect(() => { if (isOpen) setSelectedPrinter(null) }, [isOpen])
+
+  const activePrinters = printersData?.filter(p => p.is_active) || []
+  const variants = variantsData?.variants || []
+  const variantProfiles = new Set(variants.map(v => v.printer_model?.toLowerCase()).filter(p => p && p !== 'unknown'))
+  const hasMatch = (printer) => {
+    if (!printer.model) return false
+    const pm = printer.model.toLowerCase()
+    for (const profile of variantProfiles) {
+      if (pm.includes(profile)) return true
+    }
+    return false
+  }
+  const sortedPrinters = [...activePrinters].sort((a,b) => hasMatch(b) - hasMatch(a))
+  
+  if (!isOpen || !model) return null
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl w-full max-w-md p-4 sm:p-6 border border-farm-700">
+        <h2 className="text-lg font-display font-semibold mb-1">Schedule Print</h2>
+        <p className="text-sm text-farm-500 mb-2">{model.name}</p>
+        
+        {variants.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {variants.map(v => (
+              <span key={v.id} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">{v.printer_model}</span>
+            ))}
+          </div>
+        )}
+        
+        {model.thumbnail_b64 && (
+          <div className="h-32 bg-farm-950 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
+            <img src={`data:image/png;base64,${model.thumbnail_b64}`} alt={model.name} className="h-full object-contain" />
+          </div>
+        )}
+        
+        <div className="flex items-center gap-4 text-sm text-farm-400 mb-4">
+          {model.build_time_hours && (
+            <div className="flex items-center gap-1">
+              <Clock size={14} />
+              <span>{model.build_time_hours}h</span>
+            </div>
+          )}
+          {model.total_filament_grams > 0 && (
+            <div className="flex items-center gap-1">
+              <Scale size={14} />
+              <span>{model.total_filament_grams}g</span>
+            </div>
+          )}
+          {model.default_filament_type && (
+            <div className="flex items-center gap-1">
+              <Palette size={14} />
+              <span>{model.default_filament_type}</span>
+            </div>
+          )}
+        </div>
+        
+        <p className="text-sm text-farm-400 mb-2">Assign to Printer</p>
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button 
+            onClick={() => setSelectedPrinter(null)} 
+            className={clsx('px-3 py-1.5 rounded-lg border text-sm transition-colors', 
+              selectedPrinter === null ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 hover:border-farm-500'
+            )}
+          >
+            Auto-assign
+          </button>
+          {sortedPrinters.map(p => {
+            const compat = hasMatch(p)
+            return (
+              <button 
+                key={p.id} 
+                onClick={() => setSelectedPrinter(p.id)} 
+                className={clsx('px-3 py-1.5 rounded-lg border text-sm transition-colors flex items-center gap-1.5', 
+                  selectedPrinter === p.id ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 hover:border-farm-500',
+                )}
+                title={compat ? 'Has matching variant' : variants.length > 0 ? 'No matching variant' : ''}
+              >
+                {compat && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
+                {p.name}
+              </button>
+            )
+          })}
+          {activePrinters.length === 0 && (
+            <p className="text-xs text-farm-500 py-1">No active printers found</p>
+          )}
+        </div>
+        
+        <div className="flex justify-end gap-3">
+          <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm transition-colors">Cancel</button>
+          <button onClick={() => onConfirm(selectedPrinter)} disabled={isScheduling} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm transition-colors">
+            {isScheduling ? 'Scheduling...' : 'Create Job'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Models() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
@@ -374,10 +466,23 @@ export default function Models() {
   const createModel = useMutation({ mutationFn: models.create, onSuccess: () => queryClient.invalidateQueries(['models']) })
   const updateModel = useMutation({ mutationFn: ({ id, data }) => models.update(id, data), onSuccess: () => queryClient.invalidateQueries(['models']) })
   const deleteModel = useMutation({ mutationFn: models.delete, onSuccess: () => queryClient.invalidateQueries(['models']) })
+  const scheduleMutation = useMutation({ 
+    mutationFn: ({ modelId, printerId }) => models.schedule(modelId, printerId), 
+    onSuccess: () => { 
+      queryClient.invalidateQueries(['jobs'])
+      setScheduleModel(null) 
+    } 
+  })
 
   const handleSubmit = (data, modelId) => { if (modelId) { updateModel.mutate({ id: modelId, data }) } else { createModel.mutate(data) } }
   const handleEdit = (model) => { setEditingModel(model); setShowModal(true) }
   const handleDelete = (modelId) => { if (confirm('Delete this model? Jobs using this model will not be affected.')) deleteModel.mutate(modelId) }
+  const handleScheduleClick = (model) => { setScheduleModel(model) }
+  const handleScheduleConfirm = (printerId) => {
+    if (scheduleModel) {
+      scheduleMutation.mutate({ modelId: scheduleModel.id, printerId })
+    }
+  }
 
   const categories = [...new Set(modelsData?.map(m => m.category).filter(Boolean))]
 
@@ -407,18 +512,26 @@ export default function Models() {
       ) : modelsData?.length === 0 ? (
         <div className="bg-farm-900 rounded-xl border border-farm-800 p-8 md:p-12 text-center">
           <p className="text-farm-500 mb-4">No models defined yet.</p>
-          <p className="text-sm text-farm-600 mb-4">Models store default settings for prints you make frequently.</p>
+          <p className="text-sm text-farm-600 mb-4">Upload a .3mf file or add models manually to get started.</p>
           <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Model</button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {modelsData?.map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} />
+            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} />
           ))}
         </div>
       )}
 
       <ModelModal isOpen={showModal} onClose={() => { setShowModal(false); setEditingModel(null) }} onSubmit={handleSubmit} editingModel={editingModel} />
+      
+      <ScheduleModal 
+        isOpen={!!scheduleModel} 
+        onClose={() => setScheduleModel(null)} 
+        model={scheduleModel} 
+        onConfirm={handleScheduleConfirm} 
+        isScheduling={scheduleMutation.isPending} 
+      />
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { Video, VideoOff, Maximize2, Rows3, LayoutGrid, Columns3 } from 'lucide-
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
-const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+const API_KEY = import.meta.env.VITE_API_KEY
 
 function CameraCard({ camera, onExpand }) {
   const videoRef = useRef(null)

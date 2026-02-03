@@ -117,6 +117,7 @@ class ModelBase(BaseModel):
     color_requirements: Optional[Dict[str, ColorRequirement]] = None
     category: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    thumbnail_b64: Optional[str] = None
     notes: Optional[str] = None
     cost_per_item: Optional[float] = None
     units_per_bed: Optional[int] = 1

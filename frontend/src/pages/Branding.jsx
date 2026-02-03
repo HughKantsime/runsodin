@@ -74,7 +74,7 @@ const DEFAULTS = {
 function getAuthHeaders() {
   return {
     'Content-Type': 'application/json',
-    'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+    'X-API-Key': import.meta.env.VITE_API_KEY
   }
 }
 
@@ -140,7 +140,7 @@ export default function Branding() {
       const token = localStorage.getItem("token")
       const res = await fetch(`${API_BASE}/branding/${endpoint}`, {
         method: 'POST',
-        headers: { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' },
+        headers: { 'X-API-Key': import.meta.env.VITE_API_KEY },
         body: formData
       })
       if (!res.ok) throw new Error("Upload failed")
@@ -157,7 +157,7 @@ export default function Branding() {
       const token = localStorage.getItem("token")
       const res = await fetch(`${API_BASE}/branding/logo`, {
         method: 'DELETE',
-        headers: { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' },
+        headers: { 'X-API-Key': import.meta.env.VITE_API_KEY },
       })
       if (!res.ok) throw new Error("Remove failed")
       setBranding(prev => ({ ...prev, logo_url: null }))
@@ -383,7 +383,7 @@ export default function Branding() {
                 </div>
                 <div style={{ fontFamily: draft.font_mono }}>
                   <p className="text-sm" style={{ color: draft.accent_color }}>
-                    const printer = await connect("192.168.70.101")
+                    const printer = await connect("192.168.1.100")
                   </p>
                   <p className="text-xs mt-1" style={{ color: draft.text_muted }}>
                     Mono font

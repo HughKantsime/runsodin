@@ -28,3 +28,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Deployment-specific (do not commit)
+go2rtc/go2rtc.yaml
+
+# Database backups
+backend/backups/

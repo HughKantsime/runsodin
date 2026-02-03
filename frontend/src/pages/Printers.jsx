@@ -7,7 +7,7 @@ import { Video } from 'lucide-react'
 import { canDo } from '../permissions'
 import CameraModal from '../components/CameraModal'
 
-const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+const API_KEY = import.meta.env.VITE_API_KEY
 const apiHeaders = {
   'Content-Type': 'application/json',
   'X-API-Key': API_KEY
@@ -505,7 +505,7 @@ export default function Printers() {
     queryKey: ['cameras'],
     queryFn: async () => {
       const token = localStorage.getItem('token')
-      const headers = { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }
+      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
       if (token) headers['Authorization'] = 'Bearer ' + token
       const response = await fetch('/api/cameras', { headers })
       if (!response.ok) return []
@@ -522,7 +522,7 @@ export default function Printers() {
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
   const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
-    const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce' }})
+    const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }})
     return res.json()
   }})
   

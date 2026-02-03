@@ -1,7 +1,7 @@
 const API_BASE = '/api'
 
 // API Key for authentication - leave empty if auth is disabled
-const API_KEY = '5464389e808f206efd9f9febef7743ff7a16911797cb0f058e805c82b33396ce'
+const API_KEY = import.meta.env.VITE_API_KEY
 
 async function fetchAPI(endpoint, options = {}) {
   const headers = {
@@ -60,6 +60,8 @@ export const jobs = {
 }
 
 export const models = {
+  getVariants: (id) => fetchAPI(`/models/${id}/variants`),
+  deleteVariant: (modelId, variantId) => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
   list: () => fetchAPI('/models'),
   get: (id) => fetchAPI('/models/' + id),
   create: (data) => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
@@ -218,4 +220,24 @@ export const users = {
     if (!response.ok) throw new Error('Failed to delete user')
     return response.json()
   }
+}
+
+
+export const maintenance = {
+  getStatus: () => fetchAPI('/maintenance/status'),
+  getTasks: () => fetchAPI('/maintenance/tasks'),
+  createTask: (data) => fetchAPI('/maintenance/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateTask: (id, data) => fetchAPI('/maintenance/tasks/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTask: (id) => fetchAPI('/maintenance/tasks/' + id, { method: 'DELETE' }),
+  getLogs: (printerId) => fetchAPI('/maintenance/logs' + (printerId ? '?printer_id=' + printerId : '')),
+  createLog: (data) => fetchAPI('/maintenance/logs', { method: 'POST', body: JSON.stringify(data) }),
+  deleteLog: (id) => fetchAPI('/maintenance/logs/' + id, { method: 'DELETE' }),
+  seedDefaults: () => fetchAPI('/maintenance/seed-defaults', { method: 'POST' }),
+}
+
+
+export const permissions = {
+  get: () => fetchAPI('/permissions'),
+  update: (data) => fetchAPI('/permissions', { method: 'PUT', body: JSON.stringify(data) }),
+  reset: () => fetchAPI('/permissions/reset', { method: 'POST' }),
 }
