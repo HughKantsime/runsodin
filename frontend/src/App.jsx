@@ -22,7 +22,9 @@ import {
   X,
   Palette,
   ChevronDown,
- Wrench, } from 'lucide-react'
+  Wrench,
+  ShoppingCart,
+} from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
 import Dashboard from './pages/Dashboard'
@@ -41,6 +43,8 @@ import Maintenance from './pages/Maintenance'
 import Permissions from './pages/Permissions'
 import Cameras from "./pages/Cameras"
 import Branding from './pages/Branding'
+import Products from './pages/Products'
+import Orders from './pages/Orders'
 import { stats } from './api'
 
 
@@ -90,7 +94,7 @@ function NavGroup({ label, collapsed, open, onToggle }) {
 }
 
 
-function Sidebar() {
+function Sidebar({ mobileOpen, onMobileClose }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sections, setSections] = useState({ work: true, library: true, analyze: true, system: true })
   const toggle = (key) => setSections(s => ({ ...s, [key]: !s[key] }))
@@ -102,125 +106,191 @@ function Sidebar() {
     refetchInterval: 30000,
   })
 
+  // Close mobile menu on nav click
+  const handleNavClick = () => {
+    if (mobileOpen && onMobileClose) {
+      onMobileClose()
+    }
+  }
+
   return (
-    <aside 
-      className={clsx("flex flex-col h-full transition-all duration-300", collapsed ? "w-16" : "w-64")}
-      style={{ 
-        backgroundColor: 'var(--brand-sidebar-bg)',
-        borderRight: '1px solid var(--brand-sidebar-border)',
-      }}
-    >
-      {/* Logo */}
-      <div 
-        className={clsx("flex items-center", collapsed ? "p-3 justify-center" : "p-6 justify-between")}
-        style={{ borderBottom: '1px solid var(--brand-sidebar-border)' }}
+    <>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+      
+      <aside 
+        className={clsx(
+          "flex flex-col h-full transition-all duration-300",
+          // Mobile: fixed drawer, hidden by default
+          "fixed md:relative z-50 md:z-auto",
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+          // Width
+          collapsed ? "w-64 md:w-16" : "w-64"
+        )}
+        style={{ 
+          backgroundColor: 'var(--brand-sidebar-bg)',
+          borderRight: '1px solid var(--brand-sidebar-border)',
+        }}
       >
-        <div>
-          {!collapsed && (
-            <div className="flex items-center gap-3">
-              {branding.logo_url && (
-                <img src={branding.logo_url} alt={branding.app_name} className="h-8 object-contain" />
-              )}
-              <div>
-                <h1 className="text-base font-display font-bold leading-tight" style={{ color: 'var(--brand-text-primary)' }}>
-                  {branding.app_name}
-                </h1>
-                <p className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>
-                  {branding.app_subtitle}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-        <button 
-          onClick={() => setCollapsed(!collapsed)} 
-          className="transition-colors"
-          style={{ color: 'var(--brand-sidebar-text)' }}
+        {/* Logo */}
+        <div 
+          className={clsx("flex items-center", collapsed && !mobileOpen ? "p-3 justify-center" : "p-6 justify-between")}
+          style={{ borderBottom: '1px solid var(--brand-sidebar-border)' }}
         >
-          {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-        </button>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
-        {/* Monitor */}
-        {canAccessPage('dashboard') && <NavItem collapsed={collapsed} to="/" icon={LayoutDashboard}>Dashboard</NavItem>}
-        {canAccessPage('printers') && <NavItem collapsed={collapsed} to="/printers" icon={Printer}>Printers</NavItem>}
-        {canAccessPage('cameras') && <NavItem collapsed={collapsed} to="/cameras" icon={Video}>Cameras</NavItem>}
-
-        {/* Work */}
-        {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("maintenance")) && <NavGroup label="Work" collapsed={collapsed} open={sections.work} onToggle={() => toggle("work")} />}
-        {(collapsed || sections.work) && <>
-          {canAccessPage('jobs') && <NavItem collapsed={collapsed} to="/jobs" icon={ListTodo}>Jobs</NavItem>}
-          {canAccessPage('timeline') && <NavItem collapsed={collapsed} to="/timeline" icon={Calendar}>Timeline</NavItem>}
-          {canAccessPage('upload') && <NavItem collapsed={collapsed} to="/upload" icon={UploadIcon}>Upload</NavItem>}
-          {canAccessPage('maintenance') && <NavItem collapsed={collapsed} to="/maintenance" icon={Wrench}>Maintenance</NavItem>}
-        </>}
-
-        {/* Library */}
-        {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed} open={sections.library} onToggle={() => toggle("library")} />}
-        {(collapsed || sections.library) && <>
-          {canAccessPage('models') && <NavItem collapsed={collapsed} to="/models" icon={Package}>Models</NavItem>}
-          {canAccessPage('spools') && <NavItem collapsed={collapsed} to="/spools" icon={Package}>Spools</NavItem>}
-        </>}
-
-        {/* Analyze */}
-        {(canAccessPage("analytics") || canAccessPage("calculator")) && <NavGroup label="Analyze" collapsed={collapsed} open={sections.analyze} onToggle={() => toggle("analyze")} />}
-        {(collapsed || sections.analyze) && <>
-          {canAccessPage('analytics') && <NavItem collapsed={collapsed} to="/analytics" icon={BarChart3}>Analytics</NavItem>}
-          {canAccessPage('calculator') && <NavItem collapsed={collapsed} to="/calculator" icon={Calculator}>Calculator</NavItem>}
-        </>}
-
-        {/* System */}
-        {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed} open={sections.system} onToggle={() => toggle("system")} />}
-        {(collapsed || sections.system) && <>
-          {canAccessPage('settings') && <NavItem collapsed={collapsed} to="/settings" icon={Settings}>Settings</NavItem>}
-          {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/admin" icon={Shield}>Admin</NavItem>}
-          {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/permissions" icon={Shield}>Permissions</NavItem>}
-          {canAccessPage('admin') && <NavItem collapsed={collapsed} to="/branding" icon={Palette}>Branding</NavItem>}
-        </>}
-      </nav>
-
-      {/* Quick Stats */}
-      {statsData && !collapsed && (
-        <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
-              <div className="text-2xl font-bold" style={{ color: 'var(--brand-accent)' }}>
-                {statsData.jobs?.printing || 0}
+          <div>
+            {(!collapsed || mobileOpen) && (
+              <div className="flex items-center gap-3">
+                {branding.logo_url && (
+                  <img src={branding.logo_url} alt={branding.app_name} className="h-8 object-contain" />
+                )}
+                <div>
+                  <h1 className="text-base font-display font-bold leading-tight" style={{ color: 'var(--brand-text-primary)' }}>
+                    {branding.app_name}
+                  </h1>
+                  <p className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>
+                    {branding.app_subtitle}
+                  </p>
+                </div>
               </div>
-              <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Printing</div>
-            </div>
-            <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
-              <div className="text-2xl font-bold text-status-pending">
-                {statsData.jobs?.pending || 0}
+            )}
+          </div>
+          {/* Desktop collapse button */}
+          <button 
+            onClick={() => setCollapsed(!collapsed)} 
+            className="hidden md:block transition-colors"
+            style={{ color: 'var(--brand-sidebar-text)' }}
+          >
+            {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+          </button>
+          {/* Mobile close button */}
+          <button 
+            onClick={onMobileClose}
+            className="md:hidden transition-colors"
+            style={{ color: 'var(--brand-sidebar-text)' }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">
+          {/* Monitor */}
+          {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>Dashboard</NavItem>}
+          {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>Printers</NavItem>}
+          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>Cameras</NavItem>}
+
+          {/* Work */}
+          {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("maintenance")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
+          {((collapsed && !mobileOpen) || sections.work) && <>
+            {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>Jobs</NavItem>}
+            {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
+            {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>Upload</NavItem>}
+            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance</NavItem>}
+            {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders</NavItem>}
+          </>}
+
+          {/* Library */}
+          {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
+          {((collapsed && !mobileOpen) || sections.library) && <>
+            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={Package} onClick={handleNavClick}>Products</NavItem>}
+            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Package} onClick={handleNavClick}>Models</NavItem>}
+            {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Package} onClick={handleNavClick}>Spools</NavItem>}
+          </>}
+
+          {/* Analyze */}
+          {(canAccessPage("analytics") || canAccessPage("calculator")) && <NavGroup label="Analyze" collapsed={collapsed && !mobileOpen} open={sections.analyze} onToggle={() => toggle("analyze")} />}
+          {((collapsed && !mobileOpen) || sections.analyze) && <>
+            {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics</NavItem>}
+            {canAccessPage('calculator') && <NavItem collapsed={collapsed && !mobileOpen} to="/calculator" icon={Calculator} onClick={handleNavClick}>Calculator</NavItem>}
+          </>}
+
+          {/* System */}
+          {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed && !mobileOpen} open={sections.system} onToggle={() => toggle("system")} />}
+          {((collapsed && !mobileOpen) || sections.system) && <>
+            {canAccessPage('settings') && <NavItem collapsed={collapsed && !mobileOpen} to="/settings" icon={Settings} onClick={handleNavClick}>Settings</NavItem>}
+            {canAccessPage('admin') && <NavItem collapsed={collapsed && !mobileOpen} to="/admin" icon={Shield} onClick={handleNavClick}>Admin</NavItem>}
+            {canAccessPage('admin') && <NavItem collapsed={collapsed && !mobileOpen} to="/permissions" icon={Shield} onClick={handleNavClick}>Permissions</NavItem>}
+            {canAccessPage('admin') && <NavItem collapsed={collapsed && !mobileOpen} to="/branding" icon={Palette} onClick={handleNavClick}>Branding</NavItem>}
+          </>}
+        </nav>
+
+        {/* Quick Stats */}
+        {statsData && (!collapsed || mobileOpen) && (
+          <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
+                <div className="text-2xl font-bold" style={{ color: 'var(--brand-accent)' }}>
+                  {statsData.jobs?.printing || 0}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Printing</div>
               </div>
-              <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Pending</div>
+              <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
+                <div className="text-2xl font-bold text-status-pending">
+                  {statsData.jobs?.pending || 0}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Pending</div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Footer */}
-      <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
-        <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--brand-sidebar-text)' }}>
-          <Activity size={14} className="text-green-500" />
-          {!collapsed && <span>{branding.footer_text}</span>}
+        {/* Footer */}
+        <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--brand-sidebar-text)' }}>
+            <Activity size={14} className="text-green-500" />
+            {(!collapsed || mobileOpen) && <span>{branding.footer_text}</span>}
+          </div>
+          <button
+            onClick={() => {
+              localStorage.removeItem("token");
+              localStorage.removeItem("user");
+              window.location.href = "/login";
+            }}
+            className="flex items-center gap-2 hover:text-red-400 text-sm mt-2 transition-colors"
+            style={{ color: 'var(--brand-sidebar-text)' }}
+          >
+            <LogOut size={14} />
+            {(!collapsed || mobileOpen) && "Logout"}
+          </button>
         </div>
-        <button
-          onClick={() => {
-            localStorage.removeItem("token");
-            localStorage.removeItem("user");
-            window.location.href = "/login";
-          }}
-          className="flex items-center gap-2 hover:text-red-400 text-sm mt-2 transition-colors"
-          style={{ color: 'var(--brand-sidebar-text)' }}
-        >
-          <LogOut size={14} />
-          {!collapsed && "Logout"}
-        </button>
+      </aside>
+    </>
+  )
+}
+
+
+function MobileHeader({ onMenuClick }) {
+  const branding = useBranding()
+  
+  return (
+    <header 
+      className="md:hidden flex items-center justify-between p-4 flex-shrink-0"
+      style={{ 
+        backgroundColor: 'var(--brand-sidebar-bg)',
+        borderBottom: '1px solid var(--brand-sidebar-border)',
+      }}
+    >
+      <div className="flex items-center gap-3">
+        {branding.logo_url && (
+          <img src={branding.logo_url} alt={branding.app_name} className="h-6 object-contain" />
+        )}
+        <h1 className="text-sm font-display font-bold" style={{ color: 'var(--brand-text-primary)' }}>
+          {branding.app_name}
+        </h1>
       </div>
-    </aside>
+      <button 
+        onClick={onMenuClick}
+        className="p-2 rounded-lg transition-colors"
+        style={{ color: 'var(--brand-sidebar-text)' }}
+      >
+        <Menu size={24} />
+      </button>
+    </header>
   )
 }
 
@@ -250,6 +320,12 @@ function ProtectedRoute({ children }) {
 
 export default function App() {
   const location = useLocation()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [location.pathname])
 
   // Show login page without sidebar
   if (location.pathname === '/login') {
@@ -258,8 +334,17 @@ export default function App() {
 
   return (
     <ProtectedRoute>
-      <div className="h-screen flex overflow-hidden">
-        <Sidebar />
+      <div className="h-screen flex flex-col md:flex-row overflow-hidden">
+        {/* Mobile header with hamburger */}
+        <MobileHeader onMenuClick={() => setMobileMenuOpen(true)} />
+        
+        {/* Sidebar - hidden on mobile until opened */}
+        <Sidebar 
+          mobileOpen={mobileMenuOpen} 
+          onMobileClose={() => setMobileMenuOpen(false)} 
+        />
+        
+        {/* Main content */}
         <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -274,9 +359,11 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/permissions" element={<Permissions />} />
-              <Route path="/maintenance" element={<Maintenance />} />
-              <Route path="/cameras" element={<Cameras />} />
+            <Route path="/maintenance" element={<Maintenance />} />
+            <Route path="/cameras" element={<Cameras />} />
             <Route path="/branding" element={<Branding />} />
+            <Route path="/products" element={<Products />} />
+            <Route path="/orders" element={<Orders />} />
           </Routes>
         </main>
       </div>

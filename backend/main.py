@@ -5099,3 +5099,467 @@ def calculate_model_cost(
         "suggested_price": round(suggested_price, 2)
     }
 
+
+
+# ============== Products & Orders (v0.14.0) ==============
+# Imports for this section
+from models import Product, ProductComponent, Order, OrderItem, OrderStatus
+from schemas import (
+    ProductResponse, ProductCreate, ProductUpdate,
+    ProductComponentResponse, ProductComponentCreate,
+    OrderResponse, OrderCreate, OrderUpdate, OrderSummary,
+    OrderItemResponse, OrderItemCreate, OrderItemUpdate, OrderShipRequest
+)
+
+
+# -------------- Products --------------
+
+@app.get("/api/products", response_model=List[ProductResponse], tags=["Products"])
+def list_products(db: Session = Depends(get_db)):
+    """List all products."""
+    products = db.query(Product).all()
+    result = []
+    for p in products:
+        resp = ProductResponse.model_validate(p)
+        resp.component_count = len(p.components)
+        # Calculate estimated COGS from components
+        cogs = 0
+        for comp in p.components:
+            if comp.model and comp.model.cost_per_item:
+                cogs += comp.model.cost_per_item * comp.quantity_needed
+        resp.estimated_cogs = round(cogs, 2) if cogs > 0 else None
+        result.append(resp)
+    return result
+
+
+@app.post("/api/products", response_model=ProductResponse, tags=["Products"])
+def create_product(data: ProductCreate, db: Session = Depends(get_db)):
+    """Create a new product with optional BOM components."""
+    product = Product(
+        name=data.name,
+        sku=data.sku,
+        price=data.price,
+        description=data.description
+    )
+    db.add(product)
+    db.flush()  # Get the ID before adding components
+    
+    # Add components if provided
+    if data.components:
+        for comp_data in data.components:
+            comp = ProductComponent(
+                product_id=product.id,
+                model_id=comp_data.model_id,
+                quantity_needed=comp_data.quantity_needed,
+                notes=comp_data.notes
+            )
+            db.add(comp)
+    
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@app.get("/api/products/{product_id}", response_model=ProductResponse, tags=["Products"])
+def get_product(product_id: int, db: Session = Depends(get_db)):
+    """Get a product with its BOM components."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    resp = ProductResponse.model_validate(product)
+    resp.component_count = len(product.components)
+    
+    # Enrich components with model names
+    enriched_components = []
+    cogs = 0
+    for comp in product.components:
+        comp_resp = ProductComponentResponse.model_validate(comp)
+        if comp.model:
+            comp_resp.model_name = comp.model.name
+            if comp.model.cost_per_item:
+                cogs += comp.model.cost_per_item * comp.quantity_needed
+        enriched_components.append(comp_resp)
+    
+    resp.components = enriched_components
+    resp.estimated_cogs = round(cogs, 2) if cogs > 0 else None
+    return resp
+
+
+@app.patch("/api/products/{product_id}", response_model=ProductResponse, tags=["Products"])
+def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db)):
+    """Update a product."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(product, key, value)
+    
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@app.delete("/api/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    """Delete a product."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    db.delete(product)
+    db.commit()
+
+
+# -------------- Product Components (BOM) --------------
+
+@app.post("/api/products/{product_id}/components", response_model=ProductComponentResponse, tags=["Products"])
+def add_product_component(product_id: int, data: ProductComponentCreate, db: Session = Depends(get_db)):
+    """Add a component to a product's BOM."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    model = db.query(Model).filter(Model.id == data.model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    comp = ProductComponent(
+        product_id=product_id,
+        model_id=data.model_id,
+        quantity_needed=data.quantity_needed,
+        notes=data.notes
+    )
+    db.add(comp)
+    db.commit()
+    db.refresh(comp)
+    
+    resp = ProductComponentResponse.model_validate(comp)
+    resp.model_name = model.name
+    return resp
+
+
+@app.delete("/api/products/{product_id}/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
+def remove_product_component(product_id: int, component_id: int, db: Session = Depends(get_db)):
+    """Remove a component from a product's BOM."""
+    comp = db.query(ProductComponent).filter(
+        ProductComponent.id == component_id,
+        ProductComponent.product_id == product_id
+    ).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Component not found")
+    
+    db.delete(comp)
+    db.commit()
+
+
+# -------------- Orders --------------
+
+@app.get("/api/orders", response_model=List[OrderSummary], tags=["Orders"])
+def list_orders(
+    status_filter: Optional[str] = None,
+    platform: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List all orders with optional filters."""
+    query = db.query(Order)
+    
+    if status_filter:
+        query = query.filter(Order.status == status_filter)
+    if platform:
+        query = query.filter(Order.platform == platform)
+    
+    orders = query.order_by(Order.created_at.desc()).all()
+    
+    result = []
+    for o in orders:
+        summary = OrderSummary(
+            id=o.id,
+            order_number=o.order_number,
+            platform=o.platform,
+            customer_name=o.customer_name,
+            status=o.status,
+            revenue=o.revenue,
+            order_date=o.order_date,
+            item_count=len(o.items),
+            fulfilled=all(item.fulfilled_quantity >= item.quantity for item in o.items) if o.items else False
+        )
+        result.append(summary)
+    return result
+
+
+@app.post("/api/orders", response_model=OrderResponse, tags=["Orders"])
+def create_order(data: OrderCreate, db: Session = Depends(get_db)):
+    """Create a new order with optional line items."""
+    order = Order(
+        order_number=data.order_number,
+        platform=data.platform,
+        customer_name=data.customer_name,
+        customer_email=data.customer_email,
+        order_date=data.order_date,
+        notes=data.notes,
+        revenue=data.revenue,
+        platform_fees=data.platform_fees,
+        payment_fees=data.payment_fees,
+        shipping_charged=data.shipping_charged,
+        shipping_cost=data.shipping_cost,
+        labor_minutes=data.labor_minutes or 0
+    )
+    db.add(order)
+    db.flush()
+    
+    # Add line items if provided
+    if data.items:
+        for item_data in data.items:
+            # Verify product exists
+            product = db.query(Product).filter(Product.id == item_data.product_id).first()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Product {item_data.product_id} not found")
+            
+            item = OrderItem(
+                order_id=order.id,
+                product_id=item_data.product_id,
+                quantity=item_data.quantity,
+                unit_price=item_data.unit_price if item_data.unit_price else product.price
+            )
+            db.add(item)
+    
+    db.commit()
+    db.refresh(order)
+    return _enrich_order_response(order, db)
+
+
+@app.get("/api/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
+def get_order(order_id: int, db: Session = Depends(get_db)):
+    """Get an order with items and P&L calculation."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    return _enrich_order_response(order, db)
+
+
+@app.patch("/api/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
+def update_order(order_id: int, data: OrderUpdate, db: Session = Depends(get_db)):
+    """Update an order."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(order, key, value)
+    
+    db.commit()
+    db.refresh(order)
+    return _enrich_order_response(order, db)
+
+
+@app.delete("/api/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
+def delete_order(order_id: int, db: Session = Depends(get_db)):
+    """Delete an order."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    db.delete(order)
+    db.commit()
+
+
+# -------------- Order Items --------------
+
+@app.post("/api/orders/{order_id}/items", response_model=OrderItemResponse, tags=["Orders"])
+def add_order_item(order_id: int, data: OrderItemCreate, db: Session = Depends(get_db)):
+    """Add a line item to an order."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    product = db.query(Product).filter(Product.id == data.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    item = OrderItem(
+        order_id=order_id,
+        product_id=data.product_id,
+        quantity=data.quantity,
+        unit_price=data.unit_price if data.unit_price else product.price
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    
+    resp = OrderItemResponse.model_validate(item)
+    resp.product_name = product.name
+    resp.product_sku = product.sku
+    resp.subtotal = (item.unit_price or 0) * item.quantity
+    resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
+    return resp
+
+
+@app.patch("/api/orders/{order_id}/items/{item_id}", response_model=OrderItemResponse, tags=["Orders"])
+def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, db: Session = Depends(get_db)):
+    """Update an order line item."""
+    item = db.query(OrderItem).filter(
+        OrderItem.id == item_id,
+        OrderItem.order_id == order_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Order item not found")
+    
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, key, value)
+    
+    db.commit()
+    db.refresh(item)
+    
+    product = db.query(Product).filter(Product.id == item.product_id).first()
+    resp = OrderItemResponse.model_validate(item)
+    if product:
+        resp.product_name = product.name
+        resp.product_sku = product.sku
+    resp.subtotal = (item.unit_price or 0) * item.quantity
+    resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
+    return resp
+
+
+@app.delete("/api/orders/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
+def remove_order_item(order_id: int, item_id: int, db: Session = Depends(get_db)):
+    """Remove a line item from an order."""
+    item = db.query(OrderItem).filter(
+        OrderItem.id == item_id,
+        OrderItem.order_id == order_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Order item not found")
+    
+    db.delete(item)
+    db.commit()
+
+
+# -------------- Order Actions --------------
+
+@app.post("/api/orders/{order_id}/schedule", tags=["Orders"])
+def schedule_order(order_id: int, db: Session = Depends(get_db)):
+    """Generate jobs for an order based on BOM."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    jobs_created = []
+    
+    for item in order.items:
+        product = item.product
+        if not product or not product.components:
+            continue
+        
+        # For each component in the BOM
+        for comp in product.components:
+            model = comp.model
+            if not model:
+                continue
+            
+            # Calculate how many jobs needed
+            pieces_needed = item.quantity * comp.quantity_needed
+            pieces_per_job = model.quantity_per_bed or 1
+            jobs_needed = -(-pieces_needed // pieces_per_job)  # Ceiling division
+            
+            # Create jobs
+            for i in range(jobs_needed):
+                qty_this_job = min(pieces_per_job, pieces_needed - (i * pieces_per_job))
+                
+                job = Job(
+                    model_id=model.id,
+                    item_name=f"{model.name} (Order #{order.order_number or order.id})",
+                    quantity=1,
+                    order_item_id=item.id,
+                    quantity_on_bed=qty_this_job,
+                    status=JobStatus.PENDING,
+                    duration_hours=model.build_time_hours,
+                    filament_type=model.default_filament_type
+                )
+                db.add(job)
+                jobs_created.append({
+                    "model": model.name,
+                    "quantity_on_bed": qty_this_job
+                })
+    
+    # Update order status
+    if jobs_created:
+        order.status = OrderStatus.IN_PROGRESS
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "order_id": order_id,
+        "jobs_created": len(jobs_created),
+        "details": jobs_created
+    }
+
+
+@app.patch("/api/orders/{order_id}/ship", response_model=OrderResponse, tags=["Orders"])
+def ship_order(order_id: int, data: OrderShipRequest, db: Session = Depends(get_db)):
+    """Mark an order as shipped."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    order.status = OrderStatus.SHIPPED
+    order.tracking_number = data.tracking_number
+    order.shipped_date = data.shipped_date or datetime.utcnow()
+    
+    db.commit()
+    db.refresh(order)
+    return _enrich_order_response(order, db)
+
+
+# -------------- Helper Functions --------------
+
+def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
+    """Build a full OrderResponse with calculated fields."""
+    resp = OrderResponse.model_validate(order)
+    
+    # Enrich items
+    enriched_items = []
+    total_items = 0
+    fulfilled_items = 0
+    
+    for item in order.items:
+        item_resp = OrderItemResponse.model_validate(item)
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if product:
+            item_resp.product_name = product.name
+            item_resp.product_sku = product.sku
+        item_resp.subtotal = (item.unit_price or 0) * item.quantity
+        item_resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
+        enriched_items.append(item_resp)
+        
+        total_items += item.quantity
+        fulfilled_items += min(item.fulfilled_quantity, item.quantity)
+    
+    resp.items = enriched_items
+    resp.total_items = total_items
+    resp.fulfilled_items = fulfilled_items
+    
+    # Count jobs
+    jobs = db.query(Job).join(OrderItem).filter(OrderItem.order_id == order.id).all()
+    resp.jobs_total = len(jobs)
+    resp.jobs_complete = len([j for j in jobs if j.status == JobStatus.COMPLETED])
+    
+    # Calculate costs from jobs
+    estimated_cost = sum(j.estimated_cost or 0 for j in jobs)
+    actual_cost = sum(j.estimated_cost or 0 for j in jobs if j.status == JobStatus.COMPLETED)
+    
+    # Add fees and shipping
+    total_fees = (order.platform_fees or 0) + (order.payment_fees or 0) + (order.shipping_cost or 0)
+    
+    resp.estimated_cost = round(estimated_cost + total_fees, 2) if estimated_cost else None
+    resp.actual_cost = round(actual_cost + total_fees, 2) if actual_cost else None
+    
+    # Calculate profit
+    if order.revenue and resp.actual_cost:
+        resp.profit = round(order.revenue - resp.actual_cost, 2)
+        resp.margin_percent = round((resp.profit / order.revenue) * 100, 1) if order.revenue > 0 else None
+    
+    return resp

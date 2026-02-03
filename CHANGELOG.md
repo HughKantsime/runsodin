@@ -1,4 +1,27 @@
 ## v0.11.0 - Maintenance, RBAC & Multi-Variant Models (2026-02-02)
+## [0.14.0] - 2026-02-03
+
+### Added
+- **Products catalog** with Bill of Materials (BOM) - define what you sell and what prints make it up
+- **Orders management** - track customer orders from Etsy, Amazon, wholesale, etc.
+- **Order line items** - multiple products per order with quantity and unit pricing
+- **Per-order P&L tracking** - revenue, platform fees, payment fees, shipping, and profit margins
+- **Order fulfillment workflow** - status progression from pending → in_progress → fulfilled → shipped
+- **Jobs linked to orders** - jobs show order association with cart icon
+- **Jobs page tabs** - filter by All Jobs / Order Jobs / Ad-hoc
+- **Mobile sidebar** - hamburger menu with drawer overlay on mobile devices
+- **Mobile card views** - Products and Orders pages optimized for mobile
+
+### Changed
+- Sidebar hidden by default on mobile, opens as overlay drawer
+- Jobs display order linkage when applicable
+
+### Technical
+- New database tables: products, product_components, orders, order_items
+- New columns: jobs.order_item_id, jobs.quantity_on_bed, models.quantity_per_bed
+- Products and Orders API endpoints with full CRUD
+- Order scheduling generates jobs from BOM
+
 
 ### Maintenance Tracking System
 - New Maintenance page with three tabs: Fleet Status, Task Templates, History

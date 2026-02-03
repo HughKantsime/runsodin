@@ -253,3 +253,34 @@ export const modelCost = {
   calculate: (modelId) => fetchAPI(`/models/${modelId}/cost`),
 }
 
+
+// Products (v0.14.0)
+export const products = {
+  list: () => fetchAPI('/products'),
+  get: (id) => fetchAPI(`/products/${id}`),
+  create: (data) => fetchAPI('/products', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/products/${id}`, { method: 'DELETE' }),
+  addComponent: (productId, data) => fetchAPI(`/products/${productId}/components`, { method: 'POST', body: JSON.stringify(data) }),
+  removeComponent: (productId, componentId) => fetchAPI(`/products/${productId}/components/${componentId}`, { method: 'DELETE' }),
+}
+
+// Orders (v0.14.0)
+export const orders = {
+  list: (status, platform) => {
+    const params = new URLSearchParams()
+    if (status) params.append('status_filter', status)
+    if (platform) params.append('platform', platform)
+    const query = params.toString()
+    return fetchAPI('/orders' + (query ? '?' + query : ''))
+  },
+  get: (id) => fetchAPI(`/orders/${id}`),
+  create: (data) => fetchAPI('/orders', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/orders/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/orders/${id}`, { method: 'DELETE' }),
+  addItem: (orderId, data) => fetchAPI(`/orders/${orderId}/items`, { method: 'POST', body: JSON.stringify(data) }),
+  updateItem: (orderId, itemId, data) => fetchAPI(`/orders/${orderId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  removeItem: (orderId, itemId) => fetchAPI(`/orders/${orderId}/items/${itemId}`, { method: 'DELETE' }),
+  schedule: (id) => fetchAPI(`/orders/${id}/schedule`, { method: 'POST' }),
+  ship: (id, data) => fetchAPI(`/orders/${id}/ship`, { method: 'PATCH', body: JSON.stringify(data) }),
+}

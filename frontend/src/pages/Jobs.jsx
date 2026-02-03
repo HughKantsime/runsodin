@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers } from '../api'
@@ -34,6 +34,12 @@ const priorityOptions = [
 
 const statusOrder = { printing: 0, scheduled: 1, pending: 2, failed: 3, completed: 4 }
 
+const jobTypeTabs = [
+  { value: 'all', label: 'All Jobs', icon: Layers },
+  { value: 'order', label: 'Order Jobs', icon: ShoppingCart },
+  { value: 'adhoc', label: 'Ad-hoc', icon: null },
+]
+
 function JobRow({ job, onAction }) {
   const statusColors = {
     pending: 'text-status-pending',
@@ -52,6 +58,12 @@ function JobRow({ job, onAction }) {
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{job.item_name}</div>
+        {job.order_item_id && (
+          <div className="text-xs text-print-400 flex items-center gap-1">
+            <ShoppingCart size={10} />
+            Order #{job.order_item?.order_id || '—'}
+          </div>
+        )}
         {job.notes && <div className="text-xs text-farm-500 truncate max-w-xs">{job.notes}</div>}
       </td>
       <td className="px-3 md:px-4 py-3">
@@ -202,6 +214,7 @@ export default function Jobs() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState('priority')
   const [sortDirection, setSortDirection] = useState('asc')
+  const [jobTypeFilter, setJobTypeFilter] = useState('all')
 
   const { data: jobsData, isLoading } = useQuery({
     queryKey: ['jobs', statusFilter],
@@ -256,20 +269,32 @@ export default function Jobs() {
     }
   }
 
-  const filteredJobs = (jobsData?.filter(job => 
-    !searchQuery || job.item_name.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || []).sort((a, b) => {
-    const dir = sortDirection === 'asc' ? 1 : -1
-    switch (sortField) {
-      case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
-      case 'item_name': return dir * (a.item_name || '').localeCompare(b.item_name || '')
-      case 'priority': return dir * ((a.priority || 99) - (b.priority || 99))
-      case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
-      case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
-      case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0) - new Date(b.scheduled_start || 0))
-      default: return 0
-    }
+  // Filter by job type (all, order, adhoc)
+  const typeFilteredJobs = (jobsData || []).filter(job => {
+    if (jobTypeFilter === 'order') return job.order_item_id != null
+    if (jobTypeFilter === 'adhoc') return job.order_item_id == null
+    return true
   })
+
+  // Then filter by search and sort
+  const filteredJobs = typeFilteredJobs
+    .filter(job => !searchQuery || job.item_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      const dir = sortDirection === 'asc' ? 1 : -1
+      switch (sortField) {
+        case 'status': return dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99))
+        case 'item_name': return dir * (a.item_name || '').localeCompare(b.item_name || '')
+        case 'priority': return dir * ((a.priority || 99) - (b.priority || 99))
+        case 'printer': return dir * ((a.printer?.name || '').localeCompare(b.printer?.name || ''))
+        case 'duration_hours': return dir * ((a.duration_hours || 0) - (b.duration_hours || 0))
+        case 'scheduled_start': return dir * (new Date(a.scheduled_start || 0) - new Date(b.scheduled_start || 0))
+        default: return 0
+      }
+    })
+
+  // Count jobs by type for badge display
+  const orderJobCount = (jobsData || []).filter(j => j.order_item_id != null).length
+  const adhocJobCount = (jobsData || []).filter(j => j.order_item_id == null).length
 
   return (
     <div className="p-4 md:p-8">
@@ -281,6 +306,32 @@ export default function Jobs() {
         {canDo('jobs.create') && <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm self-start">
           <Plus size={16} /> New Job
         </button>}
+      </div>
+
+      {/* Job Type Tabs */}
+      <div className="flex gap-1 mb-4 bg-farm-900 p-1 rounded-lg w-fit border border-farm-800">
+        {jobTypeTabs.map(tab => (
+          <button
+            key={tab.value}
+            onClick={() => setJobTypeFilter(tab.value)}
+            className={clsx(
+              'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+              jobTypeFilter === tab.value
+                ? 'bg-print-600 text-white'
+                : 'text-farm-400 hover:text-farm-200 hover:bg-farm-800'
+            )}
+          >
+            {tab.icon && <tab.icon size={14} />}
+            <span>{tab.label}</span>
+            <span className={clsx(
+              'text-xs px-1.5 py-0.5 rounded-full',
+              jobTypeFilter === tab.value ? 'bg-print-500' : 'bg-farm-800'
+            )}>
+              {tab.value === 'all' ? (jobsData?.length || 0) :
+               tab.value === 'order' ? orderJobCount : adhocJobCount}
+            </span>
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4 md:mb-6">
@@ -335,7 +386,10 @@ export default function Jobs() {
               {isLoading ? (
                 <tr><td colSpan={8} className="px-4 py-8 text-center text-farm-500 text-sm">Loading...</td></tr>
               ) : filteredJobs.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-farm-500 text-sm">No jobs found</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-farm-500 text-sm">
+                  {jobTypeFilter === 'order' ? 'No order jobs found' :
+                   jobTypeFilter === 'adhoc' ? 'No ad-hoc jobs found' : 'No jobs found'}
+                </td></tr>
               ) : (
                 filteredJobs.map(job => (
                   <JobRow key={job.id} job={job} onAction={handleAction} />
@@ -345,7 +399,6 @@ export default function Jobs() {
           </table>
         </div>
       </div>
-
       <CreateJobModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
