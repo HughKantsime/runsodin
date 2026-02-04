@@ -5,5 +5,5 @@ webrtc:
   candidates:
     - 192.168.1.100:8555
 streams:
-  printer_1: "rtsps://bblp:95640461@192.168.1.100:322/streaming/live/1"
-  printer_4: "rtsps://bblp:461fe80f@192.168.1.100:322/streaming/live/1"
+  printer_1: "rtsps://bblp:12345678@192.168.1.100:322/streaming/live/1"
+  printer_4: "rtsps://bblp:87654321@192.168.1.100:322/streaming/live/1"
