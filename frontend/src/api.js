@@ -284,3 +284,7 @@ export const orders = {
   schedule: (id) => fetchAPI(`/orders/${id}/schedule`, { method: 'POST' }),
   ship: (id, data) => fetchAPI(`/orders/${id}/ship`, { method: 'PATCH', body: JSON.stringify(data) }),
 }
+
+export const search = {
+  query: (q) => fetchAPI('/search?q=' + encodeURIComponent(q)),
+}

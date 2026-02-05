@@ -1016,7 +1016,8 @@ def list_models_with_pricing(
             # New pricing fields
             "estimated_cost": round(subtotal, 2),
             "suggested_price": round(suggested_price, 2),
-            "margin_percent": margin
+            "margin_percent": margin,
+            "is_favorite": model.is_favorite or False
         }
         result.append(model_dict)
     
@@ -1996,6 +1997,71 @@ async def test_spoolman_connection():
                 return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
     except Exception as e:
         return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+
+
+@app.post("/api/jobs/{job_id}/link-print", tags=["Jobs"])
+def link_job_to_print(job_id: int, print_job_id: int, db: Session = Depends(get_db)):
+    """Link a scheduled job to an MQTT-detected print."""
+    from sqlalchemy import text
+    
+    # Check job exists
+    job = db.execute(text("SELECT id, printer_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Check print_job exists
+    print_job = db.execute(text("SELECT id, printer_id, status FROM print_jobs WHERE id = :id"), {"id": print_job_id}).fetchone()
+    if not print_job:
+        raise HTTPException(status_code=404, detail="Print job not found")
+    
+    # Verify same printer
+    if job.printer_id != print_job.printer_id:
+        raise HTTPException(status_code=400, detail="Job and print are on different printers")
+    
+    # Link them
+    db.execute(text("UPDATE print_jobs SET scheduled_job_id = :job_id WHERE id = :id"), 
+               {"job_id": job_id, "id": print_job_id})
+    
+    # Update job status based on print status
+    new_status = None
+    if print_job.status == 'completed':
+        new_status = 'completed'
+    elif print_job.status == 'failed':
+        new_status = 'failed'
+    elif print_job.status in ('printing', 'running'):
+        new_status = 'printing'
+    
+    if new_status:
+        db.execute(text("UPDATE jobs SET status = :status WHERE id = :id"),
+                   {"status": new_status, "id": job_id})
+    
+    db.commit()
+    return {"message": "Linked", "job_id": job_id, "print_job_id": print_job_id}
+
+
+@app.get("/api/print-jobs/unlinked", tags=["Print Jobs"])
+def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db)):
+    """Get recent print jobs not linked to scheduled jobs."""
+    from sqlalchemy import text
+    
+    sql = """
+        SELECT pj.*, p.name as printer_name
+        FROM print_jobs pj
+        JOIN printers p ON p.id = pj.printer_id
+        WHERE pj.scheduled_job_id IS NULL
+    """
+    params = {}
+    
+    if printer_id:
+        sql += " AND pj.printer_id = :printer_id"
+        params["printer_id"] = printer_id
+    
+    sql += " ORDER BY pj.started_at DESC LIMIT 20"
+    
+    result = db.execute(text(sql), params).fetchall()
+    return [dict(row._mapping) for row in result]
+
 
 @app.get("/api/analytics", tags=["Analytics"])
 def get_analytics(db: Session = Depends(get_db)):
@@ -3730,7 +3796,7 @@ def get_all_printers_live_status(db: Session = Depends(get_db)):
 # ============== 3MF Upload ==============
 import tempfile
 import json as json_lib
-from threemf_parser import parse_3mf
+from threemf_parser import parse_3mf, extract_objects_from_plate
 
 
 def _normalize_model_name(name: str) -> str:
@@ -3765,6 +3831,11 @@ async def upload_3mf(
         metadata = parse_3mf(tmp_path)
         if not metadata:
             raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
+        
+        # Extract objects for quantity counting
+        import zipfile
+        with zipfile.ZipFile(tmp_path, 'r') as zf:
+            plate_objects = extract_objects_from_plate(zf)
         
         # Store in database
         result = db.execute(text("""
@@ -3869,7 +3940,8 @@ async def upload_3mf(
             "is_sliced": metadata.print_time_seconds > 0,
             "model_id": model_id,
             "is_new_model": is_new_model,
-            "printer_model": metadata.printer_model
+            "printer_model": metadata.printer_model,
+            "objects": plate_objects
         }
     finally:
         # Clean up temp file
@@ -5563,3 +5635,43 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
         resp.margin_percent = round((resp.profit / order.revenue) * 100, 1) if order.revenue > 0 else None
     
     return resp
+
+
+# ======================
+# Global Search
+# ======================
+
+@app.get("/api/search", tags=["Search"])
+def global_search(q: str = "", db: Session = Depends(get_db)):
+    """Search across models, jobs, spools, and printers."""
+    if not q or len(q) < 2:
+        return {"models": [], "jobs": [], "spools": [], "printers": []}
+    
+    query = f"%{q.lower()}%"
+    
+    # Search models
+    models = db.query(Model).filter(
+        (Model.name.ilike(query)) | (Model.notes.ilike(query))
+    ).limit(5).all()
+    
+    # Search jobs
+    jobs = db.query(Job).filter(
+        (Job.item_name.ilike(query)) | (Job.notes.ilike(query))
+    ).order_by(Job.created_at.desc()).limit(5).all()
+    
+    # Search spools by vendor or notes
+    spools = db.query(Spool).filter(
+        (Spool.vendor.ilike(query)) | (Spool.notes.ilike(query))
+    ).limit(5).all()
+    
+    # Search printers
+    printers = db.query(Printer).filter(
+        Printer.name.ilike(query)
+    ).limit(5).all()
+    
+    return {
+        "models": [{"id": m.id, "name": m.name, "type": "model"} for m in models],
+        "jobs": [{"id": j.id, "name": j.item_name, "status": j.status.value if j.status else None, "type": "job"} for j in jobs],
+        "spools": [{"id": s.id, "name": s.vendor or f"Spool #{s.id}", "type": "spool"} for s in spools],
+        "printers": [{"id": p.id, "name": p.name, "type": "printer"} for p in printers],
+    }

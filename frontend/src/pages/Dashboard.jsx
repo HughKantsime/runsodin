@@ -9,7 +9,8 @@ import {
   XCircle,
   Activity,
   Timer,
-  Video
+  Video,
+  AlertTriangle
 } from 'lucide-react'
 import clsx from 'clsx'
 import CameraModal from '../components/CameraModal'
@@ -41,7 +42,7 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   )
 }
 
-function PrinterCard({ printer, hasCamera, onCameraClick, printerStats }) {
+function PrinterCard({ printer, hasCamera, onCameraClick, printerStats, activeJob }) {
   const statusColor = printer.is_active ? 'text-print-400' : 'text-farm-500'
   const pStats = printerStats?.find(s => s.printer_id === printer.id)
   
@@ -54,10 +55,15 @@ function PrinterCard({ printer, hasCamera, onCameraClick, printerStats }) {
 
   const slots = printer.filament_slots || []
   
+  // Check for low spool warning (< 100g remaining)
+  const LOW_SPOOL_THRESHOLD = 100
+  const lowSpools = slots.filter(s => s.remaining_weight && s.remaining_weight < LOW_SPOOL_THRESHOLD)
+  const hasLowSpool = lowSpools.length > 0
+  
   return (
-    <div className="bg-farm-900 rounded-xl p-4 border border-farm-800">
+    <div className={clsx("bg-farm-900 rounded-xl p-4 border", hasLowSpool ? "border-amber-600/50" : "border-farm-800")}>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.name}</h3>
+        <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
         <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
           {pStats && (
             <div className="flex items-center gap-1 text-xs hidden sm:flex">
@@ -77,6 +83,43 @@ function PrinterCard({ printer, hasCamera, onCameraClick, printerStats }) {
           </div>
         </div>
       </div>
+      {/* Active print progress */}
+      {activeJob && (
+        <div className="mb-3 bg-farm-800 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Activity size={14} className="text-print-400 animate-pulse flex-shrink-0" />
+              <span className="text-sm font-medium truncate">{activeJob.job_name || 'Printing'}</span>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <span className="text-lg font-bold text-green-400">{activeJob.progress_percent || 0}%</span>
+            </div>
+          </div>
+          <div className="w-full bg-farm-700 rounded-full h-2 mb-1.5">
+            <div 
+              className="bg-green-500 h-2 rounded-full transition-all duration-500"
+              style={{ width: `${activeJob.progress_percent || 0}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-farm-500">
+            <span>
+              {activeJob.current_layer && activeJob.total_layers 
+                ? `Layer ${activeJob.current_layer}/${activeJob.total_layers}`
+                : activeJob.total_layers 
+                  ? `${activeJob.total_layers} layers`
+                  : ''}
+            </span>
+            <span>
+              {activeJob.remaining_minutes 
+                ? activeJob.remaining_minutes < 60 
+                  ? `${Math.round(activeJob.remaining_minutes)}m left`
+                  : `${Math.floor(activeJob.remaining_minutes / 60)}h ${Math.round(activeJob.remaining_minutes % 60)}m left`
+                : ''}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-4 gap-1.5 md:gap-2">
         {slots.map((slot, idx) => (
           <div key={idx} className="bg-farm-800 rounded-lg p-1.5 md:p-2 text-center min-w-0">
@@ -165,7 +208,7 @@ function MqttPrintItem({ job }) {
           <p className="text-sm text-farm-500 truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
         </div>
         <div className="text-right flex-shrink-0">
-          {job.total_layers && <p className="text-xs text-farm-500">{job.total_layers} layers</p>}
+          <p className="text-lg font-bold text-print-400">{job.progress_percent || 0}%</p>
         </div>
       </div>
     </div>
@@ -230,7 +273,7 @@ export default function Dashboard() {
   const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: stats.get })
   const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true) })
   const { data: activeJobs } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
-  const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 5000 })
+  const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 3000 })
   const { data: printerStats } = useQuery({ queryKey: ['print-jobs-stats'], queryFn: printJobs.stats, refetchInterval: 30000 })
 
   // Split MQTT jobs into running vs completed
@@ -287,7 +330,14 @@ export default function Dashboard() {
           <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Printers</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {printersData?.map((printer) => (
-              <PrinterCard key={printer.id} printer={printer} printerStats={printerStats} hasCamera={cameraIds.has(printer.id)} onCameraClick={setCameraTarget} />
+              <PrinterCard 
+                key={printer.id} 
+                printer={printer} 
+                printerStats={printerStats} 
+                hasCamera={cameraIds.has(printer.id)} 
+                onCameraClick={setCameraTarget}
+                activeJob={runningMqttJobs.find(j => j.printer_id === printer.id)}
+              />
             ))}
             {(!printersData || printersData.length === 0) && (
               <div className="col-span-1 md:col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">No printers configured.</div>
@@ -299,14 +349,10 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* Active Jobs - includes running MQTT prints */}
           <div>
-            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Active Jobs</h2>
+            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Scheduled Jobs</h2>
             <div className="space-y-3">
-              {/* Running MQTT prints */}
-              {runningMqttJobs.map((job) => (
-                <MqttPrintItem key={`mqtt-${job.id}`} job={job} />
-              ))}
-              {/* Scheduled jobs from Jobs table */}
-              {activeJobs?.filter(j => ['printing', 'scheduled', 'pending'].includes(j.status))
+              {/* Scheduled/pending jobs from Jobs table (printing jobs show on printer cards) */}
+              {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status))
                 .slice(0, 8)
                 .map((job) => (
                   <JobQueueItem 
@@ -317,8 +363,8 @@ export default function Dashboard() {
                     onCancel={(id) => cancelJob.mutate(id)}
                   />
                 ))}
-              {runningMqttJobs.length === 0 && (!activeJobs || activeJobs.filter(j => ['printing', 'scheduled', 'pending'].includes(j.status)).length === 0) && (
-                <div className="bg-farm-900 rounded-xl p-6 text-center text-farm-500 text-sm">No active jobs</div>
+              {!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0 && (
+                <div className="bg-farm-900 rounded-xl p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
               )}
             </div>
           </div>

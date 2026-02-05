@@ -115,6 +115,7 @@ class Printer(Base):
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), unique=True, nullable=False)  # e.g., "X1C", "P1S-01"
+    nickname = Column(String(100), nullable=True)  # Friendly display name
     model = Column(String(100))  # e.g., "Bambu Lab X1 Carbon"
     slot_count = Column(Integer, default=4)  # Number of AMS slots
     is_active = Column(Boolean, default=True)  # Available for scheduling
@@ -125,6 +126,9 @@ class Printer(Base):
     api_type = Column(String(50))  # "bambu", "octoprint", "moonraker", etc.
     api_host = Column(String(255))
     api_key = Column(String(255))
+    
+    # User preferences
+    is_favorite = Column(Boolean, default=False)
     
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
@@ -286,6 +290,9 @@ class Model(Base):
     quantity_per_bed = Column(Integer, default=1)  # Sellable pieces per print (from object checklist)
     markup_percent = Column(Float, default=300)
     
+    # User preferences
+    is_favorite = Column(Boolean, default=False)
+    
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -366,6 +373,9 @@ class Job(Base):
     # Order fulfillment linkage
     order_item_id = Column(Integer, ForeignKey("order_items.id"), nullable=True)
     quantity_on_bed = Column(Integer, default=1)  # How many pieces this job produces
+    
+    # User preferences
+    is_favorite = Column(Boolean, default=False)
     
     # Metadata
     created_at = Column(DateTime, server_default=func.now())

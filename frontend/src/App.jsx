@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
+import GlobalSearch from './components/GlobalSearch'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
 import Jobs from './pages/Jobs'
@@ -283,13 +284,16 @@ function MobileHeader({ onMenuClick }) {
           {branding.app_name}
         </h1>
       </div>
-      <button 
-        onClick={onMenuClick}
-        className="p-2 rounded-lg transition-colors"
-        style={{ color: 'var(--brand-sidebar-text)' }}
-      >
-        <Menu size={24} />
-      </button>
+      <div className="flex items-center gap-2">
+        <GlobalSearch />
+        <button 
+          onClick={onMenuClick}
+          className="p-2 rounded-lg transition-colors"
+          style={{ color: 'var(--brand-sidebar-text)' }}
+        >
+          <Menu size={24} />
+        </button>
+      </div>
     </header>
   )
 }
@@ -345,7 +349,12 @@ export default function App() {
         />
         
         {/* Main content */}
-        <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Desktop search header */}
+          <div className="hidden md:flex items-center justify-end p-4 border-b border-farm-800" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+            <GlobalSearch />
+          </div>
+          <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/timeline" element={<Timeline />} />
@@ -365,7 +374,8 @@ export default function App() {
             <Route path="/products" element={<Products />} />
             <Route path="/orders" element={<Orders />} />
           </Routes>
-        </main>
+          </main>
+        </div>
       </div>
     </ProtectedRoute>
   )

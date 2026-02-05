@@ -72,6 +72,7 @@ class PrinterBase(BaseModel):
     api_host: Optional[str] = None
     api_key: Optional[str] = None
     camera_url: Optional[str] = None
+    nickname: Optional[str] = None
 
 
 class PrinterCreate(PrinterBase):
@@ -89,6 +90,7 @@ class PrinterUpdate(BaseModel):
     api_key: Optional[str] = None
     camera_url: Optional[str] = None
 
+    nickname: Optional[str] = None
 
 class PrinterResponse(PrinterBase):
     model_config = ConfigDict(from_attributes=True)
@@ -132,6 +134,7 @@ class ModelBase(BaseModel):
     units_per_bed: Optional[int] = 1
     quantity_per_bed: Optional[int] = 1  # Sellable pieces per print
     markup_percent: Optional[float] = 300
+    is_favorite: Optional[bool] = False
 
 
 class ModelCreate(ModelBase):
@@ -150,6 +153,8 @@ class ModelUpdate(BaseModel):
     units_per_bed: Optional[int] = 1
     quantity_per_bed: Optional[int] = 1  # Sellable pieces per print
     markup_percent: Optional[float] = 300
+    is_favorite: Optional[bool] = False
+    is_favorite: Optional[bool] = None
 
 
 class ModelResponse(ModelBase):

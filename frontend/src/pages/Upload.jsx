@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight } from 'lucide-react'
+import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight, Calendar, CheckSquare, Square } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 
@@ -61,7 +61,7 @@ function FilamentBadge({ filament }) {
   )
 }
 
-function UploadSuccess({ data, onUploadAnother, onViewLibrary }) {
+function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects }) {
   return (
     <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
       <div className="flex flex-col md:flex-row">
@@ -132,6 +132,37 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary }) {
             </div>
           )}
 
+          {data.objects?.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-farm-500">Objects on Plate</p>
+                <p className="text-xs text-farm-400">
+                  Sellable pieces: <span className="text-green-400 font-medium">{data.objects.filter(o => o.checked).length}</span>
+                </p>
+              </div>
+              <div className="bg-farm-800/50 rounded-lg p-2 max-h-32 overflow-y-auto space-y-1">
+                {data.objects.map((obj, i) => (
+                  <label key={i} className="flex items-center gap-2 p-1.5 hover:bg-farm-700/50 rounded cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={obj.checked}
+                      onChange={() => {
+                        const newObjects = [...data.objects]
+                        newObjects[i] = { ...newObjects[i], checked: !newObjects[i].checked }
+                        onUpdateObjects?.(newObjects)
+                      }}
+                      className="w-4 h-4 rounded border-farm-600 bg-farm-700 text-green-500 focus:ring-green-500"
+                    />
+                    <span className={`text-sm truncate ${obj.is_wipe_tower ? 'text-farm-500 italic' : ''}`}>
+                      {obj.name}
+                      {obj.is_wipe_tower && <span className="ml-2 text-xs text-amber-500">(wipe tower)</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          
           {!data.is_sliced && (
             <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3 mb-4">
               <p className="text-amber-400 text-sm">This file is not sliced. Print time and filament usage are estimates.</p>
@@ -143,6 +174,9 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary }) {
       <div className="flex justify-end gap-3 p-3 md:p-4 bg-farm-950 border-t border-farm-800">
         <button onClick={onUploadAnother} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-farm-700 hover:bg-farm-800 transition-colors text-sm">
           <UploadIcon size={16} /> Upload Another
+        </button>
+        <button onClick={onScheduleNow} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors text-sm">
+          <Calendar size={16} /> Schedule Now
         </button>
         <button onClick={onViewLibrary} className="flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg bg-print-600 hover:bg-print-500 text-white font-medium transition-colors text-sm">
           View in Library <ArrowRight size={16} />
@@ -213,6 +247,7 @@ export default function Upload() {
           data={uploadedFile} 
           onUploadAnother={() => setUploadedFile(null)}
           onViewLibrary={() => navigate('/models')}
+          onScheduleNow={() => navigate(`/models?schedule=${uploadedFile.model_id}`)}
         />
       ) : (
         <>

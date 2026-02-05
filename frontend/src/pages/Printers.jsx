@@ -220,7 +220,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
             <GripVertical size={16} />
           </div>
           <div className="min-w-0">
-            <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.name}</h3>
+            <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
             <p className="text-xs md:text-sm text-farm-500 truncate">{printer.model || 'Unknown model'}</p>
           </div>
         </div>
@@ -320,6 +320,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
       }
       setFormData({ 
         name: printer.name || '', 
+        nickname: printer.nickname || '',
         model: printer.model || '', 
         slot_count: printer.slot_count || 4,
         api_type: printer.api_type || '',
@@ -328,7 +329,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         access_code: access_code
       })
     } else {
-      setFormData({ name: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '' })
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '' })
     }
     setTestStatus(null)
     setTestMessage('')
@@ -375,6 +376,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
     
     const submitData = {
       name: formData.name,
+      nickname: formData.nickname || null,
       model: formData.model,
       slot_count: formData.slot_count
     }
@@ -404,6 +406,10 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
           <div>
             <label className="block text-sm text-farm-400 mb-1">Printer Name {!isEditing && '*'}</label>
             <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., X1C, P1S-01" />
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Nickname</label>
+            <input type="text" value={formData.nickname} onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Big Bertha (optional)" />
           </div>
           <div>
             <label className="block text-sm text-farm-400 mb-1">Model</label>

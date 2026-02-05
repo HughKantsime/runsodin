@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
   Plus, 
@@ -11,14 +12,15 @@ import {
   X,
   ChevronDown,
   CalendarPlus,
-  Printer as PrinterIcon
+  Printer as PrinterIcon,
+  Star
 } from 'lucide-react'
 import clsx from 'clsx'
 
 import { models, filaments, printers } from '../api'
 import { canDo } from '../permissions'
 
-function ModelCard({ model, onEdit, onDelete, onSchedule }) {
+function ModelCard({ model, onEdit, onDelete, onSchedule, onToggleFavorite }) {
   return (
     <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
       <div className="h-28 md:h-32 bg-farm-950 flex items-center justify-center">
@@ -53,6 +55,13 @@ function ModelCard({ model, onEdit, onDelete, onSchedule }) {
           </div>
           
           <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              onClick={() => onToggleFavorite(model)}
+              className={clsx("p-1 md:p-1.5 rounded transition-colors", model.is_favorite ? "text-yellow-400" : "text-farm-600 hover:text-yellow-400")}
+              title={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
+            >
+              <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
+            </button>
             {canDo('models.create') && <button
               onClick={() => onSchedule(model)}
               className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
@@ -470,10 +479,24 @@ export default function Models() {
   const [showModal, setShowModal] = useState(false)
   const [editingModel, setEditingModel] = useState(null)
   const [scheduleModel, setScheduleModel] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [selectedPrinter, setSelectedPrinter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter], queryFn: () => models.listWithPricing(categoryFilter || null) })
+  
+  // Auto-open schedule modal if ?schedule=modelId is present
+  useEffect(() => {
+    const scheduleId = searchParams.get('schedule')
+    if (scheduleId && modelsData) {
+      const model = modelsData.find(m => m.id === parseInt(scheduleId))
+      if (model) {
+        setScheduleModel(model)
+        setSearchParams({})  // Clear the param
+      }
+    }
+  }, [searchParams, modelsData])
   const createModel = useMutation({ mutationFn: models.create, onSuccess: () => queryClient.invalidateQueries(['models']) })
   const updateModel = useMutation({ mutationFn: ({ id, data }) => models.update(id, data), onSuccess: () => queryClient.invalidateQueries(['models']) })
   const deleteModel = useMutation({ mutationFn: models.delete, onSuccess: () => queryClient.invalidateQueries(['models']) })
@@ -489,6 +512,9 @@ export default function Models() {
   const handleEdit = (model) => { setEditingModel(model); setShowModal(true) }
   const handleDelete = (modelId) => { if (confirm('Delete this model? Jobs using this model will not be affected.')) deleteModel.mutate(modelId) }
   const handleScheduleClick = (model) => { setScheduleModel(model) }
+  const handleToggleFavorite = async (model) => {
+    await updateModel.mutateAsync({ id: model.id, data: { is_favorite: !model.is_favorite } })
+  }
   const handleScheduleConfirm = (printerId) => {
     if (scheduleModel) {
       scheduleMutation.mutate({ modelId: scheduleModel.id, printerId })
@@ -512,6 +538,9 @@ export default function Models() {
       {categories.length > 0 && (
         <div className="flex gap-2 mb-4 md:mb-6 flex-wrap">
           <button onClick={() => setCategoryFilter('')} className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors', !categoryFilter ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700')}>All</button>
+          <button onClick={() => setShowFavoritesOnly(!showFavoritesOnly)} className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1', showFavoritesOnly ? 'bg-yellow-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700')}>
+            <Star size={14} fill={showFavoritesOnly ? "currentColor" : "none"} /> Favorites
+          </button>
           {categories.map((cat) => (
             <button key={cat} onClick={() => setCategoryFilter(cat)} className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors', categoryFilter === cat ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700')}>{cat}</button>
           ))}
@@ -528,8 +557,8 @@ export default function Models() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-          {modelsData?.map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} />
+          {modelsData?.filter(m => !showFavoritesOnly || m.is_favorite).map((model) => (
+            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} />
           ))}
         </div>
       )}

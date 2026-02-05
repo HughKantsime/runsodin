@@ -47,6 +47,8 @@ class PrinterMonitor:
         self._state: Dict[str, Any] = {}
         self._last_gcode_state: Optional[str] = None
         self._current_job_id: Optional[int] = None
+        self._linked_job_id: Optional[int] = None  # Linked scheduled job from jobs table
+        self._last_progress_update: float = 0
         self._lock = Lock()
     
     def connect(self) -> bool:
@@ -84,6 +86,10 @@ class PrinterMonitor:
                 if value is not None:
                     self._state[key] = value
             
+            # Update progress if we have an active job (throttled to every 5 seconds)
+            if self._current_job_id and time.time() - self._last_progress_update >= 5:
+                self._update_progress()
+            
             # Check for state transitions
             gcode_state = self._state.get('gcode_state')
             if gcode_state and gcode_state != self._last_gcode_state:
@@ -111,10 +117,10 @@ class PrinterMonitor:
             self._job_ended('cancelled')
     
     def _job_started(self):
-        """Record a new print job starting."""
+        """Record a new print job starting and link to scheduled job if found."""
         job_name = self._state.get('subtask_name', 'Unknown')
         filename = self._state.get('gcode_file', '')
-        job_id = self._state.get('job_id') or f"local_{int(time.time())}"
+        mqtt_job_id = self._state.get('job_id') or f"local_{int(time.time())}"
         total_layers = self._state.get('total_layer_num')
         bed_target = self._state.get('bed_target_temper')
         nozzle_target = self._state.get('nozzle_target_temper')
@@ -122,22 +128,108 @@ class PrinterMonitor:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute('''
+            
+            # Try to find a matching scheduled job
+            # Strategy 1: Match by job_name to filename/model name
+            # Strategy 2: Match by layer count (unique fingerprint)
+            self._linked_job_id = None
+            total_layers = self._state.get('total_layer_num', 0)
+            
+            cur.execute("""
+                SELECT DISTINCT j.id, pf.filename, j.item_name, m.name as model_name, pf.layer_count
+                FROM jobs j
+                LEFT JOIN models m ON j.model_id = m.id 
+                LEFT JOIN print_files pf ON m.id = pf.model_id
+                WHERE j.printer_id = ? 
+                AND j.status IN ('scheduled', 'pending', 'SCHEDULED', 'PENDING')
+                ORDER BY j.scheduled_start ASC
+                LIMIT 10
+            """, (self.printer_id,))
+            
+            candidates = cur.fetchall()
+            job_base = job_name.lower().replace('.3mf', '').replace('.gcode', '')
+            
+            # Strategy 1: Try name matching first
+            for cand_id, cand_filename, cand_item_name, cand_model_name, cand_layers in candidates:
+                match_targets = []
+                if cand_filename:
+                    match_targets.append(cand_filename.lower().replace('.3mf', '').replace('.gcode', ''))
+                if cand_item_name:
+                    match_targets.append(cand_item_name.lower())
+                if cand_model_name:
+                    match_targets.append(cand_model_name.lower())
+                
+                for target in match_targets:
+                    if target in job_base or job_base in target:
+                        self._linked_job_id = cand_id
+                        log.info(f"[{self.name}] Linked to job {cand_id} by name ('{job_base}' ~ '{target}')")
+                        break
+                
+                if self._linked_job_id:
+                    break
+            
+            # Strategy 2: If no name match, try layer count matching
+            if not self._linked_job_id and total_layers > 0:
+                layer_matches = list({c[0]: (c[0], c[3], c[4]) for c in candidates if c[4] == total_layers}.values())
+                if len(layer_matches) == 1:
+                    self._linked_job_id = layer_matches[0][0]
+                    log.info(f"[{self.name}] Linked to job {self._linked_job_id} by layer count ({total_layers} layers)")
+                elif len(layer_matches) > 1:
+                    log.info(f"[{self.name}] {len(layer_matches)} jobs match {total_layers} layers - cannot auto-link")
+            
+            if not self._linked_job_id and candidates:
+                log.info(f"[{self.name}] No auto-match for '{job_base}' ({total_layers} layers) - link manually via API")
+            
+            # Insert print_jobs record
+            cur.execute("""
                 INSERT INTO print_jobs 
                 (printer_id, job_id, filename, job_name, started_at, status, 
-                 total_layers, bed_temp_target, nozzle_temp_target)
-                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
-            ''', (self.printer_id, str(job_id), filename, job_name, 
-                  datetime.now().isoformat(), total_layers, bed_target, nozzle_target))
+                 total_layers, bed_temp_target, nozzle_temp_target, scheduled_job_id)
+                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
+            """, (self.printer_id, str(mqtt_job_id), filename, job_name, 
+                  datetime.now().isoformat(), total_layers, bed_target, nozzle_target,
+                  self._linked_job_id))
             self._current_job_id = cur.lastrowid
+            
+            # Update linked job status to 'printing'
+            if self._linked_job_id:
+                cur.execute("UPDATE jobs SET status = 'PRINTING' WHERE id = ?", (self._linked_job_id,))
+                log.info(f"[{self.name}] Updated job {self._linked_job_id} status to 'printing'")
+            
             conn.commit()
             conn.close()
             log.info(f"[{self.name}] Job started: {job_name} (DB id: {self._current_job_id})")
         except Exception as e:
             log.error(f"[{self.name}] Failed to record job start: {e}")
     
+
+    def _update_progress(self):
+        """Update progress data for current job."""
+        progress = self._state.get('mc_percent')
+        remaining = self._state.get('mc_remaining_time')
+        current_layer = self._state.get('layer_num')
+        
+        # Only update if we have meaningful data
+        if progress is None and remaining is None and current_layer is None:
+            return
+        
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE print_jobs SET progress_percent = COALESCE(?, progress_percent), "
+                "remaining_minutes = COALESCE(?, remaining_minutes), "
+                "current_layer = COALESCE(?, current_layer) WHERE id = ?",
+                (progress, remaining, current_layer, self._current_job_id)
+            )
+            conn.commit()
+            conn.close()
+            self._last_progress_update = time.time()
+        except Exception as e:
+            log.error(f"[{self.name}] Failed to update progress: {e}")
+
     def _job_ended(self, status: str):
-        """Record a print job ending."""
+        """Record a print job ending and update linked scheduled job."""
         if not self._current_job_id:
             log.warning(f"[{self.name}] Job ended but no current job tracked")
             return
@@ -147,15 +239,26 @@ class PrinterMonitor:
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            cur.execute('''
+            
+            # Update print_jobs record
+            cur.execute("""
                 UPDATE print_jobs 
                 SET ended_at = ?, status = ?, error_code = ?
                 WHERE id = ?
-            ''', (datetime.now().isoformat(), status, error_code, self._current_job_id))
+            """, (datetime.now().isoformat(), status, error_code, self._current_job_id))
+            
+            # Update linked scheduled job if exists
+            if self._linked_job_id:
+                # Map MQTT status to jobs table status
+                job_status = 'COMPLETED' if status == 'completed' else 'FAILED'
+                cur.execute("UPDATE jobs SET status = ? WHERE id = ?", (job_status, self._linked_job_id))
+                log.info(f"[{self.name}] Updated linked job {self._linked_job_id} to '{job_status}'")
+            
             conn.commit()
             conn.close()
             log.info(f"[{self.name}] Job {status}: DB id {self._current_job_id}")
             self._current_job_id = None
+            self._linked_job_id = None
         except Exception as e:
             log.error(f"[{self.name}] Failed to record job end: {e}")
 

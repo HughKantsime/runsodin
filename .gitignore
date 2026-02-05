@@ -34,3 +34,4 @@ go2rtc/go2rtc.yaml
 
 # Database backups
 backend/backups/
+*.bak*

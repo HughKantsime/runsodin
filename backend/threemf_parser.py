@@ -329,3 +329,29 @@ if __name__ == '__main__':
             print(json.dumps(result.to_dict(), indent=2))
         else:
             print("Failed to parse file")
+
+
+def extract_objects_from_plate(zf: zipfile.ZipFile) -> list:
+    """Extract object names from plate_1.json for quantity counting."""
+    try:
+        with zf.open('Metadata/plate_1.json') as f:
+            data = json.load(f)
+            objects = []
+            
+            # Objects can be in 'objects' or 'bbox_objects' depending on version
+            obj_list = data.get('objects', data.get('bbox_objects', []))
+            
+            for obj in obj_list:
+                name = obj.get('name', 'Unknown')
+                # Auto-detect wipe tower
+                is_wipe_tower = 'wipe_tower' in name.lower() or 'wipe tower' in name.lower()
+                objects.append({
+                    'name': name,
+                    'is_wipe_tower': is_wipe_tower,
+                    'checked': not is_wipe_tower  # Uncheck wipe towers by default
+                })
+            
+            return objects
+    except Exception as e:
+        print(f"Error extracting objects: {e}")
+        return []
