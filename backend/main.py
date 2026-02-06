@@ -1342,7 +1342,7 @@ def complete_job(job_id: int, db: Session = Depends(get_db)):
                 
                 # Create usage record for audit trail
                 usage = SpoolUsage(
-                    spool_id=spool.id,
+                    assigned_spool_id=spool.id,
                     weight_used_g=grams,
                     job_id=job.id,
                     notes=f"Auto-deducted on job #{job.id} complete ({job.item_name})"
@@ -3191,7 +3191,7 @@ def use_spool(spool_id: int, request: SpoolUseRequest, db: Session = Depends(get
     
     # Record usage
     usage = SpoolUsage(
-        spool_id=spool_id,
+        assigned_spool_id=spool.id,
         job_id=request.job_id,
         weight_used_g=request.weight_used_g,
         notes=request.notes
@@ -3223,7 +3223,7 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, db: Session = Depends
     # Record as usage if weight decreased
     if new_weight < old_weight:
         usage = SpoolUsage(
-            spool_id=spool_id,
+            assigned_spool_id=spool.id,
             weight_used_g=old_weight - new_weight,
             notes="Manual weigh adjustment"
         )
@@ -5659,9 +5659,14 @@ def global_search(q: str = "", db: Session = Depends(get_db)):
         (Job.item_name.ilike(query)) | (Job.notes.ilike(query))
     ).order_by(Job.created_at.desc()).limit(5).all()
     
-    # Search spools by vendor or notes
-    spools = db.query(Spool).filter(
-        (Spool.vendor.ilike(query)) | (Spool.notes.ilike(query))
+    # Search spools by QR code, vendor, notes, or filament info
+    spools = db.query(Spool).outerjoin(FilamentLibrary, Spool.filament_id == FilamentLibrary.id).filter(
+        (Spool.qr_code.ilike(query)) |
+        (Spool.vendor.ilike(query)) | 
+        (Spool.notes.ilike(query)) |
+        (FilamentLibrary.brand.ilike(query)) |
+        (FilamentLibrary.name.ilike(query)) |
+        (FilamentLibrary.material.ilike(query))
     ).limit(5).all()
     
     # Search printers
@@ -5672,6 +5677,130 @@ def global_search(q: str = "", db: Session = Depends(get_db)):
     return {
         "models": [{"id": m.id, "name": m.name, "type": "model"} for m in models],
         "jobs": [{"id": j.id, "name": j.item_name, "status": j.status.value if j.status else None, "type": "job"} for j in jobs],
-        "spools": [{"id": s.id, "name": s.vendor or f"Spool #{s.id}", "type": "spool"} for s in spools],
+        "spools": [{"id": s.id, "name": f"{s.filament.brand} {s.filament.name}" if s.filament else (s.vendor or f"Spool #{s.id}"), "qr_code": s.qr_code, "type": "spool"} for s in spools],
         "printers": [{"id": p.id, "name": p.name, "type": "printer"} for p in printers],
     }
+
+
+# ============== QR Scan-to-Assign ==============
+
+class ScanAssignRequest(PydanticBaseModel):
+    qr_code: str
+    printer_id: int
+    slot: int  # 0-indexed slot/gate number
+
+
+class ScanAssignResponse(PydanticBaseModel):
+    success: bool
+    message: str
+    spool_id: Optional[int] = None
+    spool_name: Optional[str] = None
+    printer_name: Optional[str] = None
+    slot: Optional[int] = None
+
+
+@app.post("/api/spools/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
+def scan_assign_spool(
+    data: ScanAssignRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Assign a spool to a printer slot by scanning its QR code.
+    
+    Used for:
+    - Non-RFID printers (Kobra S1 with ACE)
+    - Third-party filaments in Bambu AMS
+    """
+    # Find spool by QR code
+    spool = db.query(Spool).filter(Spool.qr_code == data.qr_code).first()
+    if not spool:
+        return ScanAssignResponse(
+            success=False,
+            message=f"Spool not found: {data.qr_code}"
+        )
+    
+    # Find printer
+    printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
+    if not printer:
+        return ScanAssignResponse(
+            success=False,
+            message=f"Printer not found: {data.printer_id}"
+        )
+    
+    # Validate slot number
+    if data.slot < 1 or data.slot > (printer.slot_count or 4):
+        return ScanAssignResponse(
+            success=False,
+            message=f"Invalid slot {data.slot} for {printer.name} (has {printer.slot_count or 4} slots)"
+        )
+    
+    # Check if slot already has a spool assigned
+    existing_slot = db.query(FilamentSlot).filter(
+        FilamentSlot.printer_id == data.printer_id,
+        FilamentSlot.slot_number == data.slot
+    ).first()
+    
+    if existing_slot:
+        # Update existing slot
+        existing_slot.assigned_spool_id = spool.id
+        existing_slot.spool_confirmed = True
+        existing_slot.filament_type = spool.filament.material if spool.filament else None
+        existing_slot.color = spool.filament.name if spool.filament else None
+        existing_slot.color_hex = spool.filament.color_hex if spool.filament else None
+    else:
+        # Create new slot entry
+        new_slot = FilamentSlot(
+            printer_id=data.printer_id,
+            slot_number=data.slot,
+            assigned_spool_id=spool.id,
+            filament_type=spool.filament.material if spool.filament else None,
+            color=spool.filament.name if spool.filament else None,
+            color_hex=spool.filament.color_hex if spool.filament else None,
+            spool_confirmed=True,
+        )
+        db.add(new_slot)
+    
+    # Update spool location
+    spool.location_printer_id = data.printer_id
+    spool.location_slot = data.slot
+    
+    # Clear any previous slot assignment for this spool on OTHER printers
+    db.query(FilamentSlot).filter(
+        FilamentSlot.assigned_spool_id == spool.id,
+        FilamentSlot.printer_id != data.printer_id
+    ).update({FilamentSlot.assigned_spool_id: None})
+    
+    db.commit()
+    
+    spool_name = f"{spool.filament.brand} {spool.filament.name}" if spool.filament else spool.qr_code
+    
+    return ScanAssignResponse(
+        success=True,
+        message=f"Assigned {spool_name} to {printer.name} slot {data.slot}",
+        assigned_spool_id=spool.id,
+        spool_name=spool_name,
+        printer_name=printer.name,
+        slot=data.slot
+    )
+
+
+@app.get("/api/spools/lookup/{qr_code}", tags=["Spools"])
+def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
+    """Look up spool details by QR code."""
+    spool = db.query(Spool).filter(Spool.qr_code == qr_code).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    
+    return {
+        "id": spool.id,
+        "qr_code": spool.qr_code,
+        "brand": spool.filament.brand if spool.filament else None,
+        "name": spool.filament.name if spool.filament else None,
+        "material": spool.filament.material if spool.filament else None,
+        "color_hex": spool.filament.color_hex if spool.filament else None,
+        "remaining_weight": spool.remaining_weight,
+        "initial_weight": spool.initial_weight_g,
+        "location_printer_id": spool.location_printer_id,
+        "location_slot": spool.location_slot,
+    }
+

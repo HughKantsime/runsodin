@@ -288,3 +288,13 @@ export const orders = {
 export const search = {
   query: (q) => fetchAPI('/search?q=' + encodeURIComponent(q)),
 }
+
+
+// QR code spool scanning
+export const spools = {
+  lookup: (qrCode) => fetchAPI(`/spools/lookup/${qrCode}`),
+  scanAssign: (qrCode, printerId, slot) => fetchAPI('/spools/scan-assign', {
+    method: 'POST',
+    body: JSON.stringify({ qr_code: qrCode, printer_id: printerId, slot: slot }),
+  }),
+};

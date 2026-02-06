@@ -23,6 +23,14 @@ from typing import Dict, Optional, Any
 import crypto
 from bambu_adapter import BambuPrinter
 
+# Moonraker support (Klipper printers like Kobra S1 w/ Rinkhals)
+try:
+    from moonraker_monitor import MoonrakerMonitor
+    MOONRAKER_AVAILABLE = True
+except ImportError:
+    MOONRAKER_AVAILABLE = False
+    log.warning("moonraker_monitor not found — Moonraker printers will be skipped")
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -305,6 +313,45 @@ class MQTTMonitorDaemon:
         
         conn.close()
         return printers
+
+    def load_moonraker_printers(self):
+        """Load Moonraker-based printers from database."""
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, name, api_host
+            FROM printers
+            WHERE api_type = 'moonraker'
+              AND api_host IS NOT NULL
+              AND api_host != ''
+              AND is_active = 1
+        """)
+
+        printers = []
+        for row in cur.fetchall():
+            host_str = row['api_host']
+            # Parse host:port
+            if ':' in host_str:
+                host, port_str = host_str.rsplit(':', 1)
+                try:
+                    port = int(port_str)
+                except ValueError:
+                    host = host_str
+                    port = 80
+            else:
+                host = host_str
+                port = 80
+
+            printers.append({
+                'id': row['id'],
+                'name': row['name'],
+                'host': host,
+                'port': port,
+            })
+
+        conn.close()
+        return printers
     
     def start(self):
         """Start monitoring all printers."""
@@ -328,7 +375,25 @@ class MQTTMonitorDaemon:
             if monitor.connect():
                 self.monitors[p['id']] = monitor
         
-        log.info(f"Connected to {len(self.monitors)}/{len(printers)} printers")
+        log.info(f"Connected to {len(self.monitors)}/{len(printers)} Bambu printers")
+
+        # Start Moonraker monitors
+        if MOONRAKER_AVAILABLE:
+            mk_printers = self.load_moonraker_printers()
+            if mk_printers:
+                log.info(f"Starting {len(mk_printers)} Moonraker monitor(s)")
+                for p in mk_printers:
+                    monitor = MoonrakerMonitor(
+                        printer_id=p['id'],
+                        name=p['name'],
+                        host=p['host'],
+                        port=p['port'],
+                    )
+                    if monitor.connect():
+                        self.monitors[p['id']] = monitor
+                log.info(f"Moonraker monitors connected")
+            else:
+                log.info("No Moonraker printers configured")
         
         # Keep running
         try:

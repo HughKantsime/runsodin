@@ -116,7 +116,7 @@ const printersApi = {
 
 // ==================== Spool Components ====================
 
-function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
+function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers }) {
   const percentRemaining = spool.percent_remaining || 0
   const isLow = percentRemaining < 20
   const isEmpty = spool.status === 'empty'
@@ -173,7 +173,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
         {spool.location_printer_id ? (
           <span className="flex items-center gap-1">
             <Printer size={14} />
-            Printer {spool.location_printer_id}, Slot {spool.location_slot}
+            {printers?.find(p => p.id === spool.location_printer_id)?.nickname || printers?.find(p => p.id === spool.location_printer_id)?.name || `Printer ${spool.location_printer_id}`}, Slot {spool.location_slot}
           </span>
         ) : spool.storage_location ? (
           <span className="flex items-center gap-1">
@@ -191,22 +191,22 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
       </div>
       
       {/* Actions */}
-      <div className="flex gap-1.5 md:gap-2 flex-wrap">
+      <div className="flex gap-1.5 md:gap-2 justify-evenly">
         {canDo('spools.edit') && spool.location_printer_id ? (
           <button
             onClick={() => onUnload(spool)}
-            className="flex-1 min-w-0 px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
+            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
+            title="Unload from printer"
           >
-            <Package size={14} className="flex-shrink-0" />
-            <span className="truncate">Unload</span>
+            <Package size={14} />
           </button>
         ) : canDo('spools.edit') ? (
           <button
             onClick={() => onLoad(spool)}
-            className="flex-1 min-w-0 px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded text-xs md:text-sm text-white flex items-center justify-center gap-1"
+            className="px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded text-xs md:text-sm text-white flex items-center justify-center"
+            title="Load into printer"
           >
-            <Printer size={14} className="flex-shrink-0" />
-            <span className="truncate">Load</span>
+            <Printer size={14} />
           </button>
         ) : null}
         <a
@@ -217,6 +217,13 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive }) {
         >
           <QrCode size={14} />
         </a>
+        {canDo('spools.edit') && <button
+          onClick={() => onEdit(spool)}
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          title="Edit spool"
+        >
+          <Pencil size={14} />
+        </button>}
         {canDo('spools.edit') && <button
           onClick={() => onUse(spool)}
           className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
@@ -548,6 +555,112 @@ function UseSpoolModal({ spool, onClose, onUse }) {
   )
 }
 
+function EditSpoolModal({ spool, onClose, onSave }) {
+  const [form, setForm] = useState({
+    remaining_weight_g: spool?.remaining_weight_g || 0,
+    notes: spool?.notes || '',
+    storage_location: spool?.storage_location || '',
+  });
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({
+      id: spool.id,
+      remaining_weight_g: parseFloat(form.remaining_weight_g),
+      notes: form.notes || null,
+      storage_location: form.storage_location || null,
+    });
+  };
+  
+  if (!spool) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Edit Spool</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="mb-4 p-3 bg-farm-800 rounded">
+          <div className="flex items-center gap-3 mb-2">
+            {spool.filament_color_hex && (
+              <div 
+                className="w-8 h-8 rounded-full border border-farm-600 flex-shrink-0"
+                style={{ backgroundColor: '#' + spool.filament_color_hex }}
+              />
+            )}
+            <div>
+              <div className="text-farm-200 font-medium">
+                {spool.filament_brand} {spool.filament_name}
+              </div>
+              <div className="text-xs text-farm-500 font-mono">{spool.qr_code}</div>
+            </div>
+          </div>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Remaining Weight (g)</label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              value={form.remaining_weight_g}
+              onChange={(e) => setForm({ ...form, remaining_weight_g: e.target.value })}
+              required
+              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+            />
+            <div className="text-xs text-farm-500 mt-1">
+              Initial: {spool.initial_weight_g}g
+            </div>
+          </div>
+          
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Storage Location</label>
+            <input
+              type="text"
+              value={form.storage_location}
+              onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
+              placeholder="Shelf A, Drawer 2..."
+              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Notes</label>
+            <input
+              type="text"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Any notes..."
+              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+            />
+          </div>
+          
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ==================== Filament Library Components ====================
 
 function EditFilamentModal({ filament, onClose, onSave }) {
@@ -877,6 +990,7 @@ export default function Spools() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [loadingSpool, setLoadingSpool] = useState(null)
   const [usingSpool, setUsingSpool] = useState(null)
+  const [editingSpool, setEditingSpool] = useState(null)
   const [filter, setFilter] = useState('active')
   const [sortBy, setSortBy] = useState("printer")
   const [groupByPrinter, setGroupByPrinter] = useState(true)
@@ -942,6 +1056,16 @@ export default function Spools() {
     }
   }
   
+  const handleEditSpool = async (data) => {
+    try {
+      await spoolsApi.update(data);
+      queryClient.invalidateQueries(["spools"]);
+      setEditingSpool(null);
+    } catch (err) {
+      console.error("Failed to update spool:", err);
+    }
+  };
+
   const handleArchive = (spool) => {
     if (confirm(`Archive ${spool.filament_brand} ${spool.filament_name}? This will mark it as no longer in use.`)) {
       archiveMutation.mutate(spool.id)
@@ -1036,7 +1160,7 @@ export default function Spools() {
           
           {/* Filter tabs + Sort controls */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4 md:mb-6">
-            <div className="flex gap-1.5 md:gap-2 flex-wrap">
+            <div className="flex gap-1.5 md:gap-2 justify-evenly">
               {['active', 'empty', 'archived', 'all'].map(f => (
                 <button
                   key={f}
@@ -1101,7 +1225,7 @@ export default function Spools() {
             if (groupByPrinter && sortBy === "printer") {
               const groups = {};
               sorted.forEach(s => {
-                const key = s.location_printer_id ? `Printer ${s.location_printer_id}` : "Unassigned";
+                const key = s.location_printer_id ? (printers?.find(p => p.id === s.location_printer_id)?.nickname || printers?.find(p => p.id === s.location_printer_id)?.name || `Printer ${s.location_printer_id}`) : "Unassigned";
                 if (!groups[key]) groups[key] = [];
                 groups[key].push(s);
               });
@@ -1111,7 +1235,7 @@ export default function Spools() {
                   <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                     {groupSpools.map(spool => (
-                      <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
+                      <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} printers={printers} />
                     ))}
                   </div>
                 </div>
@@ -1121,7 +1245,7 @@ export default function Spools() {
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                 {sorted.map(spool => (
-                  <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} />
+                  <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} printers={printers} />
                 ))}
               </div>
             );
@@ -1152,6 +1276,13 @@ export default function Spools() {
           spool={usingSpool}
           onClose={() => setUsingSpool(null)}
           onUse={useMutation2.mutate}
+        />
+      )}
+      {editingSpool && (
+        <EditSpoolModal
+          spool={editingSpool}
+          onClose={() => setEditingSpool(null)}
+          onSave={handleEditSpool}
         />
       )}
     </div>

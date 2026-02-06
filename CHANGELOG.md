@@ -24,3 +24,23 @@
 - New `/api/search` endpoint for global search
 - New `extract_objects_from_plate()` in threemf_parser
 
+
+## [0.16.0] - 2026-02-05
+
+### Added
+- **Moonraker/Klipper integration** - Support for Kobra S1 with Rinkhals firmware via REST API polling
+- **QR Scanner for spool assignment** - Camera-based or manual entry to assign spools to printer slots
+- **Edit spool weight** - Pencil button to directly set remaining_weight_g (fixes A1/P1S showing 0g)
+- **Color name lookup** - Scanner displays color names from hex codes (e.g., "PETG HF (Gray)")
+- **Spool search improvements** - Global search finds spools by brand, material, QR code
+- **Dedicated scanner support** - Enter key submits for USB/Bluetooth barcode scanners
+
+### Changed
+- Spool cards show printer nickname instead of "Printer X"
+- Spool card buttons now icon-only with even spacing
+- Spool search results show QR code for differentiation
+- QR scan assignment sets spool_confirmed=true (no false warnings)
+
+### Fixed
+- Slot numbering 1-based consistency between UI and backend
+- API path doubling in spool lookup endpoint

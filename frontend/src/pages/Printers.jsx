@@ -1,9 +1,10 @@
+import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
-import { Video } from 'lucide-react'
+import { Video, QrCode } from 'lucide-react'
 import { canDo } from '../permissions'
 import CameraModal from '../components/CameraModal'
 
@@ -185,7 +186,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick }) {
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool }) {
   const [syncing, setSyncing] = useState(false)
   
   const handleSyncAms = async () => {
@@ -233,6 +234,9 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           </button>}
           {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="View camera">
             <Video size={16} />
+          </button>}
+          {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Scan spool QR">
+            <QrCode size={16} />
           </button>}
           {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-1.5 md:p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
             <Trash2 size={16} />
@@ -524,6 +528,8 @@ export default function Printers() {
   const [editingPrinter, setEditingPrinter] = useState(null)
   const [orderedPrinters, setOrderedPrinters] = useState([])
   const [draggedId, setDraggedId] = useState(null)
+  const [showScanner, setShowScanner] = useState(false)
+  const [scannerPrinterId, setScannerPrinterId] = useState(null)
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
@@ -636,12 +642,24 @@ export default function Printers() {
               onDragStart={(e) => handleDragStart(e, printer.id)}
               onDragOver={(e) => handleDragOver(e, printer.id)}
               onDragEnd={handleDragEnd}
+              onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
             />
           ))}
         </div>
       )}
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
+      {showScanner && (
+        <QRScannerModal
+          isOpen={showScanner}
+          onClose={() => setShowScanner(false)}
+          preselectedPrinter={scannerPrinterId}
+          onAssigned={() => {
+            setShowScanner(false);
+            queryClient.invalidateQueries(['printers']);
+          }}
+        />
+      )}
     </div>
   )
 }

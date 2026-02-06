@@ -126,7 +126,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <Package size={14} className="text-blue-400" />
-                      <span className="truncate">{item.name}</span>
+                      <span className="truncate">{item.name}</span>{item.qr_code && <span className="text-xs text-farm-500 ml-2">{item.qr_code}</span>}
                     </button>
                   ))}
                 </div>
@@ -161,7 +161,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <Database size={14} className="text-purple-400" />
-                      <span className="truncate">{item.name}</span>
+                      <span className="truncate">{item.name}</span>{item.qr_code && <span className="text-xs text-farm-500 ml-2">{item.qr_code}</span>}
                     </button>
                   ))}
                 </div>
@@ -176,7 +176,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <Printer size={14} className="text-orange-400" />
-                      <span className="truncate">{item.name}</span>
+                      <span className="truncate">{item.name}</span>{item.qr_code && <span className="text-xs text-farm-500 ml-2">{item.qr_code}</span>}
                     </button>
                   ))}
                 </div>
