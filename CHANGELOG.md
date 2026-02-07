@@ -1,4 +1,39 @@
 # Changelog
+## [0.17.0] - 2026-02-07
+
+### Added
+- **Universal printer abstraction** - printer_events.py handles all monitors (Bambu, Moonraker, future Prusa/Elegoo)
+- **Care counters** - Track total_print_hours, total_print_count, hours/prints_since_maintenance
+- **HMS error alerts** - Bambu HMS codes parsed and dispatched as user alerts
+- **Camera auto-discovery** - X1C and H2D cameras auto-populated from MQTT
+- **Fail reason logging** - Automatic error recording when prints fail
+- **Alerts system** - AlertBell component, Alerts page, dashboard widget, per-user preferences
+- **Settings consolidation** - 7 tabs (General, Alerts, SMTP, SSO, Webhooks, Advanced, About), Simple/Advanced toggle
+- **Fleet status widget** - Sidebar shows online printer count (●●●○○ 3/5)
+- **Live heartbeat system** - 90-second threshold, last_seen tracking
+- **Telemetry capture** - 10 columns: bed/nozzle temps+targets, gcode_state, print_stage, HMS, lights, nozzle type/diameter
+- **Telemetry bottom bar** - Dashboard and Printer cards show live temps
+- **Light toggle** - Bulb icon to control printer lights (with cooldown)
+- **MQTT reconnection logic** - 30-second health checks, automatic reconnect
+- **OIDC/SSO** - Microsoft Entra ID authentication with auto-user provisioning
+- **Control Room Mode** - Full-screen camera grid with clock overlay (press F)
+- **Camera enable/disable** - Toggle cameras without removing URLs
+- **Browser Push Notifications** - VAPID-based push with service worker
+- **Emergency Stop Button** - Floating button for stop/pause/resume active prints
+- **One-click Print Again** - Clone completed jobs with RefreshCw button
+- **Webhooks** - Discord/Slack integration with alert type filtering and test button
+- **Email notifications** - SMTP-based alerts wired to dispatch_alert
+
+### Changed
+- SQLite now uses WAL mode for better concurrency
+- Dashboard stats row reduced to 6 bubbles
+- Mobile header layout fixed
+- Printer cards show cleaner status display
+- Maintenance system uses care counters for hour-based scheduling
+
+### Fixed
+- MQTT monitor stability with reconnection logic
+- Kobra S1 camera streaming (MJPEG → ffmpeg → WebRTC)
 
 ## v0.15.0 (2026-02-04)
 
@@ -25,22 +60,4 @@
 - New `extract_objects_from_plate()` in threemf_parser
 
 
-## [0.16.0] - 2026-02-05
 
-### Added
-- **Moonraker/Klipper integration** - Support for Kobra S1 with Rinkhals firmware via REST API polling
-- **QR Scanner for spool assignment** - Camera-based or manual entry to assign spools to printer slots
-- **Edit spool weight** - Pencil button to directly set remaining_weight_g (fixes A1/P1S showing 0g)
-- **Color name lookup** - Scanner displays color names from hex codes (e.g., "PETG HF (Gray)")
-- **Spool search improvements** - Global search finds spools by brand, material, QR code
-- **Dedicated scanner support** - Enter key submits for USB/Bluetooth barcode scanners
-
-### Changed
-- Spool cards show printer nickname instead of "Printer X"
-- Spool card buttons now icon-only with even spacing
-- Spool search results show QR code for differentiation
-- QR scan assignment sets spool_confirmed=true (no false warnings)
-
-### Fixed
-- Slot numbering 1-based consistency between UI and backend
-- API path doubling in spool lookup endpoint

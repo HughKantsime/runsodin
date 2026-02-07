@@ -73,6 +73,22 @@ PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It t
 - Revenue tracking and value-per-hour calculations
 - Job history and completion rates
 - Per-printer performance metrics
+### Alerts & Notifications
+- In-app alert bell with unread count
+- Per-user alert preferences (which alerts to receive)
+- Browser push notifications (VAPID-based)
+- Email notifications via SMTP
+- Webhooks for Discord and Slack
+- HMS error code alerts from Bambu printers
+- Low spool warnings
+
+### Enterprise Features
+- OIDC/SSO authentication (Microsoft Entra ID)
+- Control Room mode (full-screen camera grid, press F)
+- Emergency stop/pause/resume floating button
+- Care counters for maintenance scheduling
+- Universal printer abstraction (easy to add new brands)
+
 
 ### Mobile Responsive
 - Touch-friendly navigation with hamburger menu on mobile viewports
@@ -105,13 +121,16 @@ PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It t
 
 ## Supported Printers
 
-| Printer | Status | Features |
-|---------|--------|----------|
-| Bambu Lab X1C | ✅ Full | MQTT, AMS/RFID, camera ✅, file send |
-| Bambu Lab P1S | ✅ Full | MQTT, AMS/RFID (no camera hardware) |
-| Bambu Lab A1 | ✅ Full | MQTT, AMS/RFID (no LAN Live View) |
-| Bambu Lab H2D | ✅ Full | MQTT, camera ✅ |
-| Anycubic Kobra S1 | 🔄 Basic | Manual tracking |
+| Printer | Status | Protocol | Features |
+|---------|--------|----------|----------|
+| Bambu Lab X1C | ✅ Full | MQTT | AMS/RFID, camera auto-discovery, light control |
+| Bambu Lab P1S | ✅ Full | MQTT | AMS/RFID, light control |
+| Bambu Lab A1 | ✅ Full | MQTT | AMS/RFID, light control |
+| Bambu Lab H2D | ✅ Full | MQTT | Camera auto-discovery, light control |
+| Anycubic Kobra S1 | ✅ Full | Moonraker | Rinkhals firmware, REST API, camera via ffmpeg |
+| Klipper/Moonraker | ✅ Full | REST | Any Moonraker-based printer |
+| Prusa (PrusaLink) | 🔜 Planned | REST | Coming soon |
+| Elegoo | 🔜 Planned | MQTT | Coming soon |
 
 ## Quick Start
 
@@ -204,30 +223,42 @@ Core endpoints:
 
 ## Roadmap
 
+### Completed ✅
 - [x] Smart job scheduling with color matching
 - [x] Timeline/Gantt view
 - [x] Bambu Lab MQTT integration
+- [x] Moonraker/Klipper integration (Kobra S1 with Rinkhals)
 - [x] AMS RFID spool tracking
-- [x] .3mf upload with color extraction
+- [x] .3mf upload with metadata extraction
+- [x] Upload → Model auto-creation
+- [x] Multi-variant models (same model for different printers)
 - [x] User authentication (JWT + API key)
-- [x] Role-based access control
-- [x] Camera feeds via go2rtc (validated on X1C & H2D)
-- [x] Analytics dashboard
-- [x] Collapsible sidebar UI
+- [x] Role-based access control (RBAC)
+- [x] Camera feeds via go2rtc (X1C, H2D, Kobra S1)
+- [x] Camera auto-discovery from MQTT
+- [x] Control Room mode (full-screen camera grid)
+- [x] Analytics dashboard with cost/margin tracking
 - [x] Mobile responsive layout
 - [x] White-label branding (colors, fonts, logo)
+- [x] Database backups UI
+- [x] Sortable columns on Jobs page
+- [x] Auto-deduct filament on job complete
+- [x] Schedule from Models page
+- [x] Maintenance tracking with care counters
+- [x] OIDC/SSO (Microsoft Entra ID)
+- [x] Alerts system (in-app, email, browser push)
+- [x] Webhooks (Discord/Slack)
+- [x] Emergency stop/pause/resume controls
+- [x] One-click "Print Again"
+- [x] Global search (Cmd+K)
+- [x] Model favorites
+
+### Planned
 - [ ] Enterprise licensing (signed license files, feature gating)
-- [ ] Upload → Model auto-creation
-- [ ] Send .3mf directly to printer
-- [ ] Auto-deduct filament on job complete
-- [ ] Schedule from Models page
-- [ ] SSL/TLS (nginx reverse proxy)
-- [ ] Database backups
-- [ ] Sortable columns on Jobs page
+- [ ] Print failure reason logging UI
 - [ ] AI print failure detection via camera
 - [ ] Multi-site federation
-- [ ] SSO/LDAP integration (Enterprise)
-- [ ] Multi-tenant support (Enterprise)
+- [ ] Prusa/Elegoo printer integration
 
 ## License
 
