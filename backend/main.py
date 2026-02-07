@@ -1,5 +1,5 @@
 """
-PrintFarm Scheduler API
+O.D.I.N. — Orchestrated Dispatch & Inventory Network API
 
 FastAPI application providing REST endpoints for managing
 printers, jobs, and the scheduling engine.
@@ -61,6 +61,7 @@ from schemas import (
 from scheduler import Scheduler, SchedulerConfig, run_scheduler
 from config import settings
 import crypto
+from license_manager import get_license, require_feature, check_printer_limit, check_user_limit, save_license_file
 
 
 # Database setup
@@ -154,8 +155,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="PrintFarm Scheduler",
-    description="Smart job scheduling for 3D print farms",
+    title="O.D.I.N.",
+    description="Orchestrated Dispatch & Inventory Network — Self-hosted 3D print farm management",
     version="0.1.0",
     lifespan=lifespan
 )
@@ -180,7 +181,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
-    if request.url.path == "/health" or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/branding") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
+    if request.url.path == "/health" or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/setup") or request.url.path == "/api/license" or request.url.path.startswith("/api/branding") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
         return await call_next(request)
     
     # If no API key configured, auth is disabled
@@ -259,6 +260,10 @@ def create_printer(
     db: Session = Depends(get_db)
 ):
     """Create a new printer."""
+    # Check license printer limit
+    current_count = db.query(Printer).count()
+    check_printer_limit(current_count)
+
     # Check for duplicate name
     existing = db.query(Printer).filter(Printer.name == printer.name).first()
     if existing:
@@ -1015,6 +1020,257 @@ def test_printer_connection(request: TestConnectionRequest):
             "success": False,
             "error": str(e)
         }
+
+
+
+
+
+
+# ============== License Management ==============
+
+@app.get("/api/license", tags=["License"])
+def get_license_info():
+    """Get current license status. No auth required so frontend can check tier."""
+    license_info = get_license()
+    return license_info.to_dict()
+
+
+@app.post("/api/license/upload", tags=["License"])
+async def upload_license(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_role("admin")),
+):
+    """Upload a license file. Admin only."""
+    content = await file.read()
+    license_text = content.decode("utf-8").strip()
+
+    # Basic format validation
+    parts = license_text.split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="Invalid license file format")
+
+    # Save the file
+    path = save_license_file(license_text)
+
+    # Reload and validate
+    license_info = get_license()
+    if license_info.error:
+        # Remove invalid file
+        import os
+        os.remove(path)
+        raise HTTPException(status_code=400, detail=license_info.error)
+
+    return {
+        "status": "activated",
+        "tier": license_info.tier,
+        "licensee": license_info.licensee,
+        "expires_at": license_info.expires_at,
+    }
+
+
+@app.delete("/api/license", tags=["License"])
+def remove_license(
+    current_user: dict = Depends(require_role("admin")),
+):
+    """Remove the license file (revert to Community tier). Admin only."""
+    import os
+    from license_manager import LICENSE_DIR, LICENSE_FILENAME, _cached_license
+    license_path = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
+    if os.path.exists(license_path):
+        os.remove(license_path)
+    # Clear cache
+    import license_manager
+    license_manager._cached_license = None
+    license_manager._cached_mtime = 0
+    return {"status": "removed", "tier": "community"}
+
+
+# ============== Setup / Onboarding Wizard ==============
+
+class SetupAdminRequest(PydanticBaseModel):
+    username: str
+    email: str
+    password: str
+    role: str = "admin"
+
+class SetupPrinterRequest(PydanticBaseModel):
+    name: str
+    model: Optional[str] = None
+    api_type: Optional[str] = None
+    api_host: Optional[str] = None
+    api_key: Optional[str] = None
+    slot_count: int = 4
+    is_active: bool = True
+
+class SetupTestPrinterRequest(PydanticBaseModel):
+    api_type: str
+    api_host: str
+    serial: Optional[str] = None
+    access_code: Optional[str] = None
+
+
+def _setup_users_exist(db: Session) -> bool:
+    """Check if any users exist in the database."""
+    result = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+    return result > 0
+
+
+def _setup_is_complete(db: Session) -> bool:
+    """Check if setup has been marked as complete."""
+    row = db.execute(text(
+        "SELECT value FROM system_config WHERE key = 'setup_complete'"
+    )).fetchone()
+    if row:
+        return row[0] == "true"
+    return False
+
+
+@app.get("/api/setup/status", tags=["Setup"])
+def setup_status(db: Session = Depends(get_db)):
+    """Check if initial setup is needed. No auth required."""
+    has_users = _setup_users_exist(db)
+    is_complete = _setup_is_complete(db)
+    return {
+        "needs_setup": not has_users and not is_complete,
+        "has_users": has_users,
+        "is_complete": is_complete,
+    }
+
+
+@app.post("/api/setup/admin", tags=["Setup"])
+def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)):
+    """Create the first admin user during setup. Refuses if any user exists."""
+    if _setup_users_exist(db):
+        raise HTTPException(status_code=403, detail="Setup already completed — users exist")
+
+    password_hash_val = hash_password(request.password)
+    try:
+        db.execute(text("""
+            INSERT INTO users (username, email, password_hash, role)
+            VALUES (:username, :email, :password_hash, :role)
+        """), {
+            "username": request.username,
+            "email": request.email,
+            "password_hash": password_hash_val,
+            "role": "admin"
+        })
+        db.commit()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+
+    # Return a JWT token so the wizard can make authenticated calls
+    access_token = create_access_token(
+        data={"sub": request.username, "role": "admin"}
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/api/setup/test-printer", tags=["Setup"])
+def setup_test_printer(request: SetupTestPrinterRequest):
+    """Test printer connection during setup. Wraps existing test logic."""
+    if request.api_type.lower() == "bambu":
+        if not request.serial or not request.access_code:
+            raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
+        try:
+            from bambu_adapter import BambuPrinter
+            import time
+
+            bambu = BambuPrinter(
+                ip=request.api_host,
+                serial=request.serial,
+                access_code=request.access_code
+            )
+            if not bambu.connect():
+                return {"success": False, "error": "Failed to connect. Check IP, serial, and access code."}
+
+            time.sleep(2)
+            bambu_status = bambu.get_status()
+            bambu.disconnect()
+
+            return {
+                "success": True,
+                "state": bambu_status.state.value,
+                "bed_temp": bambu_status.bed_temp,
+                "nozzle_temp": bambu_status.nozzle_temp,
+                "ams_slots": len(bambu_status.ams_slots)
+            }
+        except ImportError:
+            raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    elif request.api_type.lower() == "moonraker":
+        import httpx as httpx_client
+        try:
+            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)
+            if r.status_code == 200:
+                info = r.json().get("result", {})
+                return {
+                    "success": True,
+                    "state": info.get("state", "unknown"),
+                    "bed_temp": 0,
+                    "nozzle_temp": 0,
+                    "ams_slots": 0,
+                }
+            return {"success": False, "error": f"Moonraker returned {r.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    return {"success": False, "error": f"Unknown printer type: {request.api_type}"}
+
+
+@app.post("/api/setup/printer", tags=["Setup"])
+def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get_db)):
+    """Create a printer during setup. Requires JWT from admin creation step."""
+    # Encrypt api_key if provided
+    encrypted_api_key = None
+    if request.api_key:
+        encrypted_api_key = crypto.encrypt(request.api_key)
+
+    db_printer = Printer(
+        name=request.name,
+        model=request.model,
+        slot_count=request.slot_count,
+        is_active=request.is_active,
+        api_type=request.api_type,
+        api_host=request.api_host,
+        api_key=encrypted_api_key,
+    )
+    db.add(db_printer)
+    db.flush()
+
+    # Create empty filament slots
+    for i in range(1, request.slot_count + 1):
+        slot = FilamentSlot(
+            printer_id=db_printer.id,
+            slot_number=i,
+            filament_type=FilamentType.PLA,
+        )
+        db.add(slot)
+
+    db.commit()
+    db.refresh(db_printer)
+    return {"id": db_printer.id, "name": db_printer.name, "status": "created"}
+
+
+@app.post("/api/setup/complete", tags=["Setup"])
+def setup_mark_complete(db: Session = Depends(get_db)):
+    """Mark setup as complete. Prevents wizard from showing again."""
+    existing = db.execute(text(
+        "SELECT id FROM system_config WHERE key = 'setup_complete'"
+    )).fetchone()
+
+    if existing:
+        db.execute(text(
+            "UPDATE system_config SET value = 'true' WHERE key = 'setup_complete'"
+        ))
+    else:
+        # Insert using the SystemConfig model pattern
+        config = SystemConfig(key="setup_complete", value="true")
+        db.add(config)
+
+    db.commit()
+    return {"status": "complete"}
 
 
 # ============== Models ==============
@@ -4450,6 +4706,10 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
 
 @app.post("/api/users", tags=["Users"])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    # Check license user limit
+    current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+    check_user_limit(current_count)
+
     password_hash = hash_password(user.password)
     try:
         db.execute(text("""
@@ -4733,16 +4993,16 @@ async def test_webhook(
         if webhook["webhook_type"] == "discord":
             payload = {
                 "embeds": [{
-                    "title": "🖨️ PrintFarm Test",
+                    "title": "🖨️ O.D.I.N. Test",
                     "description": "Webhook connection successful!",
                     "color": 0x00ff00,
-                    "footer": {"text": "PrintFarm Scheduler"}
+                    "footer": {"text": "O.D.I.N."}
                 }]
             }
         else:  # slack
             payload = {
                 "blocks": [
-                    {"type": "header", "text": {"type": "plain_text", "text": "🖨️ PrintFarm Test"}},
+                    {"type": "header", "text": {"type": "plain_text", "text": "🖨️ O.D.I.N. Test"}},
                     {"type": "section", "text": {"type": "mrkdwn", "text": "Webhook connection successful!"}}
                 ]
             }
@@ -4940,7 +5200,7 @@ def create_backup(db: Session = Depends(get_db)):
         db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db_path)
     
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    backup_name = f"printfarm_backup_{timestamp}.db"
+    backup_name = f"odin_backup_{timestamp}.db"
     backup_path = str(backup_dir / backup_name)
     
     # Use SQLite online backup API — safe while DB is in use
@@ -4970,7 +5230,7 @@ def list_backups():
         return []
     
     backups = []
-    for f in sorted(backup_dir.glob("printfarm_backup_*.db"), reverse=True):
+    for f in sorted(backup_dir.glob("odin_backup_*.db"), reverse=True):
         stat = f.stat()
         backups.append({
             "filename": f.name,
@@ -6686,7 +6946,7 @@ async def send_test_email(
     
     _deliver_email(
         db, current_user["id"],
-        "Test Alert \u2014 PrintFarm Scheduler",
+        "Test Alert \u2014 O.D.I.N.",
         "This is a test notification. If you received this, SMTP is configured correctly.",
         "info"
     )
@@ -6752,3 +7012,29 @@ async def unsubscribe_push(
     ).delete()
     db.commit()
     return {"status": "ok", "message": "Push subscriptions removed"}
+
+
+# ============== Production Frontend Serving ==============
+# Serve built React app when frontend/dist exists (Docker/production mode)
+import os as _os
+_frontend_dist = _os.path.join(_os.path.dirname(__file__), "..", "frontend", "dist")
+if _os.path.isdir(_frontend_dist):
+    from fastapi.staticfiles import StaticFiles as _StaticFiles
+    from fastapi.responses import FileResponse as _FileResponse
+
+    # Serve static assets (JS, CSS, images)
+    app.mount("/assets", _StaticFiles(directory=_os.path.join(_frontend_dist, "assets")), name="frontend-assets")
+
+    # Catch-all: serve index.html for any non-API route (client-side routing)
+    @app.get("/{path:path}", include_in_schema=False)
+    async def _serve_frontend(path: str):
+        # Don't intercept API routes or existing static mounts
+        if path.startswith("api/") or path.startswith("static/") or path.startswith("health"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404)
+        # Try to serve the exact file first (favicon.ico, sw.js, etc.)
+        exact_path = _os.path.join(_frontend_dist, path)
+        if path and _os.path.isfile(exact_path):
+            return _FileResponse(exact_path)
+        # Otherwise return index.html for client-side routing
+        return _FileResponse(_os.path.join(_frontend_dist, "index.html"))

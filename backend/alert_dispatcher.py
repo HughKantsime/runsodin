@@ -134,7 +134,7 @@ def _deliver_browser_push(db, user_id, title, message, severity):
     
     import os
     vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
-    vapid_email = os.environ.get("VAPID_EMAIL", "mailto:sublab3dp@gmail.com")
+    vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
     
     if not vapid_private_key:
         logger.warning("VAPID_PRIVATE_KEY not set — skipping browser push")

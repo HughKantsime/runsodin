@@ -42,6 +42,7 @@ import SettingsPage from './pages/Settings'
 import Spools from './pages/Spools'
 import Upload from './pages/Upload'
 import Login from './pages/Login'
+import Setup from './pages/Setup'
 import Maintenance from './pages/Maintenance'
 import Cameras from "./pages/Cameras"
 import Products from './pages/Products'
@@ -340,6 +341,27 @@ export default function App() {
   useEffect(() => {
     setMobileMenuOpen(false)
   }, [location.pathname])
+
+  // Check if first-time setup is needed
+  useEffect(() => {
+    if (location.pathname === '/setup' || location.pathname === '/login') return
+    const API_KEY = import.meta.env.VITE_API_KEY
+    const headers = { 'Content-Type': 'application/json' }
+    if (API_KEY) headers['X-API-Key'] = API_KEY
+    fetch('/api/setup/status', { headers })
+      .then(r => r.json())
+      .then(data => {
+        if (data.needs_setup) {
+          window.location.href = '/setup'
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Show setup wizard without sidebar
+  if (location.pathname === '/setup') {
+    return <Setup />
+  }
 
   // Show login page without sidebar
   if (location.pathname === '/login') {

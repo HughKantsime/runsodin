@@ -1,5 +1,5 @@
 """
-Database models for PrintFarm Scheduler
+Database models for O.D.I.N.
 
 Core entities:
 - Printer: Physical printer with filament slots

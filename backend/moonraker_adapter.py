@@ -18,7 +18,7 @@ Works with any Moonraker-compatible printer:
 Usage:
     from moonraker_adapter import MoonrakerPrinter
 
-    printer = MoonrakerPrinter(host="192.168.72.133", port=80)
+    printer = MoonrakerPrinter(host="YOUR_PRINTER_IP", port=80)
     if printer.connect():
         status = printer.get_status()
         print(status)

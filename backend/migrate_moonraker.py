@@ -18,7 +18,7 @@ import sys
 DB_PATH = "/opt/printfarm-scheduler/backend/printfarm.db"
 MONITOR_PATH = "/opt/printfarm-scheduler/backend/mqtt_monitor.py"
 
-KOBRA_IP = "192.168.72.133"
+KOBRA_IP = "YOUR_PRINTER_IP"
 KOBRA_PORT = 80
 
 

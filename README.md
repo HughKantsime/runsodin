@@ -1,265 +1,248 @@
-# PrintFarm Scheduler
+<p align="center">
+  <img src="docs/images/odin-banner.png" alt="O.D.I.N." width="600" />
+</p>
 
-A self-hosted, ITAR/CMMC-compliant job scheduler and monitoring system for 3D print farms. Built for environments where data can't leave the network.
+<h1 align="center">O.D.I.N.</h1>
+<p align="center"><strong>Orchestrated Dispatch & Inventory Network</strong></p>
+<p align="center">Self-hosted 3D print farm management for people who own their data.</p>
 
-## What It Does
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#supported-printers">Printers</a> •
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#license">License</a> •
+  <a href="https://discord.gg/YOUR_INVITE">Discord</a>
+</p>
 
-PrintFarm Scheduler manages a fleet of 3D printers from a single dashboard. It tracks what filament is loaded where, schedules jobs to minimize filament changes, monitors printers via MQTT in real time, and streams live camera feeds — all without touching the cloud.
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.17.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/license-BSL%201.1-green" alt="License" />
+  <img src="https://img.shields.io/badge/python-3.11+-yellow" alt="Python" />
+  <img src="https://img.shields.io/badge/RAM-~400MB-orange" alt="RAM" />
+</p>
 
-## Key Features
+---
 
-### Scheduling & Jobs
-- Smart job scheduling with color-match scoring to minimize filament swaps
-- Timeline view (Gantt-style) for visualizing printer schedules
-- Priority queue with drag-and-drop job management
-- .3mf file upload with automatic color/filament extraction
-- Job states: pending → scheduled → printing → completed/failed
+## What is O.D.I.N.?
 
-### Printer Management
-- Real-time MQTT monitoring (temperatures, print progress, status)
-- Bambu Lab printer integration (X1C, P1S, A1, H2D) with AMS filament detection
-- Anycubic Kobra support
-- Automatic filament slot tracking from AMS RFID data
-- Encrypted credential storage (Fernet) for printer access codes
+O.D.I.N. is a self-hosted MES (Manufacturing Execution System) for 3D print farms. It monitors your printers in real time, manages job queues, tracks filament inventory, and gives you per-order profitability — all without sending a single byte to the cloud.
 
-### Camera Feeds
-- Live camera streaming via go2rtc (RTSP → WebRTC)
-- Auto-detected from Bambu printer credentials — no manual URL config needed
-- Cameras page with configurable grid layout (1/2/3 columns)
-- Modal overlay for quick-look from any page
-- All streams proxied through backend with authentication
+Built for hobbyists running Etsy shops, schools with printer labs, and defense contractors who need ITAR-compliant manufacturing software. Runs on a Raspberry Pi, a mini PC, or any machine with Docker.
 
-### Filament & Spool Tracking
-- RFID spool identification via Bambu AMS
-- Local filament library with color matching
-- Spoolman integration (optional, for existing inventory systems)
-- Color name resolver for Bambu's named colors (e.g., "Caramel Matte" → hex)
+**O.D.I.N. is not a slicer.** You slice in Bambu Studio or OrcaSlicer, upload the `.3mf` to O.D.I.N., and it handles everything from there.
 
-### User Management & Security
-- JWT authentication with role-based access control (admin/operator/viewer)
-- API key authentication for all endpoints
-- Admin dashboard for user management
-- Audit logging
-- All data stays on your network — no external dependencies required
+---
 
-### White-Label Branding
-- Full admin UI for customizing deployment appearance
-- 15 brandable color properties (primary, accent, sidebar, content, text, inputs)
-- System font selection — zero external CDN calls (airgapped safe)
-- Logo and favicon upload with local static serving
-- Live preview with mini sidebar, content area, and login screen mockup
-- All components respond to branding via CSS variables with Tailwind fallbacks
+## Quick Start
 
-### Maintenance Tracking
-- Fleet status overview with health indicators per printer
-- Configurable maintenance task templates (nozzle changes, belt tension, HEPA filter, etc.)
-- Interval-based reminders per printer model
-- Maintenance history log with timestamps and notes
+### Docker (recommended)
 
-### RBAC Permissions Management
-- Visual permissions editor for admins
-- Role matrix with toggle switches for page access and actions
-- Granular control: which roles can view/edit jobs, models, spools, printers
-- Permission changes take effect on next login
+```bash
+git clone https://github.com/HughKantsime/printfarm-scheduler.git odin
+cd odin
+cp .env.example .env
+docker-compose up -d
+```
 
-### Multi-Variant Models
-- Upload same model sliced for different printers
-- Automatic variant linking by normalized model name
-- Schedule modal shows compatible printers with green indicators
-- Printer profile extracted from .3mf metadata
+Open `http://localhost:8000` — the setup wizard walks you through creating an admin account and connecting your first printer. Takes about 2 minutes.
 
-### Analytics & Reporting
-- Printer utilization stats
-- Revenue tracking and value-per-hour calculations
-- Job history and completion rates
-- Per-printer performance metrics
-### Alerts & Notifications
-- In-app alert bell with unread count
-- Per-user alert preferences (which alerts to receive)
-- Browser push notifications (VAPID-based)
-- Email notifications via SMTP
-- Webhooks for Discord and Slack
-- HMS error code alerts from Bambu printers
-- Low spool warnings
+### Manual Install
 
-### Enterprise Features
-- OIDC/SSO authentication (Microsoft Entra ID)
-- Control Room mode (full-screen camera grid, press F)
-- Emergency stop/pause/resume floating button
-- Care counters for maintenance scheduling
-- Universal printer abstraction (easy to add new brands)
+See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation on Ubuntu/Debian.
 
+---
 
-### Mobile Responsive
-- Touch-friendly navigation with hamburger menu on mobile viewports
-- Responsive card layouts across all pages
-- Viewport-aware component rendering
+## Features
+
+### Dashboard & Monitoring
+- **Live printer status** — bed/nozzle temps, print progress, time remaining, all updated via MQTT
+- **Progress bars with countdown** — see exactly how long each print has left
+- **Low spool warnings** — amber indicators when filament drops below 100g
+- **Camera grid** — live feeds from all printers via WebRTC (go2rtc)
+- **Control Room mode** — full-screen camera wall with clock overlay (press F)
+- **Fleet status** — sidebar widget shows online printer count at a glance
+- **Emergency stop** — floating button to stop/pause/resume any active print
+
+### Job Management
+- **Smart scheduler** — color-match scoring to minimize filament swaps
+- **Upload → Schedule workflow** — drop a `.3mf`, metadata auto-extracts, schedule in one click
+- **Print Again** — one-click clone of completed jobs
+- **Order tracking** — link jobs to customer orders for fulfillment visibility
+- **Job tabs** — filter by All / Order Jobs / Ad-hoc
+- **Timeline view** — Gantt-style visualization of your print queue
+
+### Filament & Inventory
+- **AMS RFID auto-tracking** — Bambu AMS spools detected and tracked automatically
+- **QR code scanner** — assign spools to non-RFID printer slots via camera or manual entry
+- **Auto-deduct on complete** — filament weight updates automatically when jobs finish
+- **Spool library** — full CRUD with brand, material, color, weight, cost tracking
+
+### Products & Orders
+- **Product catalog with BOM** — define what you sell and what prints make it up
+- **Order management** — track orders from Etsy, Amazon, wholesale, or direct
+- **Per-order P&L** — revenue, platform fees, payment fees, shipping, filament cost, labor → profit and margin
+- **Fulfillment tracking** — auto-progress orders as linked jobs complete
+
+### Cost & Analytics
+- **Pricing calculator** — filament, electricity, depreciation, labor, markup
+- **Per-material cost rates** — different $/gram for PLA, PETG, ASA, etc.
+- **Model cards show cost** — estimated cost and suggested price on every model
+- **Revenue dashboard** — margins, costs, and profitability from real job data
+- **CSV export** — jobs, models, spools, filament usage
+
+### Multi-User & Security
+- **JWT authentication** with role-based access (admin / operator / viewer)
+- **RBAC permissions** — visual role matrix with per-action toggles
+- **SSO/OIDC** — Microsoft Entra ID, with auto-user provisioning
+- **White-label branding** — custom colors, fonts, logos, app name
+- **Encrypted credentials** — printer API keys stored with Fernet encryption
+
+### Notifications
+- **Browser push** — VAPID-based notifications via service worker
+- **Webhooks** — Discord and Slack integration with alert type filtering
+- **Email** — SMTP-based alerts for print complete, failures, maintenance due
+- **In-app alerts** — bell icon with unread count, filterable alerts page
+
+### Maintenance
+- **Care counters** — total print hours, print count, hours/prints since last maintenance
+- **Task templates** — define recurring maintenance tasks
+- **Maintenance history** — log when work was performed
+
+---
+
+## Supported Printers
+
+| Printer | Protocol | Status |
+|---------|----------|--------|
+| Bambu Lab X1C | MQTT | ✅ Full support (AMS, cameras, lights, HMS alerts) |
+| Bambu Lab P1S | MQTT | ✅ Full support |
+| Bambu Lab A1 | MQTT | ✅ Full support |
+| Bambu Lab A1 Mini | MQTT | ✅ Full support |
+| Bambu Lab H2D | MQTT | ✅ Full support |
+| Klipper/Moonraker | REST | ✅ Supported (Anycubic Kobra S1 w/ Rinkhals tested) |
+| PrusaLink | REST | 🔜 Planned |
+| Elegoo | — | 🔜 Planned |
+
+O.D.I.N. is brand-agnostic by design. If your printer speaks MQTT or has a REST API, it can be integrated.
+
+---
+
+## Screenshots
+
+> Screenshots coming soon. In the meantime, check the [demo video](https://youtube.com/YOUR_VIDEO).
+
+<!-- 
+<details>
+<summary>Dashboard</summary>
+<img src="docs/images/dashboard.png" alt="Dashboard" />
+</details>
+
+<details>
+<summary>Camera Grid</summary>
+<img src="docs/images/cameras.png" alt="Cameras" />
+</details>
+
+<details>
+<summary>Orders & P&L</summary>
+<img src="docs/images/orders.png" alt="Orders" />
+</details>
+-->
+
+---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          Web Frontend                                │
-│                    React 18 + Vite + TailwindCSS                     │
-│  Dashboard │ Timeline │ Jobs │ Printers │ Cameras │ Analytics │ ... │
-│                    CSS Variable Branding Layer                        │
-└────────────────────────────┬─────────────────────────────────────────┘
-                             │  /api (REST)
-┌────────────────────────────▼─────────────────────────────────────────┐
-│                         FastAPI Backend                               │
-│ ┌──────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐ │
-│ │ Scheduler│ │   MQTT    │ │   Auth   │ │  Camera  │ │ Branding  │ │
-│ │  Engine  │ │  Monitor  │ │  (JWT)   │ │  Proxy   │ │   API     │ │
-│ └──────────┘ └───────────┘ └──────────┘ └──────────┘ └───────────┘ │
-└───────┬──────────────┬──────────────┬──────────────┬────────────────┘
-        │              │              │              │
-  ┌─────▼─────┐  ┌─────▼──────┐  ┌───▼────┐  ┌─────▼──────┐
-  │  SQLite   │  │ Bambu MQTT │  │Spoolman│  │   go2rtc   │
-  │    DB     │  │ (printers) │  │ (opt)  │  │ RTSP→WebRTC│
-  └───────────┘  └────────────┘  └────────┘  └────────────┘
+React 18 + Vite + TailwindCSS (frontend)
+       ↕ /api proxy
+FastAPI + SQLite WAL (backend)
+       ↕
+MQTT (Bambu) + Moonraker (Klipper) + go2rtc (cameras)
 ```
 
-## Supported Printers
+Single container. ~400MB RAM. SQLite database — no Postgres, no Redis, no message queue. The entire system fits on a Raspberry Pi 5 or an $80 Intel N100 mini PC.
 
-| Printer | Status | Protocol | Features |
-|---------|--------|----------|----------|
-| Bambu Lab X1C | ✅ Full | MQTT | AMS/RFID, camera auto-discovery, light control |
-| Bambu Lab P1S | ✅ Full | MQTT | AMS/RFID, light control |
-| Bambu Lab A1 | ✅ Full | MQTT | AMS/RFID, light control |
-| Bambu Lab H2D | ✅ Full | MQTT | Camera auto-discovery, light control |
-| Anycubic Kobra S1 | ✅ Full | Moonraker | Rinkhals firmware, REST API, camera via ffmpeg |
-| Klipper/Moonraker | ✅ Full | REST | Any Moonraker-based printer |
-| Prusa (PrusaLink) | 🔜 Planned | REST | Coming soon |
-| Elegoo | 🔜 Planned | MQTT | Coming soon |
-
-## Quick Start
-
-### Prerequisites
-- Ubuntu 22.04+ (or similar Linux)
-- Python 3.12+
-- Node.js 18+
-- go2rtc (for camera feeds)
-
-### Installation
-
-```bash
-git clone https://github.com/HughKantsime/printfarm-scheduler.git
-cd printfarm-scheduler
-
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # Edit with your settings
-
-# Frontend
-cd ../frontend
-npm install
-npm run build
-
-# Start
-cd ../backend
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-### Camera Setup (Optional)
-
-```bash
-# Install go2rtc
-wget https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_linux_amd64
-chmod +x go2rtc_linux_amd64
-mv go2rtc_linux_amd64 /usr/local/bin/go2rtc
-
-# Config is auto-generated from printer credentials
-# Enable LAN Live View on each Bambu printer's LCD:
-# Settings → Network → LAN Live View → Enable
-```
+---
 
 ## Configuration
 
-Environment variables (`.env`):
+All configuration is via environment variables (`.env` file). On first run with Docker, secrets are auto-generated and persisted to `odin-data/`.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | SQLite database path | `sqlite:///./printfarm.db` |
-| `API_KEY` | API key for authentication | Required |
-| `JWT_SECRET` | Secret for JWT tokens | Required |
-| `SPOOLMAN_URL` | Spoolman instance URL | None (optional) |
-| `BLACKOUT_START` | No-print window start (HH:MM) | `22:30` |
-| `BLACKOUT_END` | No-print window end (HH:MM) | `05:30` |
-| `ENCRYPTION_KEY` | Fernet key for credential encryption | Auto-generated |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ENCRYPTION_KEY` | Auto | Fernet key for encrypting printer credentials |
+| `JWT_SECRET_KEY` | Auto | Secret for signing JWT tokens |
+| `API_KEY` | No | API key for frontend auth (blank = disabled) |
+| `TZ` | No | Timezone (default: `America/New_York`) |
+| `CORS_ORIGINS` | No | Allowed origins for CORS |
 
-## ITAR/CMMC Compliance
+---
 
-PrintFarm Scheduler is designed for controlled environments:
+## Licensing
 
-- **Fully self-hosted** — no cloud services, no external API calls
-- **Air-gap ready** — runs entirely on your local network
-- **No telemetry** — zero data leaves your infrastructure
-- **No external font CDN** — all fonts resolve from system fonts locally
-- **Local filament matching** — no external databases for spool identification
-- **Encrypted at rest** — printer credentials stored with Fernet encryption
-- **Role-based access** — admin/operator/viewer permission levels
-- **Audit logging** — track who did what and when
+O.D.I.N. is source-available under the [Business Source License 1.1](LICENSE).
 
-## API
+- **Free for personal and non-commercial use** (Community Edition — up to 5 printers, single user)
+- **Commercial use requires a paid license** (Pro, Education, or Enterprise)
+- **Each version converts to Apache 2.0 after 3 years**
 
-Interactive API docs available at `http://your-server:8000/docs` when running.
+### Tiers
 
-Core endpoints:
+| | Community | Pro | Education | Enterprise |
+|---|---|---|---|---|
+| **Price** | Free | $20/mo | $499 appliance + $300/yr | Custom |
+| **Printers** | 5 | Unlimited | Unlimited | Unlimited |
+| **Users** | 1 | Unlimited | Unlimited | Unlimited |
+| **SSO/OIDC** | — | ✅ | ✅ | ✅ |
+| **Orders & BOM** | — | ✅ | ✅ | ✅ |
+| **Webhooks & Email** | — | ✅ | ✅ | ✅ |
+| **White-label** | — | ✅ | ✅ | ✅ |
+| **Job Approval** | — | — | ✅ | ✅ |
+| **OPC-UA / MQTT Republish** | — | — | — | ✅ |
+| **Audit Export** | — | — | — | ✅ |
+| **Support** | Community | Email | Email + Onboarding | SLA |
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/printers` | List all printers with filament state |
-| `POST /api/jobs` | Create a new print job |
-| `POST /api/scheduler/run` | Run the scheduling engine |
-| `GET /api/timeline` | Get scheduled timeline |
-| `GET /api/cameras` | List available camera feeds |
-| `GET /api/analytics` | Dashboard analytics data |
-| `POST /api/print-files/upload` | Upload .3mf files |
-| `GET /api/branding` | Get branding configuration (public) |
-| `PUT /api/branding` | Update branding (admin only) |
+License keys are air-gap friendly — a signed file dropped into your install. No phone home, no cloud validation.
 
-## Roadmap
+→ [runsodin.com](https://runsodin.com) for pricing and purchase.
 
-### Completed ✅
-- [x] Smart job scheduling with color matching
-- [x] Timeline/Gantt view
-- [x] Bambu Lab MQTT integration
-- [x] Moonraker/Klipper integration (Kobra S1 with Rinkhals)
-- [x] AMS RFID spool tracking
-- [x] .3mf upload with metadata extraction
-- [x] Upload → Model auto-creation
-- [x] Multi-variant models (same model for different printers)
-- [x] User authentication (JWT + API key)
-- [x] Role-based access control (RBAC)
-- [x] Camera feeds via go2rtc (X1C, H2D, Kobra S1)
-- [x] Camera auto-discovery from MQTT
-- [x] Control Room mode (full-screen camera grid)
-- [x] Analytics dashboard with cost/margin tracking
-- [x] Mobile responsive layout
-- [x] White-label branding (colors, fonts, logo)
-- [x] Database backups UI
-- [x] Sortable columns on Jobs page
-- [x] Auto-deduct filament on job complete
-- [x] Schedule from Models page
-- [x] Maintenance tracking with care counters
-- [x] OIDC/SSO (Microsoft Entra ID)
-- [x] Alerts system (in-app, email, browser push)
-- [x] Webhooks (Discord/Slack)
-- [x] Emergency stop/pause/resume controls
-- [x] One-click "Print Again"
-- [x] Global search (Cmd+K)
-- [x] Model favorites
+---
 
-### Planned
-- [ ] Enterprise licensing (signed license files, feature gating)
-- [ ] Print failure reason logging UI
-- [ ] AI print failure detection via camera
-- [ ] Multi-site federation
-- [ ] Prusa/Elegoo printer integration
+## What O.D.I.N. Is Not
 
-## License
+- **Not a slicer** — use Bambu Studio, OrcaSlicer, or PrusaSlicer
+- **Not a cloud service** — your data stays on your machine, always
+- **Not an ERP** — export to QuickBooks/Xero for accounting
+- **Not a file sender** — O.D.I.N. observes and manages, it doesn't push files to printers
 
-MIT
+---
+
+## Community
+
+- 💬 [Discord](https://discord.gg/YOUR_INVITE) — help, feature requests, show your setup
+- 🐛 [GitHub Issues](https://github.com/HughKantsime/printfarm-scheduler/issues) — bug reports
+- 🌐 [runsodin.com](https://runsodin.com) — docs, pricing, updates
+
+---
+
+## Contributing
+
+O.D.I.N. is source-available, not open source (yet). Each version converts to Apache 2.0 after 3 years.
+
+Bug reports and feature requests are welcome via GitHub Issues. If you'd like to contribute code, please open an issue first to discuss.
+
+---
+
+## Acknowledgments
+
+Built by [Sublab 3DP](https://sublab3dp.com) in Knoxville, TN.
+
+Named for the All-Father — because your print farm deserves someone watching over it.
+
+---
+
+<p align="center">
+  <sub>O.D.I.N. — Orchestrated Dispatch & Inventory Network</sub><br/>
+  <sub>© 2026 Sublab 3DP. All rights reserved.</sub>
+</p>

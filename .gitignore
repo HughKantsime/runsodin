@@ -37,3 +37,12 @@ backend/backups/
 *.bak*
 *.db-shm
 *.db-wal
+
+frontend/.env
+backend/.env
+
+# License keys
+*.license
+
+# Docker data volume
+odin-data/

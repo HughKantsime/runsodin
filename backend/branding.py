@@ -23,7 +23,7 @@ class Branding(Base):
     id = Column(Integer, primary_key=True, default=1)
 
     # ---- Identity ----
-    app_name = Column(String(100), default="PrintFarm")
+    app_name = Column(String(100), default="O.D.I.N.")
     app_subtitle = Column(String(200), default="Scheduler")
 
     # ---- Color Palette ----

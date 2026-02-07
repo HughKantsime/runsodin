@@ -9,7 +9,7 @@ Usage:
     python3 test_moonraker.py
     
     # Or with custom host:
-    python3 test_moonraker.py 192.168.72.133 80
+    python3 test_moonraker.py <printer_ip> 80
 """
 
 import sys
@@ -21,7 +21,7 @@ from moonraker_adapter import MoonrakerPrinter
 
 
 def main():
-    host = sys.argv[1] if len(sys.argv) > 1 else "192.168.72.133"
+    host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 80
 
     print(f"Connecting to Moonraker at {host}:{port}...")

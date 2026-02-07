@@ -346,3 +346,27 @@ export const pushNotifications = {
   }),
   unsubscribe: () => fetchAPI('/push/subscribe', { method: 'DELETE' }),
 };
+
+export const setup = {
+  status: () => fetchAPI('/setup/status'),
+  createAdmin: (data) => fetchAPI('/setup/admin', { method: 'POST', body: JSON.stringify(data) }),
+  testPrinter: (data) => fetchAPI('/setup/test-printer', { method: 'POST', body: JSON.stringify(data) }),
+  createPrinter: (data) => fetchAPI('/setup/printer', { method: 'POST', body: JSON.stringify(data) }),
+  complete: () => fetchAPI('/setup/complete', { method: 'POST' }),
+}
+
+export const license = {
+  get: () => fetchAPI('/license'),
+  upload: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const token = localStorage.getItem('token')
+    const headers = {}
+    const API_KEY = import.meta.env.VITE_API_KEY
+    if (API_KEY) headers['X-API-Key'] = API_KEY
+    if (token) headers['Authorization'] = 'Bearer ' + token
+    return fetch('/api/license/upload', { method: 'POST', headers, body: formData })
+      .then(r => { if (!r.ok) throw new Error('Upload failed'); return r.json() })
+  },
+  remove: () => fetchAPI('/license', { method: 'DELETE' }),
+}

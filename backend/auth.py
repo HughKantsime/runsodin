@@ -1,5 +1,5 @@
 """
-Authentication utilities for PrintFarm Scheduler.
+Authentication utilities for O.D.I.N.
 Handles password hashing, JWT tokens, and user verification.
 """
 import os
@@ -10,7 +10,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 # Configuration - change SECRET_KEY in production!
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "printfarm-dev-secret-change-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "odin-dev-secret-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
