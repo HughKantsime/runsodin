@@ -12,7 +12,7 @@
   <a href="#supported-printers">Printers</a> •
   <a href="#screenshots">Screenshots</a> •
   <a href="#license">License</a> •
-  <a href="https://discord.gg/YOUR_INVITE">Discord</a>
+  <a href="https://discord.gg/kZna6rex">Discord</a>
 </p>
 
 <p align="center">
@@ -220,7 +220,7 @@ License keys are air-gap friendly — a signed file dropped into your install. N
 
 ## Community
 
-- 💬 [Discord](https://discord.gg/YOUR_INVITE) — help, feature requests, show your setup
+- 💬 [Discord](https://discord.gg/kZna6rex) — help, feature requests, show your setup
 - 🐛 [GitHub Issues](https://github.com/HughKantsime/printfarm-scheduler/issues) — bug reports
 - 🌐 [runsodin.com](https://runsodin.com) — docs, pricing, updates
 
