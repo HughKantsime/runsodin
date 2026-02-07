@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import SSOButton from '../components/SSOButton'
 import { useNavigate } from 'react-router-dom'
 import { Lock, User, AlertCircle } from 'lucide-react'
 import { useBranding } from '../BrandingContext'
@@ -12,7 +13,28 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = async (e) => {
+  
+  // Handle OIDC callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    const urlError = urlParams.get('error');
+    
+    if (urlToken) {
+      localStorage.setItem('token', urlToken);
+      window.history.replaceState({}, '', '/');
+      window.location.reload();
+    }
+    
+    if (urlError) {
+      setError(urlError === 'user_not_found' 
+        ? 'Your account is not authorized. Contact an administrator.'
+        : 'SSO login failed. Please try again.');
+      window.history.replaceState({}, '', '/login');
+    }
+  }, []);
+
+const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setIsLoading(true)
@@ -132,6 +154,7 @@ export default function Login() {
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+              <SSOButton />
         </div>
 
         <p className="text-center text-sm mt-6" style={{ color: 'var(--brand-text-muted)' }}>

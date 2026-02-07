@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 from moonraker_adapter import MoonrakerPrinter, MoonrakerState
+import printer_events
 
 log = logging.getLogger("moonraker_monitor")
 
@@ -116,6 +117,42 @@ class MoonrakerMonitor:
     
     def _process_status(self, status):
         """Process a status update — detect state changes, track jobs."""
+        # Update telemetry + heartbeat (throttled to every 10 seconds)
+        import time as _time
+        if _time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+            try:
+                import sqlite3
+                conn = sqlite3.connect('/opt/printfarm-scheduler/backend/printfarm.db')
+                bed_t = bed_tt = noz_t = noz_tt = None
+                gstate = None
+                stage = 'Idle'
+                if hasattr(status, 'raw_data') and status.raw_data:
+                    rd = status.raw_data
+                    hb = rd.get('heater_bed', {})
+                    ext = rd.get('extruder', {})
+                    bed_t = hb.get('temperature')
+                    bed_tt = hb.get('target')
+                    noz_t = ext.get('temperature')
+                    noz_tt = ext.get('target')
+                    ps = rd.get('print_stats', {})
+                    mk_state = ps.get('state', '')
+                    gstate = mk_state.upper() if mk_state else None
+                    if mk_state == 'printing': stage = 'Printing'
+                    elif mk_state == 'paused': stage = 'Paused'
+                    elif noz_tt and noz_tt > 0: stage = 'Heating hotend'
+                    elif bed_tt and bed_tt > 0: stage = 'Heating bed'
+                conn.execute(
+                    "UPDATE printers SET last_seen=datetime('now'),"
+                    " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
+                    " nozzle_temp=COALESCE(?,nozzle_temp),nozzle_target_temp=COALESCE(?,nozzle_target_temp),"
+                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage) WHERE id=?",
+                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, self.printer_id))
+                conn.commit()
+                conn.close()
+                self._last_heartbeat = _time.time()
+            except Exception as e:
+                log.warning(f"Failed to update telemetry for {self.name}: {e}")
+        
         internal_state = status.internal_state
         
         # Detect state change
@@ -218,6 +255,51 @@ class MoonrakerMonitor:
             conn.commit()
             conn.close()
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
+            
+            # Increment care counters on successful completion
+            if end_status == "completed":
+                try:
+                    conn2 = sqlite3.connect(DB_PATH)
+                    cur2 = conn2.cursor()
+                    cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (self._current_job_db_id,))
+                    pj_row = cur2.fetchone()
+                    if pj_row and pj_row[0] and pj_row[1]:
+                        from datetime import datetime as dt
+                        started = dt.fromisoformat(pj_row[0])
+                        ended = dt.fromisoformat(pj_row[1])
+                        duration_sec = (ended - started).total_seconds()
+                        printer_events.increment_care_counters(self.printer_id, duration_sec / 3600.0, 1)
+                    conn2.close()
+                except Exception as ce:
+                    log.warning(f"[{self.name}] Failed to update care counters: {ce}")
+            
+            # Dispatch alerts
+            job_name = self._last_filename or "Unknown"
+            if end_status == "completed":
+                printer_events.dispatch_alert(
+                    alert_type="print_complete",
+                    severity="success",
+                    title=f"Print Complete: {job_name}",
+                    message=f"Finished on {self.name}",
+                    printer_id=self.printer_id,
+                )
+            else:
+                printer_events.dispatch_alert(
+                    alert_type="print_failed",
+                    severity="error",
+                    title=f"Print Failed: {job_name}",
+                    message=f"Failed on {self.name}",
+                    printer_id=self.printer_id,
+                )
+                printer_events.record_error(
+                    printer_id=self.printer_id,
+                    error_code="PRINT_FAILED",
+                    error_message=f"Print failed: {job_name}",
+                    source="moonraker",
+                    severity="error",
+                    create_alert=False,
+                )
+            
             self._current_job_db_id = None
             self._last_filename = ""
             

@@ -22,6 +22,7 @@ from typing import Dict, Optional, Any
 
 import crypto
 from bambu_adapter import BambuPrinter
+import printer_events
 
 # Moonraker support (Klipper printers like Kobra S1 w/ Rinkhals)
 try:
@@ -57,6 +58,7 @@ class PrinterMonitor:
         self._current_job_id: Optional[int] = None
         self._linked_job_id: Optional[int] = None  # Linked scheduled job from jobs table
         self._last_progress_update: float = 0
+        self._last_spool_check: float = 0
         self._lock = Lock()
     
     def connect(self) -> bool:
@@ -84,10 +86,152 @@ class PrinterMonitor:
             self._bambu.disconnect()
             log.info(f"[{self.name}] Disconnected")
     
+
+    def _dispatch_alert(self, alert_type: str, severity: str, title: str, 
+                        message: str = "", job_id: int = None, spool_id: int = None,
+                        metadata: dict = None):
+        """
+        Create alert records for all users who have this alert type enabled.
+        Uses raw SQL to avoid importing SQLAlchemy into the monitor daemon.
+        Handles deduplication for spool_low alerts.
+        """
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            
+            # Get all users with preferences for this alert type
+            cur.execute("""
+                SELECT user_id, in_app, browser_push, email
+                FROM alert_preferences
+                WHERE alert_type = ? AND in_app = 1
+            """, (alert_type,))
+            prefs = cur.fetchall()
+            
+            # If no preferences exist, seed defaults for all active users
+            if not prefs:
+                cur.execute("SELECT id FROM users WHERE is_active = 1")
+                users = cur.fetchall()
+                defaults = {
+                    'print_complete': (1, 0, 0),
+                    'print_failed': (1, 1, 0),
+                    'spool_low': (1, 0, 0),
+                    'maintenance_overdue': (1, 0, 0),
+                }
+                for (uid,) in users:
+                    for at, (ia, bp, em) in defaults.items():
+                        cur.execute("""
+                            INSERT OR IGNORE INTO alert_preferences 
+                            (user_id, alert_type, in_app, browser_push, email, threshold_value)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (uid, at, ia, bp, em, 100.0 if at == 'spool_low' else None))
+                conn.commit()
+                # Re-query
+                cur.execute("""
+                    SELECT user_id, in_app, browser_push, email
+                    FROM alert_preferences
+                    WHERE alert_type = ? AND in_app = 1
+                """, (alert_type,))
+                prefs = cur.fetchall()
+            
+            created = 0
+            for user_id, in_app, browser_push, email in prefs:
+                # Dedup: spool_low — skip if unread alert exists for same spool
+                if alert_type == 'spool_low' and spool_id:
+                    cur.execute("""
+                        SELECT 1 FROM alerts 
+                        WHERE user_id = ? AND alert_type = 'SPOOL_LOW' 
+                        AND spool_id = ? AND is_read = 0 AND is_dismissed = 0
+                        LIMIT 1
+                    """, (user_id, spool_id))
+                    if cur.fetchone():
+                        continue
+                
+                # Create in-app alert
+                cur.execute("""
+                    INSERT INTO alerts 
+                    (user_id, alert_type, severity, title, message, 
+                     printer_id, job_id, spool_id, metadata_json, is_read, is_dismissed, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+                """, (user_id, alert_type.upper(), severity.upper(), title, message,
+                      self.printer_id, job_id, spool_id,
+                      json.dumps(metadata) if metadata else None,
+                      datetime.now().isoformat()))
+                created += 1
+            
+            conn.commit()
+            conn.close()
+            if created > 0:
+                log.info(f"[{self.name}] Alert dispatched: {alert_type} to {created} users")
+        except Exception as e:
+            log.error(f"[{self.name}] Failed to dispatch alert: {e}")
+
     def _on_status(self, status):
         """Handle incoming MQTT status update."""
         with self._lock:
             raw = status.raw_data.get('print', {})
+            
+            # Update telemetry + heartbeat (throttled to every 10 seconds)
+            if time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    bed_t = self._state.get('bed_temper')
+                    bed_tt = self._state.get('bed_target_temper')
+                    noz_t = self._state.get('nozzle_temper')
+                    noz_tt = self._state.get('nozzle_target_temper')
+                    gstate = self._state.get('gcode_state')
+                    stg_cur = self._state.get('stg_cur', -1)
+                    _smap = {0:'Idle',1:'Auto-leveling',2:'Heatbed preheating',3:'Sweeping XY',
+                             4:'Changing filament',5:'Paused',6:'Filament runout',7:'Heating hotend',
+                             8:'Calibrating',9:'Homing',10:'Cleaning nozzle',11:'Heating bed',
+                             12:'Scanning bed',13:'First layer check',14:'Printing',255:'Idle',-1:'Idle'}
+                    stage = _smap.get(stg_cur, 'Stage %s' % stg_cur)
+                    # Clear stage label when not actively printing
+                    if gstate not in ('RUNNING', 'PREPARE', 'PAUSE'):
+                        stage = 'Idle'
+                    import json as _json
+                    hms_raw = self._state.get('hms', [])
+                    hms_j = _json.dumps(hms_raw) if hms_raw else None
+                    lights = self._state.get('lights_report', [])
+                    lights_on_raw = any(l.get('mode') == 'on' for l in lights) if lights else None
+                    # Check cooldown - don't overwrite if toggled via API within last 20s
+                    cooldown_row = conn.execute('SELECT lights_toggled_at FROM printers WHERE id=?', (self.printer_id,)).fetchone()
+                    lights_on = lights_on_raw
+                    if cooldown_row and cooldown_row[0]:
+                        from datetime import datetime as _dt
+                        try:
+                            if (_dt.utcnow() - _dt.fromisoformat(cooldown_row[0])).total_seconds() < 20:
+                                lights_on = None
+                        except: pass
+                    noz_type = self._state.get('nozzle_type')
+                    noz_dia = self._state.get('nozzle_diameter')
+                    if isinstance(noz_dia, str):
+                        try: noz_dia = float(noz_dia)
+                        except: noz_dia = None
+                    conn.execute(
+                        "UPDATE printers SET last_seen=datetime('now'),"
+                        " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
+                        " gcode_state=?,print_stage=?,hms_errors=?,lights_on=COALESCE(?,lights_on),"
+                        " nozzle_type=?,nozzle_diameter=? WHERE id=?",
+                        (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
+                         hms_j, lights_on, noz_type, noz_dia, self.printer_id))
+                    conn.commit()
+                    conn.close()
+                    self._last_heartbeat = time.time()
+                    
+                    # Process HMS errors through universal handler for alerts
+                    if hms_raw:
+                        printer_events.process_hms_errors(self.printer_id, hms_raw)
+                        
+                except Exception as e:
+                    log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
+            
+            # Check for camera URL auto-discovery (X1C only broadcasts this)
+            ipcam = raw.get('ipcam', {})
+            rtsp_url = ipcam.get('rtsp_url')
+            if rtsp_url:
+                # Build full URL with auth
+                full_url = f"rtsps://bblp:{self.access_code}@{self.ip}:322/streaming/live/1"
+                printer_events.discover_camera(self.printer_id, full_url)
             
             # Merge partial updates into state
             for key, value in raw.items():
@@ -98,12 +242,69 @@ class PrinterMonitor:
             if self._current_job_id and time.time() - self._last_progress_update >= 5:
                 self._update_progress()
             
+
+            # Check AMS spool levels (throttled to every 60 seconds)
+            if time.time() - self._last_spool_check >= 60:
+                self._check_spool_levels()
+                self._last_spool_check = time.time()
+            
             # Check for state transitions
             gcode_state = self._state.get('gcode_state')
             if gcode_state and gcode_state != self._last_gcode_state:
                 self._on_state_change(self._last_gcode_state, gcode_state)
                 self._last_gcode_state = gcode_state
     
+
+    def _check_spool_levels(self):
+        """Check AMS spool remaining weights and fire spool_low alerts."""
+        ams_data = self._state.get('ams', {})
+        if not ams_data:
+            return
+        
+        # Get threshold from first user's preference (they all share the same default)
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT threshold_value FROM alert_preferences 
+                WHERE alert_type = 'spool_low' AND threshold_value IS NOT NULL
+                LIMIT 1
+            """)
+            row = cur.fetchone()
+            threshold = row[0] if row else 100.0
+            conn.close()
+        except Exception:
+            threshold = 100.0
+        
+        # Check filament slots for this printer
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT fs.slot_number, fs.assigned_spool_id, s.remaining_weight_g,
+                       fl.brand, fl.name as filament_name
+                FROM filament_slots fs
+                LEFT JOIN spools s ON fs.assigned_spool_id = s.id
+                LEFT JOIN filament_library fl ON s.filament_id = fl.id
+                WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
+            """, (self.printer_id,))
+            
+            for slot_num, spool_id, remaining, brand, fil_name in cur.fetchall():
+                if remaining is not None and remaining < threshold and remaining > 0:
+                    spool_label = f"{brand} {fil_name}" if brand and fil_name else f"Spool #{spool_id}"
+                    self._dispatch_alert(
+                        alert_type='spool_low',
+                        severity='warning',
+                        title=f"Low Spool: {spool_label} ({self.name} slot {slot_num})",
+                        message=f"{remaining:.0f}g remaining (threshold: {threshold:.0f}g)",
+                        spool_id=spool_id,
+                        metadata={"remaining_g": remaining, "threshold_g": threshold, "slot": slot_num}
+                    )
+            
+            conn.close()
+        except Exception as e:
+            log.error(f"[{self.name}] Spool level check failed: {e}")
+
     def _on_state_change(self, old_state: Optional[str], new_state: str):
         """Handle print state transitions."""
         log.info(f"[{self.name}] State: {old_state} -> {new_state}")
@@ -265,6 +466,59 @@ class PrinterMonitor:
             conn.commit()
             conn.close()
             log.info(f"[{self.name}] Job {status}: DB id {self._current_job_id}")
+            
+            # Dispatch alerts for job completion/failure
+            job_name = self._state.get('subtask_name', 'Unknown')
+            if status == 'completed':
+                self._dispatch_alert(
+                    alert_type='print_complete',
+                    severity='info',
+                    title=f"Print Complete: {job_name} ({self.name})",
+                    message=f"Job finished successfully on {self.name}.",
+                    job_id=self._linked_job_id or self._current_job_id,
+                )
+            # Increment care counters on successful completion
+            if status == 'completed':
+                # Calculate duration from print_jobs record
+                try:
+                    conn2 = sqlite3.connect(DB_PATH)
+                    cur2 = conn2.cursor()
+                    cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (self._current_job_id,))
+                    row = cur2.fetchone()
+                    if row and row[0] and row[1]:
+                        from datetime import datetime as dt
+                        started = dt.fromisoformat(row[0])
+                        ended = dt.fromisoformat(row[1])
+                        duration_sec = (ended - started).total_seconds()
+                        printer_events.increment_care_counters(self.printer_id, duration_sec / 3600.0, 1)
+                    conn2.close()
+                except Exception as ce:
+                    log.warning(f"[{self.name}] Failed to update care counters: {ce}")
+
+            elif status == 'failed':
+                progress = self._state.get('mc_percent', 0)
+                err = self._state.get('print_error')
+                msg = f"Job failed on {self.name} at {progress}% progress."
+                if err:
+                    msg += f" Error code: {err}"
+                self._dispatch_alert(
+                    alert_type='print_failed',
+                    severity='critical',
+                    title=f"Print Failed: {job_name} ({self.name})",
+                    message=msg,
+                    job_id=self._linked_job_id or self._current_job_id,
+                    metadata={"progress_percent": progress, "error_code": err}
+                )
+                # Record error in universal format
+                printer_events.record_error(
+                    printer_id=self.printer_id,
+                    error_code=str(err) if err else "PRINT_FAILED",
+                    error_message=msg,
+                    source="bambu_job",
+                    severity="error",
+                    create_alert=False  # Already dispatched above
+                )
+            
             self._current_job_id = None
             self._linked_job_id = None
         except Exception as e:
@@ -395,14 +649,118 @@ class MQTTMonitorDaemon:
             else:
                 log.info("No Moonraker printers configured")
         
-        # Keep running
+        # Keep running with periodic reconnection checks
+        self._all_printers = printers  # Save for reconnection
+        if MOONRAKER_AVAILABLE:
+            self._all_moonraker = mk_printers if mk_printers else []
+        else:
+            self._all_moonraker = []
+        self._last_reconnect_check = time.time()
+        
         try:
             while self._running:
                 time.sleep(1)
+                # Every 30s, check for dead connections and reconnect
+                if time.time() - self._last_reconnect_check >= 30:
+                    self._check_reconnect()
+                    self._last_reconnect_check = time.time()
         except KeyboardInterrupt:
             log.info("Shutting down...")
         
         self.stop()
+    
+    def _check_reconnect(self):
+        """Check for dead connections and attempt reconnection."""
+        # Check Bambu printers
+        for p in self._all_printers:
+            pid = p['id']
+            monitor = self.monitors.get(pid)
+            
+            if monitor is None:
+                # Never connected - try again
+                log.info(f"[{p['name']}] Attempting initial connection...")
+                new_mon = PrinterMonitor(
+                    printer_id=p['id'],
+                    name=p['name'],
+                    ip=p['ip'],
+                    serial=p['serial'],
+                    access_code=p['access_code']
+                )
+                if new_mon.connect():
+                    self.monitors[pid] = new_mon
+                    log.info(f"[{p['name']}] Reconnected successfully")
+                continue
+            
+            # Check if connection is dead
+            is_dead = False
+            if hasattr(monitor, '_bambu') and monitor._bambu:
+                if not monitor._bambu._connected:
+                    is_dead = True
+            
+            # Also check staleness - no heartbeat in 60s
+            if not is_dead and monitor._last_heartbeat > 0:
+                if time.time() - monitor._last_heartbeat > 60:
+                    is_dead = True
+            
+            if is_dead:
+                log.info(f"[{monitor.name}] Connection dead, reconnecting...")
+                try:
+                    monitor.disconnect()
+                except:
+                    pass
+                
+                new_mon = PrinterMonitor(
+                    printer_id=p['id'],
+                    name=p['name'],
+                    ip=p['ip'],
+                    serial=p['serial'],
+                    access_code=p['access_code']
+                )
+                if new_mon.connect():
+                    self.monitors[pid] = new_mon
+                    log.info(f"[{monitor.name}] Reconnected successfully")
+                else:
+                    log.warning(f"[{monitor.name}] Reconnection failed, will retry in 30s")
+                    del self.monitors[pid]
+        
+        # Check Moonraker printers
+        for p in self._all_moonraker:
+            pid = p['id']
+            monitor = self.monitors.get(pid)
+            
+            if monitor is None:
+                log.info(f"[{p['name']}] Attempting Moonraker connection...")
+                new_mon = MoonrakerMonitor(
+                    printer_id=p['id'],
+                    name=p['name'],
+                    host=p['host'],
+                    port=p['port'],
+                )
+                if new_mon.connect():
+                    self.monitors[pid] = new_mon
+                    log.info(f"[{p['name']}] Moonraker reconnected")
+                continue
+            
+            # Check staleness for Moonraker
+            if hasattr(monitor, '_last_heartbeat') and monitor._last_heartbeat > 0:
+                if time.time() - monitor._last_heartbeat > 60:
+                    log.info(f"[{monitor.name}] Moonraker stale, reconnecting...")
+                    try:
+                        monitor.disconnect()
+                    except:
+                        pass
+                    new_mon = MoonrakerMonitor(
+                        printer_id=p['id'],
+                        name=p['name'],
+                        host=p['host'],
+                        port=p['port'],
+                    )
+                    if new_mon.connect():
+                        self.monitors[pid] = new_mon
+                        log.info(f"[{monitor.name}] Moonraker reconnected")
+                    else:
+                        log.warning(f"[{monitor.name}] Moonraker reconnection failed")
+                        del self.monitors[pid]
     
     def stop(self):
         """Stop all monitors."""

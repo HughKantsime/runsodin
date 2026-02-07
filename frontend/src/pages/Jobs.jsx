@@ -9,10 +9,10 @@ function formatHours(h) {
 }
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap , RefreshCw} from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { jobs, models, printers } from '../api'
+import { jobs, models, printers, scheduler } from '../api'
 import { canDo } from '../permissions'
 
 const statusOptions = [
@@ -108,9 +108,14 @@ function JobRow({ job, onAction }) {
             </button>
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
-            <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded" title="Delete">
-              <Trash2 size={16} />
-            </button>
+            <>
+              <button onClick={() => onAction('repeat', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded" title="Print Again">
+                <RefreshCw size={14} />
+              </button>
+              <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded" title="Delete">
+                <Trash2 size={16} />
+              </button>
+            </>
           )}
         </div>
       </td>
@@ -209,6 +214,13 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
 
 export default function Jobs() {
   const queryClient = useQueryClient()
+  const runScheduler = useMutation({
+    mutationFn: scheduler.run,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['jobs'])
+      queryClient.invalidateQueries(['stats'])
+    }
+  })
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -246,9 +258,24 @@ export default function Jobs() {
     onSuccess: () => queryClient.invalidateQueries(['jobs']),
   })
 
+  
+
+
   const deleteJob = useMutation({
     mutationFn: jobs.delete,
     onSuccess: () => queryClient.invalidateQueries(['jobs']),
+  })
+
+  const repeatJob = useMutation({
+    mutationFn: async (jobId) => {
+      const token = localStorage.getItem('token')
+      const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const res = await fetch(API_BASE + '/jobs/' + jobId + '/repeat', { method: 'POST', headers })
+      if (!res.ok) throw new Error('Failed to repeat job')
+      return res.json()
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
   })
 
   const handleAction = (action, jobId) => {
@@ -256,6 +283,7 @@ export default function Jobs() {
       case 'start': startJob.mutate(jobId); break
       case 'complete': completeJob.mutate(jobId); break
       case 'cancel': cancelJob.mutate(jobId); break
+      case 'repeat': repeatJob.mutate(jobId); break
       case 'delete': if (confirm('Delete this job?')) deleteJob.mutate(jobId); break
     }
   }
@@ -303,9 +331,16 @@ export default function Jobs() {
           <h1 className="text-2xl md:text-3xl font-display font-bold">Jobs</h1>
           <p className="text-farm-500 text-sm mt-1">Manage print queue</p>
         </div>
-        {canDo('jobs.create') && <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm self-start">
-          <Plus size={16} /> New Job
-        </button>}
+        <div className="flex items-center gap-2 self-start">
+          <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
+            className={clsx('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-farm-800 hover:bg-farm-700 border border-farm-700', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
+            <Zap size={16} />
+            {runScheduler.isPending ? 'Running...' : 'Run Scheduler'}
+          </button>
+          {canDo('jobs.create') && <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">
+            <Plus size={16} /> New Job
+          </button>}
+        </div>
       </div>
 
       {/* Job Type Tabs */}

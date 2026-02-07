@@ -44,6 +44,7 @@ export const printers = {
   update: (id, data) => fetchAPI('/printers/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id) => fetchAPI('/printers/' + id, { method: 'DELETE' }),
   reorder: (ids) => fetchAPI('/printers/reorder', { method: 'POST', body: JSON.stringify({ printer_ids: ids }) }),
+  toggleLights: (id) => fetchAPI(`/printers/${id}/lights`, { method: 'POST' }),
   updateSlot: (printerId, slotNumber, data) => 
     fetchAPI('/printers/' + printerId + '/slots/' + slotNumber, { method: 'PATCH', body: JSON.stringify(data) }),
 }
@@ -297,4 +298,51 @@ export const spools = {
     method: 'POST',
     body: JSON.stringify({ qr_code: qrCode, printer_id: printerId, slot: slot }),
   }),
+};
+
+
+// ============== Alerts & Notifications (v0.17.0) ==============
+
+export const alerts = {
+  list: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.severity) query.set('severity', params.severity);
+    if (params.alert_type) query.set('alert_type', params.alert_type);
+    if (params.is_read !== undefined) query.set('is_read', params.is_read);
+    if (params.limit) query.set('limit', params.limit);
+    if (params.offset) query.set('offset', params.offset);
+    const qs = query.toString();
+    return fetchAPI(`/alerts${qs ? '?' + qs : ''}`);
+  },
+  unreadCount: () => fetchAPI('/alerts/unread-count'),
+  summary: () => fetchAPI('/alerts/summary'),
+  markRead: (id) => fetchAPI(`/alerts/${id}/read`, { method: 'PATCH' }),
+  markAllRead: () => fetchAPI('/alerts/mark-all-read', { method: 'POST' }),
+  dismiss: (id) => fetchAPI(`/alerts/${id}/dismiss`, { method: 'PATCH' }),
+};
+
+export const alertPreferences = {
+  get: () => fetchAPI('/alert-preferences'),
+  update: (preferences) => fetchAPI('/alert-preferences', {
+    method: 'PUT',
+    body: JSON.stringify({ preferences }),
+  }),
+};
+
+export const smtpConfig = {
+  get: () => fetchAPI('/smtp-config'),
+  update: (data) => fetchAPI('/smtp-config', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  testEmail: () => fetchAPI('/alerts/test-email', { method: 'POST' }),
+};
+
+export const pushNotifications = {
+  getVapidKey: () => fetchAPI('/push/vapid-key'),
+  subscribe: (data) => fetchAPI('/push/subscribe', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  unsubscribe: () => fetchAPI('/push/subscribe', { method: 'DELETE' }),
 };

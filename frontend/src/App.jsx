@@ -7,26 +7,29 @@ import {
   Video, 
   Calendar, 
   Printer, 
-  Package, 
+  Box,
   ListTodo,
   Settings,
   Activity,
   BarChart3,
   Calculator,
   Upload as UploadIcon,
-  Shield,
   LogOut,
   ChevronLeft,
   ChevronRight,
   Menu,
   X,
-  Palette,
   ChevronDown,
   Wrench,
   ShoppingCart,
+  Bell as BellIcon,
+  ShoppingBag,
+  Circle,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
+import AlertBell from './components/AlertBell'
+import EmergencyStop from './components/EmergencyStop'
 import GlobalSearch from './components/GlobalSearch'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
@@ -39,14 +42,12 @@ import SettingsPage from './pages/Settings'
 import Spools from './pages/Spools'
 import Upload from './pages/Upload'
 import Login from './pages/Login'
-import Admin from './pages/Admin'
 import Maintenance from './pages/Maintenance'
-import Permissions from './pages/Permissions'
 import Cameras from "./pages/Cameras"
-import Branding from './pages/Branding'
 import Products from './pages/Products'
 import Orders from './pages/Orders'
-import { stats } from './api'
+import Alerts from './pages/Alerts'
+import { stats, printers } from './api'
 
 
 function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
@@ -97,7 +98,17 @@ function NavGroup({ label, collapsed, open, onToggle }) {
 
 function Sidebar({ mobileOpen, onMobileClose }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [sections, setSections] = useState({ work: true, library: true, analyze: true, system: true })
+  const [sections, setSections] = useState({ work: true, library: true, monitor: true, tools: true })
+  const [uiMode, setUiMode] = useState('advanced')
+  useEffect(() => {
+    const key = localStorage.getItem('pf_api_key') || ''
+    fetch('/api/pricing-config', { headers: { 'X-API-Key': key } })
+      .then(r => r.json()).then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
+    const handler = (e) => setUiMode(e.detail)
+    window.addEventListener('ui-mode-changed', handler)
+    return () => window.removeEventListener('ui-mode-changed', handler)
+  }, [])
+  const adv = uiMode === 'advanced'
   const toggle = (key) => setSections(s => ({ ...s, [key]: !s[key] }))
   const branding = useBranding()
 
@@ -105,6 +116,11 @@ function Sidebar({ mobileOpen, onMobileClose }) {
     queryKey: ['stats'],
     queryFn: stats.get,
     refetchInterval: 30000,
+  })
+  const { data: printersData } = useQuery({
+    queryKey: ['sidebar-printers'],
+    queryFn: () => printers.list(),
+    refetchInterval: 15000,
   })
 
   // Close mobile menu on nav click
@@ -184,68 +200,61 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>Dashboard</NavItem>}
           {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>Printers</NavItem>}
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>Cameras</NavItem>}
+          {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
 
           {/* Work */}
-          {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("maintenance")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
+          {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
           {((collapsed && !mobileOpen) || sections.work) && <>
             {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>Jobs</NavItem>}
-            {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
+            {adv && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders</NavItem>}
             {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>Upload</NavItem>}
-            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance</NavItem>}
-            {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders</NavItem>}
           </>}
 
           {/* Library */}
           {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
           {((collapsed && !mobileOpen) || sections.library) && <>
-            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={Package} onClick={handleNavClick}>Products</NavItem>}
-            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Package} onClick={handleNavClick}>Models</NavItem>}
-            {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Package} onClick={handleNavClick}>Spools</NavItem>}
+            {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>Models</NavItem>}
+            {adv && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products</NavItem>}
+            {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>Spools</NavItem>}
           </>}
 
-          {/* Analyze */}
-          {(canAccessPage("analytics") || canAccessPage("calculator")) && <NavGroup label="Analyze" collapsed={collapsed && !mobileOpen} open={sections.analyze} onToggle={() => toggle("analyze")} />}
-          {((collapsed && !mobileOpen) || sections.analyze) && <>
+          {/* Monitor */}
+          {adv && (canAccessPage("analytics") || canAccessPage("maintenance")) && <NavGroup label="Monitor" collapsed={collapsed && !mobileOpen} open={sections.monitor} onToggle={() => toggle("monitor")} />}
+          {adv && ((collapsed && !mobileOpen) || sections.monitor) && <>
+            <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>Alerts</NavItem>
+            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance</NavItem>}
             {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics</NavItem>}
+          </>}
+
+          {/* Tools */}
+          {adv && canAccessPage("calculator") && <NavGroup label="Tools" collapsed={collapsed && !mobileOpen} open={sections.tools} onToggle={() => toggle("tools")} />}
+          {adv && ((collapsed && !mobileOpen) || sections.tools) && <>
             {canAccessPage('calculator') && <NavItem collapsed={collapsed && !mobileOpen} to="/calculator" icon={Calculator} onClick={handleNavClick}>Calculator</NavItem>}
           </>}
 
-          {/* System */}
-          {(canAccessPage("settings") || canAccessPage("admin")) && <NavGroup label="System" collapsed={collapsed && !mobileOpen} open={sections.system} onToggle={() => toggle("system")} />}
-          {((collapsed && !mobileOpen) || sections.system) && <>
+          {/* Settings */}
+          <div className="mt-2" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingTop: '0.5rem' }}>
             {canAccessPage('settings') && <NavItem collapsed={collapsed && !mobileOpen} to="/settings" icon={Settings} onClick={handleNavClick}>Settings</NavItem>}
-            {canAccessPage('admin') && <NavItem collapsed={collapsed && !mobileOpen} to="/admin" icon={Shield} onClick={handleNavClick}>Admin</NavItem>}
-            {canAccessPage('admin') && <NavItem collapsed={collapsed && !mobileOpen} to="/permissions" icon={Shield} onClick={handleNavClick}>Permissions</NavItem>}
-            {canAccessPage('admin') && <NavItem collapsed={collapsed && !mobileOpen} to="/branding" icon={Palette} onClick={handleNavClick}>Branding</NavItem>}
-          </>}
+          </div>
         </nav>
 
-        {/* Quick Stats */}
-        {statsData && (!collapsed || mobileOpen) && (
-          <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
-                <div className="text-2xl font-bold" style={{ color: 'var(--brand-accent)' }}>
-                  {statsData.jobs?.printing || 0}
-                </div>
-                <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Printing</div>
-              </div>
-              <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--brand-card-bg)' }}>
-                <div className="text-2xl font-bold text-status-pending">
-                  {statsData.jobs?.pending || 0}
-                </div>
-                <div className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>Pending</div>
-              </div>
+        {/* Fleet Status */}
+        {printersData && (!collapsed || mobileOpen) && (
+          <NavLink to="/printers" className="flex-shrink-0 px-4 py-3 flex items-center gap-2 hover:opacity-80 transition-opacity" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+            <div className="flex gap-0.5">
+              {printersData.map(p => {
+                const online = p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000
+                return <div key={p.id} className={`w-2 h-2 rounded-full ${online ? 'bg-green-500' : 'bg-farm-600'}`} />
+              })}
             </div>
-          </div>
+            <span className="text-xs" style={{ color: 'var(--brand-sidebar-text)' }}>
+              {printersData.filter(p => p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000).length}/{printersData.length} online
+            </span>
+          </NavLink>
         )}
 
         {/* Footer */}
-        <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
-          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--brand-sidebar-text)' }}>
-            <Activity size={14} className="text-green-500" />
-            {(!collapsed || mobileOpen) && <span>{branding.footer_text}</span>}
-          </div>
+        <div className="flex-shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
           <button
             onClick={() => {
               localStorage.removeItem("token");
@@ -286,6 +295,7 @@ function MobileHeader({ onMenuClick }) {
       </div>
       <div className="flex items-center gap-2">
         <GlobalSearch />
+        <AlertBell />
         <button 
           onClick={onMenuClick}
           className="p-2 rounded-lg transition-colors"
@@ -351,8 +361,9 @@ export default function App() {
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Desktop search header */}
-          <div className="hidden md:flex items-center justify-end p-4 border-b border-farm-800" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <div className="hidden md:flex items-center justify-end gap-3 p-4 border-b border-farm-800" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />
+            <AlertBell />
           </div>
           <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <Routes>
@@ -366,14 +377,16 @@ export default function App() {
             <Route path="/upload" element={<Upload />} />
             <Route path="/spools" element={<Spools />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/permissions" element={<Permissions />} />
+            <Route path="/admin" element={<Navigate to="/settings" replace />} />
+            <Route path="/permissions" element={<Navigate to="/settings" replace />} />
             <Route path="/maintenance" element={<Maintenance />} />
             <Route path="/cameras" element={<Cameras />} />
-            <Route path="/branding" element={<Branding />} />
+            <Route path="/branding" element={<Navigate to="/settings" replace />} />
             <Route path="/products" element={<Products />} />
             <Route path="/orders" element={<Orders />} />
+            <Route path="/alerts" element={<Alerts />} />
           </Routes>
+            <EmergencyStop />
           </main>
         </div>
       </div>

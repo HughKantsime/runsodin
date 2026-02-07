@@ -32,6 +32,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 from models import (Spool, SpoolUsage, SpoolStatus, AuditLog, 
     Base, Printer, FilamentSlot, Model, Job, JobStatus,
     FilamentType, SchedulerRun, init_db, FilamentLibrary,
+    Alert, AlertPreference, AlertType, AlertSeverity, PushSubscription,
     MaintenanceTask, MaintenanceLog, SystemConfig
 )
 
@@ -52,7 +53,10 @@ from schemas import (
     SchedulerConfig as SchedulerConfigSchema, ScheduleResult, SchedulerRunResponse,
     TimelineResponse, TimelineSlot,
     SpoolmanSpool, SpoolmanSyncResult,
-    HealthCheck
+    HealthCheck,
+    AlertResponse, AlertSummary, AlertPreferenceResponse,
+    AlertPreferencesUpdate, SmtpConfigBase, SmtpConfigResponse,
+    PushSubscriptionCreate, AlertTypeEnum, AlertSeverityEnum
 )
 from scheduler import Scheduler, SchedulerConfig, run_scheduler
 from config import settings
@@ -61,7 +65,25 @@ import crypto
 
 # Database setup
 engine = create_engine(settings.database_url, echo=settings.debug)
+# Enable WAL mode for concurrent read support (5-10 readers + writers)
+with engine.connect() as conn:
+    conn.execute(text("PRAGMA journal_mode=WAL"))
+    conn.execute(text("PRAGMA busy_timeout=5000"))
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Compute is_online from last_seen timestamp
+def compute_printer_online(printer_dict):
+    """Add is_online field based on last_seen within 90 seconds."""
+    from datetime import datetime, timedelta
+    if printer_dict.get('last_seen'):
+        try:
+            last = datetime.fromisoformat(str(printer_dict['last_seen']))
+            printer_dict['is_online'] = (datetime.utcnow() - last).total_seconds() < 90
+        except:
+            printer_dict['is_online'] = False
+    else:
+        printer_dict['is_online'] = False
+    return printer_dict
+
 
 
 def get_db():
@@ -875,6 +897,75 @@ class TestConnectionRequest(PydanticBaseModel):
     access_code: Optional[str] = None
 
 
+
+@app.post("/api/printers/{printer_id}/lights", tags=["Printers"])
+def toggle_printer_lights(printer_id: int, db: Session = Depends(get_db)):
+    """Toggle chamber lights on/off for a Bambu printer."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    if not printer.api_type or printer.api_type.lower() != "bambu":
+        raise HTTPException(status_code=400, detail="Light control only supported for Bambu printers")
+    if not printer.api_host or not printer.api_key:
+        raise HTTPException(status_code=400, detail="Printer connection not configured")
+    
+    decrypted_key = crypto.decrypt(printer.api_key)
+    if "|" not in decrypted_key:
+        raise HTTPException(status_code=400, detail="Invalid api_key format")
+    
+    serial, access_code = decrypted_key.split("|", 1)
+    
+    # Determine desired state (toggle from current)
+    turn_on = not printer.lights_on
+    
+    try:
+        from bambu_adapter import BambuPrinter
+        import time
+        
+        bambu = BambuPrinter(
+            ip=printer.api_host,
+            serial=serial,
+            access_code=access_code
+        )
+        
+        if not bambu.connect():
+            raise HTTPException(status_code=503, detail="Failed to connect to printer")
+        
+        time.sleep(3)
+        
+        payload = {
+            'system': {
+                'sequence_id': '0',
+                'command': 'ledctrl',
+                'led_node': 'chamber_light',
+                'led_mode': 'on' if turn_on else 'off'
+            }
+        }
+        success = bambu._publish(payload)
+        
+        time.sleep(1)
+        bambu.disconnect()
+        
+        if not success:
+            raise HTTPException(status_code=503, detail="Failed to send light command")
+        
+        # Update DB immediately + set cooldown so monitor doesn't overwrite
+        from datetime import datetime
+        printer.lights_on = turn_on
+        printer.lights_toggled_at = datetime.utcnow()
+        db.commit()
+        db.refresh(printer)
+        
+        return {"lights_on": turn_on, "message": f"Lights {'on' if turn_on else 'off'}"}
+        
+    except ImportError:
+        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Printer connection error: {str(e)}")
+
 @app.post("/api/printers/test-connection", tags=["Printers"])
 def test_printer_connection(request: TestConnectionRequest):
     """
@@ -1256,6 +1347,43 @@ def delete_job(job_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+
+@app.post("/api/jobs/{job_id}/repeat", tags=["Jobs"])
+async def repeat_job(job_id: int, db: Session = Depends(get_db)):
+    """Clone a job for printing again. Creates a new pending job with same settings."""
+    original = db.query(Job).filter(Job.id == job_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Create new job with same settings
+    new_job = Job(
+        model_id=original.model_id,
+        item_name=original.item_name,
+        quantity=original.quantity,
+        status="pending",
+        priority=original.priority,
+        printer_id=original.printer_id,  # Same printer preference
+        duration_hours=original.duration_hours,
+        colors_required=original.colors_required,
+        filament_type=original.filament_type,
+        notes=f"Repeat of job #{job_id}" + (f" - {original.notes}" if original.notes else ""),
+        estimated_cost=original.estimated_cost,
+        suggested_price=original.suggested_price,
+        quantity_on_bed=original.quantity_on_bed,
+    )
+    
+    db.add(new_job)
+    db.commit()
+    db.refresh(new_job)
+    
+    return {
+        "success": True,
+        "message": f"Job cloned successfully",
+        "original_job_id": job_id,
+        "new_job_id": new_job.id
+    }
+
+
 @app.post("/api/jobs/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
 def start_job(job_id: int, db: Session = Depends(get_db)):
     """Mark a job as started (printing)."""
@@ -1503,7 +1631,7 @@ def get_timeline(
     slot_duration = 30  # minutes
     
     # Get printers
-    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
     printer_summaries = [
         PrinterSummary(
             id=p.id,
@@ -2148,7 +2276,7 @@ def get_analytics(db: Session = Depends(get_db)):
             projected_cost += job.estimated_cost * job.quantity
     
     # Printer utilization
-    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
     printer_stats = []
     for printer in printers:
         printer_jobs = [j for j in completed_jobs if j.printer_id == printer.id]
@@ -4073,6 +4201,242 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     return {"access_token": access_token, "token_type": "bearer"}
 
+# =============================================================================
+# OIDC / SSO Authentication
+# =============================================================================
+
+@app.get("/api/auth/oidc/config", tags=["Auth"])
+async def get_oidc_public_config(db: Session = Depends(get_db)):
+    """Get public OIDC config for login page (is SSO enabled, display name)."""
+    row = db.execute(text("SELECT is_enabled, display_name FROM oidc_config LIMIT 1")).fetchone()
+    if not row:
+        return {"enabled": False}
+    return {
+        "enabled": bool(row[0]),
+        "display_name": row[1] or "Single Sign-On",
+    }
+
+
+@app.get("/api/auth/oidc/login", tags=["Auth"])
+async def oidc_login(request: Request, db: Session = Depends(get_db)):
+    """Initiate OIDC login flow. Redirects to identity provider."""
+    from oidc_handler import create_handler_from_config
+    
+    row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled = 1 LIMIT 1")).fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="OIDC not configured")
+    
+    config = dict(row._mapping)
+    
+    # Build redirect URI from request
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/auth/oidc/callback"
+    
+    handler = create_handler_from_config(config, redirect_uri)
+    
+    import asyncio
+    url, state = asyncio.get_event_loop().run_until_complete(
+        handler.get_authorization_url()
+    )
+    
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=url, status_code=302)
+
+
+@app.get("/api/auth/oidc/callback", tags=["Auth"])
+async def oidc_callback(
+    request: Request,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    error_description: str = None,
+    db: Session = Depends(get_db)
+):
+    """Handle OIDC callback from identity provider."""
+    from oidc_handler import create_handler_from_config
+    from fastapi.responses import RedirectResponse
+    
+    # Handle errors from provider
+    if error:
+        log.error(f"OIDC error: {error} - {error_description}")
+        return RedirectResponse(url=f"/?error={error}", status_code=302)
+    
+    if not code or not state:
+        return RedirectResponse(url="/?error=missing_params", status_code=302)
+    
+    # Get OIDC config
+    row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled = 1 LIMIT 1")).fetchone()
+    if not row:
+        return RedirectResponse(url="/?error=oidc_not_configured", status_code=302)
+    
+    config = dict(row._mapping)
+    
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/auth/oidc/callback"
+    
+    handler = create_handler_from_config(config, redirect_uri)
+    
+    # Validate state
+    if not handler.validate_state(state):
+        return RedirectResponse(url="/?error=invalid_state", status_code=302)
+    
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        # Exchange code for tokens
+        tokens = loop.run_until_complete(handler.exchange_code(code))
+        
+        # Parse ID token to get user info
+        id_token_claims = handler.parse_id_token(tokens["id_token"])
+        
+        # Also get user info from Graph API for more details
+        user_info = loop.run_until_complete(
+            handler.get_user_info(tokens["access_token"])
+        )
+        
+        # Extract user details
+        oidc_subject = id_token_claims.get("sub") or id_token_claims.get("oid")
+        email = user_info.get("mail") or user_info.get("userPrincipalName") or id_token_claims.get("email")
+        display_name = user_info.get("displayName") or id_token_claims.get("name") or email
+        
+        if not oidc_subject or not email:
+            log.error(f"Missing required claims: sub={oidc_subject}, email={email}")
+            return RedirectResponse(url="/?error=missing_claims", status_code=302)
+        
+        # Find or create user
+        existing = db.execute(
+            text("SELECT * FROM users WHERE oidc_subject = :sub AND oidc_provider = 'microsoft'"),
+            {"sub": oidc_subject}
+        ).fetchone()
+        
+        if existing:
+            # Update last login
+            user_id = existing[0]
+            db.execute(
+                text("UPDATE users SET last_login = :now, email = :email WHERE id = :id"),
+                {"now": datetime.utcnow().isoformat(), "email": email, "id": user_id}
+            )
+            db.commit()
+            user_role = existing._mapping.get("role", "operator")
+        elif config.get("auto_create_users", True):
+            # Create new user
+            username = email.split("@")[0]  # Use email prefix as username
+            default_role = config.get("default_role", "operator")
+            
+            # Ensure unique username
+            base_username = username
+            counter = 1
+            while db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": username}).fetchone():
+                username = f"{base_username}{counter}"
+                counter += 1
+            
+            db.execute(
+                text("""
+                    INSERT INTO users (username, email, password_hash, role, oidc_subject, oidc_provider, last_login)
+                    VALUES (:username, :email, '', :role, :sub, 'microsoft', :now)
+                """),
+                {
+                    "username": username,
+                    "email": email,
+                    "role": default_role,
+                    "sub": oidc_subject,
+                    "now": datetime.utcnow().isoformat(),
+                }
+            )
+            db.commit()
+            
+            user_id = db.execute(text("SELECT last_insert_rowid()")).fetchone()[0]
+            user_role = default_role
+            log.info(f"Created OIDC user: {username} ({email})")
+        else:
+            log.warning(f"OIDC user not found and auto-create disabled: {email}")
+            return RedirectResponse(url="/?error=user_not_found", status_code=302)
+        
+        # Generate JWT
+        import jwt
+        jwt_secret = os.environ.get("JWT_SECRET", "change-me-in-production")
+        access_token = jwt.encode(
+            {
+                "sub": str(user_id),
+                "username": existing._mapping.get("username") if existing else username,
+                "role": user_role,
+                "exp": datetime.utcnow() + timedelta(hours=24),
+            },
+            jwt_secret,
+            algorithm="HS256",
+        )
+        
+        # Redirect to frontend with token
+        # Frontend will store this and complete login
+        return RedirectResponse(
+            url=f"/?token={access_token}",
+            status_code=302
+        )
+        
+    except Exception as e:
+        log.error(f"OIDC callback error: {e}", exc_info=True)
+        return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
+
+
+@app.get("/api/admin/oidc", tags=["Admin"])
+async def get_oidc_config(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Get full OIDC configuration (admin only)."""
+    row = db.execute(text("SELECT * FROM oidc_config LIMIT 1")).fetchone()
+    if not row:
+        return {"configured": False}
+    
+    config = dict(row._mapping)
+    # Don't return the encrypted secret
+    if "client_secret_encrypted" in config:
+        config["has_client_secret"] = bool(config["client_secret_encrypted"])
+        del config["client_secret_encrypted"]
+    
+    return config
+
+
+@app.put("/api/admin/oidc", tags=["Admin"])
+async def update_oidc_config(
+    request: Request,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Update OIDC configuration (admin only)."""
+    data = await request.json()
+    
+    # Encrypt client secret if provided
+    client_secret = data.get("client_secret")
+    if client_secret:
+        from crypto import encrypt
+        data["client_secret_encrypted"] = encrypt(client_secret)
+        del data["client_secret"]
+    
+    # Build update query
+    allowed_fields = [
+        "display_name", "client_id", "client_secret_encrypted", "tenant_id",
+        "discovery_url", "scopes", "auto_create_users", "default_role", "is_enabled"
+    ]
+    
+    updates = []
+    params = {}
+    for field in allowed_fields:
+        if field in data:
+            updates.append(f"{field} = :{field}")
+            params[field] = data[field]
+    
+    if updates:
+        updates.append("updated_at = datetime('now')")
+        query = f"UPDATE oidc_config SET {', '.join(updates)} WHERE id = 1"
+        db.execute(text(query), params)
+        db.commit()
+    
+    return {"success": True}
+
+
+
 @app.get("/api/auth/me", tags=["Auth"])
 async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
@@ -4138,7 +4502,7 @@ def get_camera_url(printer):
 
 def sync_go2rtc_config(db: Session):
     """Regenerate go2rtc config from printer camera URLs."""
-    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
     streams = {}
     for p in printers:
         url = get_camera_url(p)
@@ -4153,6 +4517,246 @@ def sync_go2rtc_config(db: Session):
         yaml.dump(config, f, default_flow_style=False)
 
 # Camera endpoints
+
+
+# =============================================================================
+# Printer Control (Emergency Stop, Pause, Resume)
+# =============================================================================
+
+@app.post("/api/printers/{printer_id}/stop", tags=["Printers"])
+async def stop_printer(printer_id: int, db: Session = Depends(get_db)):
+    """Emergency stop - cancel current print."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    success = False
+    
+    if printer.printer_type == "moonraker":
+        from moonraker_adapter import MoonrakerPrinter
+        adapter = MoonrakerPrinter(printer.ip_address)
+        success = adapter.cancel_print()
+    else:
+        # Bambu printers
+        from bambu_adapter import BambuPrinter
+        from crypto import decrypt
+        try:
+            creds = decrypt(printer.api_key)
+            serial, access_code = creds.split("|", 1)
+            adapter = BambuPrinter(printer.ip_address, serial, access_code)
+            if adapter.connect():
+                success = adapter.stop_print()
+                adapter.disconnect()
+        except Exception as e:
+            log.error(f"Stop failed for printer {printer_id}: {e}")
+    
+    if success:
+        # Update printer state
+        db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
+        db.commit()
+        return {"success": True, "message": "Print stopped"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to stop print")
+
+
+@app.post("/api/printers/{printer_id}/pause", tags=["Printers"])
+async def pause_printer(printer_id: int, db: Session = Depends(get_db)):
+    """Pause current print."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    success = False
+    
+    if printer.printer_type == "moonraker":
+        from moonraker_adapter import MoonrakerPrinter
+        adapter = MoonrakerPrinter(printer.ip_address)
+        success = adapter.pause_print()
+    else:
+        from bambu_adapter import BambuPrinter
+        from crypto import decrypt
+        try:
+            creds = decrypt(printer.api_key)
+            serial, access_code = creds.split("|", 1)
+            adapter = BambuPrinter(printer.ip_address, serial, access_code)
+            if adapter.connect():
+                success = adapter.pause_print()
+                adapter.disconnect()
+        except Exception as e:
+            log.error(f"Pause failed for printer {printer_id}: {e}")
+    
+    if success:
+        db.execute(text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"), {"id": printer_id})
+        db.commit()
+        return {"success": True, "message": "Print paused"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to pause print")
+
+
+@app.post("/api/printers/{printer_id}/resume", tags=["Printers"])
+async def resume_printer(printer_id: int, db: Session = Depends(get_db)):
+    """Resume paused print."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    success = False
+    
+    if printer.printer_type == "moonraker":
+        from moonraker_adapter import MoonrakerPrinter
+        adapter = MoonrakerPrinter(printer.ip_address)
+        success = adapter.resume_print()
+    else:
+        from bambu_adapter import BambuPrinter
+        from crypto import decrypt
+        try:
+            creds = decrypt(printer.api_key)
+            serial, access_code = creds.split("|", 1)
+            adapter = BambuPrinter(printer.ip_address, serial, access_code)
+            if adapter.connect():
+                success = adapter.resume_print()
+                adapter.disconnect()
+        except Exception as e:
+            log.error(f"Resume failed for printer {printer_id}: {e}")
+    
+    if success:
+        db.execute(text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"), {"id": printer_id})
+        db.commit()
+        return {"success": True, "message": "Print resumed"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to resume print")
+
+
+
+# =============================================================================
+# Webhooks (Discord/Slack)
+# =============================================================================
+
+@app.get("/api/webhooks", tags=["Webhooks"])
+async def list_webhooks(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """List all webhooks."""
+    rows = db.execute(text("SELECT * FROM webhooks ORDER BY name")).fetchall()
+    return [dict(r._mapping) for r in rows]
+
+
+@app.post("/api/webhooks", tags=["Webhooks"])
+async def create_webhook(
+    request: Request,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Create a new webhook."""
+    data = await request.json()
+    
+    name = data.get("name", "Webhook")
+    url = data.get("url")
+    webhook_type = data.get("webhook_type", "discord")
+    alert_types = data.get("alert_types")  # JSON array or comma-separated
+    
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    
+    # Store alert_types as JSON
+    if isinstance(alert_types, list):
+        alert_types = json.dumps(alert_types)
+    
+    db.execute(text("""
+        INSERT INTO webhooks (name, url, webhook_type, alert_types)
+        VALUES (:name, :url, :type, :alerts)
+    """), {"name": name, "url": url, "type": webhook_type, "alerts": alert_types})
+    db.commit()
+    
+    return {"success": True, "message": "Webhook created"}
+
+
+@app.patch("/api/webhooks/{webhook_id}", tags=["Webhooks"])
+async def update_webhook(
+    webhook_id: int,
+    request: Request,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Update a webhook."""
+    data = await request.json()
+    
+    updates = []
+    params = {"id": webhook_id}
+    
+    for field in ["name", "url", "webhook_type", "is_enabled", "alert_types"]:
+        if field in data:
+            value = data[field]
+            if field == "alert_types" and isinstance(value, list):
+                value = json.dumps(value)
+            updates.append(f"{field} = :{field}")
+            params[field] = value
+    
+    if updates:
+        updates.append("updated_at = datetime('now')")
+        query = f"UPDATE webhooks SET {', '.join(updates)} WHERE id = :id"
+        db.execute(text(query), params)
+        db.commit()
+    
+    return {"success": True}
+
+
+@app.delete("/api/webhooks/{webhook_id}", tags=["Webhooks"])
+async def delete_webhook(
+    webhook_id: int,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Delete a webhook."""
+    db.execute(text("DELETE FROM webhooks WHERE id = :id"), {"id": webhook_id})
+    db.commit()
+    return {"success": True}
+
+
+@app.post("/api/webhooks/{webhook_id}/test", tags=["Webhooks"])
+async def test_webhook(
+    webhook_id: int,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Send a test message to webhook."""
+    row = db.execute(text("SELECT * FROM webhooks WHERE id = :id"), {"id": webhook_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    
+    webhook = dict(row._mapping)
+    
+    try:
+        import httpx
+        
+        if webhook["webhook_type"] == "discord":
+            payload = {
+                "embeds": [{
+                    "title": "🖨️ PrintFarm Test",
+                    "description": "Webhook connection successful!",
+                    "color": 0x00ff00,
+                    "footer": {"text": "PrintFarm Scheduler"}
+                }]
+            }
+        else:  # slack
+            payload = {
+                "blocks": [
+                    {"type": "header", "text": {"type": "plain_text", "text": "🖨️ PrintFarm Test"}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "Webhook connection successful!"}}
+                ]
+            }
+        
+        resp = httpx.post(webhook["url"], json=payload, timeout=10)
+        
+        if resp.status_code in (200, 204):
+            return {"success": True, "message": "Test message sent"}
+        else:
+            return {"success": False, "message": f"Failed: HTTP {resp.status_code}"}
+    
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 @app.get("/api/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db)):
     """List printers with active camera streams in go2rtc."""
@@ -4174,12 +4778,29 @@ def list_cameras(db: Session = Depends(get_db)):
     except Exception:
         pass
     
-    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
     cameras = []
     for p in printers:
         if p.id in active_streams:
-            cameras.append({"id": p.id, "name": p.name, "has_camera": True, "display_order": p.display_order or 0})
+            cameras.append({"id": p.id, "name": p.name, "has_camera": True, "display_order": p.display_order or 0, "camera_enabled": bool(p.camera_enabled)})
     return sorted(cameras, key=lambda x: x.get("display_order", 0))
+
+
+
+@app.patch("/api/cameras/{printer_id}/toggle", tags=["Cameras"])
+def toggle_camera(printer_id: int, db: Session = Depends(get_db)):
+    """Toggle camera on/off for a printer."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    # Toggle the camera_enabled flag
+    new_state = not (printer.camera_enabled if printer.camera_enabled is not None else True)
+    db.execute(text("UPDATE printers SET camera_enabled = :enabled WHERE id = :id"),
+               {"enabled": new_state, "id": printer_id})
+    db.commit()
+    
+    return {"id": printer_id, "camera_enabled": new_state}
 
 @app.get("/api/cameras/{printer_id}/stream", tags=["Cameras"])
 def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
@@ -4559,13 +5180,9 @@ def get_maintenance_status(db: Session = Depends(get_db)):
     printers = db.query(Printer).filter(Printer.is_active == True).order_by(Printer.name).all()
     tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active == True).all()
 
-    # Total print hours per printer (computed from completed jobs)
-    hours_rows = db.execute(text(
-        "SELECT printer_id, COALESCE(SUM(duration_hours), 0) as total_hours "
-        "FROM jobs WHERE status = 'completed' AND printer_id IS NOT NULL "
-        "GROUP BY printer_id"
-    )).fetchall()
-    hours_map = {row[0]: float(row[1]) for row in hours_rows}
+    # Total print hours per printer (from care counters, updated by monitors)
+    # Note: Previously calculated from jobs table, now using real-time counter
+    hours_map = {p.id: float(p.total_print_hours or 0) for p in printers}
 
     # Latest maintenance log per (printer_id, task_id)
     all_logs = db.query(MaintenanceLog).all()
@@ -5804,3 +6421,334 @@ def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
         "location_slot": spool.location_slot,
     }
 
+
+
+# ============== Alerts & Notifications Endpoints (v0.17.0) ==============
+
+@app.get("/api/alerts", response_model=List[AlertResponse], tags=["Alerts"])
+async def list_alerts(
+    severity: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    is_read: Optional[bool] = None,
+    limit: int = 25,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List alerts for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    query = db.query(Alert).filter(Alert.user_id == current_user["id"])
+    
+    if severity:
+        query = query.filter(Alert.severity == severity)
+    if alert_type:
+        query = query.filter(Alert.alert_type == alert_type)
+    if is_read is not None:
+        query = query.filter(Alert.is_read == is_read)
+    
+    alerts = query.order_by(Alert.created_at.desc()).offset(offset).limit(limit).all()
+    
+    results = []
+    for alert in alerts:
+        data = AlertResponse.model_validate(alert)
+        if alert.printer:
+            data.printer_name = alert.printer.nickname or alert.printer.name
+        if alert.job:
+            data.job_name = alert.job.item_name
+        if alert.spool and alert.spool.filament:
+            data.spool_name = f"{alert.spool.filament.brand} {alert.spool.filament.name}"
+        results.append(data)
+    
+    return results
+
+
+@app.get("/api/alerts/unread-count", tags=["Alerts"])
+async def get_unread_count(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get unread alert count for bell badge."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    count = db.query(Alert).filter(
+        Alert.user_id == current_user["id"],
+        Alert.is_read == False
+    ).count()
+    return {"unread_count": count}
+
+
+@app.get("/api/alerts/summary", response_model=AlertSummary, tags=["Alerts"])
+async def get_alert_summary(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get aggregated alert counts for dashboard widget."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    uid = current_user["id"]
+    base = db.query(Alert).filter(
+        Alert.user_id == uid,
+        Alert.is_dismissed == False,
+        Alert.is_read == False
+    )
+    
+    failed = base.filter(Alert.alert_type == AlertType.PRINT_FAILED).count()
+    spool = base.filter(Alert.alert_type == AlertType.SPOOL_LOW).count()
+    maint = base.filter(Alert.alert_type == AlertType.MAINTENANCE_OVERDUE).count()
+    
+    return AlertSummary(
+        print_failed=failed,
+        spool_low=spool,
+        maintenance_overdue=maint,
+        total=failed + spool + maint
+    )
+
+
+@app.patch("/api/alerts/{alert_id}/read", tags=["Alerts"])
+async def mark_alert_read(
+    alert_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark a single alert as read."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    alert = db.query(Alert).filter(
+        Alert.id == alert_id,
+        Alert.user_id == current_user["id"]
+    ).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.is_read = True
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/api/alerts/mark-all-read", tags=["Alerts"])
+async def mark_all_read(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark all alerts as read for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    db.query(Alert).filter(
+        Alert.user_id == current_user["id"],
+        Alert.is_read == False
+    ).update({"is_read": True})
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.patch("/api/alerts/{alert_id}/dismiss", tags=["Alerts"])
+async def dismiss_alert(
+    alert_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Dismiss an alert (hide from dashboard widget)."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    alert = db.query(Alert).filter(
+        Alert.id == alert_id,
+        Alert.user_id == current_user["id"]
+    ).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.is_dismissed = True
+    alert.is_read = True
+    db.commit()
+    return {"status": "ok"}
+
+
+# ============== Alert Preferences ==============
+
+@app.get("/api/alert-preferences", response_model=List[AlertPreferenceResponse], tags=["Alerts"])
+async def get_alert_preferences(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user's alert preferences."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    prefs = db.query(AlertPreference).filter(
+        AlertPreference.user_id == current_user["id"]
+    ).all()
+    
+    if not prefs:
+        from alert_dispatcher import seed_alert_preferences
+        seed_alert_preferences(db, current_user["id"])
+        prefs = db.query(AlertPreference).filter(
+            AlertPreference.user_id == current_user["id"]
+        ).all()
+    
+    return prefs
+
+
+@app.put("/api/alert-preferences", tags=["Alerts"])
+async def update_alert_preferences(
+    data: AlertPreferencesUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk update alert preferences for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    uid = current_user["id"]
+    for pref_data in data.preferences:
+        existing = db.query(AlertPreference).filter(
+            AlertPreference.user_id == uid,
+            AlertPreference.alert_type == pref_data.alert_type
+        ).first()
+        
+        if existing:
+            existing.in_app = pref_data.in_app
+            existing.browser_push = pref_data.browser_push
+            existing.email = pref_data.email
+            existing.threshold_value = pref_data.threshold_value
+        else:
+            db.add(AlertPreference(
+                user_id=uid,
+                alert_type=pref_data.alert_type,
+                in_app=pref_data.in_app,
+                browser_push=pref_data.browser_push,
+                email=pref_data.email,
+                threshold_value=pref_data.threshold_value
+            ))
+    
+    db.commit()
+    return {"status": "ok", "message": "Preferences updated"}
+
+
+# ============== SMTP Config (Admin Only) ==============
+
+@app.get("/api/smtp-config", tags=["Alerts"])
+async def get_smtp_config(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Get SMTP configuration (admin only, password masked)."""
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    if not config:
+        return SmtpConfigResponse()
+    smtp = config.value
+    return SmtpConfigResponse(
+        enabled=smtp.get("enabled", False),
+        host=smtp.get("host", ""),
+        port=smtp.get("port", 587),
+        username=smtp.get("username", ""),
+        password_set=bool(smtp.get("password")),
+        from_address=smtp.get("from_address", ""),
+        use_tls=smtp.get("use_tls", True)
+    )
+
+
+@app.put("/api/smtp-config", tags=["Alerts"])
+async def update_smtp_config(
+    data: SmtpConfigBase,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Update SMTP configuration (admin only)."""
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    smtp_data = data.dict()
+    
+    if not smtp_data.get("password") and config and config.value.get("password"):
+        smtp_data["password"] = config.value["password"]
+    
+    if config:
+        config.value = smtp_data
+    else:
+        db.add(SystemConfig(key="smtp_config", value=smtp_data))
+    
+    db.commit()
+    return {"status": "ok", "message": "SMTP configuration updated"}
+
+
+@app.post("/api/alerts/test-email", tags=["Alerts"])
+async def send_test_email(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Send a test email to the current user (admin only)."""
+    from alert_dispatcher import _get_smtp_config, _deliver_email
+    
+    smtp = _get_smtp_config(db)
+    if not smtp:
+        raise HTTPException(status_code=400, detail="SMTP not configured or not enabled")
+    if not current_user.get("email"):
+        raise HTTPException(status_code=400, detail="Your account has no email address")
+    
+    _deliver_email(
+        db, current_user["id"],
+        "Test Alert \u2014 PrintFarm Scheduler",
+        "This is a test notification. If you received this, SMTP is configured correctly.",
+        "info"
+    )
+    return {"status": "ok", "message": f"Test email queued to {current_user['email']}"}
+
+
+# ============== Browser Push Subscription ==============
+
+@app.get("/api/push/vapid-key", tags=["Alerts"])
+async def get_vapid_key(db: Session = Depends(get_db)):
+    """Get VAPID public key for browser push subscription."""
+    row = db.execute(text("SELECT value FROM system_config WHERE key = 'vapid_keys'")).fetchone()
+    if not row:
+        return {"public_key": None, "enabled": False}
+    try:
+        import json
+        keys = json.loads(row[0])
+        return {"public_key": keys.get("public_key"), "enabled": True}
+    except:
+        return {"public_key": None, "enabled": False}
+
+
+@app.post("/api/push/subscribe", tags=["Alerts"])
+async def subscribe_push(
+    data: PushSubscriptionCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Store a browser push subscription for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    existing = db.query(PushSubscription).filter(
+        PushSubscription.user_id == current_user["id"],
+        PushSubscription.endpoint == data.endpoint
+    ).first()
+    
+    if existing:
+        existing.p256dh_key = data.p256dh_key
+        existing.auth_key = data.auth_key
+    else:
+        db.add(PushSubscription(
+            user_id=current_user["id"],
+            endpoint=data.endpoint,
+            p256dh_key=data.p256dh_key,
+            auth_key=data.auth_key
+        ))
+    
+    db.commit()
+    return {"status": "ok", "message": "Push subscription registered"}
+
+
+@app.delete("/api/push/subscribe", tags=["Alerts"])
+async def unsubscribe_push(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove all push subscriptions for the current user."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    db.query(PushSubscription).filter(
+        PushSubscription.user_id == current_user["id"]
+    ).delete()
+    db.commit()
+    return {"status": "ok", "message": "Push subscriptions removed"}

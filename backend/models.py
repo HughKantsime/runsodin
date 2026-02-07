@@ -121,6 +121,7 @@ class Printer(Base):
     is_active = Column(Boolean, default=True)  # Available for scheduling
     display_order = Column(Integer, default=0)  # For manual ordering in UI
     camera_url = Column(String, nullable=True)  # RTSP camera URL
+    camera_enabled = Column(Boolean, default=True)  # Whether to show camera
     
     # Optional: for future printer API integration
     api_type = Column(String(50))  # "bambu", "octoprint", "moonraker", etc.
@@ -129,6 +130,36 @@ class Printer(Base):
     
     # User preferences
     is_favorite = Column(Boolean, default=False)
+    
+    # Heartbeat
+    last_seen = Column(DateTime, nullable=True)
+
+    # Live telemetry (updated by MQTT/Moonraker monitors)
+    bed_temp = Column(Float, nullable=True)
+    bed_target_temp = Column(Float, nullable=True)
+    nozzle_temp = Column(Float, nullable=True)
+    nozzle_target_temp = Column(Float, nullable=True)
+    gcode_state = Column(String(20), nullable=True)
+    print_stage = Column(String(50), nullable=True)
+    hms_errors = Column(Text, nullable=True)
+    lights_on = Column(Boolean, nullable=True)
+    lights_toggled_at = Column(DateTime, nullable=True)
+    nozzle_type = Column(String(20), nullable=True)
+    nozzle_diameter = Column(Float, nullable=True)
+    
+    # Care counters (universal - tracked internally for all printer types)
+    total_print_hours = Column(Float, default=0)
+    total_print_count = Column(Integer, default=0)
+    hours_since_maintenance = Column(Float, default=0)
+    prints_since_maintenance = Column(Integer, default=0)
+    
+    # Error tracking (universal)
+    last_error_code = Column(String(50), nullable=True)
+    last_error_message = Column(Text, nullable=True)
+    last_error_at = Column(DateTime, nullable=True)
+    
+    # Camera auto-discovery
+    camera_discovered = Column(Boolean, default=False)
     
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
@@ -293,6 +324,7 @@ class Model(Base):
     # User preferences
     is_favorite = Column(Boolean, default=False)
     
+    
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -376,6 +408,7 @@ class Job(Base):
     
     # User preferences
     is_favorite = Column(Boolean, default=False)
+    
     
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
@@ -630,3 +663,102 @@ class SystemConfig(Base):
     key = Column(String(100), primary_key=True)
     value = Column(JSON, nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ============================================================
+# Alerts & Notifications (v0.17.0)
+# ============================================================
+
+class AlertType(str, Enum):
+    """Types of alerts the system can generate."""
+    PRINT_COMPLETE = "print_complete"
+    PRINT_FAILED = "print_failed"
+    SPOOL_LOW = "spool_low"
+    MAINTENANCE_OVERDUE = "maintenance_overdue"
+
+
+class AlertSeverity(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class Alert(Base):
+    """
+    Individual alert/notification instance.
+    
+    Created by the alert dispatcher when an event triggers.
+    Each user gets their own alert record based on their preferences.
+    """
+    __tablename__ = "alerts"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)  # References users table (raw SQL)
+    
+    # Alert classification
+    alert_type = Column(SQLEnum(AlertType), nullable=False)
+    severity = Column(SQLEnum(AlertSeverity), nullable=False)
+    
+    # Content
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=True)
+    
+    # State
+    is_read = Column(Boolean, default=False, index=True)
+    is_dismissed = Column(Boolean, default=False)
+    
+    # Optional references to related entities
+    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=True)
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True)
+    spool_id = Column(Integer, ForeignKey("spools.id"), nullable=True)
+    
+    # Flexible extra data
+    metadata_json = Column(JSON, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    
+    # Relationships
+    printer = relationship("Printer", foreign_keys=[printer_id])
+    job = relationship("Job", foreign_keys=[job_id])
+    spool = relationship("Spool", foreign_keys=[spool_id])
+    
+    def __repr__(self):
+        return f"<Alert {self.id}: {self.alert_type.value} for user {self.user_id}>"
+
+
+class AlertPreference(Base):
+    """
+    Per-user, per-alert-type channel configuration.
+    """
+    __tablename__ = "alert_preferences"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    alert_type = Column(SQLEnum(AlertType), nullable=False)
+    
+    # Delivery channels
+    in_app = Column(Boolean, default=True)
+    browser_push = Column(Boolean, default=False)
+    email = Column(Boolean, default=False)
+    
+    # Configurable threshold
+    threshold_value = Column(Float, nullable=True)
+    
+    def __repr__(self):
+        return f"<AlertPreference user={self.user_id} type={self.alert_type.value}>"
+
+
+class PushSubscription(Base):
+    """Browser push notification subscription."""
+    __tablename__ = "push_subscriptions"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    endpoint = Column(Text, nullable=False)
+    p256dh_key = Column(Text, nullable=False)
+    auth_key = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    def __repr__(self):
+        return f"<PushSubscription user={self.user_id}>"

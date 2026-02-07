@@ -1,7 +1,8 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb,
+} from 'lucide-react'
 import clsx from 'clsx'
 import { printers, filaments } from '../api'
 import { Video, QrCode } from 'lucide-react'
@@ -283,23 +284,53 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
         </div>
       </div>
       <div className="px-3 md:px-4 py-2 md:py-3 bg-farm-950 border-t border-farm-800">
-        <div className="flex items-center justify-end gap-3 text-sm">
-          {hasBambuConnection && (
-            <div className="flex items-center gap-1.5" title="Connected to printer">
-              <div className="w-2 h-2 rounded-full bg-green-500"></div>
-              <span className="text-xs text-farm-400">Connected</span>
+        {(() => {
+          const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+          const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
+          const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
+          const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
+          const nozTarget = printer.nozzle_target_temp != null ? Math.round(printer.nozzle_target_temp) : null
+          const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
+          const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
+          return (
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-2 h-2 rounded-full ${online ? "bg-green-500" : "bg-farm-600"}`}></div>
+                  <span className={online ? "text-green-400" : "text-farm-500"}>{online ? "Online" : "Offline"}</span>
+                </div>
+                {printer.lights_on != null && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
+                    className={`p-0.5 rounded transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
+                    title={printer.lights_on ? 'Lights on (click to toggle)' : 'Lights off (click to toggle)'}
+                  >
+                    <Lightbulb size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-farm-400">
+                {nozTemp != null && (
+                  <span className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
+                    Nozzle {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
+                  </span>
+                )}
+                {bedTemp != null && (
+                  <span className={bedTarget > 0 ? "text-orange-400" : ""} title={bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}>
+                    Bed {bedTemp}°{bedTarget > 0 ? `/${bedTarget}°` : ''}
+                  </span>
+                )}
+                {stage && (
+                  <span className="text-print-400">{stage}</span>
+                )}
+              </div>
             </div>
-          )}
-          <div className="flex items-center gap-1.5" title={printer.is_active ? "Printer active" : "Printer inactive"}>
-            <div className={`w-2 h-2 rounded-full ${printer.is_active ? "bg-green-500" : "bg-red-500"}`}></div>
-            <span className={`text-xs ${printer.is_active ? "text-farm-400" : "text-farm-500"}`}>{printer.is_active ? "Active" : "Inactive"}</span>
-          </div>
-        </div>
+          )
+        })()}
       </div>
     </div>
   )
 }
-
 function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
   const [formData, setFormData] = useState({ 
     name: '', 

@@ -73,6 +73,29 @@ class PrinterBase(BaseModel):
     api_key: Optional[str] = None
     camera_url: Optional[str] = None
     nickname: Optional[str] = None
+    # Live telemetry
+    bed_temp: Optional[float] = None
+    bed_target_temp: Optional[float] = None
+    nozzle_temp: Optional[float] = None
+    nozzle_target_temp: Optional[float] = None
+    gcode_state: Optional[str] = None
+    print_stage: Optional[str] = None
+    hms_errors: Optional[str] = None
+    lights_on: Optional[bool] = None
+    nozzle_type: Optional[str] = None
+    nozzle_diameter: Optional[float] = None
+    last_seen: Optional[datetime] = None
+    # Care counters (universal)
+    total_print_hours: Optional[float] = None
+    total_print_count: Optional[int] = None
+    hours_since_maintenance: Optional[float] = None
+    prints_since_maintenance: Optional[int] = None
+    # Error tracking (universal)
+    last_error_code: Optional[str] = None
+    last_error_message: Optional[str] = None
+    last_error_at: Optional[datetime] = None
+    # Camera auto-discovery
+    camera_discovered: Optional[bool] = None
 
 
 class PrinterCreate(PrinterBase):
@@ -552,3 +575,96 @@ class PaginatedResponse(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+# ============== Alert Schemas (v0.17.0) ==============
+
+class AlertTypeEnum(str, Enum):
+    PRINT_COMPLETE = "print_complete"
+    PRINT_FAILED = "print_failed"
+    SPOOL_LOW = "spool_low"
+    MAINTENANCE_OVERDUE = "maintenance_overdue"
+
+
+class AlertSeverityEnum(str, Enum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class AlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    user_id: int
+    alert_type: AlertTypeEnum
+    severity: AlertSeverityEnum
+    title: str
+    message: Optional[str] = None
+    is_read: Optional[bool] = False
+    is_dismissed: Optional[bool] = False
+    printer_id: Optional[int] = None
+    job_id: Optional[int] = None
+    spool_id: Optional[int] = None
+    metadata_json: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    
+    # Populated by API for display
+    printer_name: Optional[str] = None
+    job_name: Optional[str] = None
+    spool_name: Optional[str] = None
+
+
+class AlertSummary(BaseModel):
+    """Aggregated alert counts for dashboard widget."""
+    print_failed: int = 0
+    spool_low: int = 0
+    maintenance_overdue: int = 0
+    total: int = 0
+
+
+class AlertPreferenceBase(BaseModel):
+    alert_type: AlertTypeEnum
+    in_app: bool = True
+    browser_push: bool = False
+    email: bool = False
+    threshold_value: Optional[float] = None
+
+
+class AlertPreferenceResponse(AlertPreferenceBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    user_id: int
+
+
+class AlertPreferencesUpdate(BaseModel):
+    """Bulk update of all alert preferences for a user."""
+    preferences: List[AlertPreferenceBase]
+
+
+class SmtpConfigBase(BaseModel):
+    enabled: bool = False
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password: str = ""
+    from_address: str = ""
+    use_tls: bool = True
+
+
+class SmtpConfigResponse(BaseModel):
+    """SMTP config response (password masked)."""
+    enabled: bool = False
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password_set: bool = False
+    from_address: str = ""
+    use_tls: bool = True
+
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    p256dh_key: str
+    auth_key: str

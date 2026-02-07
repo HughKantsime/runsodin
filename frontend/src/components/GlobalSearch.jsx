@@ -95,7 +95,7 @@ export default function GlobalSearch() {
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setIsOpen(true)}
           placeholder="Search... (⌘K)"
-          className="w-full md:w-64 bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-farm-600"
+          className="w-44 md:w-64 bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-farm-600"
         />
         {query && (
           <button
