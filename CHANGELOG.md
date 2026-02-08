@@ -1,4 +1,21 @@
 # Changelog
+
+## [0.18.1] - 2026-02-08
+### Fixed
+- Backend crash on `/api/models/{id}/mesh` — removed unresolvable ForeignKey constraints on `submitted_by`/`approved_by` columns
+- `atPrinterLimit is not a function` crash on Printers page — replaced undefined function call with inline Community tier logic
+- `failureModal is not defined` crash on Jobs page — moved state declaration from JobRow to Jobs component
+- `handleDragEnd is not defined` crash on Jobs page — moved drag state and handlers from JobRow to Jobs component
+- Printer cards flashing online/offline — WebSocket `last_seen` timestamp double-Z format fixed
+- Filament slot display inconsistencies — hex colors no longer shown as names, casing normalized
+- Removed non-functional 3D model viewer button — gcode .3mf exports don't contain mesh geometry
+
+### Added
+- Moonraker/Klipper: WebSocket push to frontend for real-time telemetry
+- Moonraker/Klipper: MQTT republish support for Home Assistant/Grafana integration
+- Moonraker/Klipper: Remaining time calculation (was hardcoded None)
+- Moonraker/Klipper: Progress and layer data in WebSocket push
+
 ## [0.17.0] - 2026-02-07
 
 ### Added
