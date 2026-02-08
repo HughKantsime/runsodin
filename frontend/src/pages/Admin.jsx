@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useLicense } from '../LicenseContext'
 import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -30,7 +31,7 @@ function UserModal({ user, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl border border-farm-800 w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded border border-farm-800 w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4 md:mb-6">
           <h2 className="text-lg md:text-xl font-display font-bold">{user ? 'Edit User' : 'New User'}</h2>
           <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
@@ -79,6 +80,8 @@ export default function Admin() {
   const [editingUser, setEditingUser] = useState(null)
 
   const { data: users, isLoading } = useQuery({ queryKey: ['users'], queryFn: fetchUsers })
+  const lic = useLicense()
+  const atUserLimit = lic.atUserLimit(users?.length || 0)
 
   const createUser = useMutation({
     mutationFn: async (userData) => {
@@ -120,12 +123,17 @@ export default function Admin() {
           <h1 className="text-2xl md:text-3xl font-display font-bold">Admin</h1>
           <p className="text-farm-500 text-sm mt-1">Manage users and permissions</p>
         </div>
-        <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-print-600 hover:bg-print-500 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
-          <Plus size={16} /> Add User
-        </button>
+        {atUserLimit
+          ? <span className="flex items-center gap-2 bg-farm-700 text-farm-400 px-4 py-2 rounded-lg font-medium text-sm cursor-not-allowed" title={`User limit reached (${lic.max_users}). Upgrade to Pro for unlimited.`}>
+              <Plus size={16} /> Add User (limit: {lic.max_users})
+            </span>
+          : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-print-600 hover:bg-print-500 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+              <Plus size={16} /> Add User
+            </button>
+        }
       </div>
 
-      <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
+      <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[550px]">
             <thead className="bg-farm-800">

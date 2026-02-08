@@ -9,6 +9,8 @@ import OIDCSettings from '../components/OIDCSettings'
 import WebhookSettings from '../components/WebhookSettings'
 
 import { alertPreferences, smtpConfig } from '../api'
+import { getApprovalSetting, setApprovalSetting } from '../api'
+import { useLicense } from '../LicenseContext'
 
 const API_KEY = import.meta.env.VITE_API_KEY
 const apiHeaders = {
@@ -51,6 +53,40 @@ const backupsApi = {
   }
 }
 
+
+function ApprovalToggle() {
+  const queryClient = useQueryClient()
+  const { data: setting, isLoading } = useQuery({
+    queryKey: ["approval-setting"],
+    queryFn: getApprovalSetting,
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: (enabled) => setApprovalSetting(enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approval-setting"] }),
+  })
+
+  const enabled = setting?.require_job_approval || false
+
+  return (
+    <label className="flex items-center gap-3 cursor-pointer">
+      <div
+        onClick={() => !isLoading && toggleMutation.mutate(!enabled)}
+        className={`relative w-11 h-6 rounded-full transition-colors ${
+          enabled ? "bg-print-600" : "bg-farm-700"
+        }`}
+      >
+        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+          enabled ? "translate-x-[22px]" : "translate-x-0.5"
+        }`} />
+      </div>
+      <span className="text-sm">
+        {enabled ? "Approval required for viewer-role users" : "Approval disabled — all users create jobs directly"}
+      </span>
+    </label>
+  )
+}
+
 export default function Settings() {
   const queryClient = useQueryClient()
   const [settings, setSettings] = useState({
@@ -61,6 +97,7 @@ export default function Settings() {
   const [saved, setSaved] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [activeTab, setActiveTab] = useState('general')
+  const lic = useLicense()
   const [alertPrefs, setAlertPrefs] = useState([])
   const [alertPrefsLoading, setAlertPrefsLoading] = useState(true)
   const [alertPrefsSaved, setAlertPrefsSaved] = useState(false)
@@ -267,7 +304,8 @@ export default function Settings() {
     })
   }
 
-  const TABS = [
+  const PRO_TABS = ['sso', 'webhooks', 'email', 'users', 'permissions', 'branding']
+  const ALL_TABS = [
     { id: 'general', label: 'General', icon: SettingsIcon },
     { id: 'alerts', label: 'Alerts', icon: Bell },
     { id: 'email', label: 'Email', icon: Mail },
@@ -278,6 +316,7 @@ export default function Settings() {
     { id: 'branding', label: 'Branding', icon: Palette },
     { id: 'data', label: 'Data', icon: Database },
   ]
+  const TABS = lic.isPro ? ALL_TABS : ALL_TABS.filter(t => !PRO_TABS.includes(t.id))
 
   return (
     <div className="p-4 md:p-8">
@@ -354,7 +393,7 @@ export default function Settings() {
 
 
       {/* Alert Preferences */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Bell size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Alert Preferences</h2>
@@ -480,7 +519,7 @@ export default function Settings() {
       {/* ==================== EMAIL TAB ==================== */}
       {activeTab === 'email' && <div className="max-w-4xl">
       {/* SMTP Email Configuration */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Mail size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Email Notifications (SMTP)</h2>
@@ -615,7 +654,7 @@ export default function Settings() {
       {/* ==================== GENERAL TAB (continued) ==================== */}
       {activeTab === 'general' && <div className="max-w-4xl">
       {/* Spoolman Integration */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4 flex-wrap">
           <Database size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Spoolman Integration</h2>
@@ -661,7 +700,7 @@ export default function Settings() {
       </div>
 
       {/* Scheduler Settings */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Clock size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Scheduler Settings</h2>
@@ -684,8 +723,20 @@ export default function Settings() {
         </p>
       </div>
 
+      {/* Job Approval Workflow */}
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <div className="flex items-center gap-2 md:gap-3 mb-4">
+          <CheckCircle size={18} className="text-print-400" />
+          <h2 className="text-lg md:text-xl font-display font-semibold">Job Approval Workflow</h2>
+        </div>
+        <p className="text-sm text-farm-400 mb-4">
+          When enabled, viewer-role users (students) must have their print jobs approved by an operator or admin (teacher) before they can be scheduled. Operators and admins bypass approval.
+        </p>
+        <ApprovalToggle />
+      </div>
+
       {/* Interface Mode */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <SettingsIcon size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Interface Mode</h2>
@@ -736,7 +787,7 @@ export default function Settings() {
       {/* ==================== DATA TAB ==================== */}
       {activeTab === 'data' && <div className="max-w-4xl">
       {/* Database Info */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Database size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Database</h2>
@@ -762,7 +813,7 @@ export default function Settings() {
       </div>
 
       {/* Database Backups */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2 md:gap-3">
             <HardDrive size={18} className="text-print-400" />
@@ -866,7 +917,7 @@ export default function Settings() {
       </div>
 
       {/* Data Export */}
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <FileSpreadsheet size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Data Export</h2>

@@ -52,7 +52,7 @@ function CameraCard({ camera, onExpand }) {
   const dotColor = status === 'live' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
 
   return (
-    <div className="bg-farm-950 rounded-xl border border-farm-800 overflow-hidden group">
+    <div className="bg-farm-950 rounded border border-farm-800 overflow-hidden group">
       <div className="relative aspect-video bg-black">
         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
         {status === 'connecting' && (
@@ -252,7 +252,7 @@ export default function Cameras() {
 
       {/* Camera Settings Panel */}
       {showSettings && (
-        <div className="mb-4 p-4 bg-farm-900 rounded-xl border border-farm-800">
+        <div className="mb-4 p-4 bg-farm-900 rounded border border-farm-800">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">Camera Settings</h3>
             <button onClick={() => setShowSettings(false)} className="text-farm-400 hover:text-white text-sm">

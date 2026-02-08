@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.17.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.18.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-BSL%201.1-green" alt="License" />
   <img src="https://img.shields.io/badge/python-3.11+-yellow" alt="Python" />
   <img src="https://img.shields.io/badge/RAM-~400MB-orange" alt="RAM" />
@@ -103,6 +103,23 @@ See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation
 - **Webhooks** — Discord and Slack integration with alert type filtering
 - **Email** — SMTP-based alerts for print complete, failures, maintenance due
 - **In-app alerts** — bell icon with unread count, filterable alerts page
+- **ntfy + Telegram** — lightweight push via ntfy.sh or Telegram Bot API
+- **Quiet hours** — suppress notifications overnight, get a daily digest instead
+
+### Integrations & Monitoring
+- **MQTT republish** — forward printer events to external broker for Home Assistant, Node-RED, Ignition
+- **Prometheus /metrics** — expose telemetry for Grafana dashboards
+- **Smart plug control** — Tasmota, Home Assistant, or MQTT-based power management with auto on/off
+- **Energy tracking** — per-job electricity cost via smart plug kWh monitoring
+- **AMS environment** — humidity and temperature monitoring with 7-day history
+- **WebSocket** — real-time push updates (no more polling)
+
+### 3D & UX
+- **3D model viewer** — interactive Three.js preview of .3mf files with orbit controls
+- **Drag-and-drop queue** — reorder print jobs by dragging
+- **Keyboard shortcuts** — global hotkeys with ? help modal
+- **PWA support** — install as a native app on mobile and desktop
+- **Multi-language** — English, Deutsch, 日本語, Español (community contributions welcome)
 
 ### Maintenance
 - **Care counters** — total print hours, print count, hours/prints since last maintenance
@@ -199,7 +216,10 @@ O.D.I.N. is source-available under the [Business Source License 1.1](LICENSE).
 | **Webhooks & Email** | — | ✅ | ✅ | ✅ |
 | **White-label** | — | ✅ | ✅ | ✅ |
 | **Job Approval** | — | — | ✅ | ✅ |
-| **OPC-UA / MQTT Republish** | — | — | — | ✅ |
+| **MQTT Republish** | — | ✅ | ✅ | ✅ |
+| **OPC-UA** | — | — | — | ✅ |
+| **Prometheus Metrics** | — | ✅ | ✅ | ✅ |
+| **Smart Plug Control** | — | ✅ | ✅ | ✅ |
 | **Audit Export** | — | — | — | ✅ |
 | **Support** | Community | Email | Email + Onboarding | SLA |
 

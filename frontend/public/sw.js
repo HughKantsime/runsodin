@@ -1,6 +1,6 @@
 // PrintFarm Scheduler - Service Worker for Push Notifications
 
-const CACHE_NAME = 'printfarm-v1';
+const CACHE_NAME = 'odin-v1';
 
 // Install event
 self.addEventListener('install', (event) => {
@@ -19,11 +19,11 @@ self.addEventListener('push', (event) => {
   console.log('[SW] Push received');
   
   let data = {
-    title: 'PrintFarm Alert',
+    title: 'O.D.I.N. Alert',
     body: 'You have a new notification',
-    icon: '/logo192.png',
-    badge: '/badge72.png',
-    tag: 'printfarm-alert',
+    icon: '/odin-icon-192.svg',
+    badge: '/odin-icon-192.svg',
+    tag: 'odin-alert',
     data: {}
   };
   
@@ -114,4 +114,12 @@ self.addEventListener('notificationclick', (event) => {
 // Notification close event
 self.addEventListener('notificationclose', (event) => {
   console.log('[SW] Notification closed');
+});
+
+
+// PWA fetch handler — serve app shell from network, fallback gracefully
+self.addEventListener('fetch', (event) => {
+  // Let all requests pass through to network (no offline cache for now)
+  // This satisfies PWA installability requirements
+  event.respondWith(fetch(event.request));
 });

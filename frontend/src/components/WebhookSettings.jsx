@@ -126,7 +126,7 @@ export default function WebhookSettings() {
           <Webhook className="text-print-500" size={24} />
           <div>
             <h3 className="text-lg font-semibold">Webhooks</h3>
-            <p className="text-sm text-farm-400">Send alerts to Discord or Slack</p>
+            <p className="text-sm text-farm-400">Send alerts to Discord, Slack, ntfy, or Telegram</p>
           </div>
         </div>
         <button
@@ -171,9 +171,24 @@ export default function WebhookSettings() {
               type="text"
               value={newWebhook.url}
               onChange={e => setNewWebhook(prev => ({ ...prev, url: e.target.value }))}
-              placeholder="https://discord.com/api/webhooks/..."
+              placeholder={
+                newWebhook.webhook_type === 'discord' ? 'https://discord.com/api/webhooks/...' :
+                newWebhook.webhook_type === 'slack' ? 'https://hooks.slack.com/services/...' :
+                newWebhook.webhook_type === 'ntfy' ? 'https://ntfy.sh/your-topic' :
+                newWebhook.webhook_type === 'telegram' ? 'bot_token|chat_id' :
+                'https://...'
+              }
               className="w-full bg-farm-700 border border-farm-600 rounded-lg px-3 py-2 text-sm font-mono"
             />
+            {newWebhook.webhook_type === 'ntfy' && (
+              <p className="text-xs text-farm-500 mt-1">Enter your ntfy topic URL. Works with ntfy.sh or self-hosted instances.</p>
+            )}
+            {newWebhook.webhook_type === 'telegram' && (
+              <p className="text-xs text-farm-500 mt-1">Format: <code className="text-print-400">bot_token|chat_id</code> — Get a bot token from <code className="text-print-400">@BotFather</code>, chat ID from <code className="text-print-400">@userinfobot</code></p>
+            )}
+            {newWebhook.webhook_type === 'telegram' && (
+              <p className="text-xs text-farm-500 mt-1">Format: <code className="text-print-400">bot_token|chat_id</code> — Get a bot token from <code className="text-print-400">@BotFather</code>, and chat ID from <code className="text-print-400">@userinfobot</code></p>
+            )}
           </div>
 
           <div>

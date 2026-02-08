@@ -136,7 +136,7 @@ export default function Products() {
           <p>No products yet. Create your first product to get started.</p>
         </div>
       ) : (
-        <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
+        <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
           {/* Mobile card view */}
           <div className="block md:hidden divide-y divide-farm-800">
             {productList.map(product => (
@@ -274,7 +274,7 @@ export default function Products() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-xl border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">
                 {editingProduct ? 'Edit Product' : 'New Product'}

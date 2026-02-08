@@ -20,6 +20,11 @@ Usage:
 
 import json
 import logging
+
+try:
+    from quiet_hours import should_suppress_notification
+except ImportError:
+    def should_suppress_notification(): return False
 import smtplib
 import threading
 from datetime import datetime, timedelta
@@ -245,6 +250,9 @@ Manage preferences in Settings > Notifications.
 # ============================================================
 
 def dispatch_alert(
+    # Quiet hours: save alert to DB but suppress external notifications
+    _suppress_external = should_suppress_notification()
+
     db: Session,
     alert_type: AlertType,
     severity: AlertSeverity,
@@ -294,6 +302,15 @@ def dispatch_alert(
     
     if alerts_created > 0:
         db.commit()
+    
+    # Dispatch to webhooks (ntfy, telegram, discord, slack)
+    try:
+        from main import _dispatch_to_webhooks
+        _dispatch_to_webhooks(db, alert_type.value, title, message, severity.value)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.error(f"Webhook dispatch error: {e}")
     
     logger.info(f"Dispatched {alert_type.value} alert to {alerts_created} users: {title}")
     return alerts_created

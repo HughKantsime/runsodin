@@ -250,7 +250,7 @@ export default function Setup() {
   const renderWelcome = () => (
     <div className="text-center">
       <div className="mb-6">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-amber-500/10 ring-1 ring-amber-500/30 mb-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 mb-4">
           <Sparkles size={36} className="text-amber-400" />
         </div>
         <h1 className="text-3xl font-bold text-white mb-2">Welcome to O.D.I.N.</h1>
@@ -478,7 +478,7 @@ export default function Setup() {
   const renderDone = () => (
     <div className="text-center">
       <div className="mb-6">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-500/40 mb-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/40 mb-4">
           <CheckCircle2 size={36} className="text-emerald-400" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">You're all set!</h2>
@@ -512,7 +512,7 @@ export default function Setup() {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#0f1117' }}>
       <div className="w-full max-w-lg">
         {stepIndicator()}
-        <div className="rounded-xl p-8 bg-[#1a1c25] border border-white/[0.06] shadow-2xl">
+        <div className="rounded p-8 bg-[#1a1c25] border border-white/[0.06] shadow-2xl">
           {stepViews[step]()}
         </div>
         <p className="text-center text-white/20 text-xs mt-4">

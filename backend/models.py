@@ -147,6 +147,17 @@ class Printer(Base):
     nozzle_type = Column(String(20), nullable=True)
     nozzle_diameter = Column(Float, nullable=True)
     
+    # Smart plug integration
+    plug_type = Column(String(20), nullable=True)         # 'tasmota', 'homeassistant', 'mqtt'
+    plug_host = Column(String(255), nullable=True)        # IP or HA URL
+    plug_entity_id = Column(String(255), nullable=True)   # HA entity_id or MQTT topic
+    plug_auth_token = Column(Text, nullable=True)         # HA long-lived access token
+    plug_auto_on = Column(Boolean, default=True)          # Auto power-on before print
+    plug_auto_off = Column(Boolean, default=True)         # Auto power-off after print
+    plug_cooldown_minutes = Column(Integer, default=5)    # Delay before auto-off
+    plug_power_state = Column(Boolean, nullable=True)     # Last known power state
+    plug_energy_kwh = Column(Float, default=0)            # Cumulative energy
+    
     # Care counters (universal - tracked internally for all printer types)
     total_print_hours = Column(Float, default=0)
     total_print_count = Column(Integer, default=0)
@@ -405,6 +416,16 @@ class Job(Base):
     # Order fulfillment linkage
     order_item_id = Column(Integer, ForeignKey("order_items.id"), nullable=True)
     quantity_on_bed = Column(Integer, default=1)  # How many pieces this job produces
+
+    # Job approval workflow (v0.18.0)
+    submitted_by = Column(Integer, nullable=True)
+    approved_by = Column(Integer, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_reason = Column(Text, nullable=True)
+    
+    # Failure logging (v0.18.0)
+    fail_reason = Column(String(100), nullable=True)   # Category: spaghetti, adhesion, clog, etc.
+    fail_notes = Column(Text, nullable=True)            # Freeform notes
     
     # User preferences
     is_favorite = Column(Boolean, default=False)
@@ -675,6 +696,9 @@ class AlertType(str, Enum):
     PRINT_FAILED = "print_failed"
     SPOOL_LOW = "spool_low"
     MAINTENANCE_OVERDUE = "maintenance_overdue"
+    JOB_SUBMITTED = "job_submitted"
+    JOB_APPROVED = "job_approved"
+    JOB_REJECTED = "job_rejected"
 
 
 class AlertSeverity(str, Enum):

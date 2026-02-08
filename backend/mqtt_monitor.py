@@ -23,6 +23,14 @@ from typing import Dict, Optional, Any
 import crypto
 from bambu_adapter import BambuPrinter
 import printer_events
+try:
+    import mqtt_republish
+except ImportError:
+    mqtt_republish = None
+try:
+    from ws_hub import push_event as ws_push
+except ImportError:
+    def ws_push(*a, **kw): pass
 
 # Moonraker support (Klipper printers like Kobra S1 w/ Rinkhals)
 try:
@@ -215,8 +223,71 @@ class PrinterMonitor:
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                          hms_j, lights_on, noz_type, noz_dia, self.printer_id))
                     conn.commit()
+                    # Republish telemetry to external broker
+                    if mqtt_republish:
+                        try:
+                            mqtt_republish.republish_telemetry(self.printer_id, self.name, {
+                                "bed_temp": bed_t, "bed_target": bed_target,
+                                "nozzle_temp": noz_t, "nozzle_target": noz_target,
+                                "state": gstate,
+                                "progress": self._state.get('mc_percent'),
+                                "remaining_min": self._state.get('mc_remaining_time'),
+                                "current_layer": self._state.get('layer_num'),
+                                "total_layers": self._state.get('total_layer_num'),
+                            })
+                        except Exception:
+                            pass
                     conn.close()
                     self._last_heartbeat = time.time()
+
+                    # ---- AMS Environmental Data Capture ----
+                    # Record AMS humidity every 5 minutes (not every heartbeat)
+                    if time.time() - getattr(self, '_last_ams_env', 0) >= 300:
+                        self._last_ams_env = time.time()
+                        try:
+                            ams_raw = self._state.get('ams', {})
+                            ams_units = ams_raw.get('ams', []) if isinstance(ams_raw, dict) else []
+                            for unit_idx, unit in enumerate(ams_units):
+                                if isinstance(unit, dict):
+                                    humidity = unit.get('humidity')
+                                    temperature = unit.get('temp')
+                                    # Bambu reports humidity as string "1"-"5" or int
+                                    if humidity is not None:
+                                        try:
+                                            humidity = int(humidity)
+                                        except (ValueError, TypeError):
+                                            humidity = None
+                                    if temperature is not None:
+                                        try:
+                                            temperature = float(temperature)
+                                        except (ValueError, TypeError):
+                                            temperature = None
+                                    if humidity is not None or temperature is not None:
+                                        conn.execute(
+                                            "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
+                                            (self.printer_id, unit_idx, humidity, temperature)
+                                        )
+                            # Prune old data (keep 7 days)
+                            conn.execute(
+                                "DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-7 days')"
+                            )
+                            conn.commit()
+                        except Exception as e:
+                            log.debug(f"[{self.name}] AMS env capture: {e}")
+                    
+                    # Push telemetry to WebSocket clients
+                    ws_push('printer_telemetry', {
+                        'printer_id': self.printer_id,
+                        'bed_temp': bed_t,
+                        'bed_target': bed_tt,
+                        'nozzle_temp': noz_t,
+                        'nozzle_target': noz_tt,
+                        'state': gstate,
+                        'progress': self._state.get('mc_percent'),
+                        'remaining_min': self._state.get('mc_remaining_time'),
+                        'current_layer': self._state.get('layer_num'),
+                        'total_layers': self._state.get('total_layer_num'),
+                    })
                     
                     # Process HMS errors through universal handler for alerts
                     if hms_raw:

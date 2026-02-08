@@ -3,7 +3,7 @@ const API_BASE = '/api'
 // API Key for authentication - leave empty if auth is disabled
 const API_KEY = import.meta.env.VITE_API_KEY
 
-async function fetchAPI(endpoint, options = {}) {
+export async function fetchAPI(endpoint, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -58,6 +58,7 @@ export const jobs = {
   start: (id) => fetchAPI('/jobs/' + id + '/start', { method: 'POST' }),
   complete: (id) => fetchAPI('/jobs/' + id + '/complete', { method: 'POST' }),
   cancel: (id) => fetchAPI('/jobs/' + id + '/cancel', { method: 'POST' }),
+  reorder: (jobIds) => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),
 }
 
 export const models = {
@@ -370,3 +371,82 @@ export const license = {
   },
   remove: () => fetchAPI('/license', { method: 'DELETE' }),
 }
+
+
+// === Job Approval Workflow (v0.18.0) ===
+
+export async function approveJob(jobId) {
+  return fetchAPI(`/api/jobs/${jobId}/approve`, { method: 'POST' });
+}
+
+export async function rejectJob(jobId, reason) {
+  return fetchAPI(`/api/jobs/${jobId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function resubmitJob(jobId) {
+  return fetchAPI(`/api/jobs/${jobId}/resubmit`, { method: 'POST' });
+}
+
+export async function getApprovalSetting() {
+  return fetchAPI('/config/require-job-approval');
+}
+
+export async function setApprovalSetting(enabled) {
+  return fetchAPI('/config/require-job-approval', {
+    method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+
+// Failure logging
+export async function getFailureReasons() {
+  return fetchAPI('/failure-reasons');
+}
+export async function updateJobFailure(jobId, failReason, failNotes) {
+  return fetchAPI('/jobs/' + jobId + '/failure', {
+    method: 'PATCH',
+    body: JSON.stringify({ fail_reason: failReason, fail_notes: failNotes }),
+  });
+}
+
+// License
+export const licenseApi = {
+  get: () => fetchAPI('/license'),
+  upload: (formData) => fetch('/api/license/upload', {
+    method: 'POST',
+    headers: { 'X-API-Key': localStorage.getItem('pf_api_key') || '' },
+    body: formData,
+  }).then(r => r.json()),
+  remove: () => fetchAPI('/license', { method: 'DELETE' }),
+}
+
+
+
+// ---- Smart Plug ----
+export const getPlugConfig = (printerId) => fetchAPI(`/printers/${printerId}/plug`)
+export const updatePlugConfig = (printerId, config) => fetchAPI(`/printers/${printerId}/plug`, { method: 'PUT', body: JSON.stringify(config) })
+export const removePlugConfig = (printerId) => fetchAPI(`/printers/${printerId}/plug`, { method: 'DELETE' })
+export const plugPowerOn = (printerId) => fetchAPI(`/printers/${printerId}/plug/on`, { method: 'POST' })
+export const plugPowerOff = (printerId) => fetchAPI(`/printers/${printerId}/plug/off`, { method: 'POST' })
+export const plugPowerToggle = (printerId) => fetchAPI(`/printers/${printerId}/plug/toggle`, { method: 'POST' })
+export const getPlugEnergy = (printerId) => fetchAPI(`/printers/${printerId}/plug/energy`)
+export const getPlugState = (printerId) => fetchAPI(`/printers/${printerId}/plug/state`)
+export const getEnergyRate = () => fetchAPI('/settings/energy-rate')
+export const setEnergyRate = (rate) => fetchAPI('/settings/energy-rate', { method: 'PUT', body: JSON.stringify({ energy_cost_per_kwh: rate }) })
+
+// ---- AMS Environmental Monitoring ----
+export const getAmsEnvironment = (printerId, hours = 24, unit = null) => {
+  let url = `/printers/${printerId}/ams/environment?hours=${hours}`
+  if (unit !== null) url += `&unit=${unit}`
+  return fetchAPI(url)
+}
+export const getAmsCurrent = (printerId) => fetchAPI(`/printers/${printerId}/ams/current`)
+
+// ---- Language / i18n ----
+export const getLanguage = () => fetchAPI('/settings/language')
+export const setLanguage = (lang) => fetchAPI('/settings/language', { method: 'PUT', body: JSON.stringify({ language: lang }) })

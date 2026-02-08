@@ -145,7 +145,7 @@ export default function Alerts() {
         {loading && alerts.length === 0 ? (
           <div className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</div>
         ) : alerts.length === 0 ? (
-          <div className="text-center py-12 rounded-xl border" style={{
+          <div className="text-center py-12 rounded border" style={{
             backgroundColor: 'var(--brand-card-bg)',
             borderColor: 'var(--brand-sidebar-border)',
             color: 'var(--brand-text-muted)',
@@ -161,7 +161,7 @@ export default function Alerts() {
             return (
               <div
                 key={alert.id}
-                className={`rounded-xl border border-l-4 ${sev.bg} transition-all ${!alert.is_read ? 'ring-1 ring-blue-500/20' : ''}`}
+                className={`rounded border border-l-4 ${sev.bg} transition-all ${!alert.is_read ? 'ring-1 ring-print-500/20' : ''}`}
                 style={{
                   backgroundColor: 'var(--brand-card-bg)',
                   borderColor: 'var(--brand-sidebar-border)',

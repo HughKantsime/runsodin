@@ -13,12 +13,13 @@ import re
 import os
 
 from pydantic import BaseModel as PydanticBaseModel, field_validator, ConfigDict
-from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, Response, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 import httpx
 import shutil
+import asyncio
 from fastapi.staticfiles import StaticFiles
 from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 
@@ -148,9 +149,12 @@ def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database on startup."""
+    """Initialize database on startup, start WebSocket broadcaster."""
     Base.metadata.create_all(bind=engine)
+    # Start WebSocket event broadcaster
+    broadcast_task = asyncio.create_task(ws_broadcaster())
     yield
+    broadcast_task.cancel()
 
 
 # Create FastAPI app
@@ -181,7 +185,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
-    if request.url.path == "/health" or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/setup") or request.url.path == "/api/license" or request.url.path.startswith("/api/branding") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
+    if request.url.path in ("/health", "/metrics", "/ws") or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/setup") or request.url.path == "/api/license" or request.url.path.startswith("/api/branding") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
         return await call_next(request)
     
     # If no API key configured, auth is disabled
@@ -1508,12 +1512,25 @@ def list_jobs(
 
 
 @app.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
-def create_job(job: JobCreate, db: Session = Depends(get_db)):
-    """Create a new print job."""
+def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Create a new print job. If approval is required and user is a viewer, job is created as 'submitted'."""
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
         estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=job.model_id)
+    
+    # Check if approval workflow is enabled
+    approval_required = False
+    approval_config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
+    if approval_config and approval_config.value in (True, "true", "True", "1"):
+        approval_required = True
+    
+    # Determine initial status
+    initial_status = JobStatus.PENDING
+    submitted_by = None
+    if approval_required and current_user and current_user.get("role") == "viewer":
+        initial_status = "submitted"
+        submitted_by = current_user.get("id")
     
     db_job = Job(
         item_name=job.item_name,
@@ -1525,13 +1542,30 @@ def create_job(job: JobCreate, db: Session = Depends(get_db)):
         filament_type=job.filament_type,
         notes=job.notes,
         hold=job.hold,
-        status=JobStatus.PENDING,
+        status=initial_status,
         estimated_cost=estimated_cost,
-        suggested_price=suggested_price
+        suggested_price=suggested_price,
+        submitted_by=submitted_by
     )
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
+    
+    # If submitted for approval, notify approvers
+    if initial_status == "submitted":
+        try:
+            from alert_dispatcher import dispatch_alert
+            dispatch_alert(
+                db=db,
+                alert_type=AlertType.JOB_SUBMITTED,
+                severity=AlertSeverity.INFO,
+                title=f"Job awaiting approval: {job.item_name or 'Untitled'}",
+                message=f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
+                job_id=db_job.id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to dispatch job_submitted alert: {e}")
+    
     return db_job
 
 
@@ -1803,6 +1837,153 @@ def reset_job(job_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(job)
     return job
+
+
+# ============== Job Approval Workflow (v0.18.0) ==============
+
+class _RejectJobRequest(PydanticBaseModel):
+    """Inline schema for reject endpoint."""
+    reason: str
+
+@app.post("/api/jobs/{job_id}/approve", tags=["Jobs"])
+def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Approve a submitted job. Moves it to pending status for scheduling."""
+    if not current_user or current_user.get("role") not in ("operator", "admin"):
+        raise HTTPException(status_code=403, detail="Only operators and admins can approve jobs")
+    
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.status != "submitted":
+        raise HTTPException(status_code=400, detail="Job is not in submitted status")
+    
+    job.status = JobStatus.PENDING
+    job.approved_by = current_user["id"]
+    job.approved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(job)
+    
+    # Notify the student who submitted
+    if job.submitted_by:
+        try:
+            from alert_dispatcher import dispatch_alert
+            dispatch_alert(
+                db=db,
+                alert_type=AlertType.JOB_APPROVED,
+                severity=AlertSeverity.INFO,
+                title=f"Job approved: {job.item_name or 'Untitled'}",
+                message=f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
+                job_id=job.id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to dispatch job_approved alert: {e}")
+    
+    return {"status": "approved", "job_id": job.id}
+
+
+@app.post("/api/jobs/{job_id}/reject", tags=["Jobs"])
+def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Reject a submitted job with a required reason."""
+    if not current_user or current_user.get("role") not in ("operator", "admin"):
+        raise HTTPException(status_code=403, detail="Only operators and admins can reject jobs")
+    
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.status != "submitted":
+        raise HTTPException(status_code=400, detail="Job is not in submitted status")
+    
+    if not body.reason or not body.reason.strip():
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    
+    job.status = "rejected"
+    job.approved_by = current_user["id"]
+    job.rejected_reason = body.reason.strip()
+    db.commit()
+    db.refresh(job)
+    
+    # Notify the student who submitted
+    if job.submitted_by:
+        try:
+            from alert_dispatcher import dispatch_alert
+            dispatch_alert(
+                db=db,
+                alert_type=AlertType.JOB_REJECTED,
+                severity=AlertSeverity.WARNING,
+                title=f"Job rejected: {job.item_name or 'Untitled'}",
+                message=f"Reason: {body.reason.strip()}",
+                job_id=job.id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to dispatch job_rejected alert: {e}")
+    
+    return {"status": "rejected", "job_id": job.id, "reason": body.reason.strip()}
+
+
+@app.post("/api/jobs/{job_id}/resubmit", tags=["Jobs"])
+def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Resubmit a rejected job for approval again."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.status != "rejected":
+        raise HTTPException(status_code=400, detail="Only rejected jobs can be resubmitted")
+    
+    if job.submitted_by != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the original submitter can resubmit")
+    
+    job.status = "submitted"
+    job.rejected_reason = None
+    job.approved_by = None
+    job.approved_at = None
+    db.commit()
+    db.refresh(job)
+    
+    # Re-notify approvers
+    try:
+        from alert_dispatcher import dispatch_alert
+        dispatch_alert(
+            db=db,
+            alert_type=AlertType.JOB_SUBMITTED,
+            severity=AlertSeverity.INFO,
+            title=f"Job resubmitted: {job.item_name or 'Untitled'}",
+            message=f"{current_user.get('display_name') or current_user.get('username', 'A user')} resubmitted a previously rejected job",
+            job_id=job.id
+        )
+    except Exception as e:
+        logger.warning(f"Failed to dispatch job_submitted alert: {e}")
+    
+    return {"status": "resubmitted", "job_id": job.id}
+
+
+@app.get("/api/config/require-job-approval", tags=["Config"])
+def get_approval_setting(db: Session = Depends(get_db)):
+    """Get the current job approval requirement setting."""
+    config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
+    enabled = False
+    if config and config.value in (True, "true", "True", "1"):
+        enabled = True
+    return {"require_job_approval": enabled}
+
+
+@app.put("/api/config/require-job-approval", tags=["Config"])
+def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+    """Toggle the job approval requirement. Admin only."""
+    enabled = body.get("enabled", False)
+    config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
+    if config:
+        config.value = "true" if enabled else "false"
+    else:
+        config = SystemConfig(key="require_job_approval", value="true" if enabled else "false")
+        db.add(config)
+    db.commit()
+    return {"require_job_approval": enabled}
 
 
 # ============== Scheduler ==============
@@ -4180,7 +4361,8 @@ def get_all_printers_live_status(db: Session = Depends(get_db)):
 # ============== 3MF Upload ==============
 import tempfile
 import json as json_lib
-from threemf_parser import parse_3mf, extract_objects_from_plate
+from threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
+import smart_plug
 
 
 def _normalize_model_name(name: str) -> str:
@@ -4221,16 +4403,20 @@ async def upload_3mf(
         with zipfile.ZipFile(tmp_path, 'r') as zf:
             plate_objects = extract_objects_from_plate(zf)
         
+        # Extract 3D mesh for viewer
+        mesh_data = extract_mesh_from_3mf(tmp_path)
+        mesh_json = json_lib.dumps(mesh_data) if mesh_data else None
+        
         # Store in database
         result = db.execute(text("""
             INSERT INTO print_files (
                 filename, project_name, print_time_seconds, total_weight_grams,
                 layer_count, layer_height, nozzle_diameter, printer_model,
-                supports_used, bed_type, filaments_json, thumbnail_b64
+                supports_used, bed_type, filaments_json, thumbnail_b64, mesh_data
             ) VALUES (
                 :filename, :project_name, :print_time_seconds, :total_weight_grams,
                 :layer_count, :layer_height, :nozzle_diameter, :printer_model,
-                :supports_used, :bed_type, :filaments_json, :thumbnail_b64
+                :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json
             )
         """), {
             "filename": file.filename,
@@ -4250,7 +4436,8 @@ async def upload_3mf(
                 "used_meters": f.used_meters,
                 "used_grams": f.used_grams
             } for f in metadata.filaments]),
-            "thumbnail_b64": metadata.thumbnail_b64
+            "thumbnail_b64": metadata.thumbnail_b64,
+            "mesh_json": mesh_json
         })
         db.commit()
         
@@ -4325,7 +4512,8 @@ async def upload_3mf(
             "model_id": model_id,
             "is_new_model": is_new_model,
             "printer_model": metadata.printer_model,
-            "objects": plate_objects
+            "objects": plate_objects,
+            "has_mesh": mesh_data is not None
         }
     finally:
         # Clean up temp file
@@ -4990,32 +5178,660 @@ async def test_webhook(
     try:
         import httpx
         
-        if webhook["webhook_type"] == "discord":
+        wtype = webhook["webhook_type"]
+        
+        if wtype == "discord":
             payload = {
                 "embeds": [{
                     "title": "🖨️ O.D.I.N. Test",
                     "description": "Webhook connection successful!",
-                    "color": 0x00ff00,
+                    "color": 0xd97706,
                     "footer": {"text": "O.D.I.N."}
                 }]
             }
-        else:  # slack
+            resp = httpx.post(webhook["url"], json=payload, timeout=10)
+        
+        elif wtype == "slack":
             payload = {
                 "blocks": [
                     {"type": "header", "text": {"type": "plain_text", "text": "🖨️ O.D.I.N. Test"}},
                     {"type": "section", "text": {"type": "mrkdwn", "text": "Webhook connection successful!"}}
                 ]
             }
+            resp = httpx.post(webhook["url"], json=payload, timeout=10)
         
-        resp = httpx.post(webhook["url"], json=payload, timeout=10)
+        elif wtype == "ntfy":
+            # ntfy: URL is the topic endpoint (e.g., https://ntfy.sh/my-printfarm)
+            resp = httpx.post(
+                webhook["url"],
+                content="Webhook connection successful!",
+                headers={
+                    "Title": "O.D.I.N. Test",
+                    "Priority": "default",
+                    "Tags": "white_check_mark,printer",
+                },
+                timeout=10
+            )
+        
+        elif wtype == "telegram":
+            # Telegram: URL format is https://api.telegram.org/bot<TOKEN>/sendMessage
+            # User stores just the bot token + chat_id in the URL as:
+            #   bot_token|chat_id  (we parse and construct the API call)
+            # OR they can store the full URL with chat_id as a query param
+            url = webhook["url"]
+            if "|" in url:
+                # Format: bot_token|chat_id
+                bot_token, chat_id = url.split("|", 1)
+                api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
+            else:
+                # Assume full URL, extract chat_id from stored data
+                # Fallback: treat URL as bot token, chat_id from name field
+                api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
+                chat_id = webhook.get("name", "").split("|")[-1] if "|" in webhook.get("name", "") else ""
+            
+            resp = httpx.post(
+                api_url,
+                json={
+                    "chat_id": chat_id.strip(),
+                    "text": "🖨️ *O.D.I.N. Test*\nWebhook connection successful!",
+                    "parse_mode": "Markdown"
+                },
+                timeout=10
+            )
+        
+        else:
+            # Generic webhook — POST JSON
+            payload = {
+                "event": "test",
+                "source": "odin",
+                "message": "Webhook connection successful!"
+            }
+            resp = httpx.post(webhook["url"], json=payload, timeout=10)
         
         if resp.status_code in (200, 204):
             return {"success": True, "message": "Test message sent"}
         else:
-            return {"success": False, "message": f"Failed: HTTP {resp.status_code}"}
+            return {"success": False, "message": f"Failed: HTTP {resp.status_code} - {resp.text[:200]}"}
     
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+
+# ============================================================
+# Prometheus Metrics (v0.18.0)
+# ============================================================
+
+@app.get("/metrics", tags=["Monitoring"])
+async def prometheus_metrics(db: Session = Depends(get_db)):
+    """Prometheus-compatible metrics endpoint. No auth required."""
+    lines = []
+    
+    # --- Fleet metrics ---
+    printers_all = db.execute(text("SELECT * FROM printers WHERE is_active = 1")).fetchall()
+    total_printers = len(printers_all)
+    online_count = 0
+    printing_count = 0
+    idle_count = 0
+    error_count = 0
+    
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    
+    for p in printers_all:
+        pm = dict(p._mapping)
+        last_seen = pm.get("last_seen")
+        is_online = False
+        if last_seen:
+            try:
+                ls = datetime.fromisoformat(str(last_seen).replace("Z", ""))
+                is_online = (now - ls).total_seconds() < 90
+            except Exception:
+                pass
+        
+        if is_online:
+            online_count += 1
+            gcode_state = pm.get("gcode_state", "")
+            if gcode_state in ("RUNNING", "PREPARE"):
+                printing_count += 1
+            elif gcode_state in ("FAILED", "UNKNOWN"):
+                error_count += 1
+            else:
+                idle_count += 1
+    
+    lines.append("# HELP odin_printers_total Total registered printers")
+    lines.append("# TYPE odin_printers_total gauge")
+    lines.append(f"odin_printers_total {total_printers}")
+    
+    lines.append("# HELP odin_printers_online Online printers (seen in last 90s)")
+    lines.append("# TYPE odin_printers_online gauge")
+    lines.append(f"odin_printers_online {online_count}")
+    
+    lines.append("# HELP odin_printers_printing Currently printing")
+    lines.append("# TYPE odin_printers_printing gauge")
+    lines.append(f"odin_printers_printing {printing_count}")
+    
+    lines.append("# HELP odin_printers_idle Online but idle")
+    lines.append("# TYPE odin_printers_idle gauge")
+    lines.append(f"odin_printers_idle {idle_count}")
+    
+    lines.append("# HELP odin_printers_error Online with errors")
+    lines.append("# TYPE odin_printers_error gauge")
+    lines.append(f"odin_printers_error {error_count}")
+    
+    # --- Per-printer telemetry ---
+    lines.append("# HELP odin_printer_nozzle_temp_celsius Current nozzle temperature")
+    lines.append("# TYPE odin_printer_nozzle_temp_celsius gauge")
+    lines.append("# HELP odin_printer_bed_temp_celsius Current bed temperature")
+    lines.append("# TYPE odin_printer_bed_temp_celsius gauge")
+    lines.append("# HELP odin_printer_progress Print progress 0-100")
+    lines.append("# TYPE odin_printer_progress gauge")
+    lines.append("# HELP odin_printer_print_hours_total Lifetime print hours")
+    lines.append("# TYPE odin_printer_print_hours_total counter")
+    lines.append("# HELP odin_printer_print_count_total Lifetime print count")
+    lines.append("# TYPE odin_printer_print_count_total counter")
+    
+    for p in printers_all:
+        pm = dict(p._mapping)
+        name = pm.get("nickname") or pm.get("name", f"printer_{pm['id']}")
+        pid = pm["id"]
+        labels = f'printer="{name}",printer_id="{pid}"'
+        
+        nozzle = pm.get("nozzle_temp")
+        bed = pm.get("bed_temp")
+        progress = pm.get("print_progress")
+        total_hours = pm.get("total_print_hours", 0) or 0
+        total_prints = pm.get("total_print_count", 0) or 0
+        
+        if nozzle is not None:
+            lines.append(f"odin_printer_nozzle_temp_celsius{{{labels}}} {nozzle}")
+        if bed is not None:
+            lines.append(f"odin_printer_bed_temp_celsius{{{labels}}} {bed}")
+        if progress is not None:
+            lines.append(f"odin_printer_progress{{{labels}}} {progress}")
+        lines.append(f"odin_printer_print_hours_total{{{labels}}} {total_hours}")
+        lines.append(f"odin_printer_print_count_total{{{labels}}} {total_prints}")
+    
+    # --- Job metrics ---
+    job_counts = db.execute(text("""
+        SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status
+    """)).fetchall()
+    
+    lines.append("# HELP odin_jobs_by_status Number of jobs by status")
+    lines.append("# TYPE odin_jobs_by_status gauge")
+    for row in job_counts:
+        r = dict(row._mapping)
+        lines.append(f'odin_jobs_by_status{{status="{r["status"]}"}} {r["cnt"]}')
+    
+    # Queue depth (pending + scheduled)
+    queue = db.execute(text("""
+        SELECT COUNT(*) as cnt FROM jobs WHERE status IN ('pending', 'scheduled', 'submitted')
+    """)).fetchone()
+    lines.append("# HELP odin_queue_depth Jobs waiting to print")
+    lines.append("# TYPE odin_queue_depth gauge")
+    lines.append(f"odin_queue_depth {dict(queue._mapping)['cnt']}")
+    
+    # --- Spool metrics ---
+    spool_data = db.execute(text("""
+        SELECT COUNT(*) as total,
+               SUM(CASE WHEN remaining_weight_g < 100 THEN 1 ELSE 0 END) as low
+        FROM spools WHERE remaining_weight_g IS NOT NULL
+    """)).fetchone()
+    sd = dict(spool_data._mapping)
+    
+    lines.append("# HELP odin_spools_total Total tracked spools")
+    lines.append("# TYPE odin_spools_total gauge")
+    lines.append(f"odin_spools_total {sd['total'] or 0}")
+    
+    lines.append("# HELP odin_spools_low Spools under 100g remaining")
+    lines.append("# TYPE odin_spools_low gauge")
+    lines.append(f"odin_spools_low {sd['low'] or 0}")
+    
+    # --- Order metrics ---
+    order_data = db.execute(text("""
+        SELECT status, COUNT(*) as cnt FROM orders GROUP BY status
+    """)).fetchall()
+    
+    lines.append("# HELP odin_orders_by_status Orders by status")
+    lines.append("# TYPE odin_orders_by_status gauge")
+    for row in order_data:
+        r = dict(row._mapping)
+        lines.append(f'odin_orders_by_status{{status="{r["status"]}"}} {r["cnt"]}')
+    
+    # --- Alert metrics ---
+    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read = 0")).fetchone()
+    lines.append("# HELP odin_alerts_unread Unread alerts")
+    lines.append("# TYPE odin_alerts_unread gauge")
+    lines.append(f"odin_alerts_unread {dict(unread._mapping)['cnt']}")
+    
+    from starlette.responses import Response
+    return Response(
+        content="\n".join(lines) + "\n",
+        media_type="text/plain; version=0.0.4; charset=utf-8"
+    )
+
+
+
+
+
+
+# ============== HMS Code Lookup ==============
+
+@app.get("/api/hms-codes/{code}", tags=["Monitoring"])
+async def lookup_hms(code: str):
+    """Look up human-readable description for a Bambu HMS error code."""
+    try:
+        from hms_codes import lookup_hms_code, get_code_count
+        return {
+            "code": code,
+            "message": lookup_hms_code(code),
+            "total_codes": get_code_count()
+        }
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+
+# ============== Job Queue Reorder ==============
+
+class JobReorderRequest(PydanticBaseModel):
+    job_ids: list[int]  # Ordered list of job IDs in desired queue position
+
+@app.patch("/api/jobs/reorder", tags=["Jobs"])
+async def reorder_jobs(req: JobReorderRequest, db: Session = Depends(get_db)):
+    """
+    Reorder job queue. Accepts ordered list of job IDs.
+    Sets queue_position on each job based on array index.
+    Only reorders pending/scheduled jobs.
+    """
+    for position, job_id in enumerate(req.job_ids):
+        db.execute(
+            text("UPDATE jobs SET queue_position = :pos WHERE id = :id AND status IN ('pending', 'scheduled')"),
+            {"pos": position, "id": job_id}
+        )
+    db.commit()
+    return {"reordered": len(req.job_ids)}
+
+
+
+
+# ============== Quiet Hours Configuration ==============
+
+@app.get("/api/config/quiet-hours")
+async def get_quiet_hours_config(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Get quiet hours settings."""
+    keys = ["quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_digest"]
+    config = {}
+    defaults = {"enabled": False, "start": "22:00", "end": "07:00", "digest": True}
+
+    for key in keys:
+        row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
+        short_key = key.replace("quiet_hours_", "")
+        if row:
+            val = row[0]
+            if short_key in ("enabled", "digest"):
+                config[short_key] = val.lower() in ("true", "1", "yes")
+            else:
+                config[short_key] = val
+        else:
+            config[short_key] = defaults.get(short_key, "")
+    return config
+
+
+@app.put("/api/config/quiet-hours")
+async def update_quiet_hours_config(request: Request, db: Session = Depends(get_db),
+                                     current_user=Depends(get_current_user)):
+    """Update quiet hours settings. Admin only."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    body = await request.json()
+
+    for short_key, value in body.items():
+        db_key = f"quiet_hours_{short_key}"
+        str_val = str(value).lower() if isinstance(value, bool) else str(value)
+
+        existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
+        if existing:
+            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k"),
+                       {"v": str_val, "k": db_key})
+        else:
+            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)"),
+                       {"k": db_key, "v": str_val})
+
+    db.commit()
+
+    # Invalidate cache
+    try:
+        from quiet_hours import invalidate_cache
+        invalidate_cache()
+    except Exception:
+        pass
+
+    return {"status": "ok"}
+
+# ============== MQTT Republish Configuration ==============
+
+@app.get("/api/config/mqtt-republish")
+async def get_mqtt_republish_config(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Get MQTT republish settings."""
+    keys = [
+        "mqtt_republish_enabled", "mqtt_republish_host", "mqtt_republish_port",
+        "mqtt_republish_username", "mqtt_republish_password",
+        "mqtt_republish_topic_prefix", "mqtt_republish_use_tls",
+    ]
+    config = {}
+    for key in keys:
+        row = db.execute(text("SELECT value FROM system_config WHERE key = :k"), {"k": key}).fetchone()
+        short_key = key.replace("mqtt_republish_", "")
+        if row:
+            val = row[0]
+            if short_key in ("enabled", "use_tls"):
+                config[short_key] = val.lower() in ("true", "1", "yes")
+            elif short_key == "port":
+                config[short_key] = int(val) if val else 1883
+            elif short_key == "password":
+                config[short_key] = "••••••••" if val else ""
+            else:
+                config[short_key] = val
+        else:
+            defaults = {"enabled": False, "host": "", "port": 1883, "username": "",
+                        "password": "", "topic_prefix": "odin", "use_tls": False}
+            config[short_key] = defaults.get(short_key, "")
+    return config
+
+
+@app.put("/api/config/mqtt-republish")
+async def update_mqtt_republish_config(request: Request, db: Session = Depends(get_db),
+                                        current_user=Depends(get_current_user)):
+    """Update MQTT republish settings. Admin only."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    body = await request.json()
+
+    for short_key, value in body.items():
+        db_key = f"mqtt_republish_{short_key}"
+        # Don't overwrite password if it's the masked value
+        if short_key == "password" and value == "••••••••":
+            continue
+
+        str_val = str(value).lower() if isinstance(value, bool) else str(value)
+
+        existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
+        if existing:
+            db.execute(text("UPDATE system_config SET value = :v WHERE key = :k"),
+                       {"v": str_val, "k": db_key})
+        else:
+            db.execute(text("INSERT INTO system_config (key, value) VALUES (:k, :v)"),
+                       {"k": db_key, "v": str_val})
+
+    db.commit()
+
+    # Invalidate the republish module's cached config
+    if mqtt_republish:
+        mqtt_republish.invalidate_cache()
+
+    return {"status": "ok"}
+
+
+@app.post("/api/config/mqtt-republish/test")
+async def test_mqtt_republish(request: Request, current_user=Depends(get_current_user)):
+    """Test connection to external MQTT broker."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if not mqtt_republish:
+        raise HTTPException(status_code=500, detail="mqtt_republish module not available")
+
+    body = await request.json()
+    result = mqtt_republish.test_connection(
+        host=body.get("host", ""),
+        port=int(body.get("port", 1883)),
+        username=body.get("username", ""),
+        password=body.get("password", ""),
+        use_tls=body.get("use_tls", False),
+        topic_prefix=body.get("topic_prefix", "odin"),
+    )
+    return result
+
+
+# ============== WebSocket Real-Time Updates ==============
+
+class ConnectionManager:
+    """Manages active WebSocket connections."""
+    
+    def __init__(self):
+        self.active: list[WebSocket] = []
+    
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.append(ws)
+    
+    def disconnect(self, ws: WebSocket):
+        if ws in self.active:
+            self.active.remove(ws)
+    
+    async def broadcast(self, message: dict):
+        dead = []
+        for ws in self.active:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
+
+ws_manager = ConnectionManager()
+
+async def ws_broadcaster():
+    """Background task: read events from hub file, broadcast to WebSocket clients."""
+    from ws_hub import read_events_since
+    import time
+    
+    last_ts = time.time()
+    
+    while True:
+        await asyncio.sleep(1)  # Check every 1 second
+        
+        if not ws_manager.active:
+            # No clients connected, just advance timestamp
+            last_ts = time.time()
+            continue
+        
+        events, last_ts = read_events_since(last_ts)
+        
+        for evt in events:
+            await ws_manager.broadcast(evt)
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    """
+    WebSocket endpoint for real-time printer telemetry and job updates.
+    
+    Pushes events:
+    - printer_telemetry: {printer_id, bed_temp, nozzle_temp, state, progress, ...}
+    - job_update: {printer_id, job_name, status, progress, layer, ...}  
+    - alert_new: {count} (new unread alert count)
+    """
+    await ws_manager.connect(ws)
+    try:
+        while True:
+            # Keep connection alive, handle client messages (ping/pong)
+            try:
+                data = await asyncio.wait_for(ws.receive_text(), timeout=30)
+                # Client can send "ping" to keep alive
+                if data == "ping":
+                    await ws.send_text("pong")
+            except asyncio.TimeoutError:
+                # Send server-side ping to keep connection alive
+                try:
+                    await ws.send_json({"type": "ping"})
+                except Exception:
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        ws_manager.disconnect(ws)
+
+# ============================================================
+# Webhook Alert Dispatch (v0.18.0 — ntfy + telegram support)
+# ============================================================
+
+def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, severity: str):
+    """Send alert to all matching enabled webhooks."""
+    import httpx
+    import threading
+    
+    rows = db.execute(text("SELECT * FROM webhooks WHERE is_enabled = 1")).fetchall()
+    
+    for row in rows:
+        wh = dict(row._mapping)
+        
+        # Check if this webhook subscribes to this alert type
+        alert_types = wh.get("alert_types")
+        if alert_types:
+            try:
+                types_list = json.loads(alert_types) if isinstance(alert_types, str) else alert_types
+                if alert_type_value not in types_list and "all" not in types_list:
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        wtype = wh["webhook_type"]
+        url = wh["url"]
+        
+        severity_colors = {"critical": 0xef4444, "warning": 0xf59e0b, "info": 0x3b82f6}
+        severity_emoji = {"critical": "🔴", "warning": "🟡", "info": "🔵"}
+        emoji = severity_emoji.get(severity, "🔵")
+        color = severity_colors.get(severity, 0x3b82f6)
+        
+        def _send(wtype=wtype, url=url):
+            try:
+                if wtype == "discord":
+                    httpx.post(url, json={
+                        "embeds": [{
+                            "title": f"{emoji} {title}",
+                            "description": message or "",
+                            "color": color,
+                            "footer": {"text": "O.D.I.N."}
+                        }]
+                    }, timeout=10)
+                
+                elif wtype == "slack":
+                    httpx.post(url, json={
+                        "blocks": [
+                            {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
+                            {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
+                        ]
+                    }, timeout=10)
+                
+                elif wtype == "ntfy":
+                    priority_map = {"critical": "urgent", "warning": "high", "info": "default"}
+                    httpx.post(url, content=message or title, headers={
+                        "Title": title,
+                        "Priority": priority_map.get(severity, "default"),
+                        "Tags": "printer",
+                    }, timeout=10)
+                
+                elif wtype == "telegram":
+                    if "|" in url:
+                        bot_token, chat_id = url.split("|", 1)
+                        api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
+                    else:
+                        api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
+                        chat_id = ""
+                    
+                    if chat_id:
+                        httpx.post(api_url, json={
+                            "chat_id": chat_id.strip(),
+                            "text": f"{emoji} *{title}*\n{message or ''}",
+                            "parse_mode": "Markdown"
+                        }, timeout=10)
+                
+                else:
+                    httpx.post(url, json={
+                        "event": alert_type_value,
+                        "title": title,
+                        "message": message or "",
+                        "severity": severity
+                    }, timeout=10)
+            
+            except Exception as e:
+                log.error(f"Webhook dispatch failed ({wtype}): {e}")
+        
+        thread = threading.Thread(target=_send, daemon=True)
+        thread.start()
+
+
+
+# ============================================================
+# Failure Logging (v0.18.0)
+# ============================================================
+
+FAILURE_REASONS = [
+    {"value": "spaghetti", "label": "Spaghetti / Detached"},
+    {"value": "adhesion", "label": "Bed Adhesion Failure"},
+    {"value": "clog", "label": "Nozzle Clog"},
+    {"value": "layer_shift", "label": "Layer Shift"},
+    {"value": "stringing", "label": "Excessive Stringing"},
+    {"value": "warping", "label": "Warping / Curling"},
+    {"value": "filament_runout", "label": "Filament Runout"},
+    {"value": "filament_tangle", "label": "Filament Tangle"},
+    {"value": "power_loss", "label": "Power Loss"},
+    {"value": "firmware_error", "label": "Firmware / HMS Error"},
+    {"value": "user_cancelled", "label": "User Cancelled"},
+    {"value": "other", "label": "Other"},
+]
+
+
+@app.get("/api/failure-reasons", tags=["Jobs"])
+async def get_failure_reasons():
+    """List available failure reason categories."""
+    return FAILURE_REASONS
+
+
+@app.patch("/api/jobs/{job_id}/failure", tags=["Jobs"])
+async def update_job_failure(
+    job_id: int,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add or update failure reason and notes on a failed job."""
+    data = await request.json()
+    
+    job = db.execute(text("SELECT id, status FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job_dict = dict(job._mapping)
+    if job_dict["status"] != "failed":
+        raise HTTPException(status_code=400, detail="Can only add failure info to failed jobs")
+    
+    fail_reason = data.get("fail_reason")
+    fail_notes = data.get("fail_notes")
+    
+    updates = []
+    params = {"id": job_id}
+    
+    if fail_reason is not None:
+        updates.append("fail_reason = :reason")
+        params["reason"] = fail_reason
+    
+    if fail_notes is not None:
+        updates.append("fail_notes = :notes")
+        params["notes"] = fail_notes
+    
+    if updates:
+        updates.append("updated_at = datetime('now')")
+        db.execute(text(f"UPDATE jobs SET {', '.join(updates)} WHERE id = :id"), params)
+        db.commit()
+    
+    return {"success": True, "message": "Failure info updated"}
 
 @app.get("/api/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db)):
@@ -5277,6 +6093,301 @@ def delete_backup(filename: str, db: Session = Depends(get_db)):
     log_audit(db, "backup_deleted", "system", details={"filename": filename})
 
 
+
+
+
+
+
+
+
+
+
+# ============== Language / i18n ==============
+
+@app.get("/api/settings/language", tags=["Settings"])
+async def get_language(db: Session = Depends(get_db)):
+    """Get current interface language."""
+    result = db.execute(text("SELECT value FROM system_config WHERE key = 'language'")).fetchone()
+    return {"language": result[0] if result else "en"}
+
+
+@app.put("/api/settings/language", tags=["Settings"])
+async def set_language(request: Request, db: Session = Depends(get_db)):
+    """Set interface language."""
+    data = await request.json()
+    lang = data.get("language", "en")
+    supported = ["en", "de", "ja", "es"]
+    if lang not in supported:
+        raise HTTPException(400, f"Unsupported language. Choose from: {', '.join(supported)}")
+    db.execute(text(
+        "INSERT OR REPLACE INTO system_config (key, value) VALUES ('language', :lang)"
+    ), {"lang": lang})
+    db.commit()
+    return {"language": lang}
+
+
+# ============== AMS Environmental Monitoring ==============
+
+@app.get("/api/printers/{printer_id}/ams/environment", tags=["AMS"])
+async def get_ams_environment(
+    printer_id: int,
+    hours: int = Query(default=24, ge=1, le=168),
+    unit: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get AMS humidity/temperature history for charts.
+    Returns time-series data for the specified time window.
+    Default: last 24 hours. Max: 7 days (168 hours).
+    """
+    query = """
+        SELECT ams_unit, humidity, temperature, recorded_at
+        FROM ams_telemetry
+        WHERE printer_id = :printer_id
+        AND recorded_at >= datetime('now', :hours_ago)
+    """
+    params = {
+        "printer_id": printer_id,
+        "hours_ago": f"-{hours} hours"
+    }
+    
+    if unit is not None:
+        query += " AND ams_unit = :unit"
+        params["unit"] = unit
+    
+    query += " ORDER BY recorded_at ASC"
+    
+    rows = db.execute(text(query), params).fetchall()
+    
+    # Group by AMS unit
+    units = {}
+    for row in rows:
+        u = row[0]
+        if u not in units:
+            units[u] = []
+        units[u].append({
+            "humidity": row[1],
+            "temperature": row[2],
+            "time": row[3]
+        })
+    
+    return {
+        "printer_id": printer_id,
+        "hours": hours,
+        "units": units
+    }
+
+
+@app.get("/api/printers/{printer_id}/ams/current", tags=["AMS"])
+async def get_ams_current(printer_id: int, db: Session = Depends(get_db)):
+    """
+    Get latest AMS environmental readings for a printer.
+    Returns the most recent humidity/temperature per AMS unit.
+    """
+    rows = db.execute(text("""
+        SELECT ams_unit, humidity, temperature, recorded_at
+        FROM ams_telemetry
+        WHERE printer_id = :pid
+        AND recorded_at = (
+            SELECT MAX(recorded_at) FROM ams_telemetry t2
+            WHERE t2.printer_id = ams_telemetry.printer_id
+            AND t2.ams_unit = ams_telemetry.ams_unit
+        )
+        ORDER BY ams_unit
+    """), {"pid": printer_id}).fetchall()
+    
+    units = []
+    for row in rows:
+        # Map Bambu humidity scale: 1=dry, 5=wet
+        hum = row[1]
+        hum_label = {1: "Dry", 2: "Low", 3: "Moderate", 4: "High", 5: "Wet"}.get(hum, "Unknown") if hum else "N/A"
+        units.append({
+            "unit": row[0],
+            "humidity": hum,
+            "humidity_label": hum_label,
+            "temperature": row[2],
+            "recorded_at": row[3]
+        })
+    
+    return {"printer_id": printer_id, "units": units}
+
+
+# ============== Smart Plug Control ==============
+
+@app.get("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
+async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
+    """Get smart plug configuration for a printer."""
+    result = db.execute(text("""
+        SELECT plug_type, plug_host, plug_entity_id, plug_auto_on, plug_auto_off,
+               plug_cooldown_minutes, plug_power_state, plug_energy_kwh
+        FROM printers WHERE id = :id
+    """), {"id": printer_id}).fetchone()
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    
+    return {
+        "type": result[0],
+        "host": result[1],
+        "entity_id": result[2],
+        "auto_on": bool(result[3]) if result[3] is not None else True,
+        "auto_off": bool(result[4]) if result[4] is not None else True,
+        "cooldown_minutes": result[5] or 5,
+        "power_state": result[6],
+        "energy_kwh": result[7] or 0,
+        "configured": result[0] is not None,
+    }
+
+
+@app.put("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
+async def update_plug_config(printer_id: int, request: Request, db: Session = Depends(get_db)):
+    """Update smart plug configuration for a printer."""
+    data = await request.json()
+    
+    # Validate plug type
+    plug_type = data.get("type")
+    if plug_type and plug_type not in ("tasmota", "homeassistant", "mqtt"):
+        raise HTTPException(400, "Invalid plug type. Use: tasmota, homeassistant, mqtt")
+    
+    db.execute(text("""
+        UPDATE printers SET
+            plug_type = :plug_type,
+            plug_host = :plug_host,
+            plug_entity_id = :plug_entity_id,
+            plug_auth_token = :plug_auth_token,
+            plug_auto_on = :plug_auto_on,
+            plug_auto_off = :plug_auto_off,
+            plug_cooldown_minutes = :plug_cooldown_minutes
+        WHERE id = :id
+    """), {
+        "id": printer_id,
+        "plug_type": plug_type,
+        "plug_host": data.get("host"),
+        "plug_entity_id": data.get("entity_id"),
+        "plug_auth_token": data.get("auth_token"),
+        "plug_auto_on": data.get("auto_on", True),
+        "plug_auto_off": data.get("auto_off", True),
+        "plug_cooldown_minutes": data.get("cooldown_minutes", 5),
+    })
+    db.commit()
+    
+    return {"status": "ok", "message": "Smart plug configuration updated"}
+
+
+@app.delete("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
+async def remove_plug_config(printer_id: int, db: Session = Depends(get_db)):
+    """Remove smart plug configuration from a printer."""
+    db.execute(text("""
+        UPDATE printers SET
+            plug_type = NULL, plug_host = NULL, plug_entity_id = NULL,
+            plug_auth_token = NULL, plug_auto_on = 1, plug_auto_off = 1,
+            plug_cooldown_minutes = 5, plug_power_state = NULL
+        WHERE id = :id
+    """), {"id": printer_id})
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/api/printers/{printer_id}/plug/on", tags=["Smart Plug"])
+async def plug_power_on(printer_id: int):
+    """Turn on a printer's smart plug."""
+    result = smart_plug.power_on(printer_id)
+    if result is None:
+        raise HTTPException(400, "No smart plug configured or plug unreachable")
+    return {"power_state": result}
+
+
+@app.post("/api/printers/{printer_id}/plug/off", tags=["Smart Plug"])
+async def plug_power_off(printer_id: int):
+    """Turn off a printer's smart plug."""
+    result = smart_plug.power_off(printer_id)
+    if result is None:
+        raise HTTPException(400, "No smart plug configured or plug unreachable")
+    return {"power_state": result}
+
+
+@app.post("/api/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
+async def plug_power_toggle(printer_id: int):
+    """Toggle a printer's smart plug."""
+    result = smart_plug.power_toggle(printer_id)
+    if result is None:
+        raise HTTPException(400, "No smart plug configured or plug unreachable")
+    return {"power_state": result}
+
+
+@app.get("/api/printers/{printer_id}/plug/energy", tags=["Smart Plug"])
+async def plug_energy(printer_id: int):
+    """Get current energy data from smart plug."""
+    data = smart_plug.get_energy(printer_id)
+    if data is None:
+        raise HTTPException(400, "No energy data available")
+    return data
+
+
+@app.get("/api/printers/{printer_id}/plug/state", tags=["Smart Plug"])
+async def plug_state(printer_id: int):
+    """Query current power state from smart plug."""
+    state = smart_plug.get_power_state(printer_id)
+    if state is None:
+        raise HTTPException(400, "No smart plug configured or plug unreachable")
+    return {"power_state": state}
+
+
+@app.get("/api/settings/energy-rate", tags=["Smart Plug"])
+async def get_energy_rate(db: Session = Depends(get_db)):
+    """Get energy cost per kWh."""
+    result = db.execute(text("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")).fetchone()
+    return {"energy_cost_per_kwh": float(result[0]) if result else 0.12}
+
+
+@app.put("/api/settings/energy-rate", tags=["Smart Plug"])
+async def set_energy_rate(request: Request, db: Session = Depends(get_db)):
+    """Set energy cost per kWh."""
+    data = await request.json()
+    rate = data.get("energy_cost_per_kwh", 0.12)
+    db.execute(text(
+        "INSERT OR REPLACE INTO system_config (key, value) VALUES ('energy_cost_per_kwh', :rate)"
+    ), {"rate": str(rate)})
+    db.commit()
+    return {"energy_cost_per_kwh": rate}
+
+
+# ============== 3D Model Viewer ==============
+
+@app.get("/api/print-files/{file_id}/mesh", tags=["3D Viewer"])
+async def get_print_file_mesh(file_id: int, db: Session = Depends(get_db)):
+    """Get mesh geometry data for 3D viewer from a print file."""
+    result = db.execute(text(
+        "SELECT mesh_data FROM print_files WHERE id = :id"
+    ), {"id": file_id}).fetchone()
+    
+    if not result or not result[0]:
+        raise HTTPException(status_code=404, detail="No mesh data available for this file")
+    
+    import json as json_stdlib
+    return json_stdlib.loads(result[0])
+
+
+@app.get("/api/models/{model_id}/mesh", tags=["3D Viewer"])
+async def get_model_mesh(model_id: int, db: Session = Depends(get_db)):
+    """Get mesh geometry for a model (via its linked print_file)."""
+    # Find print_file_id from model
+    model = db.execute(text(
+        "SELECT print_file_id FROM models WHERE id = :id"
+    ), {"id": model_id}).fetchone()
+    
+    if not model or not model[0]:
+        raise HTTPException(status_code=404, detail="Model has no linked print file")
+    
+    result = db.execute(text(
+        "SELECT mesh_data FROM print_files WHERE id = :id"
+    ), {"id": model[0]}).fetchone()
+    
+    if not result or not result[0]:
+        raise HTTPException(status_code=404, detail="No mesh data available")
+    
+    import json as json_stdlib
+    return json_stdlib.loads(result[0])
 
 # ============== Maintenance Tracking (v0.11.0) ==============
 

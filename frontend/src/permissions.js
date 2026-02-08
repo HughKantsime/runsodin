@@ -19,6 +19,9 @@ const DEFAULT_PAGE_ACCESS = {
   settings:    ['admin'],
   admin:       ['admin'],
   branding:    ['admin'],
+  orders:             ['admin', 'operator', 'viewer'],
+  products:            ['admin', 'operator', 'viewer'],
+  alerts:              ['admin', 'operator', 'viewer'],
 }
 
 const DEFAULT_ACTION_ACCESS = {
@@ -45,6 +48,18 @@ const DEFAULT_ACTION_ACCESS = {
   'maintenance.log':   ['admin', 'operator'],
   'maintenance.tasks': ['admin'],
   'dashboard.actions': ['admin', 'operator'],
+  'orders.create':      ['admin', 'operator'],
+  'orders.edit':        ['admin', 'operator'],
+  'orders.delete':      ['admin'],
+  'orders.ship':        ['admin', 'operator'],
+  'products.create':    ['admin', 'operator'],
+  'products.edit':      ['admin', 'operator'],
+  'products.delete':    ['admin'],
+  'jobs.approve':       ['admin', 'operator'],
+  'jobs.reject':        ['admin', 'operator'],
+  'jobs.resubmit':      ['admin', 'operator', 'viewer'],
+  'alerts.read':        ['admin', 'operator', 'viewer'],
+  'printers.plug':      ['admin', 'operator'],
 }
 
 function getCachedPermissions() {

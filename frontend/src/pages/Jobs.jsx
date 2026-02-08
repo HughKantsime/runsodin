@@ -9,19 +9,23 @@ function formatHours(h) {
 }
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap , RefreshCw} from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { jobs, models, printers, scheduler } from '../api'
+import { jobs, models, printers, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting } from '../api'
 import { canDo } from '../permissions'
+import FailureReasonModal from '../components/FailureReasonModal'
+import { updateJobFailure } from '../api'
 
 const statusOptions = [
   { value: '', label: 'All Status' },
+  { value: 'submitted', label: 'Submitted' },
   { value: 'pending', label: 'Pending' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'printing', label: 'Printing' },
   { value: 'completed', label: 'Completed' },
   { value: 'failed', label: 'Failed' },
+  { value: 'rejected', label: 'Rejected' },
 ]
 
 const priorityOptions = [
@@ -32,24 +36,80 @@ const priorityOptions = [
   { value: 5, label: '5 - Lowest' },
 ]
 
-const statusOrder = { printing: 0, scheduled: 1, pending: 2, failed: 3, completed: 4 }
+const statusOrder = { submitted: 0, printing: 1, scheduled: 2, pending: 3, rejected: 4, failed: 5, completed: 6 }
 
 const jobTypeTabs = [
   { value: 'all', label: 'All Jobs', icon: Layers },
+  { value: 'approval', label: 'Awaiting Approval', icon: Clock },
   { value: 'order', label: 'Order Jobs', icon: ShoppingCart },
   { value: 'adhoc', label: 'Ad-hoc', icon: null },
 ]
 
-function JobRow({ job, onAction }) {
+function JobRow({ job, onAction, dragProps }) {
   const statusColors = {
+    submitted: 'text-amber-400',
     pending: 'text-status-pending',
     scheduled: 'text-status-scheduled',
     printing: 'text-status-printing',
     completed: 'text-status-completed',
     failed: 'text-status-failed',
+    rejected: 'text-red-400',
   }
+  // Failure reason modal
+  const [failureModal, setFailureModal] = React.useState(null)
+
+  // Drag-and-drop queue reorder
+  const [draggedId, setDraggedId] = React.useState(null)
+  const [dragOverId, setDragOverId] = React.useState(null)
+  
+  const handleDragStart = (e, jobId) => {
+    setDraggedId(jobId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', jobId)
+    e.currentTarget.style.opacity = '0.4'
+  }
+  
+  const handleDragEnd = (e) => {
+    e.currentTarget.style.opacity = '1'
+    setDraggedId(null)
+    setDragOverId(null)
+  }
+  
+  const handleDragOver = (e, jobId) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (jobId !== draggedId) setDragOverId(jobId)
+  }
+  
+  const handleDrop = async (e, targetId) => {
+    e.preventDefault()
+    setDragOverId(null)
+    setDraggedId(null)
+    
+    if (!draggedId || draggedId === targetId) return
+    
+    // Get current job list and reorder
+    const currentJobs = (data || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
+    const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
+    const toIdx = currentJobs.findIndex(j => j.id === targetId)
+    
+    if (fromIdx === -1 || toIdx === -1) return
+    
+    const reordered = [...currentJobs]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    
+    try {
+      await jobs.reorder(reordered.map(j => j.id))
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    } catch (err) {
+      console.error('Reorder failed:', err)
+    }
+  }
+
   return (
-    <tr className="border-b border-farm-800 hover:bg-farm-900/50">
+    <tr className="border-b border-farm-800 hover:bg-farm-900/50"
+        {...(dragProps || {})}>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-2">
           <div className={clsx('status-dot', job.status)} />
@@ -64,7 +124,18 @@ function JobRow({ job, onAction }) {
             Order #{job.order_item?.order_id || '—'}
           </div>
         )}
+        {job.rejected_reason && (
+          <div className="text-xs text-red-400 flex items-center gap-1 truncate max-w-xs">
+            <MessageSquare size={10} />
+            {job.rejected_reason}
+          </div>
+        )}
         {job.notes && <div className="text-xs text-farm-500 truncate max-w-xs">{job.notes}</div>}
+        {job.fail_reason && (
+          <div className="text-xs text-red-400 truncate max-w-xs">
+            ⚠ {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
+          </div>
+        )}
       </td>
       <td className="px-3 md:px-4 py-3">
         <span className={clsx(
@@ -92,19 +163,44 @@ function JobRow({ job, onAction }) {
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-1">
+          {job.status === 'submitted' && (
+            <>
+              <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Approve">
+                <CheckCircle size={16} />
+              </button>
+              <button onClick={() => onAction('reject', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Reject">
+                <XCircle size={16} />
+              </button>
+            </>
+          )}
+          {job.status === 'rejected' && job.submitted_by && (
+            <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded" title="Resubmit">
+              <RefreshCw size={14} />
+            </button>
+          )}
           {job.status === 'scheduled' && (
             <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded" title="Start Print">
               <Play size={16} />
             </button>
           )}
           {job.status === 'printing' && (
-            <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Complete">
-              <CheckCircle size={16} />
-            </button>
+            <>
+              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Complete">
+                <CheckCircle size={16} />
+              </button>
+              <button onClick={() => onAction('markFailed', job.id, job.item_name)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Mark Failed">
+                <AlertTriangle size={16} />
+              </button>
+            </>
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
             <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Cancel">
               <XCircle size={16} />
+            </button>
+          )}
+          {job.status === 'failed' && (
+            <button onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded" title={job.fail_reason ? 'Edit Failure Reason' : 'Add Failure Reason'}>
+              <AlertTriangle size={16} />
             </button>
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
@@ -164,7 +260,7 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg sm:text-xl font-display font-semibold mb-4">Create New Job</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -212,6 +308,40 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
   )
 }
 
+
+function RejectModal({ isOpen, onClose, onSubmit }) {
+  const [reason, setReason] = useState('')
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700">
+        <h2 className="text-lg font-display font-semibold mb-4">Reject Job</h2>
+        <div className="mb-4">
+          <label className="block text-sm text-farm-400 mb-1">Reason (required)</label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g., Too much filament. Please re-slice with 10% infill."
+            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+            rows={3}
+            autoFocus
+          />
+        </div>
+        <div className="flex justify-end gap-3">
+          <button onClick={() => { onClose(); setReason('') }} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
+          <button
+            onClick={() => { if (reason.trim()) { onSubmit(reason.trim()); setReason(''); onClose() } }}
+            disabled={!reason.trim()}
+            className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm text-white"
+          >
+            Reject
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Jobs() {
   const queryClient = useQueryClient()
   const runScheduler = useMutation({
@@ -227,6 +357,13 @@ export default function Jobs() {
   const [sortField, setSortField] = useState('priority')
   const [sortDirection, setSortDirection] = useState('asc')
   const [jobTypeFilter, setJobTypeFilter] = useState('all')
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [rejectingJobId, setRejectingJobId] = useState(null)
+
+  const { data: approvalSetting } = useQuery({
+    queryKey: ['approval-setting'],
+    queryFn: getApprovalSetting,
+  })
 
   const { data: jobsData, isLoading } = useQuery({
     queryKey: ['jobs', statusFilter],
@@ -278,14 +415,43 @@ export default function Jobs() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
   })
 
-  const handleAction = (action, jobId) => {
+  const approveJobMut = useMutation({
+    mutationFn: approveJob,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+
+  const rejectJobMut = useMutation({
+    mutationFn: ({ jobId, reason }) => rejectJob(jobId, reason),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+
+  const resubmitJobMut = useMutation({
+    mutationFn: resubmitJob,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+  })
+
+  const handleAction = (action, jobId, jobName, existingReason, existingNotes) => {
     switch (action) {
       case 'start': startJob.mutate(jobId); break
       case 'complete': completeJob.mutate(jobId); break
       case 'cancel': cancelJob.mutate(jobId); break
       case 'repeat': repeatJob.mutate(jobId); break
       case 'delete': if (confirm('Delete this job?')) deleteJob.mutate(jobId); break
+      case 'markFailed':
+        cancelJob.mutate(jobId, {
+          onSuccess: () => setFailureModal({ jobId, jobName })
+        })
+        break
+      case 'failReason':
+        setFailureModal({ jobId, jobName, existingReason, existingNotes })
+        break
     }
+  }
+
+  const handleFailureSubmit = async (jobId, reason, notes) => {
+    await updateJobFailure(jobId, reason, notes)
+    queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    queryClient.invalidateQueries({ queryKey: ['print-jobs'] })
   }
 
   const toggleSort = (field) => {
@@ -297,8 +463,9 @@ export default function Jobs() {
     }
   }
 
-  // Filter by job type (all, order, adhoc)
+  // Filter by job type (all, order, adhoc, approval)
   const typeFilteredJobs = (jobsData || []).filter(job => {
+    if (jobTypeFilter === 'approval') return job.status === 'submitted'
     if (jobTypeFilter === 'order') return job.order_item_id != null
     if (jobTypeFilter === 'adhoc') return job.order_item_id == null
     return true
@@ -321,6 +488,7 @@ export default function Jobs() {
     })
 
   // Count jobs by type for badge display
+  const approvalJobCount = (jobsData || []).filter(j => j.status === 'submitted').length
   const orderJobCount = (jobsData || []).filter(j => j.order_item_id != null).length
   const adhocJobCount = (jobsData || []).filter(j => j.order_item_id == null).length
 
@@ -390,7 +558,7 @@ export default function Jobs() {
         </div>
       </div>
 
-      <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
+      <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
             <thead className="bg-farm-950 border-b border-farm-800">
@@ -427,11 +595,29 @@ export default function Jobs() {
                 </td></tr>
               ) : (
                 filteredJobs.map(job => (
-                  <JobRow key={job.id} job={job} onAction={handleAction} />
+                  <JobRow key={job.id} job={job} onAction={handleAction}
+                    dragProps={(job.status === 'pending' || job.status === 'scheduled') ? {
+                      draggable: true,
+                      onDragStart: (e) => handleDragStart(e, job.id),
+                      onDragEnd: handleDragEnd,
+                      onDragOver: (e) => handleDragOver(e, job.id),
+                      onDrop: (e) => handleDrop(e, job.id),
+                      style: { borderTop: dragOverId === job.id ? '2px solid #d97706' : undefined, cursor: 'grab' }
+                    } : undefined} />
                 ))
               )}
             </tbody>
           </table>
+      {failureModal && (
+        <FailureReasonModal
+          jobId={failureModal.jobId}
+          jobName={failureModal.jobName}
+          existingReason={failureModal.existingReason}
+          existingNotes={failureModal.existingNotes}
+          onSubmit={handleFailureSubmit}
+          onClose={() => setFailureModal(null)}
+        />
+      )}
         </div>
       </div>
       <CreateJobModal

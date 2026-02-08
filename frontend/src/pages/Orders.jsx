@@ -214,7 +214,7 @@ export default function Orders() {
           <p>No orders yet. Create your first order to start tracking.</p>
         </div>
       ) : (
-        <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
+        <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
           {/* Mobile card view */}
           <div className="block md:hidden divide-y divide-farm-800">
             {orderList.map(order => (
@@ -351,7 +351,7 @@ export default function Orders() {
       {/* Create Order Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-xl border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">New Order</h2>
               <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded transition-colors">
@@ -511,7 +511,7 @@ export default function Orders() {
       {/* Order Detail Modal */}
       {showDetailModal && selectedOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-xl border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">
                 Order {selectedOrder.order_number || `#${selectedOrder.id}`}

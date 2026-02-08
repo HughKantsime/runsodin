@@ -7,6 +7,7 @@ import clsx from 'clsx'
 import { printers, filaments } from '../api'
 import { Video, QrCode } from 'lucide-react'
 import { canDo } from '../permissions'
+import { useLicense } from '../LicenseContext'
 import CameraModal from '../components/CameraModal'
 
 const API_KEY = import.meta.env.VITE_API_KEY
@@ -100,7 +101,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
             className="absolute inset-0 bg-black/50" 
             onClick={() => { setIsEditing(false); setSearch('') }}
           />
-          <div className="relative bg-farm-800 rounded-t-xl sm:rounded-xl p-4 w-full sm:w-80 shadow-xl border border-farm-600 max-h-[80vh] flex flex-col">
+          <div className="relative bg-farm-800 rounded-t-xl sm:rounded p-4 w-full sm:w-80 shadow-xl border border-farm-600 max-h-[80vh] flex flex-col">
             <div className="text-sm font-medium text-farm-300 mb-3">Slot {slot.slot_number} - Select Filament</div>
             <div className="relative mb-3">
               <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-farm-500" />
@@ -208,7 +209,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
   return (
     <div 
       className={clsx(
-        "bg-farm-900 rounded-xl border overflow-hidden h-fit transition-all",
+        "bg-farm-900 rounded border overflow-hidden h-fit transition-all",
         isDragging ? "border-print-500 opacity-50 scale-95" : "border-farm-800"
       )}
       draggable
@@ -432,7 +433,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg sm:text-xl font-display font-semibold">{isEditing ? 'Edit Printer' : 'Add New Printer'}</h2>
           <button onClick={onClose} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
@@ -563,6 +564,8 @@ export default function Printers() {
   const [scannerPrinterId, setScannerPrinterId] = useState(null)
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
+  const lic = useLicense()
+  const atLimit = lic.atPrinterLimit(printersData?.length || 0)
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
   const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
     const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }})
@@ -643,16 +646,21 @@ export default function Printers() {
           <h1 className="text-2xl md:text-3xl font-display font-bold">Printers</h1>
           <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
         </div>
-        {canDo('printers.add') && <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
-          <Plus size={16} /> Add Printer
-        </button>}
+        {canDo('printers.add') && (atLimit
+          ? <span className="flex items-center gap-2 px-4 py-2 bg-farm-700 text-farm-400 rounded-lg text-sm self-start cursor-not-allowed" title={`Printer limit reached (${lic.max_printers}). Upgrade to Pro for unlimited.`}>
+              <Plus size={16} /> Add Printer (limit: {lic.max_printers})
+            </span>
+          : <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
+              <Plus size={16} /> Add Printer
+            </button>
+        )}
       </div>
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading printers...</div>
       ) : printersData?.length === 0 ? (
-        <div className="bg-farm-900 rounded-xl border border-farm-800 p-8 md:p-12 text-center">
+        <div className="bg-farm-900 rounded border border-farm-800 p-8 md:p-12 text-center">
           <p className="text-farm-500 mb-4">No printers configured yet.</p>
-          {canDo('printers.add') && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Printer</button>}
+          {canDo('printers.add') && !atLimit && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Printer</button>}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">

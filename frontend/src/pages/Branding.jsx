@@ -231,7 +231,7 @@ export default function Branding() {
         {/* Settings Column */}
         <div className="xl:col-span-2 space-y-6">
           {/* Tabs */}
-          <div className="flex gap-1 bg-farm-900 rounded-xl p-1 border border-farm-800">
+          <div className="flex gap-1 bg-farm-900 rounded p-1 border border-farm-800">
             {tabs.map(tab => (
               <button
                 key={tab.id}
@@ -396,7 +396,7 @@ export default function Branding() {
 
         {/* Live Preview Column */}
         <div className="space-y-6">
-          <div className="bg-farm-900 rounded-xl border border-farm-800 p-6 sticky top-8">
+          <div className="bg-farm-900 rounded border border-farm-800 p-6 sticky top-8">
             <h2 className="text-lg font-semibold text-farm-100 mb-4 flex items-center gap-2">
               <Eye size={18} style={{ color: 'var(--brand-accent)' }} />
               Live Preview
@@ -571,7 +571,7 @@ function applyLiveCSS(b) {
 
 function Section({ title, children }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 p-6">
+    <div className="bg-farm-900 rounded border border-farm-800 p-6">
       <h2 className="text-lg font-semibold text-farm-100 mb-4">{title}</h2>
       {children}
     </div>

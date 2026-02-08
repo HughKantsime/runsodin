@@ -28,6 +28,9 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
+import { useLicense } from './LicenseContext'
+import ProGate from './components/ProGate'
+import ProBadge from './components/ProBadge'
 import AlertBell from './components/AlertBell'
 import EmergencyStop from './components/EmergencyStop'
 import GlobalSearch from './components/GlobalSearch'
@@ -49,6 +52,9 @@ import Products from './pages/Products'
 import Orders from './pages/Orders'
 import Alerts from './pages/Alerts'
 import { stats, printers } from './api'
+import useWebSocket from './hooks/useWebSocket'
+import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
+import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 
 
 function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
@@ -57,15 +63,17 @@ function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
       to={to}
       onClick={onClick}
       className={({ isActive }) => clsx(
-        collapsed ? 'flex items-center justify-center py-2.5 rounded-lg transition-colors' 
-                  : 'flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors',
+        'transition-colors border-l-3',
+        collapsed ? 'flex items-center justify-center py-2 rounded' 
+                  : 'flex items-center gap-3 px-4 py-2 rounded text-sm',
+        isActive ? 'border-l-amber-500' : 'border-l-transparent',
       )}
       style={({ isActive }) => isActive
         ? { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-active-text)' }
         : { color: 'var(--brand-sidebar-text)' }
       }
     >
-      <Icon size={20} className="flex-shrink-0" />
+      <Icon size={18} className="flex-shrink-0" />
       {!collapsed && <span className="font-medium">{children}</span>}
     </NavLink>
   )
@@ -81,8 +89,8 @@ function NavGroup({ label, collapsed, open, onToggle }) {
           onClick={onToggle}
           className="flex items-center justify-between w-full px-4 mt-2 group"
         >
-          <span className="text-[10px] uppercase tracking-widest font-semibold"
-            style={{ color: 'var(--brand-text-muted)' }}>
+          <span className="text-[9px] uppercase font-mono font-medium" 
+            style={{ color: 'var(--brand-text-muted)', letterSpacing: '0.2em' }}>
             {label}
           </span>
           <ChevronDown
@@ -110,6 +118,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
     return () => window.removeEventListener('ui-mode-changed', handler)
   }, [])
   const adv = uiMode === 'advanced'
+  const lic = useLicense()
   const toggle = (key) => setSections(s => ({ ...s, [key]: !s[key] }))
   const branding = useBranding()
 
@@ -207,7 +216,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
           {((collapsed && !mobileOpen) || sections.work) && <>
             {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>Jobs</NavItem>}
-            {adv && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders</NavItem>}
+            {adv && lic.isPro && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders{!lic.isPro && <ProBadge />}</NavItem>}
             {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>Upload</NavItem>}
           </>}
 
@@ -215,16 +224,16 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
           {((collapsed && !mobileOpen) || sections.library) && <>
             {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>Models</NavItem>}
-            {adv && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products</NavItem>}
+            {adv && lic.isPro && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products{!lic.isPro && <ProBadge />}</NavItem>}
             {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>Spools</NavItem>}
           </>}
 
           {/* Monitor */}
-          {adv && (canAccessPage("analytics") || canAccessPage("maintenance")) && <NavGroup label="Monitor" collapsed={collapsed && !mobileOpen} open={sections.monitor} onToggle={() => toggle("monitor")} />}
-          {adv && ((collapsed && !mobileOpen) || sections.monitor) && <>
+          {adv && lic.isPro && (canAccessPage("analytics") || canAccessPage("maintenance")) && <NavGroup label="Monitor" collapsed={collapsed && !mobileOpen} open={sections.monitor} onToggle={() => toggle("monitor")} />}
+          {adv && lic.isPro && ((collapsed && !mobileOpen) || sections.monitor) && <>
             <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>Alerts</NavItem>
-            {canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance</NavItem>}
-            {canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics</NavItem>}
+            {lic.isPro && canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance{!lic.isPro && <ProBadge />}</NavItem>}
+            {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
           {/* Tools */}
@@ -334,6 +343,9 @@ function ProtectedRoute({ children }) {
 
 
 export default function App() {
+  useWebSocket()
+  const { showHelp, setShowHelp } = useKeyboardShortcuts()
+
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
@@ -395,19 +407,20 @@ export default function App() {
             <Route path="/printers" element={<Printers />} />
             <Route path="/models" element={<Models />} />
             <Route path="/calculator" element={<CalculatorPage />} />
-            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/analytics" element={<ProGate feature="analytics"><Analytics /></ProGate>} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/spools" element={<Spools />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<Navigate to="/settings" replace />} />
             <Route path="/permissions" element={<Navigate to="/settings" replace />} />
-            <Route path="/maintenance" element={<Maintenance />} />
+            <Route path="/maintenance" element={<ProGate feature="maintenance"><Maintenance /></ProGate>} />
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/branding" element={<Navigate to="/settings" replace />} />
-            <Route path="/products" element={<Products />} />
-            <Route path="/orders" element={<Orders />} />
+            <Route path="/products" element={<ProGate feature="products"><Products /></ProGate>} />
+            <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
             <Route path="/alerts" element={<Alerts />} />
           </Routes>
+      {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
           </main>
         </div>

@@ -76,7 +76,7 @@ const handleSubmit = async (e) => {
     <div className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="w-full max-w-md">
-        <div className="rounded-xl p-8"
+        <div className="rounded p-8"
           style={{ 
             backgroundColor: 'var(--brand-card-bg)',
             border: '1px solid var(--brand-card-border)',

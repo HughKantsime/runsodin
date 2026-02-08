@@ -4,7 +4,7 @@ import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Tra
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 
-import { printFiles } from '../api'
+import { printFiles, getApprovalSetting } from '../api'
 
 function DropZone({ onFileSelect, isUploading }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -26,7 +26,7 @@ function DropZone({ onFileSelect, isUploading }) {
   return (
     <div
       className={clsx(
-        'border-2 border-dashed rounded-xl p-8 md:p-12 text-center transition-all',
+        'border-2 border-dashed rounded p-8 md:p-12 text-center transition-all',
         isDragging ? 'border-print-500 bg-print-900/20' : 'border-farm-700 hover:border-farm-500',
         isUploading && 'opacity-50 pointer-events-none'
       )}
@@ -61,9 +61,9 @@ function FilamentBadge({ filament }) {
   )
 }
 
-function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects }) {
+function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden">
+    <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
       <div className="flex flex-col md:flex-row">
         {/* Thumbnail */}
         <div className="w-full md:w-64 h-48 md:h-64 bg-farm-950 flex-shrink-0">
@@ -176,7 +176,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
           <UploadIcon size={16} /> Upload Another
         </button>
         <button onClick={onScheduleNow} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors text-sm">
-          <Calendar size={16} /> Schedule Now
+          <Calendar size={16} /> {submitForApproval ? 'Submit for Approval' : 'Schedule Now'}
         </button>
         <button onClick={onViewLibrary} className="flex items-center gap-2 px-4 md:px-6 py-2 rounded-lg bg-print-600 hover:bg-print-500 text-white font-medium transition-colors text-sm">
           View in Library <ArrowRight size={16} />
@@ -227,6 +227,22 @@ export default function Upload() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [uploadedFile, setUploadedFile] = useState(null)
+
+  const { data: approvalSetting } = useQuery({
+    queryKey: ['approval-setting'],
+    queryFn: getApprovalSetting,
+  })
+  const approvalEnabled = approvalSetting?.require_job_approval || false
+  // Check user role from localStorage token
+  const userRole = (() => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return null
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      return payload.role
+    } catch { return null }
+  })()
+  const showSubmitForApproval = approvalEnabled && userRole === 'viewer'
   
   const uploadMutation = useMutation({
     mutationFn: printFiles.upload,
@@ -248,6 +264,7 @@ export default function Upload() {
           onUploadAnother={() => setUploadedFile(null)}
           onViewLibrary={() => navigate('/models')}
           onScheduleNow={() => navigate(`/models?schedule=${uploadedFile.model_id}`)}
+          submitForApproval={showSubmitForApproval}
         />
       ) : (
         <>

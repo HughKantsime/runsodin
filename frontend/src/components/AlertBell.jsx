@@ -102,7 +102,7 @@ export default function AlertBell() {
 
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-2 w-80 rounded-xl border shadow-xl z-50 overflow-hidden"
+          className="absolute right-0 top-full mt-2 w-80 rounded border shadow-xl z-50 overflow-hidden"
           style={{
             backgroundColor: 'var(--brand-card-bg)',
             borderColor: 'var(--brand-sidebar-border)',

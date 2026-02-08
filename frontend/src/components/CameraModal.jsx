@@ -99,8 +99,8 @@ export default function CameraModal({ printer, onClose }) {
   const containerClasses = size === 'fullscreen'
     ? 'w-full h-full flex flex-col'
     : size === 'large'
-      ? 'bg-farm-950 rounded-xl border border-farm-800 w-full max-w-5xl flex flex-col'
-      : 'bg-farm-950 rounded-xl border border-farm-800 shadow-2xl w-96 flex flex-col'
+      ? 'bg-farm-950 rounded border border-farm-800 w-full max-w-5xl flex flex-col'
+      : 'bg-farm-950 rounded border border-farm-800 shadow-2xl w-96 flex flex-col'
 
   return (
     <div className={sizeClasses} onClick={size !== 'small' ? onClose : undefined}>

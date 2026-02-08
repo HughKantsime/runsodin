@@ -355,3 +355,148 @@ def extract_objects_from_plate(zf: zipfile.ZipFile) -> list:
     except Exception as e:
         print(f"Error extracting objects: {e}")
         return []
+
+
+def extract_mesh_from_3mf(file_path: str) -> Optional[dict]:
+    """
+    Extract mesh geometry (vertices + triangles) from a .3mf file.
+    Returns a dict with 'vertices' (flat [x,y,z,x,y,z,...]) and
+    'triangles' (flat [v1,v2,v3,v1,v2,v3,...]) for Three.js BufferGeometry.
+    Keeps only every Nth vertex for large models to stay under ~500KB.
+    """
+    import xml.etree.ElementTree as ET
+    
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            # Find the 3D model file
+            model_path = None
+            for name in zf.namelist():
+                if name.lower().endswith('.model') and '3d/' in name.lower():
+                    model_path = name
+                    break
+            
+            if not model_path:
+                # Try root-level .model file
+                for name in zf.namelist():
+                    if name.lower().endswith('.model'):
+                        model_path = name
+                        break
+            
+            if not model_path:
+                return None
+            
+            xml_data = zf.read(model_path).decode('utf-8')
+            
+            # Parse XML — handle namespace
+            # 3MF uses namespace: http://schemas.microsoft.com/3dmanufacturing/core/2015/02
+            ns = {'m': 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'}
+            root = ET.fromstring(xml_data)
+            
+            all_vertices = []
+            all_triangles = []
+            vertex_offset = 0
+            
+            # Find all mesh elements (could be multiple objects)
+            meshes = root.findall('.//m:mesh', ns)
+            if not meshes:
+                # Try without namespace (some files don't use it)
+                meshes = root.findall('.//mesh')
+            
+            for mesh in meshes:
+                # Extract vertices
+                vertices_elem = mesh.find('m:vertices', ns)
+                if vertices_elem is None:
+                    vertices_elem = mesh.find('vertices')
+                if vertices_elem is None:
+                    continue
+                
+                local_verts = []
+                for v in vertices_elem.findall('m:vertex', ns):
+                    local_verts.extend([
+                        float(v.get('x', 0)),
+                        float(v.get('y', 0)),
+                        float(v.get('z', 0))
+                    ])
+                if not local_verts:
+                    for v in vertices_elem.findall('vertex'):
+                        local_verts.extend([
+                            float(v.get('x', 0)),
+                            float(v.get('y', 0)),
+                            float(v.get('z', 0))
+                        ])
+                
+                # Extract triangles
+                triangles_elem = mesh.find('m:triangles', ns)
+                if triangles_elem is None:
+                    triangles_elem = mesh.find('triangles')
+                if triangles_elem is None:
+                    continue
+                
+                local_tris = []
+                for t in triangles_elem.findall('m:triangle', ns):
+                    local_tris.extend([
+                        int(t.get('v1', 0)) + vertex_offset,
+                        int(t.get('v2', 0)) + vertex_offset,
+                        int(t.get('v3', 0)) + vertex_offset
+                    ])
+                if not local_tris:
+                    for t in triangles_elem.findall('triangle'):
+                        local_tris.extend([
+                            int(t.get('v1', 0)) + vertex_offset,
+                            int(t.get('v2', 0)) + vertex_offset,
+                            int(t.get('v3', 0)) + vertex_offset
+                        ])
+                
+                all_vertices.extend(local_verts)
+                all_triangles.extend(local_tris)
+                vertex_offset += len(local_verts) // 3
+            
+            if not all_vertices or not all_triangles:
+                return None
+            
+            num_verts = len(all_vertices) // 3
+            num_tris = len(all_triangles) // 3
+            
+            # Decimation for large models — keep mesh under ~500KB JSON
+            MAX_TRIANGLES = 50000
+            if num_tris > MAX_TRIANGLES:
+                # Simple decimation: take every Nth triangle
+                step = (num_tris // MAX_TRIANGLES) + 1
+                decimated_tris = []
+                used_verts = set()
+                for i in range(0, len(all_triangles), step * 3):
+                    if i + 2 < len(all_triangles):
+                        v1, v2, v3 = all_triangles[i], all_triangles[i+1], all_triangles[i+2]
+                        decimated_tris.extend([v1, v2, v3])
+                        used_verts.update([v1, v2, v3])
+                
+                # Remap vertices to compact array
+                vert_map = {}
+                compact_verts = []
+                new_idx = 0
+                for old_idx in sorted(used_verts):
+                    vert_map[old_idx] = new_idx
+                    base = old_idx * 3
+                    if base + 2 < len(all_vertices):
+                        compact_verts.extend(all_vertices[base:base+3])
+                        new_idx += 1
+                
+                remapped_tris = [vert_map.get(t, 0) for t in decimated_tris]
+                all_vertices = compact_verts
+                all_triangles = remapped_tris
+                num_verts = len(all_vertices) // 3
+                num_tris = len(all_triangles) // 3
+            
+            # Round floats to reduce JSON size
+            all_vertices = [round(v, 3) for v in all_vertices]
+            
+            return {
+                "vertices": all_vertices,
+                "triangles": all_triangles,
+                "vertex_count": num_verts,
+                "triangle_count": num_tris
+            }
+    
+    except Exception as e:
+        print(f"Error extracting mesh: {e}")
+        return None

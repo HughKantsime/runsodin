@@ -16,6 +16,26 @@ from typing import Optional, Dict, Any
 
 log = logging.getLogger("printer_events")
 
+try:
+    import mqtt_republish
+except ImportError:
+    mqtt_republish = None
+
+try:
+    from hms_codes import lookup_hms_code
+except ImportError:
+    def lookup_hms_code(code): return f"HMS Error {code}"
+
+try:
+    import smart_plug
+except ImportError:
+    smart_plug = None
+
+try:
+    from ws_hub import push_event as ws_push
+except ImportError:
+    def ws_push(*a, **kw): pass
+
 DB_PATH = "/opt/printfarm-scheduler/backend/printfarm.db"
 
 
@@ -516,7 +536,7 @@ def parse_hms_errors(hms_data: list) -> list:
             "attr": attr,
             "raw_code": code,
             "severity": severity,
-            "message": f"HMS Error {full_code}",  # Could add lookup table later
+            "message": lookup_hms_code(full_code),
         })
     
     return errors
@@ -587,6 +607,18 @@ def job_started(
         conn.close()
         
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")
+        
+        # Smart plug: auto power-on
+        if smart_plug:
+            try:
+                smart_plug.on_print_start(printer_id)
+            except Exception as e:
+                log.warning(f"Smart plug on_print_start failed: {e}")
+        ws_push("job_started", {
+            "printer_id": printer_id,
+            "job_name": job_name,
+            "print_job_id": job_id,
+        })
         return job_id
         
     except Exception as e:
@@ -681,6 +713,20 @@ def job_completed(
             )
         
         log.info(f"Job {status} on printer {printer_id}: {job_name}")
+        
+        # Smart plug: auto power-off (with cooldown)
+        if smart_plug and success:
+            try:
+                smart_plug.on_print_complete(printer_id)
+            except Exception as e:
+                log.warning(f"Smart plug on_print_complete failed: {e}")
+        ws_push("job_completed", {
+            "printer_id": printer_id,
+            "job_name": job_name,
+            "status": status,
+            "print_job_id": print_job_id,
+            "scheduled_job_id": scheduled_job_id,
+        })
         
     except Exception as e:
         log.error(f"Failed to record job completion for printer {printer_id}: {e}")
@@ -806,7 +852,7 @@ def dispatch_alert(
         cur.execute("""
             SELECT DISTINCT ap.user_id
             FROM alert_preferences ap
-            WHERE ap.alert_type = ? AND ap.in_app_enabled = 1
+            WHERE ap.alert_type = ? AND ap.in_app = 1
         """, (alert_type,))
         users = [row['user_id'] for row in cur.fetchall()]
         
@@ -835,7 +881,7 @@ def dispatch_alert(
         for user_id in users:
             cur.execute("""
                 INSERT INTO alerts (user_id, alert_type, severity, title, message,
-                                    printer_id, job_id, spool_id, metadata, created_at)
+                                    printer_id, job_id, spool_id, metadata_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             """, (user_id, alert_type, severity, title, message,
                   printer_id, job_id, spool_id, metadata_json))
@@ -844,6 +890,17 @@ def dispatch_alert(
         conn.close()
         
         log.debug(f"Dispatched alert '{title}' to {len(users)} users")
+        
+        # Push to WebSocket
+        ws_push("alert_new", {
+            "alert_type": alert_type,
+            "severity": severity,
+            "title": title,
+            "message": message,
+            "printer_id": printer_id,
+            "job_id": job_id,
+            "count": len(users),
+        })
         
     except Exception as e:
         log.error(f"Failed to dispatch alert: {e}")

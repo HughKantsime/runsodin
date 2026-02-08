@@ -98,7 +98,7 @@ export default function EmergencyStop() {
 
       {/* Control Panel */}
       {showPanel && (
-        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded-xl shadow-2xl overflow-hidden">
+        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded shadow-2xl overflow-hidden">
           <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
             <AlertTriangle className="text-red-400" size={18} />
             <span className="font-medium text-red-200">Emergency Controls</span>

@@ -7,7 +7,7 @@ import {
 
 function StatCard({ title, value, subtitle, icon: Icon, color = "text-print-400" }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 p-3 md:p-4">
+    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs md:text-sm text-farm-400">{title}</span>
         {Icon && <Icon size={16} className="text-farm-500" />}
@@ -20,7 +20,7 @@ function StatCard({ title, value, subtitle, icon: Icon, color = "text-print-400"
 
 function RankingTable({ title, data, valueKey, valueLabel, icon: Icon, ascending = false }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 p-3 md:p-4">
+    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
       <div className="flex items-center gap-2 mb-4">
         {Icon && <Icon size={16} className="text-farm-400" />}
         <h3 className="font-display font-semibold text-sm md:text-base">{title}</h3>
@@ -58,7 +58,7 @@ function RankingTable({ title, data, valueKey, valueLabel, icon: Icon, ascending
 
 function PrinterStatsTable({ data }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 p-3 md:p-4">
+    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
       <div className="flex items-center gap-2 mb-4">
         <Printer size={16} className="text-farm-400" />
         <h3 className="font-display font-semibold text-sm md:text-base">Printer Utilization</h3>
@@ -94,7 +94,7 @@ export default function Analytics() {
           <div className="h-8 bg-farm-800 rounded w-48"></div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-farm-800 rounded-xl"></div>
+              <div key={i} className="h-24 bg-farm-800 rounded"></div>
             ))}
           </div>
         </div>
@@ -105,7 +105,7 @@ export default function Analytics() {
   if (error) {
     return (
       <div className="p-4 md:p-6">
-        <div className="bg-red-900/50 border border-red-700 rounded-xl p-4 text-red-300 text-sm">
+        <div className="bg-red-900/50 border border-red-700 rounded p-4 text-red-300 text-sm">
           Error loading analytics: {error.message}
         </div>
       </div>
@@ -206,7 +206,7 @@ export default function Analytics() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <PrinterStatsTable data={printer_stats} />
         
-        <div className="bg-farm-900 rounded-xl border border-farm-800 p-3 md:p-4">
+        <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 size={16} className="text-farm-400" />
             <h3 className="font-display font-semibold text-sm md:text-base">Quick Stats</h3>

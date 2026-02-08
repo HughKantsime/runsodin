@@ -30,7 +30,7 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   }
 
   return (
-    <div className={clsx('rounded-xl p-3 md:p-4', colorClasses[color])}>
+    <div className={clsx('rounded p-3 md:p-4', colorClasses[color])}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs md:text-sm text-farm-400 mb-1">{label}</p>
@@ -68,7 +68,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
   return (
-    <div className={clsx("bg-farm-900 rounded-xl border overflow-hidden h-fit", hasLowSpool ? "border-amber-600/50" : "border-farm-800")}>
+    <div className={clsx("bg-farm-900 rounded border overflow-hidden h-fit", hasLowSpool ? "border-amber-600/50" : "border-farm-800")}>
       <div className="p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
@@ -293,7 +293,7 @@ function AlertsWidget() {
   const { data: summary } = useQuery({
     queryKey: ['alert-summary'],
     queryFn: alertsApi.summary,
-    refetchInterval: 15000,
+    refetchInterval: 60000,
   })
 
   if (!summary || summary.total === 0) return null
@@ -305,7 +305,7 @@ function AlertsWidget() {
   ].filter(i => i.count > 0)
 
   return (
-    <div className="mb-6 md:mb-8 rounded-xl border border-amber-600/30 bg-amber-950/20 p-4">
+    <div className="mb-6 md:mb-8 rounded border border-amber-600/30 bg-amber-950/20 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <AlertTriangle size={16} className="text-amber-400" />
@@ -354,10 +354,10 @@ export default function Dashboard() {
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
 
   const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: stats.get })
-  const { data: dashAlertSummary } = useQuery({ queryKey: ['dash-alert-summary'], queryFn: alertsApi.summary, refetchInterval: 15000 })
-  const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 5000 })
+  const { data: dashAlertSummary } = useQuery({ queryKey: ['dash-alert-summary'], queryFn: alertsApi.summary, refetchInterval: 60000 })
+  const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 30000 })
   const { data: activeJobs } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
-  const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 3000 })
+  const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 30000 })
 
   // Split MQTT jobs into running vs completed
   const runningMqttJobs = allPrintJobs?.filter(j => j.status === 'running') || []
@@ -422,7 +422,7 @@ export default function Dashboard() {
               />
             ))}
             {(!printersData || printersData.length === 0) && (
-              <div className="col-span-1 md:col-span-2 bg-farm-900 rounded-xl p-8 text-center text-farm-500">No printers configured.</div>
+              <div className="col-span-1 md:col-span-2 bg-farm-900 rounded p-8 text-center text-farm-500">No printers configured.</div>
             )}
           </div>
         </div>
@@ -446,7 +446,7 @@ export default function Dashboard() {
                   />
                 ))}
               {!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0 && (
-                <div className="bg-farm-900 rounded-xl p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
+                <div className="bg-farm-900 rounded p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
               )}
             </div>
           </div>
@@ -457,7 +457,7 @@ export default function Dashboard() {
             <div className="space-y-3">
               {completedMqttJobs.slice(0, 10).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
               {completedMqttJobs.length === 0 && (
-                <div className="bg-farm-900 rounded-xl p-6 text-center text-farm-500 text-sm">No print history yet</div>
+                <div className="bg-farm-900 rounded p-6 text-center text-farm-500 text-sm">No print history yet</div>
               )}
             </div>
           </div>

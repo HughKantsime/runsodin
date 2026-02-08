@@ -1,0 +1,44 @@
+{
+  "id": "/",
+  "name": "O.D.I.N. — Orchestrated Dispatch & Inventory Network",
+  "short_name": "O.D.I.N.",
+  "description": "Self-hosted 3D print farm management system",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0c10",
+  "theme_color": "#d97706",
+  "orientation": "any",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/odin-icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/odin-icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/",
+      "icons": [{ "src": "/odin-icon-192.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Jobs",
+      "short_name": "Jobs",
+      "url": "/jobs"
+    },
+    {
+      "name": "Upload",
+      "short_name": "Upload",
+      "url": "/upload"
+    }
+  ]
+}

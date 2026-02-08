@@ -13,16 +13,16 @@ import {
   ChevronDown,
   CalendarPlus,
   Printer as PrinterIcon,
-  Star
-} from 'lucide-react'
+  Star, Box } from 'lucide-react'
+import ModelViewer from '../components/ModelViewer'
 import clsx from 'clsx'
 
 import { models, filaments, printers } from '../api'
 import { canDo } from '../permissions'
 
-function ModelCard({ model, onEdit, onDelete, onSchedule, onToggleFavorite }) {
+function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D }) {
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
+    <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
       <div className="h-28 md:h-32 bg-farm-950 flex items-center justify-center">
         {model.thumbnail_b64 ? (
           <img 
@@ -62,6 +62,7 @@ function ModelCard({ model, onEdit, onDelete, onSchedule, onToggleFavorite }) {
             >
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
             </button>
+            <button onClick={() => onView3D && onView3D(model)} className="p-1 md:p-1.5 text-amber-400 hover:bg-farm-800 rounded transition-colors" title="View 3D model"><Box size={14} /></button>
             {canDo('models.create') && <button
               onClick={() => onSchedule(model)}
               className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
@@ -296,7 +297,7 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border border-farm-700">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border border-farm-700">
         <h2 className="text-lg sm:text-xl font-display font-semibold mb-4">{editingModel ? 'Edit Model' : 'Add New Model'}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -393,7 +394,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
   
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl w-full max-w-md p-4 sm:p-6 border border-farm-700">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700">
         <h2 className="text-lg font-display font-semibold mb-1">Schedule Print</h2>
         <p className="text-sm text-farm-500 mb-2">{model.name}</p>
         
@@ -479,6 +480,8 @@ export default function Models() {
   const [showModal, setShowModal] = useState(false)
   const [editingModel, setEditingModel] = useState(null)
   const [scheduleModel, setScheduleModel] = useState(null)
+  const [viewerModelId, setViewerModelId] = useState(null)
+  const [viewerModelName, setViewerModelName] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedPrinter, setSelectedPrinter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -550,7 +553,7 @@ export default function Models() {
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading models...</div>
       ) : modelsData?.length === 0 ? (
-        <div className="bg-farm-900 rounded-xl border border-farm-800 p-8 md:p-12 text-center">
+        <div className="bg-farm-900 rounded border border-farm-800 p-8 md:p-12 text-center">
           <p className="text-farm-500 mb-4">No models defined yet.</p>
           <p className="text-sm text-farm-600 mb-4">Upload a .3mf file or add models manually to get started.</p>
           <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Model</button>
@@ -558,7 +561,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {modelsData?.filter(m => !showFavoritesOnly || m.is_favorite).map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} />
+            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite}  onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} />
           ))}
         </div>
       )}
@@ -572,6 +575,14 @@ export default function Models() {
         onConfirm={handleScheduleConfirm} 
         isScheduling={scheduleMutation.isPending} 
       />
+    
+      {viewerModelId && (
+        <ModelViewer
+          modelId={viewerModelId}
+          modelName={viewerModelName}
+          onClose={() => { setViewerModelId(null); setViewerModelName('') }}
+        />
+      )}
     </div>
   )
 }
