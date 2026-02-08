@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import usePushNotifications from '../hooks/usePushNotifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook} from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload} from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -84,6 +84,237 @@ function ApprovalToggle() {
         {enabled ? "Approval required for viewer-role users" : "Approval disabled — all users create jobs directly"}
       </span>
     </label>
+  )
+}
+
+function AuditLogViewer() {
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState({ entity_type: '', action: '' })
+  const [limit, setLimit] = useState(50)
+
+  useEffect(() => {
+    loadLogs()
+  }, [filter, limit])
+
+  const loadLogs = async () => {
+    setLoading(true)
+    try {
+      let url = `/api/audit-logs?limit=${limit}`
+      if (filter.entity_type) url += `&entity_type=${filter.entity_type}`
+      if (filter.action) url += `&action=${filter.action}`
+      const res = await fetch(url, { headers: { 'X-API-Key': localStorage.getItem('api_key') || '' } })
+      if (res.ok) setLogs(await res.json())
+    } catch (e) { console.error('Failed to load audit logs:', e) }
+    finally { setLoading(false) }
+  }
+
+  const actionColors = {
+    create: 'text-green-400',
+    update: 'text-blue-400',
+    delete: 'text-red-400',
+    login: 'text-amber-400',
+    schedule: 'text-purple-400',
+  }
+
+  return (
+    <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
+          <FileText size={18} className="text-print-400" />
+          <h2 className="text-lg md:text-xl font-display font-semibold">Audit Log</h2>
+        </div>
+        <div className="flex gap-2">
+          <select value={filter.entity_type} onChange={(e) => setFilter(prev => ({ ...prev, entity_type: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs">
+            <option value="">All Types</option>
+            <option value="job">Jobs</option>
+            <option value="printer">Printers</option>
+            <option value="spool">Spools</option>
+            <option value="model">Models</option>
+            <option value="order">Orders</option>
+            <option value="user">Users</option>
+            <option value="settings">Settings</option>
+          </select>
+          <select value={filter.action} onChange={(e) => setFilter(prev => ({ ...prev, action: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs">
+            <option value="">All Actions</option>
+            <option value="create">Create</option>
+            <option value="update">Update</option>
+            <option value="delete">Delete</option>
+            <option value="login">Login</option>
+            <option value="schedule">Schedule</option>
+          </select>
+          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs">
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
+        </div>
+      </div>
+      <div className="max-h-96 overflow-y-auto space-y-1">
+        {loading ? (
+          <div className="text-center py-4 text-farm-500 text-sm">Loading...</div>
+        ) : logs.length === 0 ? (
+          <div className="text-center py-4 text-farm-500 text-sm">No audit log entries</div>
+        ) : logs.map(log => (
+          <div key={log.id} className="flex items-start gap-3 py-2 border-b border-farm-800 last:border-0 text-xs">
+            <span className="text-farm-600 whitespace-nowrap min-w-[120px]">
+              {log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+            </span>
+            <span className={`font-medium min-w-[60px] ${actionColors[log.action] || 'text-farm-400'}`}>
+              {log.action || '—'}
+            </span>
+            <span className="text-farm-400 min-w-[60px]">{log.entity_type || '—'}</span>
+            <span className="text-farm-300 flex-1 truncate">{log.details || '—'}</span>
+            {log.ip_address && <span className="text-farm-600">{log.ip_address}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function LicenseTab() {
+  const [licenseInfo, setLicenseInfo] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [message, setMessage] = useState(null)
+  const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    fetchLicense()
+  }, [])
+
+  const fetchLicense = async () => {
+    try {
+      const res = await fetch('/api/license', { headers: { 'X-API-Key': localStorage.getItem('api_key') || '' } })
+      if (res.ok) setLicenseInfo(await res.json())
+    } catch (e) { console.error('Failed to fetch license:', e) }
+  }
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setMessage(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/license/upload', {
+        method: 'POST',
+        headers: { 'X-API-Key': localStorage.getItem('api_key') || '' },
+        body: formData,
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
+        fetchLicense()
+      } else {
+        setMessage({ type: 'error', text: data.detail || 'Upload failed' })
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Upload failed: ' + err.message })
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleRemove = async () => {
+    if (!confirm('Remove license and revert to Community tier?')) return
+    try {
+      const res = await fetch('/api/license', {
+        method: 'DELETE',
+        headers: { 'X-API-Key': localStorage.getItem('api_key') || '' },
+      })
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'License removed. Reverted to Community tier.' })
+        fetchLicense()
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to remove license' })
+    }
+  }
+
+  const tier = licenseInfo?.tier || 'community'
+  const tierColors = {
+    community: 'text-farm-400',
+    pro: 'text-amber-400',
+    education: 'text-blue-400',
+    enterprise: 'text-purple-400',
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg p-5" style={{ backgroundColor: 'var(--brand-card-bg)', borderColor: 'var(--brand-sidebar-border)', border: '1px solid' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <FileText size={18} className="text-print-400" />
+          <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Current License</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span className="text-farm-500">Tier:</span>
+            <span className={`ml-2 font-semibold capitalize ${tierColors[tier] || 'text-farm-300'}`}>{tier}</span>
+          </div>
+          {licenseInfo?.licensee && (
+            <div>
+              <span className="text-farm-500">Licensed to:</span>
+              <span className="ml-2 text-farm-200">{licenseInfo.licensee}</span>
+            </div>
+          )}
+          {licenseInfo?.expires && (
+            <div>
+              <span className="text-farm-500">Expires:</span>
+              <span className="ml-2 text-farm-200">{new Date(licenseInfo.expires).toLocaleDateString()}</span>
+            </div>
+          )}
+          <div>
+            <span className="text-farm-500">Max printers:</span>
+            <span className="ml-2 text-farm-200">{licenseInfo?.max_printers === -1 ? 'Unlimited' : (licenseInfo?.max_printers || 5)}</span>
+          </div>
+          <div>
+            <span className="text-farm-500">Max users:</span>
+            <span className="ml-2 text-farm-200">{licenseInfo?.max_users === -1 ? 'Unlimited' : (licenseInfo?.max_users || 1)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg p-5" style={{ backgroundColor: 'var(--brand-card-bg)', borderColor: 'var(--brand-sidebar-border)', border: '1px solid' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Upload size={18} className="text-print-400" />
+          <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Upload License</h3>
+        </div>
+        <p className="text-sm text-farm-400 mb-4">
+          Upload an O.D.I.N. license file (.license) to unlock Pro, Education, or Enterprise features. License files are verified locally — no internet connection required.
+        </p>
+        <div className="flex gap-3">
+          <label className="flex-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".license"
+              onChange={handleUpload}
+              className="hidden"
+            />
+            <div className={`w-full px-4 py-3 rounded-lg border-2 border-dashed text-center cursor-pointer transition-colors text-sm ${uploading ? 'border-farm-600 text-farm-500' : 'border-farm-700 text-farm-400 hover:border-print-500 hover:text-print-400'}`}>
+              {uploading ? 'Uploading...' : 'Click to select .license file'}
+            </div>
+          </label>
+        </div>
+        {tier !== 'community' && (
+          <button
+            onClick={handleRemove}
+            className="mt-3 text-xs text-red-400 hover:text-red-300 transition-colors"
+          >
+            Remove license (revert to Community)
+          </button>
+        )}
+        {message && (
+          <div className={`mt-3 text-sm px-3 py-2 rounded ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+            {message.text}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -315,6 +546,7 @@ export default function Settings() {
     { id: 'permissions', label: 'Permissions', icon: Shield },
     { id: 'branding', label: 'Branding', icon: Palette },
     { id: 'data', label: 'Data', icon: Database },
+    { id: 'license', label: 'License', icon: FileText },
   ]
   const TABS = lic.isPro ? ALL_TABS : ALL_TABS.filter(t => !PRO_TABS.includes(t.id))
 
@@ -785,6 +1017,10 @@ export default function Settings() {
       </div>}
 
       {/* ==================== DATA TAB ==================== */}
+      {activeTab === 'license' && <div className="max-w-4xl">
+        <LicenseTab />
+      </div>}
+
       {activeTab === 'data' && <div className="max-w-4xl">
       {/* Database Info */}
       <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
@@ -960,6 +1196,9 @@ export default function Settings() {
           </a>
         </div>
       </div>
+      <AuditLogViewer />
+      <AuditLogViewer />
+      <AuditLogViewer />
 
       </div>}
     </div>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Bell, Check, X, ExternalLink } from 'lucide-react'
-import { alerts as alertsApi } from '../api'
+import { alerts as alertsApi, approveJob, rejectJob } from '../api'
+import { CheckCircle, XCircle } from 'lucide-react'
 
 const SEVERITY_STYLES = {
   critical: { bg: 'border-l-red-500', icon: '\u{1F534}', label: 'Critical' },
@@ -28,6 +29,9 @@ function formatDate(dateStr) {
 export default function Alerts() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [alerts, setAlerts] = useState([])
+  const [rejectingAlertJobId, setRejectingAlertJobId] = useState(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [actionLoading, setActionLoading] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState(searchParams.get('filter') || 'all')
   const [hasMore, setHasMore] = useState(false)
@@ -98,6 +102,36 @@ export default function Alerts() {
     if (alert.printer_id) return { label: 'View Printer', path: '/printers' }
     if (alert.alert_type === 'maintenance_overdue') return { label: 'View Maintenance', path: '/maintenance' }
     return null
+  }
+
+  const handleApproveFromAlert = async (alert) => {
+    if (!alert.job_id) return
+    setActionLoading(alert.id)
+    try {
+      await approveJob(alert.job_id)
+      await handleMarkRead(alert.id)
+      loadAlerts()
+    } catch (err) {
+      console.error('Failed to approve job:', err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleRejectFromAlert = async (alert) => {
+    if (!rejectReason.trim()) return
+    setActionLoading(alert.id)
+    try {
+      await rejectJob(alert.job_id, rejectReason)
+      await handleMarkRead(alert.id)
+      setRejectingAlertJobId(null)
+      setRejectReason('')
+      loadAlerts()
+    } catch (err) {
+      console.error('Failed to reject job:', err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const unreadCount = alerts.filter(a => !a.is_read).length
@@ -198,7 +232,27 @@ export default function Alerts() {
                     </div>
 
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      {action && (
+                      {alert.alert_type === 'job_submitted' && !alert.is_read && alert.job_id && (
+                        <>
+                          <button
+                            onClick={() => handleApproveFromAlert(alert)}
+                            disabled={actionLoading === alert.id}
+                            className="p-1.5 rounded transition-colors hover:bg-green-900/50 text-green-400"
+                            title="Approve Job"
+                          >
+                            <CheckCircle size={14} />
+                          </button>
+                          <button
+                            onClick={() => setRejectingAlertJobId(rejectingAlertJobId === alert.id ? null : alert.id)}
+                            disabled={actionLoading === alert.id}
+                            className="p-1.5 rounded transition-colors hover:bg-red-900/50 text-red-400"
+                            title="Reject Job"
+                          >
+                            <XCircle size={14} />
+                          </button>
+                        </>
+                      )}
+                      {action && alert.alert_type !== 'job_submitted' && (
                         <a
                           href={action.path}
                           className="p-1.5 rounded transition-colors hover:bg-farm-800 text-farm-400"
@@ -226,6 +280,35 @@ export default function Alerts() {
                     </div>
                   </div>
                 </div>
+                  {rejectingAlertJobId === alert.id && (
+                    <div className="mt-3 pt-3 px-4 pb-4 border-t border-farm-700">
+                      <label className="block text-xs text-farm-400 mb-1">Rejection reason (required):</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          placeholder="e.g., Too much filament — please re-slice with 10% infill"
+                          className="flex-1 bg-farm-800 border border-farm-700 rounded px-2 py-1.5 text-sm text-white"
+                          autoFocus
+                          onKeyDown={(e) => e.key === 'Enter' && rejectReason.trim() && handleRejectFromAlert(alert)}
+                        />
+                        <button
+                          onClick={() => handleRejectFromAlert(alert)}
+                          disabled={!rejectReason.trim() || actionLoading === alert.id}
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:bg-farm-700 disabled:text-farm-500 rounded text-sm text-white transition-colors"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          onClick={() => { setRejectingAlertJobId(null); setRejectReason('') }}
+                          className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded text-sm text-farm-300 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
               </div>
             )
           })

@@ -1,82 +1,282 @@
 import { useQuery } from '@tanstack/react-query'
 import { analytics } from '../api'
+import { useState } from 'react'
 import { 
   TrendingUp, TrendingDown, DollarSign, Clock, Printer, 
-  Package, BarChart3, Target
+  BarChart3, Target, Zap, Activity, CheckCircle, XCircle,
+  ArrowUpRight, ArrowDownRight
 } from 'lucide-react'
+import { 
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
+  Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell
+} from 'recharts'
+import EnergyWidget from '../components/EnergyWidget'
 
-function StatCard({ title, value, subtitle, icon: Icon, color = "text-print-400" }) {
+const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316']
+
+function HeroStat({ title, value, subtitle, icon: Icon, color, trend }) {
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs md:text-sm text-farm-400">{title}</span>
-        {Icon && <Icon size={16} className="text-farm-500" />}
+    <div className="relative overflow-hidden rounded-xl border border-farm-800 p-4 md:p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-medium text-farm-400 uppercase tracking-wider">{title}</p>
+          <p className={`text-2xl md:text-3xl font-display font-bold mt-1 ${color || 'text-white'}`}>{value}</p>
+          {subtitle && <p className="text-xs text-farm-500 mt-1">{subtitle}</p>}
+        </div>
+        {Icon && (
+          <div className={`p-2.5 rounded-lg ${color === 'text-green-400' ? 'bg-green-900/30' : color === 'text-red-400' ? 'bg-red-900/30' : color === 'text-yellow-400' ? 'bg-yellow-900/30' : 'bg-farm-800'}`}>
+            <Icon size={20} className={color || 'text-farm-400'} />
+          </div>
+        )}
       </div>
-      <div className={`text-xl md:text-2xl font-display font-bold ${color}`}>{value}</div>
-      {subtitle && <div className="text-xs text-farm-500 mt-1">{subtitle}</div>}
+      {trend && (
+        <div className={`flex items-center gap-1 mt-2 text-xs ${trend > 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {trend > 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+          <span>{Math.abs(trend)}% vs last period</span>
+        </div>
+      )}
     </div>
   )
 }
 
-function RankingTable({ title, data, valueKey, valueLabel, icon: Icon, ascending = false }) {
-  return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
-      <div className="flex items-center gap-2 mb-4">
-        {Icon && <Icon size={16} className="text-farm-400" />}
-        <h3 className="font-display font-semibold text-sm md:text-base">{title}</h3>
+function JobsOverTimeChart({ data }) {
+  if (!data || Object.keys(data).length === 0) {
+    return (
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Activity size={18} className="text-blue-400" />
+          <h3 className="font-display font-semibold">Job Activity</h3>
+        </div>
+        <div className="text-center py-12 text-farm-500 text-sm">No job data yet</div>
       </div>
-      <div className="space-y-2">
-        {data.map((item, i) => (
-          <div key={item.id} className="flex items-center justify-between py-2 border-b border-farm-800 last:border-0">
-            <div className="flex items-center gap-2 md:gap-3 min-w-0">
-              <span className={`w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                ascending 
-                  ? (i < 3 ? 'bg-red-900 text-red-300' : 'bg-farm-800 text-farm-400')
-                  : (i < 3 ? 'bg-print-900 text-print-300' : 'bg-farm-800 text-farm-400')
-              }`}>
-                {i + 1}
-              </span>
-              <span className="text-sm truncate">{item.name}</span>
-            </div>
-            <div className="text-right flex-shrink-0 ml-2">
-              <div className={`font-medium text-sm ${ascending ? 'text-red-400' : 'text-print-400'}`}>
-                ${item[valueKey]?.toFixed(2)}/hr
+    )
+  }
+  
+  const chartData = Object.entries(data)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, counts]) => ({
+      date: new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      created: counts.created || 0,
+      completed: counts.completed || 0,
+    }))
+  
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Activity size={18} className="text-blue-400" />
+          <h3 className="font-display font-semibold">Job Activity</h3>
+        </div>
+        <span className="text-xs text-farm-500">Last 30 days</span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={chartData}>
+          <defs>
+            <linearGradient id="gradCreated" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+            </linearGradient>
+            <linearGradient id="gradCompleted" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#22C55E" stopOpacity={0}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
+          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
+          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <Tooltip 
+            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+            labelStyle={{ color: '#9CA3AF', marginBottom: '4px' }}
+          />
+          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+          <Area type="monotone" dataKey="created" stroke="#3B82F6" fill="url(#gradCreated)" strokeWidth={2} name="Created" dot={false} />
+          <Area type="monotone" dataKey="completed" stroke="#22C55E" fill="url(#gradCompleted)" strokeWidth={2} name="Completed" dot={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function PrinterUtilization({ data }) {
+  const sorted = [...data].sort((a, b) => (b.utilization_pct || 0) - (a.utilization_pct || 0))
+  
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center gap-2 mb-4">
+        <Printer size={18} className="text-purple-400" />
+        <h3 className="font-display font-semibold">Printer Utilization</h3>
+      </div>
+      <div className="space-y-4">
+        {sorted.map((printer) => {
+          const pct = printer.utilization_pct || 0
+          const barColor = pct >= 70 ? '#22C55E' : pct >= 40 ? '#EAB308' : pct > 0 ? '#F97316' : '#374151'
+          const successColor = printer.success_rate >= 95 ? 'text-green-400' : printer.success_rate >= 80 ? 'text-yellow-400' : 'text-red-400'
+          return (
+            <div key={printer.id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{printer.name}</span>
+                  <span className={`text-xs ${successColor}`}>
+                    {printer.success_rate || 100}%
+                  </span>
+                </div>
+                <span className="text-sm font-bold tabular-nums" style={{ color: barColor }}>{pct}%</span>
               </div>
-              <div className="text-xs text-farm-500">
-                ${item.value_per_bed?.toFixed(2)}/bed • {item.build_time_hours}h
+              <div className="w-full bg-farm-800/50 rounded-full h-2.5">
+                <div 
+                  className="h-2.5 rounded-full transition-all duration-500" 
+                  style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }} 
+                />
+              </div>
+              <div className="flex gap-3 mt-1.5 text-xs text-farm-500">
+                <span>{printer.completed_jobs} jobs</span>
+                <span>{printer.total_hours}h total</span>
+                <span>~{printer.avg_job_hours || 0}h/job</span>
+                {printer.failed_jobs > 0 && (
+                  <span className="text-red-400 flex items-center gap-0.5">
+                    <XCircle size={10} />{printer.failed_jobs} failed
+                  </span>
+                )}
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {data.length === 0 && (
-          <div className="text-center text-farm-500 py-4 text-sm">No data yet</div>
+          <div className="text-center text-farm-500 py-8 text-sm">No printer data yet</div>
         )}
       </div>
     </div>
   )
 }
 
-function PrinterStatsTable({ data }) {
-  return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <Printer size={16} className="text-farm-400" />
-        <h3 className="font-display font-semibold text-sm md:text-base">Printer Utilization</h3>
+function ModelRankings({ topData, worstData }) {
+  const RankRow = ({ item, index, isWorst }) => {
+    const medalColors = isWorst 
+      ? ['bg-red-900/50 text-red-300', 'bg-red-900/30 text-red-400', 'bg-red-900/20 text-red-500']
+      : ['bg-amber-900/50 text-amber-300', 'bg-amber-900/30 text-amber-400', 'bg-farm-700 text-farm-300']
+    
+    return (
+      <div className="flex items-center gap-3 py-2.5 border-b border-farm-800/50 last:border-0">
+        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${medalColors[Math.min(index, 2)]}`}>
+          {index + 1}
+        </span>
+        <span className="text-sm flex-1 truncate">{item.name}</span>
+        <div className="text-right flex-shrink-0">
+          <div className={`font-semibold text-sm tabular-nums ${isWorst ? 'text-red-400' : 'text-green-400'}`}>
+            ${item.value_per_hour?.toFixed(2)}/hr
+          </div>
+          <div className="text-xs text-farm-500 tabular-nums">
+            ${item.value_per_bed?.toFixed(2)}/bed &middot; {item.build_time_hours}h
+          </div>
+        </div>
       </div>
-      <div className="space-y-2">
-        {data.map((printer) => (
-          <div key={printer.id} className="flex items-center justify-between py-2 border-b border-farm-800 last:border-0">
-            <span className="text-sm">{printer.name}</span>
-            <div className="text-right">
-              <div className="font-medium text-sm">{printer.completed_jobs} jobs</div>
-              <div className="text-xs text-farm-500">{printer.total_hours} hours</div>
-            </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp size={18} className="text-green-400" />
+          <h3 className="font-display font-semibold">Top Performers</h3>
+          <span className="text-xs text-farm-500">$/hour</span>
+        </div>
+        <div>
+          {topData.map((item, i) => <RankRow key={item.id} item={item} index={i} />)}
+          {topData.length === 0 && <div className="text-center text-farm-500 py-6 text-sm">No data yet</div>}
+        </div>
+      </div>
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingDown size={18} className="text-red-400" />
+          <h3 className="font-display font-semibold">Needs Improvement</h3>
+          <span className="text-xs text-farm-500">$/hour</span>
+        </div>
+        <div>
+          {worstData.map((item, i) => <RankRow key={item.id} item={item} index={i} isWorst />)}
+          {worstData.length === 0 && <div className="text-center text-farm-500 py-6 text-sm">No data yet</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FleetOverview({ summary }) {
+  const stats = [
+    { label: 'Total Jobs', value: summary.total_jobs, color: 'text-white' },
+    { label: 'Completed', value: summary.completed_jobs, color: 'text-green-400', icon: CheckCircle },
+    { label: 'Pending', value: summary.pending_jobs, color: 'text-yellow-400', icon: Clock },
+    { label: 'Models', value: summary.total_models, color: 'text-blue-400', icon: BarChart3 },
+  ]
+  
+  const completionRate = summary.total_jobs > 0 
+    ? ((summary.completed_jobs / summary.total_jobs) * 100).toFixed(0)
+    : 0
+
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={18} className="text-cyan-400" />
+          <h3 className="font-display font-semibold">Fleet Overview</h3>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs">
+          <div className="w-2 h-2 rounded-full bg-green-400" />
+          <span className="text-farm-400">{completionRate}% completion rate</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-3">
+        {stats.map(s => (
+          <div key={s.label} className="text-center p-3 rounded-lg bg-farm-800/40">
+            <div className={`text-xl md:text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</div>
+            <div className="text-xs text-farm-500 mt-0.5">{s.label}</div>
           </div>
         ))}
-        {data.length === 0 && (
-          <div className="text-center text-farm-500 py-4 text-sm">No printer data</div>
-        )}
       </div>
+    </div>
+  )
+}
+
+
+function CostRevenueChart({ data }) {
+  if (!data || Object.keys(data).length === 0) return null
+  
+  // Build cumulative revenue/cost data from jobs_by_date
+  const chartData = Object.entries(data)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, counts]) => ({
+      date: new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      revenue: counts.revenue || 0,
+      cost: counts.cost || 0,
+      profit: (counts.revenue || 0) - (counts.cost || 0),
+    }))
+    .filter(d => d.revenue > 0 || d.cost > 0)
+  
+  if (chartData.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <DollarSign size={18} className="text-green-400" />
+          <h3 className="font-display font-semibold">Revenue vs Cost</h3>
+        </div>
+        <span className="text-xs text-farm-500">Last 30 days</span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
+          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
+          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+          <Tooltip 
+            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+            formatter={(value) => [`$${value.toFixed(2)}`, undefined]}
+          />
+          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+          <Bar dataKey="revenue" fill="#22C55E" name="Revenue" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="cost" fill="#EF4444" name="Cost" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   )
 }
@@ -94,9 +294,10 @@ export default function Analytics() {
           <div className="h-8 bg-farm-800 rounded w-48"></div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-farm-800 rounded"></div>
+              <div key={i} className="h-28 bg-farm-800/50 rounded-xl"></div>
             ))}
           </div>
+          <div className="h-64 bg-farm-800/50 rounded-xl"></div>
         </div>
       </div>
     )
@@ -105,131 +306,103 @@ export default function Analytics() {
   if (error) {
     return (
       <div className="p-4 md:p-6">
-        <div className="bg-red-900/50 border border-red-700 rounded p-4 text-red-300 text-sm">
+        <div className="bg-red-900/30 border border-red-800 rounded-xl p-5 text-red-300 text-sm">
           Error loading analytics: {error.message}
         </div>
       </div>
     )
   }
 
-  const { summary, top_by_hour, worst_performers, printer_stats } = data
+  const { summary, top_by_hour, worst_performers, printer_stats, jobs_by_date } = data
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="p-4 md:p-6 space-y-5 md:space-y-6">
+      {/* Header */}
       <div>
         <h1 className="text-xl md:text-2xl font-display font-bold">Analytics</h1>
-        <p className="text-farm-400 text-sm">Profitability and usage insights</p>
+        <p className="text-farm-500 text-sm mt-0.5">Revenue, profitability, and fleet performance</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <StatCard
-          title="Total Revenue"
+      {/* Hero Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <HeroStat
+          title="Revenue"
           value={`$${summary.total_revenue.toFixed(2)}`}
-          subtitle={`from ${summary.completed_jobs} completed jobs`}
+          subtitle={`${summary.completed_jobs} completed jobs`}
           icon={DollarSign}
           color="text-green-400"
         />
-        <StatCard
-          title="Projected Revenue"
+        <HeroStat
+          title="Pipeline"
           value={`$${summary.projected_revenue.toFixed(2)}`}
-          subtitle={`from ${summary.pending_jobs} pending jobs`}
+          subtitle={`${summary.pending_jobs} pending jobs`}
           icon={Target}
           color="text-yellow-400"
         />
-        <StatCard
+        <HeroStat
           title="Avg $/Hour"
           value={`$${summary.avg_value_per_hour.toFixed(2)}`}
           subtitle="across all models"
           icon={TrendingUp}
-          color="text-print-400"
+          color="text-blue-400"
         />
-        <StatCard
+        <HeroStat
           title="Print Hours"
           value={summary.total_print_hours}
-          subtitle={`${summary.total_models} models in library`}
+          subtitle={`${summary.total_models} models`}
           icon={Clock}
+          color="text-purple-400"
         />
       </div>
-      
-      {/* Cost & Margin Row */}
+
+      {/* Margin Stats (only show if we have cost data) */}
       {(summary.total_cost > 0 || summary.total_margin > 0) && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          <StatCard
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          <HeroStat
             title="Total Cost"
             value={`$${(summary.total_cost || 0).toFixed(2)}`}
-            subtitle="completed jobs"
+            subtitle="materials + overhead"
             icon={DollarSign}
             color="text-red-400"
           />
-          <StatCard
-            title="Total Margin"
+          <HeroStat
+            title="Net Margin"
             value={`$${(summary.total_margin || 0).toFixed(2)}`}
             subtitle={`${(summary.margin_percent || 0).toFixed(1)}% margin`}
             icon={TrendingUp}
             color="text-green-400"
           />
-          <StatCard
+          <HeroStat
             title="Projected Cost"
             value={`$${(summary.projected_cost || 0).toFixed(2)}`}
-            subtitle="pending jobs"
+            subtitle="pending pipeline"
             icon={Target}
             color="text-orange-400"
           />
-          <StatCard
-            title="Jobs w/ Cost Data"
-            value={summary.jobs_with_cost_data || 0}
-            subtitle={`of ${summary.completed_jobs} completed`}
-            icon={Clock}
-            color="text-blue-400"
+          <HeroStat
+            title="Cost Tracked"
+            value={`${summary.jobs_with_cost_data || 0}/${summary.completed_jobs}`}
+            subtitle="jobs with cost data"
+            icon={Activity}
+            color="text-cyan-400"
           />
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        <RankingTable
-          title="Top Performers ($/Hour)"
-          data={top_by_hour}
-          valueKey="value_per_hour"
-          valueLabel="$/hr"
-          icon={TrendingUp}
-        />
-        <RankingTable
-          title="Worst Performers ($/Hour)"
-          data={worst_performers}
-          valueKey="value_per_hour"
-          valueLabel="$/hr"
-          icon={TrendingDown}
-          ascending
-        />
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+        <JobsOverTimeChart data={jobs_by_date} />
+        <CostRevenueChart data={jobs_by_date} />
+        <FleetOverview summary={summary} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        <PrinterStatsTable data={printer_stats} />
-        
-        <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 size={16} className="text-farm-400" />
-            <h3 className="font-display font-semibold text-sm md:text-base">Quick Stats</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:gap-4">
-            <div className="text-center p-3 bg-farm-800 rounded-lg">
-              <div className="text-xl md:text-2xl font-bold">{summary.total_models}</div>
-              <div className="text-xs text-farm-400">Total Models</div>
-            </div>
-            <div className="text-center p-3 bg-farm-800 rounded-lg">
-              <div className="text-xl md:text-2xl font-bold">{summary.total_jobs}</div>
-              <div className="text-xs text-farm-400">Total Jobs</div>
-            </div>
-            <div className="text-center p-3 bg-farm-800 rounded-lg">
-              <div className="text-xl md:text-2xl font-bold text-green-400">{summary.completed_jobs}</div>
-              <div className="text-xs text-farm-400">Completed</div>
-            </div>
-            <div className="text-center p-3 bg-farm-800 rounded-lg">
-              <div className="text-xl md:text-2xl font-bold text-yellow-400">{summary.pending_jobs}</div>
-              <div className="text-xs text-farm-400">Pending</div>
-            </div>
-          </div>
-        </div>
+      {/* Rankings */}
+      <ModelRankings topData={top_by_hour} worstData={worst_performers} />
+
+      {/* Bottom Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+        <PrinterUtilization data={printer_stats} />
+        <EnergyWidget jobs={[]} />
       </div>
     </div>
   )

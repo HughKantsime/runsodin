@@ -416,6 +416,8 @@ class Job(Base):
     # Order fulfillment linkage
     order_item_id = Column(Integer, ForeignKey("order_items.id"), nullable=True)
     quantity_on_bed = Column(Integer, default=1)  # How many pieces this job produces
+    due_date = Column(DateTime, nullable=True)
+    priority = Column(String(20), default='normal')  # low, normal, high, urgent
 
     # Job approval workflow (v0.18.0)
     submitted_by = Column(Integer, nullable=True)

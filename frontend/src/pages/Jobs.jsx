@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle , Calendar, Flag, History } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting } from '../api'
@@ -82,6 +82,7 @@ function JobRow({ job, onAction, dragProps }) {
           </div>
         )}
         {job.notes && <div className="text-xs text-farm-500 truncate max-w-xs">{job.notes}</div>}
+        {job.due_date && <DueDateBadge dueDate={job.due_date} />}
         {job.fail_reason && (
           <div className="text-xs text-red-400 truncate max-w-xs">
             ⚠ {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
@@ -183,6 +184,7 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
     duration_hours: '',
     colors_required: '',
     notes: '',
+    due_date: '',
   })
 
   const handleSubmit = (e) => {
@@ -191,8 +193,9 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
       ...formData,
       model_id: formData.model_id ? Number(formData.model_id) : null,
       duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
+      due_date: formData.due_date || null,
     })
-    setFormData({ item_name: '', model_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '' })
+    setFormData({ item_name: '', model_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '', due_date: '' })
     onClose()
   }
 
@@ -246,6 +249,10 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
             <input type="text" value={formData.colors_required} onChange={(e) => setFormData(prev => ({ ...prev, colors_required: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., black, white, green matte" />
           </div>
           <div>
+            <label className="block text-sm text-farm-400 mb-1">Due Date (optional)</label>
+            <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
             <label className="block text-sm text-farm-400 mb-1">Notes</label>
             <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" rows={2} />
           </div>
@@ -290,6 +297,91 @@ function RejectModal({ isOpen, onClose, onSubmit }) {
         </div>
       </div>
     </div>
+  )
+}
+
+
+
+function RecentlyCompleted({ jobs }) {
+  const recent = jobs
+    ?.filter(j => j.status === 'completed' || j.status === 'failed')
+    .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+    .slice(0, 8)
+  
+  if (!recent || recent.length === 0) return null
+  
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-display font-semibold text-farm-400 mb-3 flex items-center gap-2">
+        <History size={14} />
+        Recently Completed
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+        {recent.map(job => (
+          <div key={job.id} className={`bg-farm-900 rounded-lg border p-3 ${
+            job.status === 'failed' ? 'border-red-900/50' : 'border-farm-800'
+          }`}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium truncate">{job.item_name}</span>
+              {job.status === 'completed' 
+                ? <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
+                : <XCircle size={14} className="text-red-400 flex-shrink-0" />
+              }
+            </div>
+            <div className="text-xs text-farm-500">
+              {job.printer?.name || 'Unknown printer'}
+              {job.duration_hours ? ` · ${job.duration_hours}h` : ''}
+            </div>
+            {job.fail_reason && (
+              <div className="text-xs text-red-400 mt-1 truncate">⚠ {job.fail_reason.replace(/_/g, ' ')}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const PRIORITY_CONFIG = {
+  urgent: { color: 'bg-red-900/50 text-red-400 border-red-800', label: 'Urgent', icon: '🔴' },
+  high: { color: 'bg-orange-900/50 text-orange-400 border-orange-800', label: 'High', icon: '🟠' },
+  normal: { color: 'bg-farm-800 text-farm-400 border-farm-700', label: 'Normal', icon: '' },
+  low: { color: 'bg-blue-900/50 text-blue-400 border-blue-800', label: 'Low', icon: '🔵' },
+}
+
+function PriorityBadge({ priority }) {
+  if (!priority || priority === 'normal') return null
+  const cfg = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.normal
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs border ${cfg.color}`}>
+      {cfg.icon && <span className="text-[10px]">{cfg.icon}</span>}
+      {cfg.label}
+    </span>
+  )
+}
+
+function DueDateBadge({ dueDate }) {
+  if (!dueDate) return null
+  const due = new Date(dueDate)
+  const now = new Date()
+  const daysUntil = Math.ceil((due - now) / (1000 * 60 * 60 * 24))
+  
+  let color = 'text-farm-400'
+  if (daysUntil < 0) color = 'text-red-400'
+  else if (daysUntil <= 1) color = 'text-orange-400'
+  else if (daysUntil <= 3) color = 'text-yellow-400'
+  
+  const label = daysUntil < 0 
+    ? `${Math.abs(daysUntil)}d overdue`
+    : daysUntil === 0 ? 'Due today'
+    : daysUntil === 1 ? 'Due tomorrow'
+    : `Due in ${daysUntil}d`
+    
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs ${color}`}>
+      <Calendar size={10} />
+      {label}
+    </span>
   )
 }
 
@@ -598,6 +690,7 @@ export default function Jobs() {
               )}
             </tbody>
           </table>
+      <RecentlyCompleted jobs={jobsData} />
       {failureModal && (
         <FailureReasonModal
           jobId={failureModal.jobId}

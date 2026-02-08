@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 
 import { printFiles, getApprovalSetting } from '../api'
+import { models as modelsApi } from '../api'
 
 function DropZone({ onFileSelect, isUploading }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -61,7 +62,7 @@ function FilamentBadge({ filament }) {
   )
 }
 
-function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval }) {
+function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval, onSaveQuantity }) {
   return (
     <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
       <div className="flex flex-col md:flex-row">
@@ -263,6 +264,17 @@ export default function Upload() {
           data={uploadedFile} 
           onUploadAnother={() => setUploadedFile(null)}
           onViewLibrary={() => navigate('/models')}
+          onUpdateObjects={(newObjects) => {
+            setUploadedFile(prev => ({ ...prev, objects: newObjects }))
+            const checkedCount = newObjects.filter(o => o.checked).length
+            if (uploadedFile?.model_id) {
+              fetch(`/api/models/${uploadedFile.model_id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-API-Key': localStorage.getItem('api_key') || '' },
+                body: JSON.stringify({ quantity_per_bed: checkedCount })
+              }).catch(e => console.error('Failed to save quantity_per_bed:', e))
+            }
+          }}
           onScheduleNow={() => navigate(`/models?schedule=${uploadedFile.model_id}`)}
           submitForApproval={showSubmitForApproval}
         />

@@ -3,6 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import { Search, X, Package, ListTodo, Printer, Database } from 'lucide-react'
 import { search } from '../api'
 
+
+function Highlight({ text, query }) {
+  if (!query || query.length < 2 || !text) return <>{text}</>
+  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+  const parts = text.split(regex)
+  return (
+    <>
+      {parts.map((part, i) => 
+        regex.test(part) 
+          ? <mark key={i} className="bg-print-500/30 text-print-300 rounded-sm px-0.5">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  )
+}
+
 export default function GlobalSearch() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState(null)
@@ -126,7 +142,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <Package size={14} className="text-blue-400" />
-                      <span className="truncate">{item.name}</span>{item.qr_code && <span className="text-xs text-farm-500 ml-2">{item.qr_code}</span>}
+                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-farm-500 ml-2"><Highlight text={item.qr_code} query={query} /></span>}
                     </button>
                   ))}
                 </div>
@@ -141,7 +157,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <ListTodo size={14} className="text-green-400" />
-                      <span className="truncate flex-1">{item.name}</span>
+                      <span className="truncate flex-1"><Highlight text={item.name} query={query} /></span>
                       <span className={`text-xs px-1.5 py-0.5 rounded ${
                         item.status === 'completed' ? 'bg-green-900/50 text-green-400' :
                         item.status === 'failed' ? 'bg-red-900/50 text-red-400' :
@@ -161,7 +177,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <Database size={14} className="text-purple-400" />
-                      <span className="truncate">{item.name}</span>{item.qr_code && <span className="text-xs text-farm-500 ml-2">{item.qr_code}</span>}
+                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-farm-500 ml-2"><Highlight text={item.qr_code} query={query} /></span>}
                     </button>
                   ))}
                 </div>
@@ -176,7 +192,7 @@ export default function GlobalSearch() {
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
                     >
                       <Printer size={14} className="text-orange-400" />
-                      <span className="truncate">{item.name}</span>{item.qr_code && <span className="text-xs text-farm-500 ml-2">{item.qr_code}</span>}
+                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-farm-500 ml-2"><Highlight text={item.qr_code} query={query} /></span>}
                     </button>
                   ))}
                 </div>

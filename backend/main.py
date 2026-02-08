@@ -163,7 +163,7 @@ app = FastAPI(
     description="Orchestrated Dispatch & Inventory Network — Self-hosted 3D print farm management",
     version="0.1.0",
     lifespan=lifespan
-)
+, docs_url="/api/docs", redoc_url="/api/redoc")
 
 # CORS for frontend
 app.add_middleware(
@@ -181,6 +181,70 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 # API Key authentication middleware
+# === Security: Rate limiting + Account lockout ===
+from collections import defaultdict
+import time as _time
+
+_login_attempts = defaultdict(list)  # ip -> [timestamps]
+_account_lockouts = {}  # username -> lockout_until_timestamp
+_LOGIN_RATE_LIMIT = 10  # max attempts per window
+_LOGIN_RATE_WINDOW = 300  # 5 minute window
+_LOCKOUT_THRESHOLD = 5  # failed attempts before lockout
+_LOCKOUT_DURATION = 900  # 15 minute lockout
+
+
+def _validate_password(password: str) -> tuple:
+    """Validate password complexity. Returns (is_valid, message)."""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters"
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter"
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number"
+    return True, "OK"
+
+def _check_rate_limit(ip: str) -> bool:
+    """Returns True if rate limited"""
+    now = _time.time()
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_RATE_WINDOW]
+    return len(_login_attempts[ip]) >= _LOGIN_RATE_LIMIT
+
+def _record_login_attempt(ip: str, username: str, success: bool, db=None):
+    """Record attempt for rate limiting and audit"""
+    now = _time.time()
+    _login_attempts[ip].append(now)
+    
+    if not success:
+        # Check for lockout
+        recent_failures = [t for t in _login_attempts[ip] if now - t < _LOGIN_RATE_WINDOW]
+        if len(recent_failures) >= _LOCKOUT_THRESHOLD:
+            _account_lockouts[username] = now + _LOCKOUT_DURATION
+    
+    # Log to audit trail if db available
+    if db:
+        try:
+            log = AuditLog(
+                action="login_success" if success else "login_failed",
+                entity_type="user",
+                details=f"{'Login' if success else 'Failed login'}: {username} from {ip}",
+                ip_address=ip,
+            )
+            db.add(log)
+            db.commit()
+        except Exception:
+            pass
+
+def _is_locked_out(username: str) -> bool:
+    """Returns True if account is locked"""
+    if username in _account_lockouts:
+        if _time.time() < _account_lockouts[username]:
+            return True
+        del _account_lockouts[username]
+    return False
+
+
 @app.middleware("http")
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
@@ -1147,6 +1211,9 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
     if _setup_users_exist(db):
         raise HTTPException(status_code=403, detail="Setup already completed — users exist")
 
+        pw_valid, pw_msg = _validate_password(request.password)
+    if not pw_valid:
+        raise HTTPException(status_code=400, detail=pw_msg)
     password_hash_val = hash_password(request.password)
     try:
         db.execute(text("""
@@ -1847,6 +1914,7 @@ class _RejectJobRequest(PydanticBaseModel):
 
 @app.post("/api/jobs/{job_id}/approve", tags=["Jobs"])
 def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    require_feature("job_approval")
     """Approve a submitted job. Moves it to pending status for scheduling."""
     if not current_user or current_user.get("role") not in ("operator", "admin"):
         raise HTTPException(status_code=403, detail="Only operators and admins can approve jobs")
@@ -1884,6 +1952,7 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
 
 @app.post("/api/jobs/{job_id}/reject", tags=["Jobs"])
 def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    require_feature("job_approval")
     """Reject a submitted job with a required reason."""
     if not current_user or current_user.get("role") not in ("operator", "admin"):
         raise HTTPException(status_code=403, detail="Only operators and admins can reject jobs")
@@ -1924,6 +1993,7 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
 
 @app.post("/api/jobs/{job_id}/resubmit", tags=["Jobs"])
 def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    require_feature("job_approval")
     """Resubmit a rejected job for approval again."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1974,7 +2044,8 @@ def get_approval_setting(db: Session = Depends(get_db)):
 
 @app.put("/api/config/require-job-approval", tags=["Config"])
 def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
-    """Toggle the job approval requirement. Admin only."""
+    """Toggle the job approval requirement. Admin only. Requires Education tier."""
+    require_feature("job_approval")
     enabled = body.get("enabled", False)
     config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
     if config:
@@ -2715,14 +2786,37 @@ def get_analytics(db: Session = Depends(get_db)):
     # Printer utilization
     printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
     printer_stats = []
+    # Calculate time window for utilization (since first completed job or 30 days)
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
     for printer in printers:
         printer_jobs = [j for j in completed_jobs if j.printer_id == printer.id]
         hours = sum(j.duration_hours or 0 for j in printer_jobs)
+        # Utilization = print hours / available hours (since printer's first job, max 30 days)
+        if printer_jobs:
+            earliest = min(j.created_at for j in printer_jobs if j.created_at)
+            available_hours = min((now - earliest).total_seconds() / 3600, 30 * 24)
+            utilization_pct = round((hours / available_hours * 100), 1) if available_hours > 0 else 0
+        else:
+            available_hours = 0
+            utilization_pct = 0
+        # Average job duration
+        avg_hours = round(hours / len(printer_jobs), 1) if printer_jobs else 0
+        # Success rate
+        total_printer_jobs = [j for j in db.query(Job).filter(Job.printer_id == printer.id).all()]
+        failed = len([j for j in total_printer_jobs if j.status == 'failed'])
+        total_attempted = len([j for j in total_printer_jobs if j.status in ('complete', 'failed')])
+        success_rate = round(((total_attempted - failed) / total_attempted * 100), 1) if total_attempted > 0 else 100
         printer_stats.append({
             "id": printer.id,
             "name": printer.name,
             "completed_jobs": len(printer_jobs),
             "total_hours": round(hours, 1),
+            "utilization_pct": utilization_pct,
+            "avg_job_hours": avg_hours,
+            "success_rate": success_rate,
+            "failed_jobs": failed,
+            "has_plug": bool(getattr(printer, 'plug_type', None)),
         })
     
     # Jobs over time (last 30 days)
@@ -4630,13 +4724,23 @@ def schedule_print_file(
 
 # ============== Auth Endpoints ==============
 @app.post("/api/auth/login", response_model=Token, tags=["Auth"])
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # Security checks
+    client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
+    if _check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again in 5 minutes.")
+    if _is_locked_out(form_data.username):
+        raise HTTPException(status_code=423, detail="Account temporarily locked due to repeated failed attempts. Try again in 15 minutes.")
+    
     user = db.execute(text("SELECT * FROM users WHERE username = :username"), 
                       {"username": form_data.username}).fetchone()
     if not user or not verify_password(form_data.password, user.password_hash):
+        _record_login_attempt(client_ip, form_data.username, False, db)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account disabled")
+    
+    _record_login_attempt(client_ip, form_data.username, True, db)
     
     db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"), 
                {"now": datetime.now(), "id": user.id})

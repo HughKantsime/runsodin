@@ -26,6 +26,23 @@ const PRINTER_MODELS = {
     { value: 'Voron', label: 'Voron', slots: 1 },
     { value: 'Other', label: 'Other Klipper Printer', slots: 1 },
   ],
+  prusalink: [
+    { value: 'MK4S', label: 'Prusa MK4S', slots: 1 },
+    { value: 'MK4', label: 'Prusa MK4', slots: 1 },
+    { value: 'MK3.9', label: 'Prusa MK3.9', slots: 1 },
+    { value: 'MK3.5', label: 'Prusa MK3.5', slots: 1 },
+    { value: 'MINI+', label: 'Prusa MINI+', slots: 1 },
+    { value: 'XL', label: 'Prusa XL', slots: 5 },
+    { value: 'CORE One', label: 'Prusa CORE One', slots: 1 },
+  ],
+  elegoo: [
+    { value: 'Centauri Carbon', label: 'Centauri Carbon', slots: 1 },
+    { value: 'Neptune 4 Pro', label: 'Neptune 4 Pro', slots: 1 },
+    { value: 'Neptune 4 Plus', label: 'Neptune 4 Plus', slots: 1 },
+    { value: 'Neptune 4 Max', label: 'Neptune 4 Max', slots: 1 },
+    { value: 'Saturn 4 Ultra', label: 'Saturn 4 Ultra (Resin)', slots: 1 },
+    { value: 'Other', label: 'Other Elegoo Printer', slots: 1 },
+  ],
 }
 
 export default function Setup() {
@@ -75,7 +92,7 @@ export default function Setup() {
     setAccessCode('')
     setTestResult(null)
     setPrinterAdded(false)
-    setSlotCount(printerType === 'moonraker' ? 1 : 4)
+    setSlotCount(['moonraker', 'prusalink', 'elegoo'].includes(printerType) ? 1 : 4)
   }, [printerType])
 
   const apiHeaders = (extraToken) => ({
@@ -367,7 +384,7 @@ export default function Setup() {
                       : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
                   }`}
                 >
-                  Bambu Lab (MQTT)
+                  Bambu Lab
                 </button>
                 <button
                   onClick={() => setPrinterType('moonraker')}
@@ -377,7 +394,27 @@ export default function Setup() {
                       : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
                   }`}
                 >
-                  Klipper (Moonraker)
+                  Klipper
+                </button>
+                <button
+                  onClick={() => setPrinterType('prusalink')}
+                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                    printerType === 'prusalink'
+                      ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                      : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                  }`}
+                >
+                  Prusa
+                </button>
+                <button
+                  onClick={() => setPrinterType('elegoo')}
+                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                    printerType === 'elegoo'
+                      ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                      : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                  }`}
+                >
+                  Elegoo
                 </button>
               </div>
             </div>

@@ -4,8 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb,
 } from 'lucide-react'
 import clsx from 'clsx'
+import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
+import { getPlugState, plugPowerOn, plugPowerOff } from '../api'
 import { printers, filaments } from '../api'
-import { Video, QrCode } from 'lucide-react'
+import { Video, QrCode, Thermometer, Plug } from 'lucide-react'
 import { canDo } from '../permissions'
 import { useLicense } from '../LicenseContext'
 import CameraModal from '../components/CameraModal'
@@ -188,7 +190,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool }) {
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onShowAms, onPlugToggle, plugStates }) {
   const [syncing, setSyncing] = useState(false)
   
   const handleSyncAms = async () => {
@@ -236,6 +238,18 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           </button>}
           {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="View camera">
             <Video size={16} />
+          </button>}
+          {printer.plug_type && onPlugToggle && (
+            <button
+              onClick={() => onPlugToggle(printer.id)}
+              className={`p-1.5 md:p-2 rounded-lg transition-colors ${plugStates?.[printer.id] ? 'text-green-400 hover:bg-green-900/30' : 'text-farm-500 hover:bg-farm-800'}`}
+              title={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
+            >
+              <Plug size={16} />
+            </button>
+          )}
+          {onShowAms && <button onClick={() => onShowAms(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="AMS Environment">
+            <Thermometer size={16} />
           </button>}
           {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Scan spool QR">
             <QrCode size={16} />
@@ -362,10 +376,15 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         api_type: printer.api_type || '',
         api_host: printer.api_host || '',
         serial: serial,
-        access_code: access_code
+        access_code: access_code,
+        plug_type: printer.plug_type || '',
+        plug_host: printer.plug_host || '',
+        plug_topic: printer.plug_topic || '',
+        plug_entity: printer.plug_entity || '',
+        plug_token: printer.plug_token || '',
       })
     } else {
-      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '' })
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '' })
     }
     setTestStatus(null)
     setTestMessage('')
@@ -387,6 +406,11 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         headers: apiHeaders,
         body: JSON.stringify({
           api_type: formData.api_type || 'bambu',
+          plug_type: formData.plug_type || null,
+          plug_host: formData.plug_host || null,
+          plug_topic: formData.plug_topic || null,
+          plug_entity: formData.plug_entity || null,
+          plug_token: formData.plug_token || null,
           api_host: formData.api_host,
           serial: formData.serial,
           access_code: formData.access_code
@@ -430,6 +454,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
 
   const isEditing = !!printer
   const showBambuFields = formData.api_type === 'bambu'
+  const showConnectionFields = !!formData.api_type && formData.api_type !== ''
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
@@ -476,28 +501,44 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
             >
               <option value="">Manual (no connection)</option>
               <option value="bambu">Bambu Lab (X1C, P1S, A1, etc.)</option>
+              <option value="moonraker">Klipper / Moonraker</option>
+              <option value="prusalink">Prusa (PrusaLink)</option>
+              <option value="elegoo">Elegoo (SDCP)</option>
               <option value="octoprint" disabled>OctoPrint (coming soon)</option>
-              <option value="moonraker" disabled>Moonraker/Klipper (coming soon)</option>
             </select>
           </div>
           
-          {showBambuFields && (
+          {showConnectionFields && (
             <>
               <div>
                 <label className="block text-sm text-farm-400 mb-1">Printer IP Address</label>
                 <input type="text" value={formData.api_host} onChange={(e) => setFormData(prev => ({ ...prev, api_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 192.168.1.100" />
-                <p className="text-xs text-farm-500 mt-1">Find this on the printer: Network settings</p>
+                {formData.api_type === 'bambu' && <p className="text-xs text-farm-500 mt-1">Find this on the printer: Network settings</p>}
+                {formData.api_type === 'moonraker' && <p className="text-xs text-farm-500 mt-1">IP of your Klipper printer running Moonraker</p>}
+                {formData.api_type === 'prusalink' && <p className="text-xs text-farm-500 mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
+                {formData.api_type === 'elegoo' && <p className="text-xs text-farm-500 mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
               </div>
+              {formData.api_type === 'bambu' && (
               <div>
                 <label className="block text-sm text-farm-400 mb-1">Serial Number</label>
                 <input type="text" value={formData.serial} onChange={(e) => setFormData(prev => ({ ...prev, serial: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder="e.g., 00M09A380700000" />
                 <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Device Info</p>
               </div>
+              )}
+              {formData.api_type === 'bambu' && (
               <div>
                 <label className="block text-sm text-farm-400 mb-1">Access Code</label>
                 <input type="text" value={formData.access_code} onChange={(e) => setFormData(prev => ({ ...prev, access_code: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder="e.g., 12345678" />
                 <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Network → Access Code</p>
               </div>
+              )}
+              {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink') && (
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">API Key {formData.api_type === 'prusalink' ? '' : '(optional)'}</label>
+                <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key from Settings' : 'Moonraker API key (if required)'} />
+                {formData.api_type === 'prusalink' && <p className="text-xs text-farm-500 mt-1">Find in PrusaLink → Settings → API Key</p>}
+              </div>
+              )}
               
               <div>
                 <button 
@@ -531,6 +572,43 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
             </>
           )}
           
+          {/* Smart Plug Configuration */}
+          {formData.api_type && (
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="block text-sm text-farm-400 mb-2">Smart Plug (Optional)</label>
+            <select
+              value={formData.plug_type || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, plug_type: e.target.value }))}
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm mb-3"
+            >
+              <option value="">No smart plug</option>
+              <option value="tasmota">Tasmota (HTTP)</option>
+              <option value="mqtt">MQTT Plug</option>
+              <option value="homeassistant">Home Assistant</option>
+            </select>
+            {formData.plug_type === 'tasmota' && (
+              <div className="space-y-2">
+                <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Tasmota IP (e.g., 192.168.1.50)" />
+                <p className="text-xs text-farm-500">Auto power-on before print, auto power-off after cooldown</p>
+              </div>
+            )}
+            {formData.plug_type === 'mqtt' && (
+              <div className="space-y-2">
+                <input type="text" value={formData.plug_topic || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_topic: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="MQTT topic (e.g., cmnd/plug1/POWER)" />
+                <p className="text-xs text-farm-500">Publishes ON/OFF to the configured MQTT broker</p>
+              </div>
+            )}
+            {formData.plug_type === 'homeassistant' && (
+              <div className="space-y-2">
+                <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="HA URL (e.g., http://homeassistant.local:8123)" />
+                <input type="text" value={formData.plug_entity || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_entity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Entity ID (e.g., switch.printer_plug)" />
+                <input type="password" value={formData.plug_token || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_token: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Long-lived access token" />
+                <p className="text-xs text-farm-500">Uses HA REST API to control the switch entity</p>
+              </div>
+            )}
+          </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
@@ -557,6 +635,34 @@ export default function Printers() {
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [showAmsChart, setShowAmsChart] = useState(null)
+  const [plugStates, setPlugStates] = useState({})
+
+  // Load plug states for printers that have plugs
+  useEffect(() => {
+    if (printersData) {
+      printersData.filter(p => p.plug_type).forEach(async (p) => {
+        try {
+          const state = await getPlugState(p.id)
+          setPlugStates(prev => ({ ...prev, [p.id]: state?.is_on || false }))
+        } catch (e) {}
+      })
+    }
+  }, [printersData])
+
+  const handlePlugToggle = async (printerId) => {
+    const isOn = plugStates[printerId]
+    try {
+      if (isOn) {
+        await plugPowerOff(printerId)
+      } else {
+        await plugPowerOn(printerId)
+      }
+      setPlugStates(prev => ({ ...prev, [printerId]: !isOn }))
+    } catch (e) {
+      console.error('Plug toggle failed:', e)
+    }
+  }
   const [editingPrinter, setEditingPrinter] = useState(null)
   const [orderedPrinters, setOrderedPrinters] = useState([])
   const [draggedId, setDraggedId] = useState(null)
@@ -682,10 +788,22 @@ export default function Printers() {
               onDragOver={(e) => handleDragOver(e, printer.id)}
               onDragEnd={handleDragEnd}
               onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
+              onShowAms={(id) => setShowAmsChart(showAmsChart === id ? null : id)}
+              onPlugToggle={handlePlugToggle}
+              plugStates={plugStates}
             />
           ))}
         </div>
       )}
+      {showAmsChart && (
+        <div className="mb-6">
+          <AmsEnvironmentChart
+            printerId={showAmsChart}
+            onClose={() => setShowAmsChart(null)}
+          />
+        </div>
+      )}
+
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
       {showScanner && (

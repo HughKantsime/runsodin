@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.19.0 (2026-02-08) — Analytics Redesign + Security Hardening
+
+### Frontend
+- **Analytics page redesign** — hero stat cards, gradient charts, fleet overview, model rankings with medal badges, animated printer utilization bars
+- **Cost/Revenue time-series chart** — grouped bar chart tracking revenue vs cost over time
+- **Dashboard MaintenanceWidget** — sidebar widget showing printers needing service with progress bars and overdue badges
+- **Camera Picture-in-Picture** — draggable, resizable floating mini-player that persists while browsing
+- **Jobs: due date + priority** — date picker and priority levels (low/normal/high/urgent) with color-coded badges
+- **Jobs: RecentlyCompleted** — grid showing last 8 completed/failed prints with status and duration
+- **Global search highlighting** — matched terms highlighted in search results
+- **Dashboard layout fix** — MaintenanceWidget moved into sidebar (was orphaned outside grid)
+
+### Backend
+- **REST API documentation** — Swagger UI at `/api/docs`, ReDoc at `/api/redoc`
+- **Rate limiting** — 10 login attempts per 5-minute window per IP (429 response)
+- **Account lockout** — 5 failed attempts triggers 15-minute lockout (423 response)
+- **Login attempt logging** — all attempts recorded to audit trail with IP address
+- **Password complexity** — minimum 8 characters, requires uppercase + lowercase + number
+- **Jobs schema** — added `due_date` and `priority` columns
+
+### Cleanup
+- Removed 4 stale .bak files from frontend/src/pages/
+
+
 ## [0.18.1] - 2026-02-08
 ### Fixed
 - Backend crash on `/api/models/{id}/mesh` — removed unresolvable ForeignKey constraints on `submitted_by`/`approved_by` columns

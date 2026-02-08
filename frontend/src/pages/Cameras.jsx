@@ -1,12 +1,93 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power } from 'lucide-react'
+import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move } from 'lucide-react'
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
 const API_KEY = import.meta.env.VITE_API_KEY
 
-function CameraCard({ camera, onExpand }) {
+
+function PipPlayer({ camera, onClose }) {
+  const [position, setPosition] = useState({ x: window.innerWidth - 340, y: window.innerHeight - 240 })
+  const [dragging, setDragging] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [size, setSize] = useState('medium') // small, medium
+  
+  const sizes = {
+    small: { width: 240, height: 180 },
+    medium: { width: 320, height: 220 },
+  }
+  const { width, height } = sizes[size]
+
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e) => {
+      setPosition({
+        x: Math.max(0, Math.min(window.innerWidth - width, e.clientX - dragOffset.x)),
+        y: Math.max(0, Math.min(window.innerHeight - height, e.clientY - dragOffset.y)),
+      })
+    }
+    const onUp = () => setDragging(false)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [dragging, dragOffset, width, height])
+
+  const streamUrl = camera.stream_url || `/api/cameras/${camera.id}/stream`
+
+  return (
+    <div 
+      className="fixed z-[9999] rounded-xl overflow-hidden shadow-2xl border border-farm-700 bg-black"
+      style={{ left: position.x, top: position.y, width, height }}
+    >
+      {/* Header bar */}
+      <div 
+        className="absolute top-0 left-0 right-0 h-7 bg-gradient-to-b from-black/80 to-transparent z-10 flex items-center justify-between px-2 cursor-move"
+        onMouseDown={(e) => {
+          setDragging(true)
+          setDragOffset({ x: e.clientX - position.x, y: e.clientY - position.y })
+          e.preventDefault()
+        }}
+      >
+        <div className="flex items-center gap-1.5">
+          <Move size={10} className="text-white/50" />
+          <span className="text-[10px] text-white/70 font-medium truncate">{camera.printer_name || camera.name || 'Camera'}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={() => setSize(s => s === 'small' ? 'medium' : 'small')}
+            className="p-0.5 hover:bg-white/20 rounded text-white/60 hover:text-white"
+          >
+            {size === 'small' ? <Maximize2 size={10} /> : <Minimize2 size={10} />}
+          </button>
+          <button 
+            onClick={onClose}
+            className="p-0.5 hover:bg-red-500/50 rounded text-white/60 hover:text-white"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      </div>
+      {/* Stream */}
+      <img 
+        src={streamUrl}
+        alt=""
+        className="w-full h-full object-cover"
+        style={{ pointerEvents: 'none' }}
+      />
+      {/* Live indicator */}
+      <div className="absolute bottom-1.5 left-2 flex items-center gap-1">
+        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+        <span className="text-[9px] text-white/70 font-medium">LIVE</span>
+      </div>
+    </div>
+  )
+}
+
+function CameraCard({ camera, onExpand, onPip }) {
   const videoRef = useRef(null)
   const pcRef = useRef(null)
   const [status, setStatus] = useState('connecting')
@@ -84,6 +165,7 @@ export default function Cameras() {
   const [expandedCamera, setExpandedCamera] = useState(null)
   const [columns, setColumns] = useState(2)
   const [controlRoom, setControlRoom] = useState(false)
+  const [pipCamera, setPipCamera] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
 
   // Update clock every second in control room mode
@@ -303,11 +385,12 @@ export default function Cameras() {
       {filteredCameras.length > 0 && (
         <div className={'grid gap-3 md:gap-4 ' + gridClass}>
           {filteredCameras.map(camera => (
-            <CameraCard key={camera.id} camera={camera} onExpand={setExpandedCamera} />
+            <CameraCard key={camera.id} camera={camera} onExpand={setExpandedCamera} onPip={setPipCamera} />
           ))}
         </div>
       )}
 
+      {pipCamera && <PipPlayer camera={pipCamera} onClose={() => setPipCamera(null)} />}
       {expandedCamera && (
         <CameraModal printer={expandedCamera} onClose={() => setExpandedCamera(null)} />
       )}

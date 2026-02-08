@@ -11,12 +11,13 @@ import {
   Video,
   AlertTriangle,
   Lightbulb,
+  Wrench,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import CameraModal from '../components/CameraModal'
 
-import { stats, jobs, scheduler, printers, printJobs, alerts as alertsApi } from '../api'
+import { stats, jobs, scheduler, printers, printJobs, alerts as alertsApi, maintenance } from '../api'
 import { canDo } from '../permissions'
 
 function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
@@ -344,6 +345,70 @@ function AlertsWidget() {
   )
 }
 
+
+function MaintenanceWidget() {
+  const { data: maintData } = useQuery({
+    queryKey: ['maintenance-status'],
+    queryFn: maintenance.getStatus,
+    refetchInterval: 60000,
+  })
+
+  if (!maintData) return null
+
+  // Find tasks that are overdue or approaching (>75% progress)
+  const needsAttention = []
+  maintData.forEach(printer => {
+    printer.tasks?.forEach(task => {
+      if (task.status === 'overdue' || task.progress_percent >= 75) {
+        needsAttention.push({
+          printerId: printer.printer_id,
+          printerName: printer.printer_name,
+          taskName: task.task_name,
+          status: task.status,
+          progress: task.progress_percent,
+          hoursSince: task.hours_since_service,
+          daysSince: task.days_since_service,
+        })
+      }
+    })
+  })
+
+  if (needsAttention.length === 0) return null
+
+  return (
+    <div>
+      <h2 className="text-lg md:text-xl font-display font-semibold mb-4 flex items-center gap-2">
+        <Wrench size={18} className="text-purple-400" />
+        Maintenance Due
+      </h2>
+      <div className="space-y-2">
+        {needsAttention.slice(0, 6).map((item, i) => {
+          const isOverdue = item.status === 'overdue'
+          const barColor = isOverdue ? 'bg-red-500' : item.progress >= 90 ? 'bg-yellow-500' : 'bg-purple-500'
+          return (
+            <div key={i} className={`bg-farm-900 rounded-lg border p-3 ${isOverdue ? 'border-red-800' : 'border-farm-800'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium truncate">{item.printerName}</span>
+                {isOverdue && <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded font-medium">OVERDUE</span>}
+              </div>
+              <div className="text-xs text-farm-400 mb-2">{item.taskName}</div>
+              <div className="w-full bg-farm-800 rounded-full h-1.5">
+                <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${Math.min(item.progress, 100)}%` }} />
+              </div>
+              <div className="text-xs text-farm-500 mt-1">
+                {item.daysSince}d since service{item.hoursSince > 0 ? ` · ${item.hoursSince.toFixed(0)}h printed` : ''}
+              </div>
+            </div>
+          )
+        })}
+        {needsAttention.length > 6 && (
+          <div className="text-xs text-farm-500 text-center py-1">+{needsAttention.length - 6} more</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const queryClient = useQueryClient()
 
@@ -469,9 +534,11 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+
+          {/* Maintenance Alerts */}
+          <MaintenanceWidget />
         </div>
       </div>
-
 
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
     </div>
