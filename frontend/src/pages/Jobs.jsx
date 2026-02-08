@@ -55,57 +55,8 @@ function JobRow({ job, onAction, dragProps }) {
     failed: 'text-status-failed',
     rejected: 'text-red-400',
   }
-  // Failure reason modal
-  const [failureModal, setFailureModal] = React.useState(null)
 
-  // Drag-and-drop queue reorder
-  const [draggedId, setDraggedId] = React.useState(null)
-  const [dragOverId, setDragOverId] = React.useState(null)
-  
-  const handleDragStart = (e, jobId) => {
-    setDraggedId(jobId)
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', jobId)
-    e.currentTarget.style.opacity = '0.4'
-  }
-  
-  const handleDragEnd = (e) => {
-    e.currentTarget.style.opacity = '1'
-    setDraggedId(null)
-    setDragOverId(null)
-  }
-  
-  const handleDragOver = (e, jobId) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (jobId !== draggedId) setDragOverId(jobId)
-  }
-  
-  const handleDrop = async (e, targetId) => {
-    e.preventDefault()
-    setDragOverId(null)
-    setDraggedId(null)
-    
-    if (!draggedId || draggedId === targetId) return
-    
-    // Get current job list and reorder
-    const currentJobs = (data || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
-    const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
-    const toIdx = currentJobs.findIndex(j => j.id === targetId)
-    
-    if (fromIdx === -1 || toIdx === -1) return
-    
-    const reordered = [...currentJobs]
-    const [moved] = reordered.splice(fromIdx, 1)
-    reordered.splice(toIdx, 0, moved)
-    
-    try {
-      await jobs.reorder(reordered.map(j => j.id))
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
-    } catch (err) {
-      console.error('Reorder failed:', err)
-    }
-  }
+
 
   return (
     <tr className="border-b border-farm-800 hover:bg-farm-900/50"
@@ -359,6 +310,45 @@ export default function Jobs() {
   const [jobTypeFilter, setJobTypeFilter] = useState('all')
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [rejectingJobId, setRejectingJobId] = useState(null)
+  const [failureModal, setFailureModal] = useState(null)
+  // Drag-and-drop queue reorder
+  const [draggedId, setDraggedId] = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
+  const handleDragStart = (e, jobId) => {
+    setDraggedId(jobId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', jobId)
+    e.currentTarget.style.opacity = '0.4'
+  }
+  const handleDragEnd = (e) => {
+    e.currentTarget.style.opacity = '1'
+    setDraggedId(null)
+    setDragOverId(null)
+  }
+  const handleDragOver = (e, jobId) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (jobId !== draggedId) setDragOverId(jobId)
+  }
+  const handleDrop = async (e, targetId) => {
+    e.preventDefault()
+    setDragOverId(null)
+    setDraggedId(null)
+    if (!draggedId || draggedId === targetId) return
+    const currentJobs = (jobsData || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
+    const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
+    const toIdx = currentJobs.findIndex(j => j.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const reordered = [...currentJobs]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    try {
+      await jobs.reorder(reordered.map(j => j.id))
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    } catch (err) {
+      console.error('Reorder failed:', err)
+    }
+  }
 
   const { data: approvalSetting } = useQuery({
     queryKey: ['approval-setting'],

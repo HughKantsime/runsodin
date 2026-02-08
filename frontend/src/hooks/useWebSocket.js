@@ -66,7 +66,7 @@ export default function useWebSocket() {
                     nozzle_temp: d.nozzle_temp ?? p.nozzle_temp,
                     nozzle_target_temp: d.nozzle_target ?? p.nozzle_target_temp,
                     gcode_state: d.state ?? p.gcode_state,
-                    last_seen: new Date().toISOString(),
+                    last_seen: new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0],
                   }
                 })
               })

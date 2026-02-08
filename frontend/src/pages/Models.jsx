@@ -62,7 +62,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             >
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
             </button>
-            <button onClick={() => onView3D && onView3D(model)} className="p-1 md:p-1.5 text-amber-400 hover:bg-farm-800 rounded transition-colors" title="View 3D model"><Box size={14} /></button>
+            
             {canDo('models.create') && <button
               onClick={() => onSchedule(model)}
               className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"

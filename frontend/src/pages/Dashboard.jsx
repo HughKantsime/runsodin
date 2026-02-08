@@ -46,11 +46,19 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
 }
 
 function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
-  const getShortName = (color) => {
-    if (!color) return ''
-    const parts = color.split(' ')
-    if (parts.length > 2) return parts.slice(2).join(' ').toLowerCase()
-    return color.toLowerCase()
+  const getShortName = (slot) => {
+    const color = slot?.color
+    if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return slot?.filament_type || 'Empty'
+    const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
+    let short = color
+    for (const brand of brands) {
+      if (color.startsWith(brand + ' ')) {
+        short = color.slice(brand.length + 1)
+        break
+      }
+    }
+    if (short.length > 12) return short.slice(0, 10) + '...'
+    return short
   }
 
   const slots = printer.filament_slots || []
@@ -123,7 +131,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
                 className="w-full h-2.5 md:h-3 rounded mb-1" 
                 style={{ backgroundColor: slot.color_hex ? `#${slot.color_hex}` : (slot.color ? '#888' : '#333') }} 
               />
-              <span className="text-[10px] md:text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
+              <span className="text-[10px] md:text-xs text-farm-500 truncate block">{getShortName(slot)}</span>
             </div>
           ))}
         </div>

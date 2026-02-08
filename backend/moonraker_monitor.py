@@ -25,6 +25,19 @@ from typing import Optional, Dict, Any
 from moonraker_adapter import MoonrakerPrinter, MoonrakerState
 import printer_events
 
+# WebSocket push (same as mqtt_monitor)
+try:
+    from ws_hub import broadcast as ws_push
+except ImportError:
+    def ws_push(*a, **kw): pass
+
+# MQTT republish (same as mqtt_monitor)
+try:
+    from mqtt_republish import get_republisher
+    mqtt_republish = get_republisher()
+except Exception:
+    mqtt_republish = None
+
 log = logging.getLogger("moonraker_monitor")
 
 DB_PATH = os.environ.get(
@@ -122,10 +135,15 @@ class MoonrakerMonitor:
         if _time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
             try:
                 import sqlite3
-                conn = sqlite3.connect('/opt/printfarm-scheduler/backend/printfarm.db')
+                conn = sqlite3.connect(DB_PATH)
                 bed_t = bed_tt = noz_t = noz_tt = None
                 gstate = None
                 stage = 'Idle'
+                progress = None
+                remaining_min = None
+                current_layer = None
+                total_layers = None
+
                 if hasattr(status, 'raw_data') and status.raw_data:
                     rd = status.raw_data
                     hb = rd.get('heater_bed', {})
@@ -141,6 +159,19 @@ class MoonrakerMonitor:
                     elif mk_state == 'paused': stage = 'Paused'
                     elif noz_tt and noz_tt > 0: stage = 'Heating hotend'
                     elif bed_tt and bed_tt > 0: stage = 'Heating bed'
+
+                # Progress data
+                progress = status.progress_percent
+                current_layer = status.current_layer
+                total_layers = status.total_layers
+
+                # Calculate remaining time from elapsed + progress
+                if status.print_duration and status.print_duration > 0 and progress and progress > 1:
+                    elapsed_min = status.print_duration / 60.0
+                    remaining_min = round(elapsed_min * (100.0 - progress) / progress)
+                    if remaining_min < 0:
+                        remaining_min = 0
+
                 conn.execute(
                     "UPDATE printers SET last_seen=datetime('now'),"
                     " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
@@ -148,6 +179,36 @@ class MoonrakerMonitor:
                     " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage) WHERE id=?",
                     (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, self.printer_id))
                 conn.commit()
+
+                # WebSocket push to frontend (same as Bambu monitor)
+                ws_push('printer_telemetry', {
+                    'printer_id': self.printer_id,
+                    'bed_temp': bed_t,
+                    'bed_target': bed_tt,
+                    'nozzle_temp': noz_t,
+                    'nozzle_target': noz_tt,
+                    'state': gstate,
+                    'progress': progress,
+                    'remaining_min': remaining_min,
+                    'current_layer': current_layer,
+                    'total_layers': total_layers,
+                })
+
+                # MQTT republish to external broker (same as Bambu monitor)
+                if mqtt_republish:
+                    try:
+                        mqtt_republish.republish_telemetry(self.printer_id, self.name, {
+                            "bed_temp": bed_t, "bed_target": bed_tt,
+                            "nozzle_temp": noz_t, "nozzle_target": noz_tt,
+                            "state": gstate,
+                            "progress": progress,
+                            "remaining_min": remaining_min,
+                            "current_layer": current_layer,
+                            "total_layers": total_layers,
+                        })
+                    except Exception:
+                        pass
+
                 conn.close()
                 self._last_heartbeat = _time.time()
             except Exception as e:
@@ -324,7 +385,7 @@ class MoonrakerMonitor:
             """, (
                 status.progress_percent,
                 status.current_layer,
-                None,  # Moonraker doesn't provide remaining time directly
+                round(status.print_duration * (100.0 - status.progress_percent) / max(status.progress_percent, 0.1) / 60.0) if status.print_duration and status.progress_percent and status.progress_percent > 1 else None,
                 self._current_job_db_id,
             ))
             conn.commit()

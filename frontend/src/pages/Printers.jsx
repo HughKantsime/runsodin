@@ -70,8 +70,10 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
 
   const colorHex = slot.color_hex
 
-  const getShortName = (color) => {
-    if (!color) return 'Empty'
+  const getShortName = (slot) => {
+    const color = typeof slot === 'string' ? slot : slot?.color
+    const fallback = typeof slot === 'string' ? '' : (slot?.filament_type || 'Empty')
+    if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return fallback
     const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
     let short = color
     for (const brand of brands) {
@@ -80,9 +82,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
         break
       }
     }
-    if (short.length > 12) {
-      return short.slice(0, 10) + '...'
-    }
+    if (short.length > 12) return short.slice(0, 10) + '...'
     return short
   }
   return (
@@ -92,7 +92,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
         onClick={() => { if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
       >
         <div className="w-full h-3 rounded mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
-        <span className="text-xs text-farm-500 truncate block">{getShortName(slot.color)}</span>
+        <span className="text-xs text-farm-500 truncate block">{getShortName(slot)}</span>
       </div>
       
       {isEditing && (
@@ -565,7 +565,7 @@ export default function Printers() {
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const lic = useLicense()
-  const atLimit = lic.atPrinterLimit(printersData?.length || 0)
+  const atLimit = !lic.isPro && (printersData?.length || 0) >= 5
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
   const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
     const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }})
