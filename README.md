@@ -12,7 +12,7 @@
   <a href="#supported-printers">Printers</a> •
   <a href="#screenshots">Screenshots</a> •
   <a href="#license">License</a> •
-  <a href="https://discord.gg/kZna6rex">Discord</a>
+  <a href="https://discord.gg/mc4Xs57gUA">Discord</a>
 </p>
 
 <p align="center">
@@ -70,6 +70,8 @@ See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation
 - **Print Again** — one-click clone of completed jobs
 - **Order tracking** — link jobs to customer orders for fulfillment visibility
 - **Job tabs** — filter by All / Order Jobs / Ad-hoc
+- **Due dates & priority** — set deadlines and urgency levels (low/normal/high/urgent)
+- **Failure logging** — capture failure reasons and notes for analytics
 - **Timeline view** — Gantt-style visualization of your print queue
 
 ### Filament & Inventory
@@ -89,6 +91,8 @@ See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation
 - **Per-material cost rates** — different $/gram for PLA, PETG, ASA, etc.
 - **Model cards show cost** — estimated cost and suggested price on every model
 - **Revenue dashboard** — margins, costs, and profitability from real job data
+- **Printer utilization report** — fleet efficiency metrics, per-printer breakdown, charts, CSV export
+- **Stat cards** — summary metrics on Orders, Products, Models, and Spools pages
 - **CSV export** — jobs, models, spools, filament usage
 
 ### Multi-User & Security
@@ -97,6 +101,10 @@ See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation
 - **SSO/OIDC** — Microsoft Entra ID, with auto-user provisioning
 - **White-label branding** — custom colors, fonts, logos, app name
 - **Encrypted credentials** — printer API keys stored with Fernet encryption
+- **Rate limiting** — 10 login attempts per 5-minute window per IP
+- **Account lockout** — auto-lock after 5 failed attempts (15-minute cooldown)
+- **Password complexity** — enforced minimum strength requirements
+- **Login audit trail** — all attempts logged with IP address
 
 ### Notifications
 - **Browser push** — VAPID-based notifications via service worker
@@ -115,7 +123,8 @@ See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation
 - **WebSocket** — real-time push updates (no more polling)
 
 ### 3D & UX
-- **3D model viewer** — interactive Three.js preview of .3mf files with orbit controls
+- **Light/dark mode** — toggle with Sun/Moon button, persists across sessions
+- **Picture-in-picture** — draggable floating camera mini-player
 - **Drag-and-drop queue** — reorder print jobs by dragging
 - **Keyboard shortcuts** — global hotkeys with ? help modal
 - **PWA support** — install as a native app on mobile and desktop
@@ -138,8 +147,8 @@ See [docs/manual-install.md](docs/manual-install.md) for bare-metal installation
 | Bambu Lab A1 Mini | MQTT | ✅ Full support |
 | Bambu Lab H2D | MQTT | ✅ Full support |
 | Klipper/Moonraker | REST | ✅ Supported (Anycubic Kobra S1 w/ Rinkhals tested) |
-| PrusaLink | REST | 🔜 Planned |
-| Elegoo | — | 🔜 Planned |
+| PrusaLink (MK4, MK3.9, MINI+, XL, CORE One) | REST | ✅ Supported |
+| Elegoo (Centauri, Neptune 4, Saturn) | SDCP | ✅ Supported |
 
 O.D.I.N. is brand-agnostic by design. If your printer speaks MQTT or has a REST API, it can be integrated.
 
@@ -240,7 +249,7 @@ License keys are air-gap friendly — a signed file dropped into your install. N
 
 ## Community
 
-- 💬 [Discord](https://discord.gg/kZna6rex) — help, feature requests, show your setup
+- 💬 [Discord](https://discord.gg/mc4Xs57gUA) — help, feature requests, show your setup
 - 🐛 [GitHub Issues](https://github.com/HughKantsime/printfarm-scheduler/issues) — bug reports
 - 🌐 [runsodin.com](https://runsodin.com) — docs, pricing, updates
 
