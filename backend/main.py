@@ -2165,7 +2165,7 @@ def get_timeline(
     slot_duration = 30  # minutes
     
     # Get printers
-    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
+    printers = db.query(Printer).filter(Printer.is_active == True).all()
     printer_summaries = [
         PrinterSummary(
             id=p.id,
@@ -2846,7 +2846,7 @@ def get_analytics(db: Session = Depends(get_db)):
             projected_cost += job.estimated_cost * job.quantity
     
     # Printer utilization
-    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
+    printers = db.query(Printer).filter(Printer.is_active == True).all()
     printer_stats = []
     # Calculate time window for utilization (since first completed job or 30 days)
     from datetime import datetime, timedelta
