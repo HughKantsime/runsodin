@@ -26,7 +26,7 @@ except ImportError:
 # ── Embedded public key (ships with the software) ──
 # Replace this with your actual public key after running generate_license.py --keygen
 ODIN_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-SQ/2C3Ee4lswyEhLoQTtualXqnKhSngyPwoF8mxg/L0=
+MCowBQYDK2VwAyEASQ/2C3Ee4lswyEhLoQTtualXqnKhSngyPwoF8mxg/L0=
 -----END PUBLIC KEY-----
 """
 
@@ -194,7 +194,8 @@ def load_license() -> LicenseInfo:
                 return info
 
         # Check expiry
-        expires = datetime.strptime(payload["expires_at"], "%Y-%m-%d").date()
+        expires_str = payload["expires_at"].split("T")[0]  # Handle both "2027-02-09" and "2027-02-09T23:59:59Z"
+        expires = datetime.strptime(expires_str, "%Y-%m-%d").date()
         if expires < date.today():
             info.valid = False
             info.expired = True

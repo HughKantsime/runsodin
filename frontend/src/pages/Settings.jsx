@@ -201,7 +201,10 @@ function LicenseTab() {
       formData.append('file', file)
       const res = await fetch('/api/license/upload', {
         method: 'POST',
-        headers: { 'X-API-Key': localStorage.getItem('api_key') || '' },
+        headers: {
+          'X-API-Key': localStorage.getItem('api_key') || '',
+          'Authorization': 'Bearer ' + (localStorage.getItem('token') || ''),
+        },
         body: formData,
       })
       const data = await res.json()
@@ -224,7 +227,10 @@ function LicenseTab() {
     try {
       const res = await fetch('/api/license', {
         method: 'DELETE',
-        headers: { 'X-API-Key': localStorage.getItem('api_key') || '' },
+        headers: {
+          'X-API-Key': localStorage.getItem('api_key') || '',
+          'Authorization': 'Bearer ' + (localStorage.getItem('token') || ''),
+        },
       })
       if (res.ok) {
         setMessage({ type: 'success', text: 'License removed. Reverted to Community tier.' })

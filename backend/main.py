@@ -1121,7 +1121,18 @@ async def upload_license(
     content = await file.read()
     license_text = content.decode("utf-8").strip()
 
-    # Basic format validation
+    # Handle both formats:
+    # 1. JSON format from generate_license.py: {"format":"odin-license-v1","payload":"...","signature":"..."}
+    # 2. Dot-separated format: base64_payload.base64_signature
+    import json as _json
+    try:
+        license_json = _json.loads(license_text)
+        if "payload" in license_json and "signature" in license_json:
+            # Convert JSON format to dot-separated for storage
+            license_text = license_json["payload"] + "." + license_json["signature"]
+    except (ValueError, KeyError):
+        pass  # Not JSON, try dot-separated format
+
     parts = license_text.split(".")
     if len(parts) != 2:
         raise HTTPException(status_code=400, detail="Invalid license file format")
