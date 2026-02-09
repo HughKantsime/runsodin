@@ -34,3 +34,4 @@ authlib==1.4.1
 # YAML (go2rtc config)
 pyyaml==6.0.2
 qrcode[pil]
+bcrypt==4.2.1
