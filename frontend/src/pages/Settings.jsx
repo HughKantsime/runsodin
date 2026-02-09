@@ -833,7 +833,7 @@ export default function Settings() {
                   type="text"
                   value={smtp.from_address}
                   onChange={(e) => setSmtp(s => ({ ...s, from_address: e.target.value }))}
-                  placeholder="printfarm@yourdomain.com"
+                  placeholder="odin@yourdomain.com"
                   className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm max-w-md"
                 />
               </div>

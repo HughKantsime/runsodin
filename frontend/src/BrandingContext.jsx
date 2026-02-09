@@ -4,8 +4,8 @@ const API_BASE = '/api'
 
 // Default branding - matches current hardcoded Tailwind config
 const DEFAULT_BRANDING = {
-  app_name: "PrintFarm",
-  app_subtitle: "Scheduler",
+  app_name: "O.D.I.N.",
+  app_subtitle: "Print Farm Management",
   // Colors
   primary_color: "#22c55e",
   accent_color: "#4ade80",

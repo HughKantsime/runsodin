@@ -88,6 +88,15 @@ def compute_printer_online(printer_dict):
 
 
 
+# Read version from VERSION file
+import pathlib as _pathlib
+_version_file = _pathlib.Path(__file__).parent.parent / "VERSION"
+if _version_file.exists():
+    __version__ = _version_file.read_text().strip()
+else:
+    __version__ = "0.19.0"
+
+
 def get_db():
     """Dependency for database sessions."""
     db = SessionLocal()
@@ -161,7 +170,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="O.D.I.N.",
     description="Orchestrated Dispatch & Inventory Network — Self-hosted 3D print farm management",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan
 , docs_url="/api/docs", redoc_url="/api/redoc")
 
@@ -249,7 +258,7 @@ def _is_locked_out(username: str) -> bool:
 async def authenticate_request(request: Request, call_next):
     """Check API key for all routes except health check."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
-    if request.url.path in ("/health", "/metrics", "/ws") or "/label" in request.url.path or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/setup") or request.url.path == "/api/license" or request.url.path.startswith("/api/branding") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
+    if request.url.path in ("/health", "/metrics", "/ws") or (request.url.path.endswith("/label") or request.url.path.endswith("/labels/batch")) or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/setup") or request.url.path == "/api/license" or (request.url.path == "/api/branding" and request.method == "GET") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
         return await call_next(request)
     
     # If no API key configured, auth is disabled
@@ -302,7 +311,7 @@ async def health_check():
     
     return HealthCheck(
         status="ok",
-        version="0.1.0",
+        version=__version__,
         database=settings.database_url.split("///")[-1],
         spoolman_connected=spoolman_ok
     )
@@ -325,7 +334,7 @@ def list_printers(
 @app.post("/api/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
 def create_printer(
     printer: PrinterCreate,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Create a new printer."""
     # Check license printer limit
@@ -378,7 +387,7 @@ def create_printer(
 @app.post("/api/printers/reorder", tags=["Printers"])
 def reorder_printers(
     data: dict,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Update printer display order."""
     printer_ids = data.get("printer_ids", [])
@@ -403,7 +412,7 @@ def get_printer(printer_id: int, db: Session = Depends(get_db)):
 def update_printer(
     printer_id: int,
     updates: PrinterUpdate,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Update a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -446,7 +455,7 @@ def update_printer(
     db.refresh(printer)
     return printer
 @app.delete("/api/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
-def delete_printer(printer_id: int, db: Session = Depends(get_db)):
+def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -472,7 +481,7 @@ def update_filament_slot(
     printer_id: int,
     slot_number: int,
     updates: FilamentSlotUpdate,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Update a filament slot (e.g., load new filament)."""
     slot = db.query(FilamentSlot).filter(
@@ -493,7 +502,7 @@ def update_filament_slot(
 
 
 @app.post("/api/printers/{printer_id}/sync-ams", tags=["Printers"])
-def sync_ams_state(printer_id: int, db: Session = Depends(get_db)):
+def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """
     Sync AMS filament state from printer.
     
@@ -972,7 +981,7 @@ class TestConnectionRequest(PydanticBaseModel):
 
 
 @app.post("/api/printers/{printer_id}/lights", tags=["Printers"])
-def toggle_printer_lights(printer_id: int, db: Session = Depends(get_db)):
+def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Toggle chamber lights on/off for a Bambu printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -1040,7 +1049,7 @@ def toggle_printer_lights(printer_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail=f"Printer connection error: {str(e)}")
 
 @app.post("/api/printers/test-connection", tags=["Printers"])
-def test_printer_connection(request: TestConnectionRequest):
+def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator"))):
     """
     Test connection to a printer without saving.
     
@@ -1211,7 +1220,7 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
     if _setup_users_exist(db):
         raise HTTPException(status_code=403, detail="Setup already completed — users exist")
 
-        pw_valid, pw_msg = _validate_password(request.password)
+    pw_valid, pw_msg = _validate_password(request.password)
     if not pw_valid:
         raise HTTPException(status_code=400, detail=pw_msg)
     password_hash_val = hash_password(request.password)
@@ -1237,8 +1246,10 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
 
 
 @app.post("/api/setup/test-printer", tags=["Setup"])
-def setup_test_printer(request: SetupTestPrinterRequest):
+def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(get_db)):
     """Test printer connection during setup. Wraps existing test logic."""
+    if _setup_is_complete(db):
+        raise HTTPException(status_code=403, detail="Setup already completed")
     if request.api_type.lower() == "bambu":
         if not request.serial or not request.access_code:
             raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
@@ -1293,6 +1304,8 @@ def setup_test_printer(request: SetupTestPrinterRequest):
 @app.post("/api/setup/printer", tags=["Setup"])
 def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get_db)):
     """Create a printer during setup. Requires JWT from admin creation step."""
+    if _setup_is_complete(db):
+        raise HTTPException(status_code=403, detail="Setup already completed")
     # Encrypt api_key if provided
     encrypted_api_key = None
     if request.api_key:
@@ -1327,6 +1340,8 @@ def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get
 @app.post("/api/setup/complete", tags=["Setup"])
 def setup_mark_complete(db: Session = Depends(get_db)):
     """Mark setup as complete. Prevents wizard from showing again."""
+    if _setup_is_complete(db):
+        raise HTTPException(status_code=403, detail="Setup already completed")
     existing = db.execute(text(
         "SELECT id FROM system_config WHERE key = 'setup_complete'"
     )).fetchone()
@@ -1443,7 +1458,7 @@ def list_models_with_pricing(
 
 
 @app.post("/api/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED, tags=["Models"])
-def create_model(model: ModelCreate, db: Session = Depends(get_db)):
+def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new model definition."""
     # Convert color requirements to dict format
     color_req = None
@@ -1476,7 +1491,7 @@ def get_model(model_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/models/{model_id}", response_model=ModelResponse, tags=["Models"])
-def update_model(model_id: int, updates: ModelUpdate, db: Session = Depends(get_db)):
+def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -1497,7 +1512,7 @@ def update_model(model_id: int, updates: ModelUpdate, db: Session = Depends(get_
 
 
 @app.delete("/api/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Models"])
-def delete_model(model_id: int, db: Session = Depends(get_db)):
+def delete_model(model_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -1511,7 +1526,7 @@ def delete_model(model_id: int, db: Session = Depends(get_db)):
 def schedule_from_model(
     model_id: int,
     printer_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Create a print job from a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -1637,7 +1652,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
 
 
 @app.post("/api/jobs/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
-def create_jobs_bulk(jobs: List[JobCreate], db: Session = Depends(get_db)):
+def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
     db_jobs = []
     for job in jobs:
@@ -1679,7 +1694,7 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
-def update_job(job_id: int, updates: JobUpdate, db: Session = Depends(get_db)):
+def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -1694,7 +1709,7 @@ def update_job(job_id: int, updates: JobUpdate, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
-def delete_job(job_id: int, db: Session = Depends(get_db)):
+def delete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -1706,7 +1721,7 @@ def delete_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/jobs/{job_id}/repeat", tags=["Jobs"])
-async def repeat_job(job_id: int, db: Session = Depends(get_db)):
+async def repeat_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Clone a job for printing again. Creates a new pending job with same settings."""
     original = db.query(Job).filter(Job.id == job_id).first()
     if not original:
@@ -1742,7 +1757,7 @@ async def repeat_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/jobs/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
-def start_job(job_id: int, db: Session = Depends(get_db)):
+def start_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as started (printing)."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -1761,7 +1776,7 @@ def start_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/jobs/{job_id}/complete", response_model=JobResponse, tags=["Jobs"])
-def complete_job(job_id: int, db: Session = Depends(get_db)):
+def complete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as completed and auto-deduct filament from loaded spools."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -1854,7 +1869,7 @@ def complete_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/jobs/{job_id}/fail", response_model=JobResponse, tags=["Jobs"])
-def fail_job(job_id: int, notes: Optional[str] = None, db: Session = Depends(get_db)):
+def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as failed."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -1870,7 +1885,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, db: Session = Depends(get
     db.refresh(job)
 
 @app.post("/api/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
-def cancel_job(job_id: int, db: Session = Depends(get_db)):
+def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Cancel a pending or scheduled job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -1886,7 +1901,7 @@ def cancel_job(job_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/jobs/{job_id}/reset", response_model=JobResponse, tags=["Jobs"])
-def reset_job(job_id: int, db: Session = Depends(get_db)):
+def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Reset a job back to pending status."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -2062,7 +2077,7 @@ def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user
 @app.post("/api/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
 def run_scheduler_endpoint(
     config: Optional[SchedulerConfigSchema] = None,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Run the scheduler to assign pending jobs to printers."""
     scheduler_config = None
@@ -2234,7 +2249,7 @@ def get_timeline(
 # ============== Spoolman Integration ==============
 
 @app.post("/api/spoolman/sync", response_model=SpoolmanSyncResult, tags=["Spoolman"])
-async def sync_spoolman(db: Session = Depends(get_db)):
+async def sync_spoolman(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Sync filament data from Spoolman."""
     if not settings.spoolman_url:
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
@@ -2344,16 +2359,6 @@ from branding import Branding, get_or_create_branding, branding_to_dict, UPDATAB
 
 SPOOLMAN_URL = "http://localhost:7912"
 
-@app.get("/api/spoolman/spools", tags=["Spoolman"])
-async def get_spoolman_spools():
-    """Fetch all spools from Spoolman."""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{SPOOLMAN_URL}/api/v1/spool", timeout=10.0)
-            response.raise_for_status()
-            return response.json()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to connect to Spoolman: {str(e)}")
 
 @app.get("/api/spoolman/filaments", tags=["Spoolman"])
 async def get_spoolman_filaments():
@@ -2413,7 +2418,7 @@ def list_filaments(
 
 
 @app.post("/api/filaments", tags=["Filaments"])
-def add_custom_filament(data: FilamentCreateRequest, db: Session = Depends(get_db)):
+def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
     filament = FilamentLibrary(
         brand=data.brand,
@@ -2493,7 +2498,7 @@ def get_filament(filament_id: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/filaments/{filament_id}", tags=["Filaments"])
-def update_filament(filament_id: str, updates: FilamentUpdateRequest, db: Session = Depends(get_db)):
+def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -2521,7 +2526,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, db: Sessio
 
 
 @app.delete("/api/filaments/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
-def delete_filament(filament_id: str, db: Session = Depends(get_db)):
+def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -2586,7 +2591,7 @@ def get_config():
     }
 
 @app.put("/api/config", tags=["Config"])
-def update_config(config: ConfigUpdate):
+def update_config(config: ConfigUpdate, current_user: dict = Depends(require_role("admin"))):
     """Update configuration. Writes to .env file."""
     # Use environment variable or default path
     env_path = os.environ.get('ENV_FILE_PATH', '/opt/printfarm-scheduler/backend/.env')
@@ -2637,7 +2642,7 @@ async def test_spoolman_connection():
 
 
 @app.post("/api/jobs/{job_id}/link-print", tags=["Jobs"])
-def link_job_to_print(job_id: int, print_job_id: int, db: Session = Depends(get_db)):
+def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Link a scheduled job to an MQTT-detected print."""
     from sqlalchemy import text
     
@@ -3038,164 +3043,6 @@ from fastapi.responses import StreamingResponse
 import csv
 import io
 
-@app.get("/api/export/jobs", tags=["Export"])
-def export_jobs_csv(
-    status: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Export jobs as CSV."""
-    query = db.query(Job)
-    if status:
-        query = query.filter(Job.status == status)
-    jobs = query.order_by(Job.created_at.desc()).all()
-    
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Header
-    writer.writerow([
-        "ID", "Item Name", "Model ID", "Quantity", "Status", "Priority",
-        "Printer ID", "Duration (hrs)", "Estimated Cost", "Suggested Price",
-        "Scheduled Start", "Actual Start", "Actual End", "Created At"
-    ])
-    
-    # Data
-    for job in jobs:
-        writer.writerow([
-            job.id,
-            job.item_name,
-            job.model_id,
-            job.quantity,
-            job.status.value if job.status else "",
-            job.priority,
-            job.printer_id,
-            job.duration_hours,
-            job.estimated_cost,
-            job.suggested_price,
-            job.scheduled_start.isoformat() if job.scheduled_start else "",
-            job.actual_start.isoformat() if job.actual_start else "",
-            job.actual_end.isoformat() if job.actual_end else "",
-            job.created_at.isoformat() if job.created_at else ""
-        ])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=jobs_export.csv"}
-    )
-
-
-@app.get("/api/export/spools", tags=["Export"])
-def export_spools_csv(db: Session = Depends(get_db)):
-    """Export spools as CSV."""
-    spools = db.query(Spool).order_by(Spool.id).all()
-    
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Header
-    writer.writerow([
-        "ID", "Filament ID", "QR Code", "RFID Tag", "Color Hex",
-        "Initial Weight (g)", "Remaining Weight (g)", "Status",
-        "Printer ID", "Slot", "Storage Location", "Vendor", "Price", "Created At"
-    ])
-    
-    # Data
-    for spool in spools:
-        writer.writerow([
-            spool.id,
-            spool.filament_id,
-            spool.qr_code,
-            spool.rfid_tag,
-            spool.color_hex,
-            spool.initial_weight_g,
-            spool.remaining_weight_g,
-            spool.status.value if spool.status else "",
-            spool.location_printer_id,
-            spool.location_slot,
-            spool.storage_location,
-            spool.vendor,
-            spool.price,
-            spool.created_at.isoformat() if spool.created_at else ""
-        ])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=spools_export.csv"}
-    )
-
-
-@app.get("/api/export/filament-usage", tags=["Export"])
-def export_filament_usage_csv(db: Session = Depends(get_db)):
-    """Export filament usage history as CSV."""
-    usage_records = db.query(SpoolUsage).order_by(SpoolUsage.used_at.desc()).all()
-    
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Header
-    writer.writerow([
-        "ID", "Spool ID", "Job ID", "Weight Used (g)", "Used At", "Notes"
-    ])
-    
-    # Data
-    for usage in usage_records:
-        writer.writerow([
-            usage.id,
-            usage.spool_id,
-            usage.job_id,
-            usage.weight_used_g,
-            usage.used_at.isoformat() if usage.used_at else "",
-            usage.notes
-        ])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=filament_usage_export.csv"}
-    )
-
-
-@app.get("/api/export/models", tags=["Export"])
-def export_models_csv(db: Session = Depends(get_db)):
-    """Export models as CSV."""
-    models = db.query(Model).order_by(Model.name).all()
-    
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Header
-    writer.writerow([
-        "ID", "Name", "Category", "Filament Type", "Build Time (hrs)",
-        "Total Filament (g)", "Cost Per Item", "Markup %", "Units Per Bed", "Created At"
-    ])
-    
-    # Data
-    for model in models:
-        writer.writerow([
-            model.id,
-            model.name,
-            model.category,
-            model.default_filament_type.value if model.default_filament_type else "",
-            model.build_time_hours,
-            model.total_filament_grams,
-            model.cost_per_item,
-            model.markup_percent,
-            model.units_per_bed,
-            model.created_at.isoformat() if model.created_at else ""
-        ])
-    
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=models_export.csv"}
-    )
-
 
 class MoveJobRequest(PydanticBaseModel):
     printer_id: int
@@ -3205,7 +3052,7 @@ class MoveJobRequest(PydanticBaseModel):
 def move_job(
     job_id: int,
     request: MoveJobRequest,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Move a job to a different printer and/or time slot."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -3298,7 +3145,7 @@ class ManualSlotAssignment(PydanticBaseModel):
 
 
 @app.post("/api/bambu/test-connection", tags=["Bambu"])
-async def test_bambu_printer_connection(request: BambuConnectionTest):
+async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_role("operator"))):
     """Test connection to a Bambu Lab printer via local MQTT."""
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available. Install: pip install paho-mqtt")
@@ -3312,7 +3159,7 @@ async def test_bambu_printer_connection(request: BambuConnectionTest):
 
 
 @app.post("/api/printers/{printer_id}/bambu/sync-ams", response_model=BambuSyncResult, tags=["Bambu"])
-async def sync_bambu_ams(printer_id: int, db: Session = Depends(get_db)):
+async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Sync AMS filament slots from a Bambu Lab printer."""
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available")
@@ -3442,7 +3289,7 @@ async def manual_slot_assignment(
     printer_id: int,
     slot_number: int,
     assignment: ManualSlotAssignment,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Manually assign filament to a slot when auto-matching fails."""
     slot = db.query(FilamentSlot).filter(
@@ -3685,7 +3532,7 @@ def get_spool(spool_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/spools", tags=["Spools"])
-def create_spool(spool: SpoolCreate, db: Session = Depends(get_db)):
+def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new spool."""
     # Verify filament exists
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
@@ -3723,7 +3570,7 @@ def create_spool(spool: SpoolCreate, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/spools/{spool_id}", tags=["Spools"])
-def update_spool(spool_id: int, updates: SpoolUpdate, db: Session = Depends(get_db)):
+def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update spool details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -3744,7 +3591,7 @@ def update_spool(spool_id: int, updates: SpoolUpdate, db: Session = Depends(get_
 
 
 @app.delete("/api/spools/{spool_id}", tags=["Spools"])
-def delete_spool(spool_id: int, db: Session = Depends(get_db)):
+def delete_spool(spool_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a spool (or archive it)."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -3758,7 +3605,7 @@ def delete_spool(spool_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/spools/{spool_id}/load", tags=["Spools"])
-def load_spool(spool_id: int, request: SpoolLoadRequest, db: Session = Depends(get_db)):
+def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Load a spool into a printer slot."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -3808,7 +3655,7 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, db: Session = Depends(g
 def unload_spool(
     spool_id: int,
     storage_location: Optional[str] = None,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Unload a spool from printer to storage."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -3835,7 +3682,7 @@ def unload_spool(
 
 
 @app.post("/api/spools/{spool_id}/use", tags=["Spools"])
-def use_spool(spool_id: int, request: SpoolUseRequest, db: Session = Depends(get_db)):
+def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Record filament usage from a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -3868,7 +3715,7 @@ def use_spool(spool_id: int, request: SpoolUseRequest, db: Session = Depends(get
 
 
 @app.post("/api/spools/{spool_id}/weigh", tags=["Spools"])
-def weigh_spool(spool_id: int, request: SpoolWeighRequest, db: Session = Depends(get_db)):
+def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update spool weight from scale measurement."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -3933,7 +3780,7 @@ def assign_spool_to_slot(
     printer_id: int,
     slot_number: int,
     spool_id: int,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Assign a spool to a printer slot."""
     slot = db.query(FilamentSlot).filter(
@@ -3965,7 +3812,7 @@ def assign_spool_to_slot(
 def confirm_slot_assignment(
     printer_id: int,
     slot_number: int,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Confirm the spool assignment for a slot."""
     slot = db.query(FilamentSlot).filter(
@@ -4474,7 +4321,7 @@ def _normalize_model_name(name: str) -> str:
 @app.post("/api/print-files/upload", tags=["Print Files"])
 async def upload_3mf(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Upload and parse a .3mf file."""
     if not file.filename.endswith('.3mf'):
@@ -4660,7 +4507,7 @@ def get_print_file(file_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/print-files/{file_id}", tags=["Print Files"])
-def delete_print_file(file_id: int, db: Session = Depends(get_db)):
+def delete_print_file(file_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete an uploaded print file."""
     result = db.execute(text("SELECT id FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
     if not result:
@@ -4675,7 +4522,7 @@ def delete_print_file(file_id: int, db: Session = Depends(get_db)):
 def schedule_print_file(
     file_id: int,
     printer_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Create a job from an uploaded print file."""
     # Get the print file
@@ -4901,18 +4748,12 @@ async def oidc_callback(
             log.warning(f"OIDC user not found and auto-create disabled: {email}")
             return RedirectResponse(url="/?error=user_not_found", status_code=302)
         
-        # Generate JWT
-        import jwt
-        jwt_secret = os.environ.get("JWT_SECRET", "change-me-in-production")
-        access_token = jwt.encode(
-            {
-                "sub": str(user_id),
-                "username": existing._mapping.get("username") if existing else username,
+        # Generate JWT — use the same secret/function as normal login
+        access_token = create_access_token(
+            data={
+                "sub": existing._mapping.get("username") if existing else username,
                 "role": user_role,
-                "exp": datetime.utcnow() + timedelta(hours=24),
-            },
-            jwt_secret,
-            algorithm="HS256",
+            }
         )
         
         # Redirect to frontend with token
@@ -5016,9 +4857,16 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
 @app.patch("/api/users/{user_id}", tags=["Users"])
 async def update_user(user_id: int, updates: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if 'password' in updates and updates['password']:
+        pw_valid, pw_msg = _validate_password(updates['password'])
+        if not pw_valid:
+            raise HTTPException(status_code=400, detail=pw_msg)
         updates['password_hash'] = hash_password(updates.pop('password'))
     else:
         updates.pop('password', None)
+    
+    # SB-6: Whitelist allowed columns to prevent SQL injection via column names
+    ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash"}
+    updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
     
     if updates:
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
@@ -5037,7 +4885,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
 
 import yaml
 
-GO2RTC_CONFIG = "/opt/printfarm-scheduler/go2rtc/go2rtc.yaml"
+GO2RTC_CONFIG = os.environ.get("GO2RTC_CONFIG", "/opt/printfarm-scheduler/go2rtc/go2rtc.yaml")
 
 def get_camera_url(printer):
     """Get RTSP URL for a printer - from camera_url field or auto-generated from Bambu credentials."""
@@ -5076,7 +4924,7 @@ def sync_go2rtc_config(db: Session):
 # =============================================================================
 
 @app.post("/api/printers/{printer_id}/stop", tags=["Printers"])
-async def stop_printer(printer_id: int, db: Session = Depends(get_db)):
+async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -5112,7 +4960,7 @@ async def stop_printer(printer_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/printers/{printer_id}/pause", tags=["Printers"])
-async def pause_printer(printer_id: int, db: Session = Depends(get_db)):
+async def pause_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Pause current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -5146,7 +4994,7 @@ async def pause_printer(printer_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/printers/{printer_id}/resume", tags=["Printers"])
-async def resume_printer(printer_id: int, db: Session = Depends(get_db)):
+async def resume_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Resume paused print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -5542,7 +5390,7 @@ class JobReorderRequest(PydanticBaseModel):
     job_ids: list[int]  # Ordered list of job IDs in desired queue position
 
 @app.patch("/api/jobs/reorder", tags=["Jobs"])
-async def reorder_jobs(req: JobReorderRequest, db: Session = Depends(get_db)):
+async def reorder_jobs(req: JobReorderRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """
     Reorder job queue. Accepts ordered list of job IDs.
     Sets queue_position on each job based on array index.
@@ -5583,11 +5431,8 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), _=Depends(get_cu
 
 
 @app.put("/api/config/quiet-hours")
-async def update_quiet_hours_config(request: Request, db: Session = Depends(get_db),
-                                     current_user=Depends(get_current_user)):
+async def update_quiet_hours_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update quiet hours settings. Admin only."""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
 
     body = await request.json()
 
@@ -5646,11 +5491,8 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), _=Depends(get
 
 
 @app.put("/api/config/mqtt-republish")
-async def update_mqtt_republish_config(request: Request, db: Session = Depends(get_db),
-                                        current_user=Depends(get_current_user)):
+async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update MQTT republish settings. Admin only."""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
 
     body = await request.json()
 
@@ -5902,7 +5744,7 @@ async def get_failure_reasons():
 async def update_job_failure(
     job_id: int,
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("operator")),
     db: Session = Depends(get_db)
 ):
     """Add or update failure reason and notes on a failed job."""
@@ -5968,7 +5810,7 @@ def list_cameras(db: Session = Depends(get_db)):
 
 
 @app.patch("/api/cameras/{printer_id}/toggle", tags=["Cameras"])
-def toggle_camera(printer_id: int, db: Session = Depends(get_db)):
+def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Toggle camera on/off for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -6039,7 +5881,7 @@ async def get_branding(db: Session = Depends(get_db)):
 
 
 @app.put("/api/branding", tags=["Branding"])
-async def update_branding(data: dict, db: Session = Depends(get_db)):
+async def update_branding(data: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
     branding = get_or_create_branding(db)
     for key, value in data.items():
@@ -6052,7 +5894,7 @@ async def update_branding(data: dict, db: Session = Depends(get_db)):
 
 
 @app.post("/api/branding/logo", tags=["Branding"])
-async def upload_logo(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Upload brand logo. Admin only."""
     allowed = {"image/png", "image/jpeg", "image/svg+xml", "image/webp"}
     if file.content_type not in allowed:
@@ -6070,7 +5912,7 @@ async def upload_logo(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 @app.post("/api/branding/favicon", tags=["Branding"])
-async def upload_favicon(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Upload favicon. Admin only."""
     allowed = {"image/png", "image/x-icon", "image/svg+xml", "image/webp"}
     if file.content_type not in allowed:
@@ -6088,7 +5930,7 @@ async def upload_favicon(file: UploadFile = File(...), db: Session = Depends(get
 
 
 @app.delete("/api/branding/logo", tags=["Branding"])
-async def remove_logo(db: Session = Depends(get_db)):
+async def remove_logo(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Remove brand logo. Admin only."""
     branding = get_or_create_branding(db)
     if branding.logo_url:
@@ -6103,7 +5945,7 @@ async def remove_logo(db: Session = Depends(get_db)):
 # ============== Database Backups ==============
 
 @app.post("/api/backups", tags=["System"])
-def create_backup(db: Session = Depends(get_db)):
+def create_backup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Create a database backup using SQLite online backup API."""
     import sqlite3 as sqlite3_mod
     
@@ -6162,7 +6004,7 @@ def list_backups():
 
 
 @app.get("/api/backups/{filename}", tags=["System"])
-def download_backup(filename: str):
+def download_backup(filename: str, current_user: dict = Depends(require_role("admin"))):
     """Download a database backup file."""
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -6182,7 +6024,7 @@ def download_backup(filename: str):
 
 
 @app.delete("/api/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
-def delete_backup(filename: str, db: Session = Depends(get_db)):
+def delete_backup(filename: str, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a database backup."""
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -6216,7 +6058,7 @@ async def get_language(db: Session = Depends(get_db)):
 
 
 @app.put("/api/settings/language", tags=["Settings"])
-async def set_language(request: Request, db: Session = Depends(get_db)):
+async def set_language(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set interface language."""
     data = await request.json()
     lang = data.get("language", "en")
@@ -6344,7 +6186,7 @@ async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def update_plug_config(printer_id: int, request: Request, db: Session = Depends(get_db)):
+async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update smart plug configuration for a printer."""
     data = await request.json()
     
@@ -6379,7 +6221,7 @@ async def update_plug_config(printer_id: int, request: Request, db: Session = De
 
 
 @app.delete("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def remove_plug_config(printer_id: int, db: Session = Depends(get_db)):
+async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove smart plug configuration from a printer."""
     db.execute(text("""
         UPDATE printers SET
@@ -6393,7 +6235,7 @@ async def remove_plug_config(printer_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/printers/{printer_id}/plug/on", tags=["Smart Plug"])
-async def plug_power_on(printer_id: int):
+async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator"))):
     """Turn on a printer's smart plug."""
     result = smart_plug.power_on(printer_id)
     if result is None:
@@ -6402,7 +6244,7 @@ async def plug_power_on(printer_id: int):
 
 
 @app.post("/api/printers/{printer_id}/plug/off", tags=["Smart Plug"])
-async def plug_power_off(printer_id: int):
+async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator"))):
     """Turn off a printer's smart plug."""
     result = smart_plug.power_off(printer_id)
     if result is None:
@@ -6411,7 +6253,7 @@ async def plug_power_off(printer_id: int):
 
 
 @app.post("/api/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
-async def plug_power_toggle(printer_id: int):
+async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator"))):
     """Toggle a printer's smart plug."""
     result = smart_plug.power_toggle(printer_id)
     if result is None:
@@ -6445,7 +6287,7 @@ async def get_energy_rate(db: Session = Depends(get_db)):
 
 
 @app.put("/api/settings/energy-rate", tags=["Smart Plug"])
-async def set_energy_rate(request: Request, db: Session = Depends(get_db)):
+async def set_energy_rate(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set energy cost per kWh."""
     data = await request.json()
     rate = data.get("energy_cost_per_kwh", 0.12)
@@ -6545,7 +6387,7 @@ def list_maintenance_tasks(db: Session = Depends(get_db)):
 
 
 @app.post("/api/maintenance/tasks", tags=["Maintenance"])
-def create_maintenance_task(data: MaintenanceTaskCreate, db: Session = Depends(get_db)):
+def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new maintenance task template."""
     task = MaintenanceTask(
         name=data.name,
@@ -6563,7 +6405,7 @@ def create_maintenance_task(data: MaintenanceTaskCreate, db: Session = Depends(g
 
 
 @app.patch("/api/maintenance/tasks/{task_id}", tags=["Maintenance"])
-def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, db: Session = Depends(get_db)):
+def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a maintenance task template."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
     if not task:
@@ -6575,7 +6417,7 @@ def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, db: Sessi
 
 
 @app.delete("/api/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
-def delete_maintenance_task(task_id: int, db: Session = Depends(get_db)):
+def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a maintenance task template and its logs."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
     if not task:
@@ -6610,7 +6452,7 @@ def list_maintenance_logs(
 
 
 @app.post("/api/maintenance/logs", tags=["Maintenance"])
-def create_maintenance_log(data: MaintenanceLogCreate, db: Session = Depends(get_db)):
+def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Log a maintenance action performed on a printer."""
     printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
     if not printer:
@@ -6640,7 +6482,7 @@ def create_maintenance_log(data: MaintenanceLogCreate, db: Session = Depends(get
 
 
 @app.delete("/api/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
-def delete_maintenance_log(log_id: int, db: Session = Depends(get_db)):
+def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a maintenance log entry."""
     log = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
     if not log:
@@ -6749,7 +6591,7 @@ def get_maintenance_status(db: Session = Depends(get_db)):
 
 
 @app.post("/api/maintenance/seed-defaults", tags=["Maintenance"])
-def seed_default_maintenance_tasks(db: Session = Depends(get_db)):
+def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Seed default maintenance tasks for common Bambu Lab printer models."""
     defaults = [
         # Universal tasks (all printers)
@@ -6838,7 +6680,7 @@ def get_model_variants(model_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/models/{model_id}/variants/{variant_id}", tags=["Models"])
-def delete_model_variant(model_id: int, variant_id: int, db: Session = Depends(get_db)):
+def delete_model_variant(model_id: int, variant_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a variant from a model."""
     v = db.execute(text("SELECT id FROM print_files WHERE id=:id AND model_id=:mid"),
                    {"id": variant_id, "mid": model_id}).fetchone()
@@ -7035,7 +6877,7 @@ class RBACUpdateRequest(PydanticBaseModel):
 
 
 @app.put("/api/permissions", tags=["RBAC"])
-def update_permissions(data: RBACUpdateRequest, db: Session = Depends(get_db)):
+def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update RBAC permissions. Admin only."""
     valid_roles = {"admin", "operator", "viewer"}
     for key, roles in data.page_access.items():
@@ -7066,7 +6908,7 @@ def update_permissions(data: RBACUpdateRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/api/permissions/reset", tags=["RBAC"])
-def reset_permissions(db: Session = Depends(get_db)):
+def reset_permissions(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Reset permissions to defaults. Admin only."""
     row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
     if row:
@@ -7162,13 +7004,10 @@ def get_pricing_config(db: Session = Depends(get_db)):
 @app.put("/api/pricing-config")
 def update_pricing_config(
     config_data: dict,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
 ):
     """Update system pricing configuration."""
-    # Check permissions if auth is enabled
-    if False:  # Permission check disabled
-        raise HTTPException(status_code=403, detail="Not authorized to update pricing config")
     
     # Merge with defaults to ensure all fields exist
     merged_config = {**DEFAULT_PRICING_CONFIG, **config_data}
@@ -7297,7 +7136,7 @@ def list_products(db: Session = Depends(get_db)):
 
 
 @app.post("/api/products", response_model=ProductResponse, tags=["Products"])
-def create_product(data: ProductCreate, db: Session = Depends(get_db)):
+def create_product(data: ProductCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new product with optional BOM components."""
     product = Product(
         name=data.name,
@@ -7351,7 +7190,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/products/{product_id}", response_model=ProductResponse, tags=["Products"])
-def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(get_db)):
+def update_product(product_id: int, data: ProductUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a product."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -7366,7 +7205,7 @@ def update_product(product_id: int, data: ProductUpdate, db: Session = Depends(g
 
 
 @app.delete("/api/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
-def delete_product(product_id: int, db: Session = Depends(get_db)):
+def delete_product(product_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a product."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -7379,7 +7218,7 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 # -------------- Product Components (BOM) --------------
 
 @app.post("/api/products/{product_id}/components", response_model=ProductComponentResponse, tags=["Products"])
-def add_product_component(product_id: int, data: ProductComponentCreate, db: Session = Depends(get_db)):
+def add_product_component(product_id: int, data: ProductComponentCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a component to a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -7405,7 +7244,7 @@ def add_product_component(product_id: int, data: ProductComponentCreate, db: Ses
 
 
 @app.delete("/api/products/{product_id}/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
-def remove_product_component(product_id: int, component_id: int, db: Session = Depends(get_db)):
+def remove_product_component(product_id: int, component_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a component from a product's BOM."""
     comp = db.query(ProductComponent).filter(
         ProductComponent.id == component_id,
@@ -7454,7 +7293,7 @@ def list_orders(
 
 
 @app.post("/api/orders", response_model=OrderResponse, tags=["Orders"])
-def create_order(data: OrderCreate, db: Session = Depends(get_db)):
+def create_order(data: OrderCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new order with optional line items."""
     order = Order(
         order_number=data.order_number,
@@ -7505,7 +7344,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
-def update_order(order_id: int, data: OrderUpdate, db: Session = Depends(get_db)):
+def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -7520,7 +7359,7 @@ def update_order(order_id: int, data: OrderUpdate, db: Session = Depends(get_db)
 
 
 @app.delete("/api/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
-def delete_order(order_id: int, db: Session = Depends(get_db)):
+def delete_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -7533,7 +7372,7 @@ def delete_order(order_id: int, db: Session = Depends(get_db)):
 # -------------- Order Items --------------
 
 @app.post("/api/orders/{order_id}/items", response_model=OrderItemResponse, tags=["Orders"])
-def add_order_item(order_id: int, data: OrderItemCreate, db: Session = Depends(get_db)):
+def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a line item to an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -7562,7 +7401,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, db: Session = Depends(g
 
 
 @app.patch("/api/orders/{order_id}/items/{item_id}", response_model=OrderItemResponse, tags=["Orders"])
-def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, db: Session = Depends(get_db)):
+def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update an order line item."""
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,
@@ -7588,7 +7427,7 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, db: Se
 
 
 @app.delete("/api/orders/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
-def remove_order_item(order_id: int, item_id: int, db: Session = Depends(get_db)):
+def remove_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a line item from an order."""
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,
@@ -7604,7 +7443,7 @@ def remove_order_item(order_id: int, item_id: int, db: Session = Depends(get_db)
 # -------------- Order Actions --------------
 
 @app.post("/api/orders/{order_id}/schedule", tags=["Orders"])
-def schedule_order(order_id: int, db: Session = Depends(get_db)):
+def schedule_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Generate jobs for an order based on BOM."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -7663,7 +7502,7 @@ def schedule_order(order_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/orders/{order_id}/ship", response_model=OrderResponse, tags=["Orders"])
-def ship_order(order_id: int, data: OrderShipRequest, db: Session = Depends(get_db)):
+def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark an order as shipped."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -7794,7 +7633,7 @@ class ScanAssignResponse(PydanticBaseModel):
 @app.post("/api/spools/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
 def scan_assign_spool(
     data: ScanAssignRequest,
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """
     Assign a spool to a printer slot by scanning its QR code.

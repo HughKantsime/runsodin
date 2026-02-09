@@ -47,7 +47,7 @@ const MONO_FONTS = [
 ]
 
 const DEFAULTS = {
-  app_name: "PrintFarm",
+  app_name: "O.D.I.N.",
   app_subtitle: "Scheduler",
   primary_color: "#22c55e",
   accent_color: "#4ade80",
@@ -254,7 +254,7 @@ export default function Branding() {
             <div className="space-y-6">
               <Section title="App Identity">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <TextInput label="App Name" value={draft.app_name} onChange={v => updateDraft("app_name", v)} placeholder="PrintFarm" />
+                  <TextInput label="App Name" value={draft.app_name} onChange={v => updateDraft("app_name", v)} placeholder="O.D.I.N." />
                   <TextInput label="Subtitle" value={draft.app_subtitle} onChange={v => updateDraft("app_subtitle", v)} placeholder="Scheduler" />
                   <TextInput label="Footer Text" value={draft.footer_text} onChange={v => updateDraft("footer_text", v)} placeholder="System Online" />
                   <TextInput label="Support URL" value={draft.support_url || ""} onChange={v => updateDraft("support_url", v)} placeholder="https://support.example.com" type="url" />
