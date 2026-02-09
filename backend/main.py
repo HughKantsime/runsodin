@@ -2347,6 +2347,51 @@ async def get_stats(db: Session = Depends(get_db)):
         except:
             pass
     
+    # --- Printer utilization stats for Utilization page ---
+    printer_stats = []
+    all_printers = db.query(Printer).filter(Printer.is_active == True).all()
+    for p in all_printers:
+        # Count completed and failed jobs for this printer
+        completed_jobs = db.query(Job).filter(
+            Job.printer_id == p.id,
+            Job.status == JobStatus.COMPLETED
+        ).count()
+        # Also count MQTT-tracked completed jobs
+        mqtt_completed = db.execute(
+            text("SELECT COUNT(*) FROM print_jobs WHERE printer_id = :pid AND status = 'completed'"),
+            {"pid": p.id}
+        ).scalar() or 0
+        completed_jobs += mqtt_completed
+
+        failed_jobs = db.query(Job).filter(
+            Job.printer_id == p.id,
+            Job.status == JobStatus.FAILED
+        ).count()
+        mqtt_failed = db.execute(
+            text("SELECT COUNT(*) FROM print_jobs WHERE printer_id = :pid AND status = 'failed'"),
+            {"pid": p.id}
+        ).scalar() or 0
+        failed_jobs += mqtt_failed
+
+        total_hours = round(p.total_print_hours or 0, 1)
+        total_jobs = completed_jobs + failed_jobs
+        success_rate = round((completed_jobs / total_jobs * 100), 1) if total_jobs > 0 else 100.0
+        avg_job_hours = round(total_hours / completed_jobs, 1) if completed_jobs > 0 else 0
+
+        # Utilization: hours printed / hours available (assume 24h/day over last 30 days = 720h)
+        utilization_pct = round(min(total_hours / 720 * 100, 100), 1) if total_hours > 0 else 0
+
+        printer_stats.append({
+            "id": p.id,
+            "name": p.name,
+            "completed_jobs": completed_jobs,
+            "failed_jobs": failed_jobs,
+            "total_hours": total_hours,
+            "utilization_pct": utilization_pct,
+            "success_rate": success_rate,
+            "avg_job_hours": avg_job_hours,
+        })
+
     return {
         "printers": {
             "total": total_printers,
@@ -2359,7 +2404,8 @@ async def get_stats(db: Session = Depends(get_db)):
             "completed_today": completed_today
         },
         "models": total_models,
-        "spoolman_connected": spoolman_connected
+        "spoolman_connected": spoolman_connected,
+        "printer_stats": printer_stats
     }
 
 # ============== Spoolman Integration ==============
