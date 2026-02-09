@@ -1,0 +1,58 @@
+# ============================================================
+# O.D.I.N. — Orchestrated Dispatch & Inventory Network
+#
+# Usage:
+#   docker-compose up -d
+#
+# Then open http://localhost:8000 in your browser.
+# On first launch, the setup wizard will walk you through
+# creating an admin account and adding your first printer.
+#
+# Data is stored in ./odin-data/ (database, backups, uploads)
+# ============================================================
+
+services:
+  odin:
+    build: .
+    # When published: image: ghcr.io/hughkantsime/odin:latest
+    container_name: odin
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # Web UI + API
+      - "1984:1984"   # go2rtc (camera WebRTC/HLS)
+    volumes:
+      - ./odin-data:/data
+      - ./odin-data/go2rtc:/app/go2rtc
+    environment:
+      # REQUIRED on first run — generate with:
+      #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      
+      # REQUIRED — random string for JWT signing. Generate with:
+      #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      
+      # OPTIONAL — API key for frontend-to-backend auth.
+      # If blank, API key auth is disabled (fine for single-user/trusted network).
+      - API_KEY=${API_KEY:-}
+      
+      # Database location (inside the container, mapped to volume)
+      - DATABASE_URL=sqlite:////data/odin.db
+      
+      # CORS — add your domain/IP if accessing remotely
+      - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+      
+      # Timezone (for log timestamps and scheduler)
+      - TZ=${TZ:-America/New_York}
+    
+    # Network mode: host gives direct access to printer IPs on LAN.
+    # Use this if your printers are on the same network.
+    # Comment out 'ports' above if using network_mode: host.
+    # network_mode: host
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

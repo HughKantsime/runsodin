@@ -1,0 +1,135 @@
+/**
+ * RBAC Permissions — reads from cached server config, falls back to hardcoded defaults.
+ * On login, the app fetches /api/permissions and stores in localStorage.
+ * This module reads that cache. If missing (upgrade, first boot), defaults kick in.
+ */
+
+const DEFAULT_PAGE_ACCESS = {
+  dashboard:   ['admin', 'operator', 'viewer'],
+  timeline:    ['admin', 'operator', 'viewer'],
+  jobs:        ['admin', 'operator', 'viewer'],
+  printers:    ['admin', 'operator', 'viewer'],
+  models:      ['admin', 'operator', 'viewer'],
+  spools:      ['admin', 'operator', 'viewer'],
+  cameras:     ['admin', 'operator', 'viewer'],
+  analytics:   ['admin', 'operator', 'viewer'],
+  calculator:  ['admin', 'operator', 'viewer'],
+  upload:      ['admin', 'operator'],
+  maintenance: ['admin', 'operator'],
+  settings:    ['admin'],
+  admin:       ['admin'],
+  branding:    ['admin'],
+  orders:             ['admin', 'operator', 'viewer'],
+  products:            ['admin', 'operator', 'viewer'],
+  alerts:              ['admin', 'operator', 'viewer'],
+}
+
+const DEFAULT_ACTION_ACCESS = {
+  'jobs.create':       ['admin', 'operator'],
+  'jobs.edit':         ['admin', 'operator'],
+  'jobs.cancel':       ['admin', 'operator'],
+  'jobs.delete':       ['admin', 'operator'],
+  'jobs.start':        ['admin', 'operator'],
+  'jobs.complete':     ['admin', 'operator'],
+  'printers.add':      ['admin'],
+  'printers.edit':     ['admin', 'operator'],
+  'printers.delete':   ['admin'],
+  'printers.slots':    ['admin', 'operator'],
+  'printers.reorder':  ['admin', 'operator'],
+  'models.create':     ['admin', 'operator'],
+  'models.edit':       ['admin', 'operator'],
+  'models.delete':     ['admin'],
+  'spools.edit':       ['admin', 'operator'],
+  'spools.delete':     ['admin'],
+  'timeline.move':     ['admin', 'operator'],
+  'upload.upload':     ['admin', 'operator'],
+  'upload.schedule':   ['admin', 'operator'],
+  'upload.delete':     ['admin', 'operator'],
+  'maintenance.log':   ['admin', 'operator'],
+  'maintenance.tasks': ['admin'],
+  'dashboard.actions': ['admin', 'operator'],
+  'orders.create':      ['admin', 'operator'],
+  'orders.edit':        ['admin', 'operator'],
+  'orders.delete':      ['admin'],
+  'orders.ship':        ['admin', 'operator'],
+  'products.create':    ['admin', 'operator'],
+  'products.edit':      ['admin', 'operator'],
+  'products.delete':    ['admin'],
+  'jobs.approve':       ['admin', 'operator'],
+  'jobs.reject':        ['admin', 'operator'],
+  'jobs.resubmit':      ['admin', 'operator', 'viewer'],
+  'alerts.read':        ['admin', 'operator', 'viewer'],
+  'printers.plug':      ['admin', 'operator'],
+}
+
+function getCachedPermissions() {
+  try {
+    const raw = localStorage.getItem('rbac_permissions')
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return null
+}
+
+function getPageAccess() {
+  const cached = getCachedPermissions()
+  return cached?.page_access || DEFAULT_PAGE_ACCESS
+}
+
+function getActionAccess() {
+  const cached = getCachedPermissions()
+  return cached?.action_access || DEFAULT_ACTION_ACCESS
+}
+
+// Exported for backward compatibility (some components may import these directly)
+export const PAGE_ACCESS = getPageAccess()
+export const ACTION_ACCESS = getActionAccess()
+
+export function getCurrentUser() {
+  const token = localStorage.getItem('token')
+  if (!token) return null
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    if (payload.exp * 1000 < Date.now()) return null
+    return { username: payload.sub, role: payload.role || 'viewer' }
+  } catch {
+    return null
+  }
+}
+
+export function canAccessPage(page) {
+  const user = getCurrentUser()
+  if (!user) return false
+  const access = getPageAccess()
+  const allowed = access[page]
+  return allowed ? allowed.includes(user.role) : false
+}
+
+export function canDo(action) {
+  const user = getCurrentUser()
+  if (!user) return false
+  const access = getActionAccess()
+  const allowed = access[action]
+  return allowed ? allowed.includes(user.role) : false
+}
+
+/**
+ * Call this after login to cache server permissions.
+ * Also call after admin saves permission changes.
+ */
+export async function refreshPermissions() {
+  try {
+    const API_KEY = import.meta.env.VITE_API_KEY
+    const headers = { 'Content-Type': 'application/json' }
+    if (API_KEY) headers['X-API-Key'] = API_KEY
+    const token = localStorage.getItem('token')
+    if (token) headers['Authorization'] = 'Bearer ' + token
+
+    const res = await fetch('/api/permissions', { headers })
+    if (res.ok) {
+      const data = await res.json()
+      localStorage.setItem('rbac_permissions', JSON.stringify(data))
+      return data
+    }
+  } catch {}
+  return null
+}

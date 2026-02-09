@@ -1,0 +1,822 @@
+import QRScannerModal from '../components/QRScannerModal';
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb,
+} from 'lucide-react'
+import clsx from 'clsx'
+import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
+import { getPlugState, plugPowerOn, plugPowerOff } from '../api'
+import { printers, filaments } from '../api'
+import { Video, QrCode, Thermometer, Plug } from 'lucide-react'
+import { canDo } from '../permissions'
+import { useLicense } from '../LicenseContext'
+import CameraModal from '../components/CameraModal'
+
+const API_KEY = import.meta.env.VITE_API_KEY
+const apiHeaders = {
+  'Content-Type': 'application/json',
+  'X-API-Key': API_KEY
+}
+
+function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [search, setSearch] = useState('')
+  const filteredFilaments = allFilaments?.filter(f => 
+    f.display_name.toLowerCase().includes(search.toLowerCase()) ||
+    f.brand.toLowerCase().includes(search.toLowerCase()) ||
+    f.name.toLowerCase().includes(search.toLowerCase())
+  ) || []
+
+  const spoolmanFilaments = filteredFilaments.filter(f => f.source === 'spoolman')
+  const libraryFilaments = filteredFilaments.filter(f => f.source === 'library')
+  
+  const filteredSpools = (spools?.filter(s => 
+    s.filament_brand?.toLowerCase().includes(search.toLowerCase()) ||
+    s.filament_name?.toLowerCase().includes(search.toLowerCase())
+  ).sort((a, b) => {
+    if (a.id === slot.assigned_spool_id) return -1;
+    if (b.id === slot.assigned_spool_id) return 1;
+    return 0;
+  })) || []
+  
+  const handleSelectSpool = async (spool) => {
+    await fetch(`/api/printers/${printerId}/slots/${slot.slot_number}/assign?spool_id=${spool.id}`, {
+      method: "POST",
+      headers: { "X-API-Key": API_KEY }
+    })
+    onSave({
+      color: `${spool.filament_brand} ${spool.filament_name}`,
+      color_hex: spool.filament_color_hex,
+      filament_type: spool.filament_material,
+      assigned_spool_id: spool.id
+    })
+    setIsEditing(false)
+    setSearch("")
+  }
+
+  const handleSelect = (filament) => {
+    onSave({ 
+      color: `${filament.brand} ${filament.name}`,
+      color_hex: filament.color_hex,
+      filament_type: filament.material,
+      spoolman_spool_id: filament.source === 'spoolman' ? parseInt(filament.id.replace('spool_', '')) : null
+    })
+    setIsEditing(false)
+    setSearch('')
+  }
+
+  const handleClear = () => {
+    onSave({ color: null, color_hex: null, spoolman_spool_id: null })
+    setIsEditing(false)
+  }
+
+  const colorHex = slot.color_hex
+
+  const getShortName = (slot) => {
+    const color = typeof slot === 'string' ? slot : slot?.color
+    const fallback = typeof slot === 'string' ? '' : (slot?.filament_type || 'Empty')
+    if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return fallback
+    const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
+    let short = color
+    for (const brand of brands) {
+      if (color.startsWith(brand + ' ')) {
+        short = color.slice(brand.length + 1)
+        break
+      }
+    }
+    if (short.length > 12) return short.slice(0, 10) + '...'
+    return short
+  }
+  return (
+    <>
+      <div 
+        className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 text-center" 
+        onClick={() => { if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
+      >
+        <div className="w-full h-3 rounded mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
+        <span className="text-xs text-farm-500 truncate block">{getShortName(slot)}</span>
+      </div>
+      
+      {isEditing && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div 
+            className="absolute inset-0 bg-black/50" 
+            onClick={() => { setIsEditing(false); setSearch('') }}
+          />
+          <div className="relative bg-farm-800 rounded-t-xl sm:rounded p-4 w-full sm:w-80 shadow-xl border border-farm-600 max-h-[80vh] flex flex-col">
+            <div className="text-sm font-medium text-farm-300 mb-3">Slot {slot.slot_number} - Select Filament</div>
+            <div className="relative mb-3">
+              <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-farm-500" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search filaments..."
+                className="w-full bg-farm-900 border border-farm-600 rounded-lg pl-8 pr-3 py-2 text-sm"
+                autoFocus
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-1 max-h-96">
+              {filteredSpools.length > 0 && (
+                <>
+                  <div className="text-xs text-green-400 font-medium px-1 py-1">Tracked Spools</div>
+                  {filteredSpools.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleSelectSpool(s)}
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                    >
+                      <div 
+                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        style={{ backgroundColor: s.filament_color_hex ? `#${s.filament_color_hex}` : "#666" }}
+                      />
+                      <span className="truncate flex-1">{s.filament_brand} {s.filament_name}</span>
+                      <span className="text-xs text-farm-400">{Math.round(s.remaining_weight_g)}g</span>
+                    </button>
+                  ))}
+                </>
+              )}
+              {spoolmanFilaments.length > 0 && (
+                <>
+                  <div className="text-xs text-print-400 font-medium px-1 py-1">From Spoolman</div>
+                  {spoolmanFilaments.slice(0, 15).map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => handleSelect(f)}
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                    >
+                      <div 
+                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                      />
+                      <span className="truncate flex-1">{f.name}</span>
+                      {f.remaining_weight && (
+                        <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>
+                      )}
+                    </button>
+                  ))}
+                </>
+              )}
+              {libraryFilaments.length > 0 && (
+                <>
+                  <div className="text-xs text-farm-400 font-medium px-1 py-1 mt-2">From Library</div>
+                  {libraryFilaments.slice(0, 20).map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => handleSelect(f)}
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                    >
+                      <div 
+                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                      />
+                      <span className="truncate">{f.display_name}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+              {filteredFilaments.length === 0 && (
+                <div className="text-sm text-farm-500 px-1 py-4 text-center">No filaments found</div>
+              )}
+            </div>
+            <div className="flex gap-2 mt-4 flex-shrink-0">
+              <button onClick={handleClear} className="flex-1 text-sm bg-farm-700 hover:bg-farm-600 rounded-lg py-2">Clear</button>
+              <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-farm-700 hover:bg-farm-600 rounded-lg py-2">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onShowAms, onPlugToggle, plugStates }) {
+  const [syncing, setSyncing] = useState(false)
+  
+  const handleSyncAms = async () => {
+    setSyncing(true)
+    try {
+      await onSyncAms(printer.id)
+    } finally {
+      setSyncing(false)
+    }
+  }
+  
+  const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.api_key
+  
+  const slotsNeedingAttention = printer.filament_slots?.filter(s => 
+    (s.assigned_spool_id && !s.spool_confirmed) || (!s.assigned_spool_id && s.color_hex)
+  ).length || 0
+  
+  return (
+    <div 
+      className={clsx(
+        "bg-farm-900 rounded border overflow-hidden h-fit transition-all",
+        isDragging ? "border-print-500 opacity-50 scale-95" : "border-farm-800"
+      )}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+    >
+      <div className="p-3 md:p-4 border-b border-farm-800 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <div className="cursor-grab active:cursor-grabbing text-farm-600 hover:text-farm-400 flex-shrink-0">
+            <GripVertical size={16} />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
+            <p className="text-xs md:text-sm text-farm-500 truncate">{printer.model || 'Unknown model'}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {canDo('printers.edit') && <button onClick={() => onEdit(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Printer Settings">
+            <Settings size={16} />
+          </button>}
+          {canDo('printers.edit') && <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-1.5 md:p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} title={printer.is_active ? 'Deactivate' : 'Activate'}>
+            {printer.is_active ? <Power size={16} /> : <PowerOff size={16} />}
+          </button>}
+          {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="View camera">
+            <Video size={16} />
+          </button>}
+          {printer.plug_type && onPlugToggle && (
+            <button
+              onClick={() => onPlugToggle(printer.id)}
+              className={`p-1.5 md:p-2 rounded-lg transition-colors ${plugStates?.[printer.id] ? 'text-green-400 hover:bg-green-900/30' : 'text-farm-500 hover:bg-farm-800'}`}
+              title={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
+            >
+              <Plug size={16} />
+            </button>
+          )}
+          {onShowAms && <button onClick={() => onShowAms(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="AMS Environment">
+            <Thermometer size={16} />
+          </button>}
+          {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Scan spool QR">
+            <QrCode size={16} />
+          </button>}
+          {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-1.5 md:p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
+            <Trash2 size={16} />
+          </button>}
+        </div>
+      </div>
+      <div className="p-3 md:p-4">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <Palette size={14} className="text-farm-500" />
+          <span className="text-xs md:text-sm text-farm-400">Loaded Filaments</span>
+          {slotsNeedingAttention > 0 && (
+            <span className="flex items-center gap-1 text-xs text-yellow-400" title="Slots need spool assignment">
+              <AlertTriangle size={12} />
+              {slotsNeedingAttention}
+            </span>
+          )}
+          {canDo('printers.slots') && hasBambuConnection ? (
+            <button 
+              onClick={handleSyncAms}
+              disabled={syncing}
+              className="ml-auto text-xs px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded transition-colors disabled:opacity-50"
+              title="Sync filament state from printer"
+            >
+              {syncing ? '⟳ Syncing...' : '↻ Sync AMS'}
+            </button>
+          ) : (
+            <span className="text-xs text-farm-600 ml-auto">(click to edit)</span>
+          )}
+        </div>
+        <div className={clsx(
+          "grid gap-2",
+          printer.filament_slots?.length <= 4 ? "grid-cols-4" : "grid-cols-4"
+        )}>
+          {printer.filament_slots?.map((slot) => (
+            <FilamentSlotEditor 
+              printerId={printer.id}
+              spools={spools}
+              key={slot.id} 
+              slot={slot} 
+              allFilaments={allFilaments}
+              onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)} 
+            />
+          ))}
+        </div>
+      </div>
+      <div className="px-3 md:px-4 py-2 md:py-3 bg-farm-950 border-t border-farm-800">
+        {(() => {
+          const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+          const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
+          const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
+          const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
+          const nozTarget = printer.nozzle_target_temp != null ? Math.round(printer.nozzle_target_temp) : null
+          const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
+          const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
+          return (
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-2 h-2 rounded-full ${online ? "bg-green-500" : "bg-farm-600"}`}></div>
+                  <span className={online ? "text-green-400" : "text-farm-500"}>{online ? "Online" : "Offline"}</span>
+                </div>
+                {printer.lights_on != null && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
+                    className={`p-0.5 rounded transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
+                    title={printer.lights_on ? 'Lights on (click to toggle)' : 'Lights off (click to toggle)'}
+                  >
+                    <Lightbulb size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-farm-400">
+                {nozTemp != null && (
+                  <span className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
+                    Nozzle {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
+                  </span>
+                )}
+                {bedTemp != null && (
+                  <span className={bedTarget > 0 ? "text-orange-400" : ""} title={bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}>
+                    Bed {bedTemp}°{bedTarget > 0 ? `/${bedTarget}°` : ''}
+                  </span>
+                )}
+                {stage && (
+                  <span className="text-print-400">{stage}</span>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+      </div>
+    </div>
+  )
+}
+function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    model: '', 
+    slot_count: 4,
+    api_type: '',
+    api_host: '',
+    serial: '',
+    access_code: ''
+  })
+  const [testStatus, setTestStatus] = useState(null)
+  const [testMessage, setTestMessage] = useState('')
+
+  useEffect(() => {
+    if (printer) {
+      let serial = ''
+      let access_code = ''
+      if (printer.api_key && printer.api_key.includes('|')) {
+        const parts = printer.api_key.split('|')
+        serial = parts[0] || ''
+        access_code = parts[1] || ''
+      }
+      setFormData({ 
+        name: printer.name || '', 
+        nickname: printer.nickname || '',
+        model: printer.model || '', 
+        slot_count: printer.slot_count || 4,
+        api_type: printer.api_type || '',
+        api_host: printer.api_host || '',
+        serial: serial,
+        access_code: access_code,
+        plug_type: printer.plug_type || '',
+        plug_host: printer.plug_host || '',
+        plug_topic: printer.plug_topic || '',
+        plug_entity: printer.plug_entity || '',
+        plug_token: printer.plug_token || '',
+      })
+    } else {
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '' })
+    }
+    setTestStatus(null)
+    setTestMessage('')
+  }, [printer, isOpen])
+
+  const handleTestConnection = async () => {
+    if (!formData.api_host || !formData.serial || !formData.access_code) {
+      setTestStatus('error')
+      setTestMessage('Please fill in IP, Serial, and Access Code')
+      return
+    }
+    
+    setTestStatus('testing')
+    setTestMessage('Connecting to printer...')
+    
+    try {
+      const response = await fetch('/api/printers/test-connection', {
+        method: 'POST',
+        headers: apiHeaders,
+        body: JSON.stringify({
+          api_type: formData.api_type || 'bambu',
+          plug_type: formData.plug_type || null,
+          plug_host: formData.plug_host || null,
+          plug_topic: formData.plug_topic || null,
+          plug_entity: formData.plug_entity || null,
+          plug_token: formData.plug_token || null,
+          api_host: formData.api_host,
+          serial: formData.serial,
+          access_code: formData.access_code
+        })
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        setTestStatus('success')
+        setTestMessage(`Connected! State: ${result.state}, Bed: ${result.bed_temp}°C, ${result.ams_slots || 0} AMS slots`)
+      } else {
+        setTestStatus('error')
+        setTestMessage(result.error || 'Connection failed')
+      }
+    } catch (err) {
+      setTestStatus('error')
+      setTestMessage('Failed to test connection')
+    }
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    
+    const submitData = {
+      name: formData.name,
+      nickname: formData.nickname || null,
+      model: formData.model,
+      slot_count: formData.slot_count
+    }
+    
+    if (formData.api_type) submitData.api_type = formData.api_type
+    if (formData.api_host) submitData.api_host = formData.api_host
+    if (formData.serial && formData.access_code) {
+      submitData.api_key = `${formData.serial}|${formData.access_code}`
+    }
+    
+    onSubmit(submitData, printer?.id)
+  }
+
+  if (!isOpen) return null
+
+  const isEditing = !!printer
+  const showBambuFields = formData.api_type === 'bambu'
+  const showConnectionFields = !!formData.api_type && formData.api_type !== ''
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg sm:text-xl font-display font-semibold">{isEditing ? 'Edit Printer' : 'Add New Printer'}</h2>
+          <button onClick={onClose} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Printer Name {!isEditing && '*'}</label>
+            <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., X1C, P1S-01" />
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Nickname</label>
+            <input type="text" value={formData.nickname} onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Big Bertha (optional)" />
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Model</label>
+            <input type="text" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Bambu Lab X1 Carbon" />
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Filament Slots</label>
+            <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+              <option value={1}>1 slot (no AMS)</option>
+              <option value={4}>4 slots (1x AMS)</option>
+              <option value={5}>5 slots (AMS + HT slot)</option>
+              <option value={8}>8 slots (2x AMS)</option>
+              <option value={9}>9 slots (2x AMS + HT slot)</option>
+              <option value={12}>12 slots (3x AMS)</option>
+              <option value={16}>16 slots (4x AMS)</option>
+            </select>
+            {isEditing && formData.slot_count !== printer.slot_count && (
+              <p className="text-xs text-amber-400 mt-1">Note: Changing slot count will reset filament colors</p>
+            )}
+          </div>
+          
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="block text-sm text-farm-400 mb-2">Printer Connection (Optional)</label>
+            <select 
+              value={formData.api_type} 
+              onChange={(e) => setFormData(prev => ({ ...prev, api_type: e.target.value }))} 
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">Manual (no connection)</option>
+              <option value="bambu">Bambu Lab (X1C, P1S, A1, etc.)</option>
+              <option value="moonraker">Klipper / Moonraker</option>
+              <option value="prusalink">Prusa (PrusaLink)</option>
+              <option value="elegoo">Elegoo (SDCP)</option>
+              <option value="octoprint" disabled>OctoPrint (coming soon)</option>
+            </select>
+          </div>
+          
+          {showConnectionFields && (
+            <>
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">Printer IP Address</label>
+                <input type="text" value={formData.api_host} onChange={(e) => setFormData(prev => ({ ...prev, api_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 192.168.1.100" />
+                {formData.api_type === 'bambu' && <p className="text-xs text-farm-500 mt-1">Find this on the printer: Network settings</p>}
+                {formData.api_type === 'moonraker' && <p className="text-xs text-farm-500 mt-1">IP of your Klipper printer running Moonraker</p>}
+                {formData.api_type === 'prusalink' && <p className="text-xs text-farm-500 mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
+                {formData.api_type === 'elegoo' && <p className="text-xs text-farm-500 mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
+              </div>
+              {formData.api_type === 'bambu' && (
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">Serial Number</label>
+                <input type="text" value={formData.serial} onChange={(e) => setFormData(prev => ({ ...prev, serial: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder="e.g., 00M09A380700000" />
+                <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Device Info</p>
+              </div>
+              )}
+              {formData.api_type === 'bambu' && (
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">Access Code</label>
+                <input type="text" value={formData.access_code} onChange={(e) => setFormData(prev => ({ ...prev, access_code: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder="e.g., 12345678" />
+                <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Network → Access Code</p>
+              </div>
+              )}
+              {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink') && (
+              <div>
+                <label className="block text-sm text-farm-400 mb-1">API Key {formData.api_type === 'prusalink' ? '' : '(optional)'}</label>
+                <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key from Settings' : 'Moonraker API key (if required)'} />
+                {formData.api_type === 'prusalink' && <p className="text-xs text-farm-500 mt-1">Find in PrusaLink → Settings → API Key</p>}
+              </div>
+              )}
+              
+              <div>
+                <button 
+                  type="button" 
+                  onClick={handleTestConnection}
+                  disabled={testStatus === 'testing'}
+                  className={clsx(
+                    "w-full px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm",
+                    testStatus === 'testing' && "bg-farm-700 text-farm-400 cursor-wait",
+                    testStatus === 'success' && "bg-green-900/50 text-green-400 border border-green-700",
+                    testStatus === 'error' && "bg-red-900/50 text-red-400 border border-red-700",
+                    !testStatus && "bg-farm-700 hover:bg-farm-600 text-farm-200"
+                  )}
+                >
+                  {testStatus === 'testing' ? (
+                    <><span className="animate-spin">⟳</span> Testing...</>
+                  ) : testStatus === 'success' ? (
+                    '✓ Connected!'
+                  ) : testStatus === 'error' ? (
+                    '✗ Failed'
+                  ) : (
+                    'Test Connection'
+                  )}
+                </button>
+                {testMessage && (
+                  <p className={clsx("text-xs mt-1", testStatus === 'success' ? "text-green-400" : testStatus === 'error' ? "text-red-400" : "text-farm-400")}>
+                    {testMessage}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+          
+          {/* Smart Plug Configuration */}
+          {formData.api_type && (
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="block text-sm text-farm-400 mb-2">Smart Plug (Optional)</label>
+            <select
+              value={formData.plug_type || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, plug_type: e.target.value }))}
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm mb-3"
+            >
+              <option value="">No smart plug</option>
+              <option value="tasmota">Tasmota (HTTP)</option>
+              <option value="mqtt">MQTT Plug</option>
+              <option value="homeassistant">Home Assistant</option>
+            </select>
+            {formData.plug_type === 'tasmota' && (
+              <div className="space-y-2">
+                <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Tasmota IP (e.g., 192.168.1.50)" />
+                <p className="text-xs text-farm-500">Auto power-on before print, auto power-off after cooldown</p>
+              </div>
+            )}
+            {formData.plug_type === 'mqtt' && (
+              <div className="space-y-2">
+                <input type="text" value={formData.plug_topic || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_topic: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="MQTT topic (e.g., cmnd/plug1/POWER)" />
+                <p className="text-xs text-farm-500">Publishes ON/OFF to the configured MQTT broker</p>
+              </div>
+            )}
+            {formData.plug_type === 'homeassistant' && (
+              <div className="space-y-2">
+                <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="HA URL (e.g., http://homeassistant.local:8123)" />
+                <input type="text" value={formData.plug_entity || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_entity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Entity ID (e.g., switch.printer_plug)" />
+                <input type="password" value={formData.plug_token || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_token: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Long-lived access token" />
+                <p className="text-xs text-farm-500">Uses HA REST API to control the switch entity</p>
+              </div>
+            )}
+          </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
+            <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export default function Printers() {
+  const [cameraTarget, setCameraTarget] = useState(null)
+  const { data: activeCameras } = useQuery({
+    queryKey: ['cameras'],
+    queryFn: async () => {
+      const token = localStorage.getItem('token')
+      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const response = await fetch('/api/cameras', { headers })
+      if (!response.ok) return []
+      return response.json()
+    }
+  })
+  const cameraIds = new Set((activeCameras || []).map(c => c.id))
+  const queryClient = useQueryClient()
+  const [showModal, setShowModal] = useState(false)
+  const [showAmsChart, setShowAmsChart] = useState(null)
+  const [plugStates, setPlugStates] = useState({})
+
+  // Load plug states for printers that have plugs
+
+  const handlePlugToggle = async (printerId) => {
+    const isOn = plugStates[printerId]
+    try {
+      if (isOn) {
+        await plugPowerOff(printerId)
+      } else {
+        await plugPowerOn(printerId)
+      }
+      setPlugStates(prev => ({ ...prev, [printerId]: !isOn }))
+    } catch (e) {
+      console.error('Plug toggle failed:', e)
+    }
+  }
+  const [editingPrinter, setEditingPrinter] = useState(null)
+  const [orderedPrinters, setOrderedPrinters] = useState([])
+  const [draggedId, setDraggedId] = useState(null)
+  const [showScanner, setShowScanner] = useState(false)
+  const [scannerPrinterId, setScannerPrinterId] = useState(null)
+
+  const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
+  const lic = useLicense()
+  const atLimit = !lic.isPro && (printersData?.length || 0) >= 5
+  const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
+  const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
+    const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }})
+    return res.json()
+  }})
+  
+  const createPrinter = useMutation({ mutationFn: printers.create, onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false) } })
+  const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false); setEditingPrinter(null) } })
+  const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries(['printers']) })
+  const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries(['printers']) })
+  const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries(['printers']) })
+
+  useEffect(() => {
+    if (printersData) setOrderedPrinters(printersData)
+  }, [printersData])
+  useEffect(() => {
+    if (printersData) {
+      printersData.filter(p => p.plug_type).forEach(async (p) => {
+        try {
+          const state = await getPlugState(p.id)
+          setPlugStates(prev => ({ ...prev, [p.id]: state?.is_on || false }))
+        } catch (e) {}
+      })
+    }
+  }, [printersData])
+
+  const handleDragStart = (e, printerId) => {
+    setDraggedId(printerId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e, targetId) => {
+    e.preventDefault()
+    if (draggedId === null || draggedId === targetId) return
+    const draggedIndex = orderedPrinters.findIndex(p => p.id === draggedId)
+    const targetIndex = orderedPrinters.findIndex(p => p.id === targetId)
+    if (draggedIndex === targetIndex) return
+    const newOrder = [...orderedPrinters]
+    const [dragged] = newOrder.splice(draggedIndex, 1)
+    newOrder.splice(targetIndex, 0, dragged)
+    setOrderedPrinters(newOrder)
+  }
+
+  const handleDragEnd = () => {
+    if (draggedId !== null) reorderPrinters.mutate(orderedPrinters.map(p => p.id))
+    setDraggedId(null)
+  }
+
+  const handleSubmit = (data, printerId) => {
+    if (printerId) {
+      updatePrinter.mutate({ id: printerId, data })
+    } else {
+      createPrinter.mutate(data)
+    }
+  }
+
+  const handleEdit = (printer) => {
+    setEditingPrinter(printer)
+    setShowModal(true)
+  }
+
+  const handleCloseModal = () => {
+    setShowModal(false)
+    setEditingPrinter(null)
+  }
+
+  const handleSyncAms = async (printerId) => {
+    try {
+      const response = await fetch(`/api/printers/${printerId}/sync-ams`, {
+        method: 'POST',
+        headers: apiHeaders
+      })
+      const result = await response.json()
+      if (response.ok) {
+        queryClient.invalidateQueries(['printers'])
+      } else {
+        alert(result.detail || 'Sync failed')
+      }
+    } catch (err) {
+      alert('Failed to sync AMS')
+    }
+  }
+
+  return (
+    <div className="p-4 md:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-display font-bold">Printers</h1>
+          <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
+        </div>
+        {canDo('printers.add') && (atLimit
+          ? <span className="flex items-center gap-2 px-4 py-2 bg-farm-700 text-farm-400 rounded-lg text-sm self-start cursor-not-allowed" title={`Printer limit reached (${lic.max_printers}). Upgrade to Pro for unlimited.`}>
+              <Plus size={16} /> Add Printer (limit: {lic.max_printers})
+            </span>
+          : <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
+              <Plus size={16} /> Add Printer
+            </button>
+        )}
+      </div>
+      {isLoading ? (
+        <div className="text-center py-12 text-farm-500 text-sm">Loading printers...</div>
+      ) : printersData?.length === 0 ? (
+        <div className="bg-farm-900 rounded border border-farm-800 p-8 md:p-12 text-center">
+          <p className="text-farm-500 mb-4">No printers configured yet.</p>
+          {canDo('printers.add') && !atLimit && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Printer</button>}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">
+          {orderedPrinters?.map((printer) => (
+            <PrinterCard 
+              key={printer.id} 
+              printer={printer} 
+              allFilaments={filamentsData}
+              spools={spoolsData}
+              onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }} 
+              onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })} 
+              onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })} 
+              onEdit={handleEdit}
+              onSyncAms={handleSyncAms}
+              hasCamera={cameraIds.has(printer.id)}
+              onCameraClick={setCameraTarget}
+              isDragging={draggedId === printer.id}
+              onDragStart={(e) => handleDragStart(e, printer.id)}
+              onDragOver={(e) => handleDragOver(e, printer.id)}
+              onDragEnd={handleDragEnd}
+              onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
+              onShowAms={(id) => setShowAmsChart(showAmsChart === id ? null : id)}
+              onPlugToggle={handlePlugToggle}
+              plugStates={plugStates}
+            />
+          ))}
+        </div>
+      )}
+      {showAmsChart && (
+        <div className="mb-6">
+          <AmsEnvironmentChart
+            printerId={showAmsChart}
+            onClose={() => setShowAmsChart(null)}
+          />
+        </div>
+      )}
+
+      <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
+      {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
+      {showScanner && (
+        <QRScannerModal
+          isOpen={showScanner}
+          onClose={() => setShowScanner(false)}
+          preselectedPrinter={scannerPrinterId}
+          onAssigned={() => {
+            setShowScanner(false);
+            queryClient.invalidateQueries(['printers']);
+          }}
+        />
+      )}
+    </div>
+  )
+}

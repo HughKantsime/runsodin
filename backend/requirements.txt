@@ -1,0 +1,35 @@
+# O.D.I.N. — Python Dependencies
+# Core web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.18
+
+# Database
+sqlalchemy==2.0.36
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==44.0.0
+
+# Config
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# HTTP client (Moonraker, webhooks)
+httpx==0.28.1
+
+# MQTT (Bambu printers)
+paho-mqtt==2.1.0
+
+# .3mf parsing
+lxml==5.3.0
+
+# Push notifications
+pywebpush==2.0.1
+
+# OIDC/SSO
+authlib==1.4.1
+
+# YAML (go2rtc config)
+pyyaml==6.0.2

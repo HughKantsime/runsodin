@@ -1,0 +1,12 @@
+# O.D.I.N. — go2rtc camera proxy configuration
+# This file is auto-managed by O.D.I.N. when you add printers with cameras.
+# Manual edits will be overwritten.
+
+streams: {}
+
+# WebRTC and API settings
+webrtc:
+  listen: ":8555"
+
+api:
+  listen: ":1984"

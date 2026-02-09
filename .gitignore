@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Database
+*.db
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Deployment-specific (do not commit)
+go2rtc/go2rtc.yaml
+
+# Database backups
+backend/backups/
+*.bak*
+*.db-shm
+*.db-wal
+
+frontend/.env
+backend/.env
+
+# License keys
+*.license
+
+# Docker data volume
+odin-data/
+patch*.py
+*.pre_*
+*_results.txt
+tests/*_results.txt
+tests/.env.test
+*.tar.gz
+.pytest_cache/
+*.pyc
+
+# Dev scripts (never commit)
+add_*.py
+fix_*.py
+edit_*.py
+patch_*.py
+forge_*.py
+migrate_*.py
+verify_*.py
+commit_*.py
+update_to_*.py
+prepend_*.py
+qa_*.py
+test_v*.py
+odin_api_test.py
+generate_license.py
+install_*.py
+setup_playwright.sh
+
+# Test artifacts
+apply_audit_fixes.py
+repo_clean_and_orphan.sh

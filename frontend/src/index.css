@@ -1,0 +1,223 @@
+/* O.D.I.N. — Industrial Control System Theme ("Forge") */
+
+/* Fonts — IBM Plex for that technical/industrial feel */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Brand colors — Forge palette defaults */
+  --brand-primary: #d97706;
+  --brand-accent: #f59e0b;
+  --brand-sidebar-bg: #0a0c10;
+  --brand-sidebar-border: #1a2030;
+  --brand-sidebar-text: #8b95a8;
+  --brand-sidebar-active-bg: #1a203040;
+  --brand-sidebar-active-text: #f59e0b;
+  --brand-content-bg: #0a0c10;
+  --brand-card-bg: #0f1218;
+  --brand-card-border: #1a2030;
+  --brand-text-primary: #e8ecf2;
+  --brand-text-secondary: #8b95a8;
+  --brand-text-muted: #364155;
+  --brand-input-bg: #1a2030;
+  --brand-input-border: #252d3d;
+  /* Brand fonts — IBM Plex */
+  --brand-font-display: 'IBM Plex Mono', ui-monospace, monospace;
+  --brand-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --brand-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+@layer base {
+  body {
+    @apply antialiased;
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    background: #0a0c10;
+    color: #b8c2d0;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    letter-spacing: 0.02em;
+  }
+  
+  code, pre, .mono {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  /* Make inputs sharper */
+  input, select, textarea {
+    border-radius: 4px !important;
+  }
+
+  /* Sharpen all buttons */
+  button {
+    border-radius: 4px;
+  }
+}
+
+/* Custom scrollbar — industrial thin */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #252d3d transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #252d3d;
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #b45309;
+  }
+}
+
+/* Global scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0c10;
+}
+::-webkit-scrollbar-thumb {
+  background: #252d3d;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b45309;
+}
+
+/* Timeline grid */
+.timeline-grid {
+  display: grid;
+  grid-template-columns: 120px repeat(var(--slot-count, 48), minmax(40px, 1fr));
+  gap: 1px;
+  background: #1a2030;
+}
+
+.timeline-slot {
+  min-height: 48px;
+  transition: background-color 0.15s ease;
+}
+
+.timeline-slot:hover {
+  filter: brightness(1.1);
+}
+
+/* Job card animations */
+.job-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.job-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Status indicators — industrial glow */
+.status-dot {
+  @apply w-2 h-2 rounded-full;
+  box-shadow: 0 0 4px currentColor;
+}
+
+.status-dot.pending { @apply bg-status-pending; }
+.status-dot.scheduled { @apply bg-status-scheduled; }
+.status-dot.printing { 
+  @apply bg-status-printing; 
+  animation: statusPulse 2s ease-in-out infinite;
+}
+.status-dot.completed { @apply bg-status-completed; }
+.status-dot.failed { @apply bg-status-failed; }
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+  50% { opacity: 0.6; box-shadow: 0 0 8px currentColor; }
+}
+
+/* Color swatch */
+.color-swatch {
+  @apply w-4 h-4 rounded-sm border border-farm-700;
+}
+
+/* Loading skeleton */
+.skeleton {
+  @apply bg-farm-800 rounded;
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+/* Drag and drop feedback */
+.drop-target {
+  @apply ring-2 ring-print-500 ring-opacity-50;
+}
+
+.dragging {
+  @apply opacity-50 cursor-grabbing;
+}
+
+/* Focus rings — amber instead of blue */
+*:focus-visible {
+  outline: 2px solid #d97706;
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background: #b4530940;
+  color: #fbbf24;
+}
+
+/* Light mode overrides */
+html.light {
+  --brand-sidebar-bg: #f8fafc;
+  --brand-sidebar-text: #1e293b;
+  --brand-sidebar-hover: #e2e8f0;
+  --brand-sidebar-active: #dbeafe;
+  --brand-sidebar-border: #e2e8f0;
+  --brand-header-bg: #ffffff;
+  --brand-header-text: #1e293b;
+}
+html.light body {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+html.light .bg-farm-950 { background-color: #f8fafc; }
+html.light .bg-farm-900 { background-color: #ffffff; }
+html.light .bg-farm-800 { background-color: #e2e8f0; }
+html.light .bg-farm-700 { background-color: #cbd5e1; }
+html.light .text-farm-100 { color: #0f172a; }
+html.light .text-farm-200 { color: #1e293b; }
+html.light .text-farm-300 { color: #334155; }
+html.light .text-farm-400 { color: #475569; }
+html.light .text-farm-500 { color: #64748b; }
+html.light .text-farm-600 { color: #94a3b8; }
+html.light .border-farm-800 { border-color: #e2e8f0; }
+html.light .border-farm-700 { border-color: #cbd5e1; }
+html.light .hover\:bg-farm-800:hover { background-color: #e2e8f0; }
+html.light .hover\:bg-farm-700:hover { background-color: #cbd5e1; }
+html.light input, html.light select, html.light textarea {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+html.light .bg-farm-900\/50 { background-color: rgba(255,255,255,0.8); }
+html.light .bg-farm-800\/30 { background-color: rgba(226,232,240,0.3); }
+html.light .bg-farm-800\/50 { background-color: rgba(226,232,240,0.5); }
