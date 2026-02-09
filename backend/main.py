@@ -4120,7 +4120,7 @@ def list_audit_logs(
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
     db: Session = Depends(get_db)
-):
+, current_user: dict = Depends(require_role("admin"))):
     """List audit log entries."""
     query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
     
@@ -4899,6 +4899,14 @@ def get_camera_url(printer):
         except Exception:
             pass
     return None
+
+def sanitize_camera_url(url: str) -> str:
+    """Strip credentials from RTSP URLs for API responses."""
+    if not url:
+        return url
+    import re
+    # rtsps://bblp:ACCESS_CODE@192.168.x.x:322/... -> rtsps://***@192.168.x.x:322/...
+    return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', url)
 
 def sync_go2rtc_config(db: Session):
     """Regenerate go2rtc config from printer camera URLs."""

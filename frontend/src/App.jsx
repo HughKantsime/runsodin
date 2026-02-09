@@ -437,10 +437,10 @@ export default function App() {
             <Route path="/spools" element={<Spools />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<Navigate to="/settings" replace />} />
-            <Route path="/permissions" element={<Navigate to="/settings" replace />} />
+            <Route path="/permissions" element={<ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate>} />
             <Route path="/maintenance" element={<ProGate feature="maintenance"><Maintenance /></ProGate>} />
             <Route path="/cameras" element={<Cameras />} />
-            <Route path="/branding" element={<Navigate to="/settings" replace />} />
+            <Route path="/branding" element={<ProGate feature="branding"><Navigate to="/settings" replace /></ProGate>} />
             <Route path="/products" element={<ProGate feature="products"><Products /></ProGate>} />
             <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
             <Route path="/alerts" element={<Alerts />} />

@@ -26,7 +26,7 @@ except ImportError:
 # ── Embedded public key (ships with the software) ──
 # Replace this with your actual public key after running generate_license.py --keygen
 ODIN_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-REPLACE_WITH_YOUR_PUBLIC_KEY
+SQ/2C3Ee4lswyEhLoQTtualXqnKhSngyPwoF8mxg/L0=
 -----END PUBLIC KEY-----
 """
 
@@ -142,9 +142,6 @@ def _verify_signature(payload_bytes: bytes, signature_bytes: bytes) -> bool:
     """Verify Ed25519 signature against embedded public key."""
     if not CRYPTO_AVAILABLE:
         return False
-    if "REPLACE_WITH_YOUR_PUBLIC_KEY" in ODIN_PUBLIC_KEY:
-        # No public key installed yet — accept unsigned for development
-        return True
     try:
         public_key = load_pem_public_key(ODIN_PUBLIC_KEY.encode())
         public_key.verify(signature_bytes, payload_bytes)
