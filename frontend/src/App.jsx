@@ -25,6 +25,8 @@ import {
   Bell as BellIcon,
   ShoppingBag,
   Circle,
+  Sun,
+  Moon,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -41,6 +43,7 @@ import Printers from './pages/Printers'
 import Models from './pages/Models'
 import CalculatorPage from './pages/Calculator'
 import Analytics from './pages/Analytics'
+import Utilization from './pages/Utilization'
 import SettingsPage from './pages/Settings'
 import Spools from './pages/Spools'
 import Upload from './pages/Upload'
@@ -234,6 +237,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
             <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>Alerts</NavItem>
             {lic.isPro && canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics{!lic.isPro && <ProBadge />}</NavItem>}
+            {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
           {/* Tools */}
@@ -305,6 +309,13 @@ function MobileHeader({ onMenuClick }) {
       </div>
       <div className="flex items-center gap-2">
         <GlobalSearch />
+            <button
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              className="p-2 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-farm-200 transition-colors"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
         <AlertBell />
         <button 
           onClick={onMenuClick}
@@ -343,6 +354,11 @@ function ProtectedRoute({ children }) {
 
 
 export default function App() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('odin-theme') || 'dark')
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light')
+    localStorage.setItem('odin-theme', theme)
+  }, [theme])
   useWebSocket()
   const { showHelp, setShowHelp } = useKeyboardShortcuts()
 
@@ -397,6 +413,13 @@ export default function App() {
           {/* Desktop search header */}
           <div className="hidden md:flex items-center justify-end gap-3 p-4 border-b border-farm-800" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />
+            <button
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              className="p-2 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-farm-200 transition-colors"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             <AlertBell />
           </div>
           <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
@@ -408,6 +431,7 @@ export default function App() {
             <Route path="/models" element={<Models />} />
             <Route path="/calculator" element={<CalculatorPage />} />
             <Route path="/analytics" element={<ProGate feature="analytics"><Analytics /></ProGate>} />
+            <Route path="/utilization" element={<ProGate feature="analytics"><Utilization /></ProGate>} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/spools" element={<Spools />} />
             <Route path="/settings" element={<SettingsPage />} />

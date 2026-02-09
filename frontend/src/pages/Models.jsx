@@ -550,6 +550,28 @@ export default function Models() {
         </div>
       )}
 
+      {/* Model Library Summary */}
+      {modelsData?.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
+          <div className="bg-blue-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-blue-400">{modelsData.length}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Models</div>
+          </div>
+          <div className="bg-yellow-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-yellow-400">{modelsData.filter(m => m.is_favorite).length}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Favorites</div>
+          </div>
+          <div className="bg-emerald-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{categories.length}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Categories</div>
+          </div>
+          <div className="bg-purple-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-purple-400">{modelsData.filter(m => m.estimated_cost).length}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Costed</div>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading models...</div>
       ) : modelsData?.length === 0 ? (

@@ -184,3 +184,40 @@
   background: #b4530940;
   color: #fbbf24;
 }
+
+/* Light mode overrides */
+html.light {
+  --brand-sidebar-bg: #f8fafc;
+  --brand-sidebar-text: #1e293b;
+  --brand-sidebar-hover: #e2e8f0;
+  --brand-sidebar-active: #dbeafe;
+  --brand-sidebar-border: #e2e8f0;
+  --brand-header-bg: #ffffff;
+  --brand-header-text: #1e293b;
+}
+html.light body {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+html.light .bg-farm-950 { background-color: #f8fafc; }
+html.light .bg-farm-900 { background-color: #ffffff; }
+html.light .bg-farm-800 { background-color: #e2e8f0; }
+html.light .bg-farm-700 { background-color: #cbd5e1; }
+html.light .text-farm-100 { color: #0f172a; }
+html.light .text-farm-200 { color: #1e293b; }
+html.light .text-farm-300 { color: #334155; }
+html.light .text-farm-400 { color: #475569; }
+html.light .text-farm-500 { color: #64748b; }
+html.light .text-farm-600 { color: #94a3b8; }
+html.light .border-farm-800 { border-color: #e2e8f0; }
+html.light .border-farm-700 { border-color: #cbd5e1; }
+html.light .hover\:bg-farm-800:hover { background-color: #e2e8f0; }
+html.light .hover\:bg-farm-700:hover { background-color: #cbd5e1; }
+html.light input, html.light select, html.light textarea {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+html.light .bg-farm-900\/50 { background-color: rgba(255,255,255,0.8); }
+html.light .bg-farm-800\/30 { background-color: rgba(226,232,240,0.3); }
+html.light .bg-farm-800\/50 { background-color: rgba(226,232,240,0.5); }

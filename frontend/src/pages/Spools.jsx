@@ -1202,6 +1202,28 @@ export default function Spools() {
             </div>
           </div>
           
+          {/* Spool Inventory Summary */}
+          {!isLoading && spools?.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
+              <div className="bg-blue-400/10 rounded-lg p-3 text-center border border-farm-800">
+                <div className="text-lg md:text-xl font-bold tabular-nums text-blue-400">{spools.length}</div>
+                <div className="text-xs text-farm-500 uppercase tracking-wide">Spools</div>
+              </div>
+              <div className="bg-emerald-400/10 rounded-lg p-3 text-center border border-farm-800">
+                <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{Math.round(spools.reduce((s, sp) => s + (sp.remaining_weight_g || 0), 0))}g</div>
+                <div className="text-xs text-farm-500 uppercase tracking-wide">Total Stock</div>
+              </div>
+              <div className="bg-amber-400/10 rounded-lg p-3 text-center border border-farm-800">
+                <div className="text-lg md:text-xl font-bold tabular-nums text-amber-400">{spools.filter(sp => sp.remaining_weight_g && sp.remaining_weight_g < 100).length}</div>
+                <div className="text-xs text-farm-500 uppercase tracking-wide">Low Stock</div>
+              </div>
+              <div className="bg-purple-400/10 rounded-lg p-3 text-center border border-farm-800">
+                <div className="text-lg md:text-xl font-bold tabular-nums text-purple-400">{[...new Set(spools.map(sp => sp.filament_type).filter(Boolean))].length}</div>
+                <div className="text-xs text-farm-500 uppercase tracking-wide">Materials</div>
+              </div>
+            </div>
+          )}
+
           {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
           {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
           {!isLoading && spools?.length > 0 && (
