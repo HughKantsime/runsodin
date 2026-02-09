@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Security - leave empty to disable auth (trusted network mode)
     api_key: Optional[str] = None
     
+    # JWT secret for token signing
+    jwt_secret_key: Optional[str] = None
+    
     # Encryption key for stored secrets (API keys, etc.)
     # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     encryption_key: Optional[str] = None
@@ -40,6 +43,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 settings = Settings()
