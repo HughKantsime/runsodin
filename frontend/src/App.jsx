@@ -288,6 +288,23 @@ function Sidebar({ mobileOpen, onMobileClose }) {
 }
 
 
+function ThemeToggle() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('odin-theme') || 'dark')
+  useEffect(() => {
+    document.documentElement.classList.toggle("light", theme === "light")
+    localStorage.setItem('odin-theme', theme)
+  }, [theme])
+  return (
+    <button
+      onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+      className="p-2 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-farm-200 transition-colors"
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+    >
+      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+    </button>
+  )
+}
+
 function MobileHeader({ onMenuClick }) {
   const branding = useBranding()
   
@@ -309,13 +326,7 @@ function MobileHeader({ onMenuClick }) {
       </div>
       <div className="flex items-center gap-2">
         <GlobalSearch />
-            <button
-              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              className="p-2 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-farm-200 transition-colors"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
+        <ThemeToggle />
         <AlertBell />
         <button 
           onClick={onMenuClick}
@@ -354,11 +365,7 @@ function ProtectedRoute({ children }) {
 
 
 export default function App() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('odin-theme') || 'dark')
-  useEffect(() => {
-    document.documentElement.classList.toggle('light', theme === 'light')
-    localStorage.setItem('odin-theme', theme)
-  }, [theme])
+
   useWebSocket()
   const { showHelp, setShowHelp } = useKeyboardShortcuts()
 
@@ -413,13 +420,7 @@ export default function App() {
           {/* Desktop search header */}
           <div className="hidden md:flex items-center justify-end gap-3 p-4 border-b border-farm-800" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />
-            <button
-              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              className="p-2 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-farm-200 transition-colors"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
+            <ThemeToggle />
             <AlertBell />
           </div>
           <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>

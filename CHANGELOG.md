@@ -20,6 +20,20 @@
 - **Password complexity** — minimum 8 characters, requires uppercase + lowercase + number
 - **Jobs schema** — added `due_date` and `priority` columns
 
+### Session 2 — Polish & New Features
+- **Printer Utilization Report** — dedicated /utilization page with fleet summary cards, utilization-by-printer bar chart, jobs/day chart, success/failure pie, per-printer breakdown table, CSV export
+- **Light mode toggle** — Sun/Moon button in header, persists to localStorage, full CSS overrides for all farm-* classes
+- **Models page stat cards** — total models, favorites, categories, costed count
+- **Spools page stat cards** — total spools, total stock (grams), low stock count, material types
+- **Orders page stat cards** — pending/in-progress/fulfilled/shipped counts, total revenue
+- **Products page stat cards** — product count, component count, avg price, SKU coverage
+- **EnergyWidget data wiring** — fetches last 200 jobs for real consumption data
+- **PrusaLink + Elegoo monitors** — supervisord and systemd service files for process management
+- **Printers page fix** — resolved useEffect/useQuery initialization order crash
+- **Database migration** — added due_date and priority columns to jobs table
+- **Audit log cleanup** — removed duplicate AuditLogViewer renders in Settings
+- **ThemeToggle component** — self-contained theme switcher usable in both mobile and desktop headers
+
 ### Cleanup
 - Removed 4 stale .bak files from frontend/src/pages/
 
