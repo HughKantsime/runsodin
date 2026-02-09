@@ -87,6 +87,8 @@ export function LicenseProvider({ children }) {
     isProPage: (page) => PRO_PAGES.includes(page),
     isProSettingsTab: (tab) => PRO_SETTINGS_TABS.includes(tab),
     refresh: fetchLicense,
+    atUserLimit: (count) => license.tier === "community" && count >= 3,
+    maxUsers: license.tier === "community" ? 3 : Infinity,
   }
 
   return <LicenseContext.Provider value={value}>{children}</LicenseContext.Provider>

@@ -13,24 +13,25 @@ import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
 
 const API_KEY = import.meta.env.VITE_API_KEY
-const apiHeaders = {
+const getApiHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-API-Key': API_KEY
-}
+  'X-API-Key': API_KEY,
+  'Authorization': `Bearer ${localStorage.getItem('token')}`
+})
 
 const backupsApi = {
   list: async () => {
-    const res = await fetch('/api/backups', { headers: apiHeaders })
+    const res = await fetch('/api/backups', { headers: getApiHeaders() })
     if (!res.ok) throw new Error('Failed to list backups')
     return res.json()
   },
   create: async () => {
-    const res = await fetch('/api/backups', { method: 'POST', headers: apiHeaders })
+    const res = await fetch('/api/backups', { method: 'POST', headers: getApiHeaders() })
     if (!res.ok) throw new Error('Failed to create backup')
     return res.json()
   },
   remove: async (filename) => {
-    const res = await fetch(`/api/backups/${filename}`, { method: 'DELETE', headers: apiHeaders })
+    const res = await fetch(`/api/backups/${filename}`, { method: 'DELETE', headers: getApiHeaders() })
     if (!res.ok) throw new Error('Failed to delete backup')
     return true
   },
@@ -40,7 +41,7 @@ const backupsApi = {
     a.href = `/api/backups/${filename}`
     a.download = filename
     // Use fetch + blob to include auth header
-    return fetch(`/api/backups/${filename}`, { headers: { 'X-API-Key': API_KEY } })
+    return fetch(`/api/backups/${filename}`, { headers: { 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
       .then(res => res.blob())
       .then(blob => {
         const url = URL.createObjectURL(blob)
@@ -103,7 +104,7 @@ function AuditLogViewer() {
       let url = `/api/audit-logs?limit=${limit}`
       if (filter.entity_type) url += `&entity_type=${filter.entity_type}`
       if (filter.action) url += `&action=${filter.action}`
-      const res = await fetch(url, { headers: { 'X-API-Key': localStorage.getItem('api_key') || '' } })
+      const res = await fetch(url, { headers: { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
       if (res.ok) setLogs(await res.json())
     } catch (e) { console.error('Failed to load audit logs:', e) }
     finally { setLoading(false) }
@@ -186,7 +187,7 @@ function LicenseTab() {
 
   const fetchLicense = async () => {
     try {
-      const res = await fetch('/api/license', { headers: { 'X-API-Key': localStorage.getItem('api_key') || '' } })
+      const res = await fetch('/api/license', { headers: { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
       if (res.ok) setLicenseInfo(await res.json())
     } catch (e) { console.error('Failed to fetch license:', e) }
   }
@@ -203,7 +204,7 @@ function LicenseTab() {
         method: 'POST',
         headers: {
           'X-API-Key': localStorage.getItem('api_key') || '',
-          'Authorization': 'Bearer ' + (localStorage.getItem('token') || ''),
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
         body: formData,
       })
@@ -229,7 +230,7 @@ function LicenseTab() {
         method: 'DELETE',
         headers: {
           'X-API-Key': localStorage.getItem('api_key') || '',
-          'Authorization': 'Bearer ' + (localStorage.getItem('token') || ''),
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
       })
       if (res.ok) {
@@ -490,16 +491,16 @@ export default function Settings() {
 
   // Fetch UI mode
   useEffect(() => {
-    fetch('/api/pricing-config', { headers: { 'X-API-Key': API_KEY } })
+    fetch('/api/pricing-config', { headers: { 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
       .then(r => r.json()).then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
   }, [])
   const toggleUiMode = async (mode) => {
     setUiMode(mode)
     try {
-      const current = await fetch('/api/pricing-config', { headers: { 'X-API-Key': API_KEY } }).then(r => r.json())
+      const current = await fetch('/api/pricing-config', { headers: { 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` } }).then(r => r.json())
       await fetch('/api/pricing-config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ ...current, ui_mode: mode })
       })
       window.dispatchEvent(new CustomEvent('ui-mode-changed', { detail: mode }))
