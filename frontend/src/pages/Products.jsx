@@ -130,6 +130,29 @@ export default function Products() {
         </button>
       </div>
 
+
+      {/* Product Summary */}
+      {productList.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
+          <div className="bg-blue-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-blue-400">{productList.length}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Products</div>
+          </div>
+          <div className="bg-purple-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-purple-400">{productList.reduce((s, p) => s + (p.components?.length || 0), 0)}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Components</div>
+          </div>
+          <div className="bg-emerald-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{'$' + (productList.reduce((s, p) => s + (p.price || 0), 0) / productList.length).toFixed(0)}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">Avg Price</div>
+          </div>
+          <div className="bg-yellow-400/10 rounded-lg p-3 text-center border border-farm-800">
+            <div className="text-lg md:text-xl font-bold tabular-nums text-yellow-400">{productList.filter(p => p.sku).length}</div>
+            <div className="text-xs text-farm-500 uppercase tracking-wide">With SKU</div>
+          </div>
+        </div>
+      )}
+
       {productList.length === 0 ? (
         <div className="text-center py-12 text-farm-500">
           <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />

@@ -1197,8 +1197,6 @@ export default function Settings() {
         </div>
       </div>
       <AuditLogViewer />
-      <AuditLogViewer />
-      <AuditLogViewer />
 
       </div>}
     </div>

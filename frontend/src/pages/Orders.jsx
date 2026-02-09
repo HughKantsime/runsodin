@@ -208,6 +208,25 @@ export default function Orders() {
         </div>
       </div>
 
+
+      {/* Order Summary */}
+      {orderList.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-6">
+          {[
+            { label: 'Pending', count: orderList.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+            { label: 'In Progress', count: orderList.filter(o => o.status === 'in_progress').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+            { label: 'Fulfilled', count: orderList.filter(o => o.status === 'fulfilled').length, color: 'text-green-400', bg: 'bg-green-400/10' },
+            { label: 'Shipped', count: orderList.filter(o => o.status === 'shipped').length, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+            { label: 'Revenue', count: '$' + orderList.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0), color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+          ].map(({ label, count, color, bg }) => (
+            <div key={label} className={`${bg} rounded-lg p-3 text-center border border-farm-800`}>
+              <div className={`text-lg md:text-xl font-bold tabular-nums ${color}`}>{count}</div>
+              <div className="text-xs text-farm-500 uppercase tracking-wide">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {orderList.length === 0 ? (
         <div className="text-center py-12 text-farm-500">
           <ShoppingCart className="w-12 h-12 mx-auto mb-4 opacity-50" />

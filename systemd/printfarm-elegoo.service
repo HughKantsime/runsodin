@@ -1,0 +1,15 @@
+[Unit]
+Description=O.D.I.N. Elegoo Monitor
+After=network.target printfarm-backend.service
+Wants=printfarm-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/printfarm-scheduler/backend
+ExecStart=/opt/printfarm-scheduler/backend/venv/bin/python3 elegoo_monitor.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

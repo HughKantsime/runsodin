@@ -286,7 +286,17 @@ export default function Analytics() {
     queryKey: ['analytics'],
     queryFn: analytics.get,
   })
-
+  const { data: energyJobs } = useQuery({
+    queryKey: ['energy-jobs'],
+    queryFn: async () => {
+      const token = localStorage.getItem('token')
+      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const res = await fetch('/api/print-jobs?limit=200', { headers })
+      if (!res.ok) return []
+      return res.json()
+    }
+  })
   if (isLoading) {
     return (
       <div className="p-4 md:p-6">
@@ -402,7 +412,7 @@ export default function Analytics() {
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         <PrinterUtilization data={printer_stats} />
-        <EnergyWidget jobs={[]} />
+        <EnergyWidget jobs={energyJobs || []} />
       </div>
     </div>
   )

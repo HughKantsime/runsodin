@@ -639,16 +639,6 @@ export default function Printers() {
   const [plugStates, setPlugStates] = useState({})
 
   // Load plug states for printers that have plugs
-  useEffect(() => {
-    if (printersData) {
-      printersData.filter(p => p.plug_type).forEach(async (p) => {
-        try {
-          const state = await getPlugState(p.id)
-          setPlugStates(prev => ({ ...prev, [p.id]: state?.is_on || false }))
-        } catch (e) {}
-      })
-    }
-  }, [printersData])
 
   const handlePlugToggle = async (printerId) => {
     const isOn = plugStates[printerId]
@@ -686,6 +676,16 @@ export default function Printers() {
 
   useEffect(() => {
     if (printersData) setOrderedPrinters(printersData)
+  }, [printersData])
+  useEffect(() => {
+    if (printersData) {
+      printersData.filter(p => p.plug_type).forEach(async (p) => {
+        try {
+          const state = await getPlugState(p.id)
+          setPlugStates(prev => ({ ...prev, [p.id]: state?.is_on || false }))
+        } catch (e) {}
+      })
+    }
   }, [printersData])
 
   const handleDragStart = (e, printerId) => {
