@@ -59,6 +59,27 @@ Base.metadata.create_all(bind=engine)
 print('  ✓ Database initialized')
 "
 
+# ── Create users table (raw SQL, not in SQLAlchemy models) ──
+python3 << 'USERSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    email VARCHAR(200),
+    password_hash VARCHAR(200) NOT NULL,
+    role VARCHAR(20) DEFAULT 'viewer',
+    is_active BOOLEAN DEFAULT 1,
+    last_login DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    oidc_subject VARCHAR(200),
+    oidc_provider VARCHAR(50)
+)""")
+conn.commit()
+conn.close()
+print("  ✓ Users table ready")
+USERSEOF
+
 # ── Enable SQLite WAL mode ──
 python3 -c "
 import sqlite3
