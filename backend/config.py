@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     encryption_key: Optional[str] = None
     
     # Frontend - comma-separated list in .env, e.g. CORS_ORIGINS=http://localhost:3000,http://example.com
-    cors_origins: list = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+    cors_origins: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
     
     class Config:
         env_file = ".env"
