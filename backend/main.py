@@ -510,6 +510,14 @@ def update_filament_slot(
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(slot, field, value)
     
+    # If slot is set to empty, clear all filament data
+    if slot.filament_type and slot.filament_type.value == "empty":
+        slot.color = None
+        slot.color_hex = None
+        slot.spoolman_spool_id = None
+        slot.assigned_spool_id = None
+        slot.spool_confirmed = False
+    
     slot.loaded_at = datetime.utcnow()
     db.commit()
     db.refresh(slot)
@@ -5068,7 +5076,6 @@ def sync_go2rtc_config(db: Session):
 
 def sync_go2rtc_config_standalone():
     """Regenerate go2rtc config (callable without a DB session)."""
-    from database import SessionLocal
     db = SessionLocal()
     try:
         sync_go2rtc_config(db)
