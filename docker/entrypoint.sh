@@ -80,6 +80,38 @@ conn.close()
 print("  ✓ Users table ready")
 USERSEOF
 
+# ── Create print_jobs table (raw SQL, not in SQLAlchemy models) ──
+python3 << 'PRINTJOBSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS print_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL REFERENCES printers(id),
+    job_id TEXT,
+    filename TEXT,
+    job_name TEXT,
+    started_at DATETIME NOT NULL,
+    ended_at DATETIME,
+    status TEXT DEFAULT 'running',
+    progress_percent REAL DEFAULT 0,
+    remaining_minutes REAL,
+    total_layers INTEGER,
+    current_layer INTEGER,
+    bed_temp_target REAL,
+    nozzle_temp_target REAL,
+    filament_slots TEXT,
+    error_code TEXT,
+    scheduled_job_id INTEGER,
+    created_at DATETIME DEFAULT (datetime('now'))
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_jobs_printer ON print_jobs(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_jobs_started ON print_jobs(started_at)")
+conn.commit()
+conn.close()
+print("  ✓ Print jobs table ready")
+PRINTJOBSEOF
+
 # ── Enable SQLite WAL mode ──
 python3 -c "
 import sqlite3

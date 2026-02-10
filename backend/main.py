@@ -106,17 +106,32 @@ def get_db():
         db.close()
 
 # Auth helpers
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    if not token:
-        return None
-    token_data = decode_token(token)
-    if not token_data:
-        return None
-    user = db.execute(text("SELECT * FROM users WHERE username = :username"),
-                      {"username": token_data.username}).fetchone()
-    if not user:
-        return None
-    return dict(user._mapping)
+async def get_current_user(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    # Try 1: JWT Bearer token (primary auth)
+    if token:
+        token_data = decode_token(token)
+        if token_data:
+            user = db.execute(text("SELECT * FROM users WHERE username = :username"),
+                              {"username": token_data.username}).fetchone()
+            if user:
+                return dict(user._mapping)
+
+    # Try 2: X-API-Key header (fallback for raw fetch calls missing Bearer)
+    api_key = request.headers.get("X-API-Key")
+    if api_key and api_key != "undefined":
+        configured_key = os.getenv("API_KEY", "")
+        if configured_key and api_key == configured_key:
+            admin = db.execute(
+                text("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1")
+            ).fetchone()
+            if admin:
+                return dict(admin._mapping)
+
+    return None
 
 def require_role(required_role: str):
     async def role_checker(current_user: dict = Depends(get_current_user)):
