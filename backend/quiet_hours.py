@@ -1,3 +1,4 @@
+import os
 """
 Quiet Hours Module — Controls notification suppression and digest generation.
 
@@ -17,7 +18,7 @@ from typing import Optional, Dict, Any, Tuple
 
 log = logging.getLogger("quiet_hours")
 
-DB_PATH = "/opt/printfarm-scheduler/backend/printfarm.db"
+DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 _config_cache: Optional[Dict] = None
 _config_ts: float = 0

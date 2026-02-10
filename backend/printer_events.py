@@ -1,3 +1,4 @@
+import os
 """
 Universal Printer Event Handler
 
@@ -36,7 +37,7 @@ try:
 except ImportError:
     def ws_push(*a, **kw): pass
 
-DB_PATH = "/opt/printfarm-scheduler/backend/printfarm.db"
+DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 
 # =============================================================================

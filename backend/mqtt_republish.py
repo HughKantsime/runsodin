@@ -1,3 +1,4 @@
+import os
 """
 MQTT Republish Module — Publishes O.D.I.N. events to an external MQTT broker.
 
@@ -26,7 +27,7 @@ from typing import Optional, Dict, Any
 
 log = logging.getLogger("mqtt_republish")
 
-DB_PATH = "/opt/printfarm-scheduler/backend/printfarm.db"
+DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 # Lazy-loaded paho client
 _client = None

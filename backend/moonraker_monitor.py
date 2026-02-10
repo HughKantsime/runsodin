@@ -42,7 +42,7 @@ log = logging.getLogger("moonraker_monitor")
 
 DB_PATH = os.environ.get(
     "PRINTFARM_DB",
-    "/opt/printfarm-scheduler/backend/printfarm.db",
+    "/data/odin.db",
 )
 
 POLL_INTERVAL = 3          # seconds between status polls

@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get(
     "DB_PATH",
-    os.path.join(os.path.dirname(__file__), "printfarm.db")
+    os.path.join(os.path.dirname(__file__), "odin.db")
 )
 POLL_INTERVAL = 10  # seconds
 

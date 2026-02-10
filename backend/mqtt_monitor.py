@@ -8,7 +8,7 @@ Usage:
     python mqtt_monitor.py --daemon # Run as background daemon
 """
 import sys
-sys.path.insert(0, '/opt/printfarm-scheduler/backend')
+sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 
 import os
 import sqlite3
@@ -48,7 +48,7 @@ logging.basicConfig(
 )
 log = logging.getLogger('mqtt_monitor')
 
-DB_PATH = '/opt/printfarm-scheduler/backend/printfarm.db'
+DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 class PrinterMonitor:
     """Monitors a single printer's MQTT stream."""

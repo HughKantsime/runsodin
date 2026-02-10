@@ -2666,7 +2666,7 @@ def get_config():
 def update_config(config: ConfigUpdate, current_user: dict = Depends(require_role("admin"))):
     """Update configuration. Writes to .env file."""
     # Use environment variable or default path
-    env_path = os.environ.get('ENV_FILE_PATH', '/opt/printfarm-scheduler/backend/.env')
+    env_path = os.environ.get('ENV_FILE_PATH', '/data/.env')
     
     # Read existing env, only keeping allowed keys
     env_vars = {}
@@ -4958,7 +4958,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
 
 import yaml
 
-GO2RTC_CONFIG = os.environ.get("GO2RTC_CONFIG", "/opt/printfarm-scheduler/go2rtc/go2rtc.yaml")
+GO2RTC_CONFIG = os.environ.get("GO2RTC_CONFIG", "/app/go2rtc/go2rtc.yaml")
 
 def get_camera_url(printer):
     """Get RTSP URL for a printer - from camera_url field or auto-generated from Bambu credentials."""
@@ -6037,7 +6037,7 @@ def create_backup(current_user: dict = Depends(require_role("admin")), db: Sessi
     if "///" in engine_url:
         db_path = engine_url.split("///", 1)[1]
     else:
-        db_path = "printfarm.db"
+        db_path = "odin.db"
     if not os.path.isabs(db_path):
         db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), db_path)
     

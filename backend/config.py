@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment."""
     
     # Database
-    database_url: str = "sqlite:///./printfarm.db"
+    database_url: str = "sqlite:///./odin.db"
     
     # Spoolman integration (optional)
     spoolman_url: Optional[str] = None

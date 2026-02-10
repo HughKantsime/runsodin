@@ -1,3 +1,4 @@
+import os
 """
 Smart Plug Controller for O.D.I.N.
 Supports: Tasmota (HTTP), Home Assistant (REST API), Generic MQTT
@@ -18,7 +19,7 @@ from typing import Optional, Dict, Any, Tuple
 
 log = logging.getLogger("smart_plug")
 
-DB_PATH = "/opt/printfarm-scheduler/backend/printfarm.db"
+DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 # ---- HTTP helper (no requests dependency — use urllib) ----
 

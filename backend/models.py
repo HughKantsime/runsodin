@@ -485,7 +485,7 @@ class SchedulerRun(Base):
 
 
 # Database initialization helper
-def init_db(database_url: str = "sqlite:///./printfarm.db"):
+def init_db(database_url: str = "sqlite:///./odin.db"):
     """Create all tables and return engine."""
     engine = create_engine(database_url, echo=False)
     Base.metadata.create_all(engine)
