@@ -77,7 +77,8 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
 
   const getShortName = (slot) => {
     const color = typeof slot === 'string' ? slot : slot?.color
-    const fallback = typeof slot === 'string' ? '' : (slot?.filament_type || 'Empty')
+    const ft = typeof slot === 'string' ? '' : (slot?.filament_type || '')
+    const fallback = (!ft || ft === 'empty') ? 'Empty' : ft
     if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return fallback
     const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
     let short = color

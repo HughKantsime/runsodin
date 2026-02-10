@@ -6,7 +6,7 @@
 
 Self-hosted 3D print farm management for production environments.
 
-[![Version](https://img.shields.io/badge/version-1.0.8-blue)](https://github.com/HughKantsime/runsodin/releases)
+[![Version](https://img.shields.io/github/v/tag/HughKantsime/runsodin?label=version&color=blue)](https://github.com/HughKantsime/runsodin/releases)
 [![Tests](https://img.shields.io/badge/tests-1031%20passed-brightgreen)](#)
 [![License](https://img.shields.io/badge/license-BSL%201.1-orange)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://python.org)

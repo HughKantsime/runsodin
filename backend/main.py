@@ -99,7 +99,7 @@ _version_file = _pathlib.Path(__file__).parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "0.19.0"
+    __version__ = "1.0.23"
 
 
 def get_db():
@@ -458,7 +458,7 @@ def update_printer(
                     slot = FilamentSlot(
                         printer_id=printer.id,
                         slot_number=i,
-                        filament_type=FilamentType.PLA
+                        filament_type=FilamentType.EMPTY
                     )
                     db.add(slot)
         elif new_count < current_count:
@@ -1367,7 +1367,7 @@ def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get
         slot = FilamentSlot(
             printer_id=db_printer.id,
             slot_number=i,
-            filament_type=FilamentType.PLA,
+            filament_type=FilamentType.EMPTY,
         )
         db.add(slot)
 
@@ -3360,7 +3360,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
             db_slot = FilamentSlot(
                 printer_id=printer_id,
                 slot_number=slot_info.slot_number,
-                filament_type=FilamentType.PLA
+                filament_type=FilamentType.EMPTY
             )
             db.add(db_slot)
         

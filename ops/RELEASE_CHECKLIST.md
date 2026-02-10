@@ -14,8 +14,8 @@
 
 ## Tag & Publish
 
-- [ ] Bump VERSION file: `echo "1.0.XX" > VERSION`
-- [ ] Commit: `git add VERSION && git commit -m "release: v1.0.XX"`
+- [ ] Bump all version references: `./ops/bump-version.sh 1.0.XX`
+- [ ] Commit: `git add -A && git commit -m "release: v1.0.XX"`
 - [ ] Tag: `git tag v1.0.XX`
 - [ ] Push: `git push origin main v1.0.XX`
 - [ ] Verify GHCR workflow completes (GitHub Actions → green check)
