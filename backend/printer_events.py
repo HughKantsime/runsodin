@@ -371,6 +371,14 @@ def discover_camera(printer_id: int, rtsp_url: str):
             )
             conn.commit()
             log.info(f"Auto-discovered camera for printer {printer_id}: {rtsp_url}")
+            
+            # Regenerate go2rtc config so the new camera stream is available
+            try:
+                from main import sync_go2rtc_config_standalone
+                sync_go2rtc_config_standalone()
+                log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
+            except Exception as e2:
+                log.warning(f"Could not sync go2rtc config: {e2}")
         
         conn.close()
     except Exception as e:

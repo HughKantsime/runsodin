@@ -387,7 +387,7 @@ def create_printer(
         slot = FilamentSlot(
             printer_id=db_printer.id,
             slot_number=i,
-            filament_type=slot_data.filament_type if slot_data else FilamentType.PLA,
+            filament_type=slot_data.filament_type if slot_data else None,
             color=slot_data.color if slot_data else None,
             color_hex=slot_data.color_hex if slot_data else None
         )
@@ -5064,6 +5064,16 @@ def sync_go2rtc_config(db: Session):
 # =============================================================================
 # Printer Control (Emergency Stop, Pause, Resume)
 # =============================================================================
+
+
+def sync_go2rtc_config_standalone():
+    """Regenerate go2rtc config (callable without a DB session)."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        sync_go2rtc_config(db)
+    finally:
+        db.close()
 
 @app.post("/api/printers/{printer_id}/stop", tags=["Printers"])
 async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
