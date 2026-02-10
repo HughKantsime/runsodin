@@ -685,8 +685,7 @@ class MQTTMonitorDaemon:
         printers = self.load_printers()
         
         if not printers:
-            log.error("No printers found!")
-            return
+            log.info("No printers found yet, waiting for printers to be added...")
         
         log.info(f"Starting monitor for {len(printers)} printers")
         
@@ -728,6 +727,7 @@ class MQTTMonitorDaemon:
         else:
             self._all_moonraker = []
         self._last_reconnect_check = time.time()
+        self._last_printer_reload = time.time()
         
         try:
             while self._running:
@@ -736,11 +736,54 @@ class MQTTMonitorDaemon:
                 if time.time() - self._last_reconnect_check >= 30:
                     self._check_reconnect()
                     self._last_reconnect_check = time.time()
+                
+                # Every 60s, check for newly added printers
+                if time.time() - self._last_printer_reload >= 60:
+                    self._check_new_printers()
+                    self._last_printer_reload = time.time()
         except KeyboardInterrupt:
             log.info("Shutting down...")
         
         self.stop()
     
+    def _check_new_printers(self):
+        """Check for newly added printers and connect to them."""
+        try:
+            current_printers = self.load_printers()
+            current_ids = {p['id'] for p in current_printers}
+            monitored_ids = set(self.monitors.keys())
+            new_ids = current_ids - monitored_ids
+            if not new_ids:
+                return
+            for p in current_printers:
+                if p['id'] in new_ids:
+                    log.info(f"New printer detected: {p['name']}, connecting...")
+                    monitor = PrinterMonitor(
+                        printer_id=p['id'],
+                        name=p['name'],
+                        ip=p['ip'],
+                        serial=p['serial'],
+                        access_code=p['access_code']
+                    )
+                    if monitor.connect():
+                        self.monitors[p['id']] = monitor
+                        log.info(f"[{p['name']}] Connected")
+            if MOONRAKER_AVAILABLE:
+                mk_printers = self.load_moonraker_printers()
+                for p in mk_printers:
+                    if p['id'] not in self.monitors:
+                        log.info(f"New Moonraker printer: {p['name']}")
+                        monitor = MoonrakerMonitor(
+                            printer_id=p['id'],
+                            name=p['name'],
+                            host=p['host'],
+                            port=p['port'],
+                        )
+                        if monitor.connect():
+                            self.monitors[p['id']] = monitor
+        except Exception as e:
+            log.warning(f"Error checking for new printers: {e}")
+
     def _check_reconnect(self):
         """Check for dead connections and attempt reconnection."""
         # Check Bambu printers
