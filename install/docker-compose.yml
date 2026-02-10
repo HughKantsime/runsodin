@@ -1,0 +1,42 @@
+# ============================================================
+# O.D.I.N. — Orchestrated Dispatch & Inventory Network
+#
+# Quick Start:
+#   1. Save this file: curl -O https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/docker-compose.yml
+#   2. Start:          docker compose up -d
+#   3. Open:           http://localhost:8000
+#
+# The setup wizard will walk you through creating an admin
+# account and adding your first printer.
+#
+# Data is stored in ./odin-data/ (database, backups, uploads)
+# ============================================================
+
+services:
+  odin:
+    image: ghcr.io/hughkantsime/odin:latest
+    container_name: odin
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # Web UI + API
+      - "1984:1984"   # go2rtc API
+      - "8555:8555"   # go2rtc WebRTC
+    volumes:
+      - ./odin-data:/data
+      - ./odin-data/go2rtc:/app/go2rtc
+    environment:
+      # These are auto-generated on first run if left blank.
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - API_KEY=${API_KEY:-}
+      - DATABASE_URL=sqlite:////data/odin.db
+      - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+      # Set to your server's LAN IP for camera streaming (or configure in Settings > Network)
+      - ODIN_HOST_IP=${ODIN_HOST_IP:-}
+      - TZ=${TZ:-America/New_York}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

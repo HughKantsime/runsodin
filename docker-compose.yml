@@ -14,7 +14,8 @@
 services:
   odin:
     build: .
-    # When published: image: ghcr.io/hughkantsime/odin:latest
+    # For published image, comment out 'build' above and use:
+    # image: ghcr.io/hughkantsime/odin:latest
     container_name: odin
     restart: unless-stopped
     ports:
