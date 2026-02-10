@@ -763,9 +763,9 @@ def update_job_progress(
     
     if not updates:
         return
-    
+
     params.append(print_job_id)
-    
+
     try:
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
@@ -774,63 +774,75 @@ def update_job_progress(
             params
         )
         conn.commit()
-        
-        # Send notifications to each user
-        for user_id in users:
-            # Check push preference
-            cur.execute(
-                "SELECT browser_push FROM alert_preferences WHERE user_id = ? AND alert_type = ?",
-                (user_id, alert_type)
-            )
-            push_pref = cur.fetchone()
-            if push_pref and push_pref['browser_push']:
-                try:
-                    send_push_notification(
-                        user_id=user_id,
-                        alert_type=alert_type,
-                        title=title,
-                        message=message,
-                        printer_id=printer_id,
-                        job_id=job_id
-                    )
-                except Exception as e:
-                    log.error(f"Push notification failed: {e}")
-            
-            # Check email preference
-            cur.execute(
-                "SELECT email FROM alert_preferences WHERE user_id = ? AND alert_type = ?",
-                (user_id, alert_type)
-            )
-            email_pref = cur.fetchone()
-            if email_pref and email_pref['email']:
-                try:
-                    send_email(
-                        user_id=user_id,
-                        alert_type=alert_type,
-                        title=title,
-                        message=message,
-                        printer_id=printer_id,
-                        job_id=job_id
-                    )
-                except Exception as e:
-                    log.error(f"Email notification failed: {e}")
-        
-        # Send to webhooks (once per alert, not per user)
-        try:
-            send_webhook(
-                alert_type=alert_type,
-                title=title,
-                message=message,
-                severity=severity,
-                printer_id=printer_id,
-                job_id=job_id
-            )
-        except Exception as e:
-            log.error(f"Webhook failed: {e}")
-
         conn.close()
     except Exception as e:
         log.error(f"Failed to update job progress for {print_job_id}: {e}")
+
+
+# =============================================================================
+# MONITOR COMPATIBILITY FUNCTIONS
+# These are called by prusalink_monitor.py and elegoo_monitor.py
+# and wrap the core job_started/job_completed/update_job_progress functions.
+# =============================================================================
+
+# Per-printer active print_job_id tracking for monitors that don't track it themselves
+_active_print_jobs = {}  # printer_id -> print_job_id
+
+
+def on_print_start(printer_id: int, filename: str, total_layers: int = None,
+                   layer_count: int = None, remaining_min: int = None):
+    """Called by PrusaLink/Elegoo monitors when a print starts."""
+    pj_id = job_started(
+        printer_id=printer_id,
+        job_name=filename,
+        total_layers=total_layers or layer_count,
+    )
+    if pj_id:
+        _active_print_jobs[printer_id] = pj_id
+
+
+def on_print_complete(printer_id: int, filename: str,
+                      duration_seconds: float = None, filament_used_g: float = None):
+    """Called by PrusaLink/Elegoo monitors when a print completes."""
+    pj_id = _active_print_jobs.pop(printer_id, None)
+    if pj_id:
+        job_completed(
+            printer_id=printer_id,
+            print_job_id=pj_id,
+            success=True,
+            duration_seconds=duration_seconds,
+        )
+
+
+def on_print_failed(printer_id: int, filename: str, reason: str = None):
+    """Called by PrusaLink/Elegoo monitors when a print fails."""
+    pj_id = _active_print_jobs.pop(printer_id, None)
+    if pj_id:
+        job_completed(
+            printer_id=printer_id,
+            print_job_id=pj_id,
+            success=False,
+            fail_reason=reason,
+        )
+
+
+def on_print_paused(printer_id: int):
+    """Called by PrusaLink/Elegoo monitors when a print is paused."""
+    log.info(f"Print paused on printer {printer_id}")
+
+
+def on_progress_update(printer_id: int, progress_percent: float,
+                       current_layer: int = None, total_layers: int = None,
+                       remaining_min: int = None):
+    """Called by PrusaLink/Elegoo monitors for progress updates."""
+    pj_id = _active_print_jobs.get(printer_id)
+    if pj_id:
+        update_job_progress(
+            print_job_id=pj_id,
+            progress_percent=int(progress_percent) if progress_percent is not None else None,
+            remaining_minutes=remaining_min,
+            current_layer=current_layer,
+        )
 
 
 # =============================================================================

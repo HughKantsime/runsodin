@@ -295,10 +295,10 @@ def dispatch_alert(
             )
             alerts_created += 1
         
-        if pref.browser_push:
+        if pref.browser_push and not _suppress_external:
             _deliver_browser_push(db, pref.user_id, title, message, severity.value)
-        
-        if pref.email:
+
+        if pref.email and not _suppress_external:
             _deliver_email(db, pref.user_id, title, message, severity.value)
     
     if alerts_created > 0:

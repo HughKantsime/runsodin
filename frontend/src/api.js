@@ -59,6 +59,7 @@ export const jobs = {
   complete: (id) => fetchAPI('/jobs/' + id + '/complete', { method: 'POST' }),
   cancel: (id) => fetchAPI('/jobs/' + id + '/cancel', { method: 'POST' }),
   reorder: (jobIds) => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),
+  repeat: (id) => fetchAPI('/jobs/' + id + '/repeat', { method: 'POST' }),
 }
 
 export const models = {
@@ -380,11 +381,11 @@ export const license = {
 // === Job Approval Workflow (v0.18.0) ===
 
 export async function approveJob(jobId) {
-  return fetchAPI(`/api/jobs/${jobId}/approve`, { method: 'POST' });
+  return fetchAPI(`/jobs/${jobId}/approve`, { method: 'POST' });
 }
 
 export async function rejectJob(jobId, reason) {
-  return fetchAPI(`/api/jobs/${jobId}/reject`, {
+  return fetchAPI(`/jobs/${jobId}/reject`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason }),
@@ -392,7 +393,7 @@ export async function rejectJob(jobId, reason) {
 }
 
 export async function resubmitJob(jobId) {
-  return fetchAPI(`/api/jobs/${jobId}/resubmit`, { method: 'POST' });
+  return fetchAPI(`/jobs/${jobId}/resubmit`, { method: 'POST' });
 }
 
 export async function getApprovalSetting() {

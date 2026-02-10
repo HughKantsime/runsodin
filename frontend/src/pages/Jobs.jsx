@@ -487,12 +487,7 @@ export default function Jobs() {
 
   const repeatJob = useMutation({
     mutationFn: async (jobId) => {
-      const token = localStorage.getItem('token')
-      const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
-      const res = await fetch(API_BASE + '/jobs/' + jobId + '/repeat', { method: 'POST', headers })
-      if (!res.ok) throw new Error('Failed to repeat job')
-      return res.json()
+      return jobs.repeat(jobId)
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
   })

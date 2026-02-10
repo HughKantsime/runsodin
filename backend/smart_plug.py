@@ -249,11 +249,15 @@ def get_energy(printer_id: int) -> Optional[Dict]:
         # Try to read energy sensor — entity_id might be switch.printer_plug
         # Energy sensor is usually sensor.printer_plug_energy
         energy_entity = config["entity_id"].replace("switch.", "sensor.") + "_energy"
-        state = ha_get_state(config["host"], energy_entity, config["auth_token"])
-        if state is not None:
+        # Need the raw state value (a number), not ha_get_state which returns bool
+        url = f"{config['host'].rstrip('/')}/api/states/{energy_entity}"
+        headers = {"Authorization": f"Bearer {config['auth_token']}"}
+        status_code, body = _http_request(url, headers=headers)
+        if status_code == 200:
             try:
-                return {"total_kwh": float(state), "power_w": 0, "voltage": 0, "current": 0}
-            except:
+                data = json.loads(body)
+                return {"total_kwh": float(data.get("state", 0)), "power_w": 0, "voltage": 0, "current": 0}
+            except (ValueError, TypeError):
                 pass
     
     return None
