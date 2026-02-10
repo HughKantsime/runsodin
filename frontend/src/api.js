@@ -102,6 +102,10 @@ export const analytics = {
   get: () => fetchAPI('/analytics'),
 }
 
+export const educationReports = {
+  getUsageReport: (days = 30) => fetchAPI(`/education/usage-report?days=${days}`),
+}
+
 export const jobActions = {
   move: (jobId, printerId, scheduledStart) => 
     fetchAPI('/jobs/' + jobId + '/move', { 
