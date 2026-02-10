@@ -122,9 +122,13 @@ export const printFiles = {
   upload: async (file) => {
     const formData = new FormData()
     formData.append('file', file)
+    const uploadHeaders = {}
+    if (API_KEY) uploadHeaders['X-API-Key'] = API_KEY
+    const tk = localStorage.getItem('token')
+    if (tk) uploadHeaders['Authorization'] = 'Bearer ' + tk
     const response = await fetch(`${API_BASE}/print-files/upload`, {
       method: 'POST',
-      headers: { 'X-API-Key': API_KEY },
+      headers: uploadHeaders,
       body: formData
     })
     if (response.status === 401) {
@@ -417,11 +421,17 @@ export async function updateJobFailure(jobId, failReason, failNotes) {
 // License
 export const licenseApi = {
   get: () => fetchAPI('/license'),
-  upload: (formData) => fetch('/api/license/upload', {
-    method: 'POST',
-    headers: { 'X-API-Key': localStorage.getItem('pf_api_key') || '' },
-    body: formData,
-  }).then(r => r.json()),
+  upload: (formData) => {
+    const h = {}
+    if (API_KEY) h['X-API-Key'] = API_KEY
+    const tk = localStorage.getItem('token')
+    if (tk) h['Authorization'] = 'Bearer ' + tk
+    return fetch('/api/license/upload', {
+      method: 'POST',
+      headers: h,
+      body: formData,
+    }).then(r => r.json())
+  },
   remove: () => fetchAPI('/license', { method: 'DELETE' }),
 }
 

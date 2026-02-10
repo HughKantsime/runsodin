@@ -13,9 +13,12 @@ import { useLicense } from '../LicenseContext'
 import CameraModal from '../components/CameraModal'
 
 const API_KEY = import.meta.env.VITE_API_KEY
-const apiHeaders = {
-  'Content-Type': 'application/json',
-  'X-API-Key': API_KEY
+function getApiHeaders() {
+  const h = { 'Content-Type': 'application/json' }
+  if (API_KEY) h['X-API-Key'] = API_KEY
+  const token = localStorage.getItem('token')
+  if (token) h['Authorization'] = 'Bearer ' + token
+  return h
 }
 
 function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
@@ -42,7 +45,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   const handleSelectSpool = async (spool) => {
     await fetch(`/api/printers/${printerId}/slots/${slot.slot_number}/assign?spool_id=${spool.id}`, {
       method: "POST",
-      headers: { "X-API-Key": API_KEY }
+      headers: getApiHeaders()
     })
     onSave({
       color: `${spool.filament_brand} ${spool.filament_name}`,
@@ -403,7 +406,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
     try {
       const response = await fetch('/api/printers/test-connection', {
         method: 'POST',
-        headers: apiHeaders,
+        headers: getApiHeaders(),
         body: JSON.stringify({
           api_type: formData.api_type || 'bambu',
           plug_type: formData.plug_type || null,
@@ -664,7 +667,7 @@ export default function Printers() {
   const atLimit = !lic.isPro && (printersData?.length || 0) >= 5
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
   const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
-    const res = await fetch('/api/spools?status=active', { headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }})
+    const res = await fetch('/api/spools?status=active', { headers: getApiHeaders()})
     return res.json()
   }})
   
@@ -732,7 +735,7 @@ export default function Printers() {
     try {
       const response = await fetch(`/api/printers/${printerId}/sync-ams`, {
         method: 'POST',
-        headers: apiHeaders
+        headers: getApiHeaders()
       })
       const result = await response.json()
       if (response.ok) {
