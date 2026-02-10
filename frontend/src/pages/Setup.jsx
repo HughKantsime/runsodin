@@ -543,8 +543,8 @@ export default function Setup() {
     // Auto-detect IP on mount
     if (!detectedIp) {
       const authToken = token || localStorage.getItem('token')
-      fetch('/api/setup/network', { headers: apiHeaders(authToken) })
-        .then(r => r.json())
+      fetch('/api/setup/network')
+        .then(r => { if (!r.ok) throw new Error('Failed'); return r.json() })
         .then(data => {
           setDetectedIp(data.detected_ip || '')
           if (!hostIp && data.detected_ip) setHostIp(data.detected_ip)

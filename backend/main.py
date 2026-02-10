@@ -1385,10 +1385,22 @@ def setup_mark_complete(db: Session = Depends(get_db)):
     return {"status": "complete"}
 
 @app.get("/api/setup/network", tags=["Setup"])
-def setup_network_info():
+def setup_network_info(request: Request):
     """Return auto-detected host IP for network configuration."""
-    lan_ip = _get_lan_ip()
-    return {"detected_ip": lan_ip or "", "configured_ip": os.environ.get("ODIN_HOST_IP", "")}
+    # Best detection: use the Host header from the browser request
+    # When user hits http://192.168.70.200:8000, Host = "192.168.70.200:8000"
+    detected_ip = ""
+    host_header = request.headers.get("host", "")
+    host_part = host_header.split(":")[0] if host_header else ""
+    # Only use if it looks like a real LAN IP (not localhost, not Docker internal)
+    import re as _re
+    if host_part and _re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", host_part):
+        if not host_part.startswith("127.") and not host_part.startswith("172."):
+            detected_ip = host_part
+    # Fallback to socket detection (works on bare metal, useless in Docker)
+    if not detected_ip:
+        detected_ip = _get_lan_ip() or ""
+    return {"detected_ip": detected_ip, "configured_ip": os.environ.get("ODIN_HOST_IP", "")}
 
 @app.post("/api/setup/network", tags=["Setup"])
 async def setup_save_network(request: Request, db: Session = Depends(get_db)):
