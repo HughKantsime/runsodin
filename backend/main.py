@@ -1080,51 +1080,99 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
 def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator"))):
     """
     Test connection to a printer without saving.
-    
+
     Used by the UI to validate credentials before saving.
     """
-    if request.api_type.lower() != "bambu":
-        raise HTTPException(status_code=400, detail=f"Test not supported for {request.api_type}")
-    
-    if not request.serial or not request.access_code:
-        raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
-    
-    try:
-        from bambu_adapter import BambuPrinter
-        import time
-        
-        bambu = BambuPrinter(
-            ip=request.api_host,
-            serial=request.serial,
-            access_code=request.access_code
-        )
-        
-        if not bambu.connect():
+    api_type = request.api_type.lower()
+
+    if api_type == "bambu":
+        if not request.serial or not request.access_code:
+            raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
+
+        try:
+            from bambu_adapter import BambuPrinter
+            import time
+
+            bambu = BambuPrinter(
+                ip=request.api_host,
+                serial=request.serial,
+                access_code=request.access_code
+            )
+
+            if not bambu.connect():
+                return {
+                    "success": False,
+                    "error": "Failed to connect. Check IP, serial, and access code."
+                }
+
+            # Wait for status
+            time.sleep(2)
+            status = bambu.get_status()
+            bambu.disconnect()
+
             return {
-                "success": False,
-                "error": "Failed to connect. Check IP, serial, and access code."
+                "success": True,
+                "state": status.state.value,
+                "bed_temp": status.bed_temp,
+                "nozzle_temp": status.nozzle_temp,
+                "ams_slots": len(status.ams_slots)
             }
-        
-        # Wait for status
-        time.sleep(2)
-        status = bambu.get_status()
-        bambu.disconnect()
-        
-        return {
-            "success": True,
-            "state": status.state.value,
-            "bed_temp": status.bed_temp,
-            "nozzle_temp": status.nozzle_temp,
-            "ams_slots": len(status.ams_slots)
-        }
-        
-    except ImportError:
-        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+
+        except ImportError:
+            raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    elif api_type == "moonraker":
+        import httpx as httpx_client
+        try:
+            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)
+            if r.status_code == 200:
+                info = r.json().get("result", {})
+                return {
+                    "success": True,
+                    "state": info.get("state", "unknown"),
+                    "bed_temp": 0,
+                    "nozzle_temp": 0,
+                    "ams_slots": 0,
+                }
+            return {"success": False, "error": f"Moonraker returned HTTP {r.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    elif api_type == "prusalink":
+        import httpx as httpx_client
+        try:
+            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)
+            if r.status_code == 200:
+                info = r.json()
+                return {
+                    "success": True,
+                    "state": "connected",
+                    "bed_temp": 0,
+                    "nozzle_temp": 0,
+                    "ams_slots": 0,
+                }
+            return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    elif api_type == "elegoo":
+        import httpx as httpx_client
+        try:
+            r = httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
+            return {
+                "success": True,
+                "state": "connected",
+                "bed_temp": 0,
+                "nozzle_temp": 0,
+                "ams_slots": 0,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    else:
+        return {"success": False, "error": f"Unknown printer type: {request.api_type}"}
 
 
 
