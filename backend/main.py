@@ -5075,6 +5075,12 @@ def sync_go2rtc_config_standalone():
     finally:
         db.close()
 
+# Sync go2rtc on startup
+try:
+    sync_go2rtc_config_standalone()
+except Exception:
+    pass
+
 @app.post("/api/printers/{printer_id}/stop", tags=["Printers"])
 async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
