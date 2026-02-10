@@ -220,7 +220,7 @@ def load_license() -> LicenseInfo:
         info.email = payload.get("email", "")
         info.issued_at = payload.get("issued_at", "")
         info.expires_at = payload["expires_at"]
-        info.max_printers = payload.get("max_printers", tier_def["max_printers"])
+        info.max_printers = payload.get("max_printers", tier_def["max_printers"]) or tier_def["max_printers"]
         info.max_users = payload.get("max_users", tier_def["max_users"])
         info.features = payload.get("features", tier_def["features"])
         info.expired = False
