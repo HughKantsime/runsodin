@@ -507,6 +507,59 @@ class MoonrakerMonitor:
         except Exception as e:
             log.warning(f"[{self.name}] Filament deduction failed: {e}")
 
+
+# ------------------------------------------------------------------
+# Main — standalone daemon mode (supervisor entrypoint)
+# ------------------------------------------------------------------
+def start_moonraker_monitors():
+    """Load Moonraker printers from DB and start monitors."""
+    monitors = []
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, name, api_host, api_key FROM printers "
+            "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active=1"
+        ).fetchall()
+        conn.close()
+
+        for row in rows:
+            printer_id = row["id"]
+            name = row["name"]
+            api_host = (row["api_host"] or "").strip()
+            api_key_raw = row["api_key"] or ""
+
+            host, port = api_host, 80
+            if ":" in api_host:
+                h, prt = api_host.rsplit(":", 1)
+                host = h.strip() or host
+                try:
+                    port = int(prt)
+                except Exception:
+                    port = 80
+
+            api_key = ""
+            if api_key_raw:
+                try:
+                    from crypto import decrypt
+                    api_key = decrypt(api_key_raw)
+                except Exception:
+                    api_key = api_key_raw
+
+            m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)
+            if m.connect():
+                monitors.append(m)
+                log.info(f"Started Moonraker monitor for {name} ({host}:{port})")
+            else:
+                log.warning(f"Failed to connect Moonraker monitor for {name} ({host}:{port})")
+    except Exception as e:
+        log.error(f"Failed to start Moonraker monitors: {e}")
+    return monitors
+
+# Supervisor-friendly stop() alias
+MoonrakerMonitor.stop = MoonrakerMonitor.disconnect
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
