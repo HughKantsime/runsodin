@@ -44,6 +44,8 @@ class FilamentType(str, Enum):
     """
     Filament types including Bambu Lab codes (PLA-S, PLA-CF, PA-CF, etc.)
     """
+    EMPTY = "empty"  # Slot has no filament loaded
+
     # === Standard Materials (backwards compatible) ===
     PLA = "PLA"
     PETG = "PETG"
@@ -202,7 +204,7 @@ class FilamentSlot(Base):
     slot_number = Column(Integer, nullable=False)  # 1-4 typically
     
     # What's loaded
-    filament_type = Column(SQLEnum(FilamentType), default=FilamentType.PLA)
+    filament_type = Column(SQLEnum(FilamentType), default=FilamentType.EMPTY)
     color = Column(String(50))  # e.g., "black", "white", "red matte"
     color_hex = Column(String(7))  # e.g., "#FF0000" for UI display
     
