@@ -5057,7 +5057,7 @@ def sync_go2rtc_config(db: Session):
         lan_ip = _get_lan_ip()
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
-        logger.info(f"go2rtc WebRTC ICE candidate: {lan_ip}:8555")
+        print(f"[go2rtc] WebRTC ICE candidate: {lan_ip}:8555")
     config = {
         "api": {"listen": "0.0.0.0:1984"},
         "webrtc": webrtc_config,
