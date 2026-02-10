@@ -1,4 +1,3 @@
-import os
 #!/usr/bin/env python3
 """
 MQTT Print Monitor Daemon
@@ -8,10 +7,10 @@ Usage:
     python mqtt_monitor.py          # Run in foreground
     python mqtt_monitor.py --daemon # Run as background daemon
 """
+import os
 import sys
 sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 
-import os
 import sqlite3
 import json
 import time
@@ -39,7 +38,6 @@ try:
     MOONRAKER_AVAILABLE = True
 except ImportError:
     MOONRAKER_AVAILABLE = False
-    log.warning("moonraker_monitor not found — Moonraker printers will be skipped")
 
 # Setup logging
 logging.basicConfig(
@@ -228,8 +226,8 @@ class PrinterMonitor:
                     if mqtt_republish:
                         try:
                             mqtt_republish.republish_telemetry(self.printer_id, self.name, {
-                                "bed_temp": bed_t, "bed_target": bed_target,
-                                "nozzle_temp": noz_t, "nozzle_target": noz_target,
+                                "bed_temp": bed_t, "bed_target": bed_tt,
+                                "nozzle_temp": noz_t, "nozzle_target": noz_tt,
                                 "state": gstate,
                                 "progress": self._state.get('mc_percent'),
                                 "remaining_min": self._state.get('mc_remaining_time'),
@@ -238,7 +236,6 @@ class PrinterMonitor:
                             })
                         except Exception:
                             pass
-                    conn.close()
                     self._last_heartbeat = time.time()
 
                     # ---- AMS Environmental Data Capture ----
@@ -246,8 +243,8 @@ class PrinterMonitor:
                     if time.time() - getattr(self, '_last_ams_env', 0) >= 300:
                         self._last_ams_env = time.time()
                         try:
-                            ams_raw = self._state.get('ams', {})
-                            ams_units = ams_raw.get('ams', []) if isinstance(ams_raw, dict) else []
+                            ams_raw_env = self._state.get('ams', {})
+                            ams_units = ams_raw_env.get('ams', []) if isinstance(ams_raw_env, dict) else []
                             for unit_idx, unit in enumerate(ams_units):
                                 if isinstance(unit, dict):
                                     humidity = unit.get('humidity')
@@ -275,6 +272,8 @@ class PrinterMonitor:
                             conn.commit()
                         except Exception as e:
                             log.debug(f"[{self.name}] AMS env capture: {e}")
+
+                    conn.close()
                     
                     # Push telemetry to WebSocket clients
                     ws_push('printer_telemetry', {
@@ -385,16 +384,16 @@ class PrinterMonitor:
         if new_state == 'RUNNING' and old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE'):
             self._job_started()
         
-        # RUNNING -> FINISH = Job completed
-        elif new_state == 'FINISH' and old_state == 'RUNNING':
+        # RUNNING/PAUSE -> FINISH = Job completed
+        elif new_state == 'FINISH' and old_state in ('RUNNING', 'PAUSE'):
             self._job_ended('completed')
-        
-        # RUNNING -> FAILED = Job failed
-        elif new_state == 'FAILED' and old_state == 'RUNNING':
+
+        # RUNNING/PAUSE -> FAILED = Job failed
+        elif new_state == 'FAILED' and old_state in ('RUNNING', 'PAUSE'):
             self._job_ended('failed')
-        
-        # RUNNING -> IDLE = Job cancelled
-        elif new_state == 'IDLE' and old_state == 'RUNNING':
+
+        # RUNNING/PAUSE -> IDLE = Job cancelled
+        elif new_state == 'IDLE' and old_state in ('RUNNING', 'PAUSE'):
             self._job_ended('cancelled')
     
     def _job_started(self):
@@ -813,7 +812,7 @@ class MQTTMonitorDaemon:
                     is_dead = True
             
             # Also check staleness - no heartbeat in 60s
-            if not is_dead and monitor._last_heartbeat > 0:
+            if not is_dead and getattr(monitor, '_last_heartbeat', 0) > 0:
                 if time.time() - monitor._last_heartbeat > 120:
                     is_dead = True
             

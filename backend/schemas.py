@@ -176,7 +176,6 @@ class ModelUpdate(BaseModel):
     units_per_bed: Optional[int] = 1
     quantity_per_bed: Optional[int] = 1  # Sellable pieces per print
     markup_percent: Optional[float] = 300
-    is_favorite: Optional[bool] = False
     is_favorite: Optional[bool] = None
 
 
@@ -323,7 +322,7 @@ class JobSummary(BaseModel):
     printer_name: Optional[str] = None
     scheduled_start: Optional[datetime] = None
     scheduled_end: Optional[datetime] = None
-    duration_hours: float
+    duration_hours: Optional[float] = None
     colors_list: List[str] = []
     match_score: Optional[int] = None
 

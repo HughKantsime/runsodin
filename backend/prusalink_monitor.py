@@ -26,15 +26,14 @@ import printer_events
 
 # WebSocket push (same as mqtt_monitor / moonraker_monitor)
 try:
-    from ws_hub import broadcast as ws_push
+    from ws_hub import push_event as ws_push
 except ImportError:
     def ws_push(*a, **kw): pass
 
 # MQTT republish (same as mqtt_monitor / moonraker_monitor)
 try:
-    from mqtt_republish import get_republisher
-    _mqtt_republish = get_republisher()
-except Exception:
+    import mqtt_republish as _mqtt_republish
+except ImportError:
     _mqtt_republish = None
 
 from prusalink_adapter import PrusaLinkPrinter, PrusaLinkState
@@ -42,7 +41,7 @@ from prusalink_adapter import PrusaLinkPrinter, PrusaLinkState
 log = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get(
-    "PRINTFARM_DB",
+    "DATABASE_PATH",
     "/data/odin.db",
 )
 POLL_INTERVAL = 10  # seconds

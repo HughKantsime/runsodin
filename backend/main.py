@@ -11,6 +11,11 @@ from typing import List, Optional
 from contextlib import asynccontextmanager
 import re
 import os
+import json
+import logging
+
+log = logging.getLogger("odin.api")
+logger = log  # alias used in some places
 
 from pydantic import BaseModel as PydanticBaseModel, field_validator, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
@@ -1913,7 +1918,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
                 
                 # Create usage record for audit trail
                 usage = SpoolUsage(
-                    assigned_spool_id=spool.id,
+                    spool_id=spool.id,
                     weight_used_g=grams,
                     job_id=job.id,
                     notes=f"Auto-deducted on job #{job.id} complete ({job.item_name})"
@@ -1954,6 +1959,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     
     db.commit()
     db.refresh(job)
+    return job
 
 @app.post("/api/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
 def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
@@ -1967,7 +1973,6 @@ def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator"
     job.is_locked = True
     db.commit()
     db.refresh(job)
-    return job
     return job
 
 
@@ -3815,7 +3820,7 @@ def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depe
     
     # Record usage
     usage = SpoolUsage(
-        assigned_spool_id=spool.id,
+        spool_id=spool.id,
         job_id=request.job_id,
         weight_used_g=request.weight_used_g,
         notes=request.notes
@@ -4746,12 +4751,9 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
     redirect_uri = f"{base_url}/api/auth/oidc/callback"
     
     handler = create_handler_from_config(config, redirect_uri)
-    
-    import asyncio
-    url, state = asyncio.get_event_loop().run_until_complete(
-        handler.get_authorization_url()
-    )
-    
+
+    url, state = await handler.get_authorization_url()
+
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=url, status_code=302)
 
@@ -4794,19 +4796,14 @@ async def oidc_callback(
         return RedirectResponse(url="/?error=invalid_state", status_code=302)
     
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        
         # Exchange code for tokens
-        tokens = loop.run_until_complete(handler.exchange_code(code))
-        
+        tokens = await handler.exchange_code(code)
+
         # Parse ID token to get user info
         id_token_claims = handler.parse_id_token(tokens["id_token"])
-        
-        # Also get user info from Graph API for more details
-        user_info = loop.run_until_complete(
-            handler.get_user_info(tokens["access_token"])
-        )
+
+        # Also get user info for more details
+        user_info = await handler.get_user_info(tokens["access_token"])
         
         # Extract user details
         oidc_subject = id_token_claims.get("sub") or id_token_claims.get("oid")
@@ -4818,9 +4815,10 @@ async def oidc_callback(
             return RedirectResponse(url="/?error=missing_claims", status_code=302)
         
         # Find or create user
+        oidc_provider = config.get("display_name", "oidc").lower().replace(" ", "_")
         existing = db.execute(
-            text("SELECT * FROM users WHERE oidc_subject = :sub AND oidc_provider = 'microsoft'"),
-            {"sub": oidc_subject}
+            text("SELECT * FROM users WHERE oidc_subject = :sub AND oidc_provider = :provider"),
+            {"sub": oidc_subject, "provider": oidc_provider}
         ).fetchone()
         
         if existing:
@@ -4847,13 +4845,14 @@ async def oidc_callback(
             db.execute(
                 text("""
                     INSERT INTO users (username, email, password_hash, role, oidc_subject, oidc_provider, last_login)
-                    VALUES (:username, :email, '', :role, :sub, 'microsoft', :now)
+                    VALUES (:username, :email, '', :role, :sub, :provider, :now)
                 """),
                 {
                     "username": username,
                     "email": email,
                     "role": default_role,
                     "sub": oidc_subject,
+                    "provider": oidc_provider,
                     "now": datetime.utcnow().isoformat(),
                 }
             )
@@ -5114,9 +5113,9 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
     
     success = False
     
-    if printer.printer_type == "moonraker":
+    if printer.api_type == "moonraker":
         from moonraker_adapter import MoonrakerPrinter
-        adapter = MoonrakerPrinter(printer.ip_address)
+        adapter = MoonrakerPrinter(printer.api_host)
         success = adapter.cancel_print()
     else:
         # Bambu printers
@@ -5125,7 +5124,7 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
         try:
             creds = decrypt(printer.api_key)
             serial, access_code = creds.split("|", 1)
-            adapter = BambuPrinter(printer.ip_address, serial, access_code)
+            adapter = BambuPrinter(printer.api_host, serial, access_code)
             if adapter.connect():
                 success = adapter.stop_print()
                 adapter.disconnect()
@@ -5150,9 +5149,9 @@ async def pause_printer(printer_id: int, current_user: dict = Depends(require_ro
     
     success = False
     
-    if printer.printer_type == "moonraker":
+    if printer.api_type == "moonraker":
         from moonraker_adapter import MoonrakerPrinter
-        adapter = MoonrakerPrinter(printer.ip_address)
+        adapter = MoonrakerPrinter(printer.api_host)
         success = adapter.pause_print()
     else:
         from bambu_adapter import BambuPrinter
@@ -5160,7 +5159,7 @@ async def pause_printer(printer_id: int, current_user: dict = Depends(require_ro
         try:
             creds = decrypt(printer.api_key)
             serial, access_code = creds.split("|", 1)
-            adapter = BambuPrinter(printer.ip_address, serial, access_code)
+            adapter = BambuPrinter(printer.api_host, serial, access_code)
             if adapter.connect():
                 success = adapter.pause_print()
                 adapter.disconnect()
@@ -5184,9 +5183,9 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
     
     success = False
     
-    if printer.printer_type == "moonraker":
+    if printer.api_type == "moonraker":
         from moonraker_adapter import MoonrakerPrinter
-        adapter = MoonrakerPrinter(printer.ip_address)
+        adapter = MoonrakerPrinter(printer.api_host)
         success = adapter.resume_print()
     else:
         from bambu_adapter import BambuPrinter
@@ -5194,7 +5193,7 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
         try:
             creds = decrypt(printer.api_key)
             serial, access_code = creds.split("|", 1)
-            adapter = BambuPrinter(printer.ip_address, serial, access_code)
+            adapter = BambuPrinter(printer.api_host, serial, access_code)
             if adapter.connect():
                 success = adapter.resume_print()
                 adapter.disconnect()
@@ -5642,6 +5641,10 @@ async def update_quiet_hours_config(request: Request, current_user: dict = Depen
     return {"status": "ok"}
 
 # ============== MQTT Republish Configuration ==============
+try:
+    import mqtt_republish
+except ImportError:
+    mqtt_republish = None
 
 @app.get("/api/config/mqtt-republish")
 async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
@@ -7889,7 +7892,7 @@ def scan_assign_spool(
     return ScanAssignResponse(
         success=True,
         message=f"Assigned {spool_name} to {printer.name} slot {data.slot}",
-        assigned_spool_id=spool.id,
+        spool_id=spool.id,
         spool_name=spool_name,
         printer_name=printer.name,
         slot=data.slot
@@ -7910,7 +7913,7 @@ def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
         "name": spool.filament.name if spool.filament else None,
         "material": spool.filament.material if spool.filament else None,
         "color_hex": spool.filament.color_hex if spool.filament else None,
-        "remaining_weight": spool.remaining_weight,
+        "remaining_weight": spool.remaining_weight_g,
         "initial_weight": spool.initial_weight_g,
         "location_printer_id": spool.location_printer_id,
         "location_slot": spool.location_slot,
@@ -8268,7 +8271,10 @@ if _os.path.isdir(_frontend_dist):
             from fastapi import HTTPException
             raise HTTPException(status_code=404)
         # Try to serve the exact file first (favicon.ico, sw.js, etc.)
-        exact_path = _os.path.join(_frontend_dist, path)
+        exact_path = _os.path.realpath(_os.path.join(_frontend_dist, path))
+        if not exact_path.startswith(_os.path.realpath(_frontend_dist)):
+            from fastapi import HTTPException as _HTTPExc
+            raise _HTTPExc(status_code=404)
         if path and _os.path.isfile(exact_path):
             return _FileResponse(exact_path)
         # Otherwise return index.html for client-side routing

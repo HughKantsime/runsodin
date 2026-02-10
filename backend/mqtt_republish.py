@@ -52,7 +52,7 @@ def _get_config() -> Optional[Dict[str, Any]]:
         rows = {r["key"]: r["value"] for r in cur.fetchall()}
         conn.close()
 
-        if not rows.get("mqtt_republish_enabled", "").lower() in ("true", "1", "yes"):
+        if rows.get("mqtt_republish_enabled", "").lower() not in ("true", "1", "yes"):
             _config_cache = None
             _config_ts = now
             return None
