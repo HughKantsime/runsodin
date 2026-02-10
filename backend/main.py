@@ -5046,6 +5046,11 @@ def sync_go2rtc_config(db: Session):
         url = get_camera_url(p)
         if url:
             streams[f"printer_{p.id}"] = url
+            # Save generated URL back to DB if not already set
+            if not p.camera_url and url:
+                p.camera_url = url
+                p.camera_discovered = True
+    db.commit()
     webrtc_config = {"listen": "0.0.0.0:8555"}
     # Priority: env var > system_config > auto-detect
     lan_ip = os.environ.get("ODIN_HOST_IP")
@@ -5065,6 +5070,12 @@ def sync_go2rtc_config(db: Session):
     }
     with open(GO2RTC_CONFIG, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
+    # Restart go2rtc to pick up config changes
+    try:
+        import subprocess
+        subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
+    except Exception:
+        pass
 
 # Camera endpoints
 
