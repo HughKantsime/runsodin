@@ -76,3 +76,10 @@ setup_playwright.sh
 # Test artifacts
 apply_audit_fixes.py
 repo_clean_and_orphan.sh
+
+# Local backups / scratch
+*.bak
+*.bak.*
+*.bak2
+*.bak3
+*bak_v*
