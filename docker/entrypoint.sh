@@ -112,6 +112,91 @@ conn.close()
 print("  ✓ Print jobs table ready")
 PRINTJOBSEOF
 
+# ── Create print_files table ──
+python3 << 'PRINTFILESEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS print_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT,
+    original_filename TEXT,
+    project_name TEXT,
+    print_time_seconds REAL,
+    total_weight_grams REAL,
+    layer_count INTEGER,
+    layer_height REAL,
+    nozzle_diameter REAL,
+    printer_model TEXT,
+    supports_used BOOLEAN DEFAULT 0,
+    bed_type TEXT,
+    filaments_json TEXT,
+    thumbnail_b64 TEXT,
+    mesh_data TEXT,
+    model_id INTEGER,
+    job_id INTEGER,
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    stored_path TEXT,
+    filament_weight_grams REAL
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_files_model ON print_files(model_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_files_job ON print_files(job_id)")
+conn.commit()
+conn.close()
+print("  ✓ Print files table ready")
+PRINTFILESEOF
+
+# ── Create oidc_config table ──
+python3 << 'OIDCEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS oidc_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    display_name TEXT DEFAULT 'SSO Login',
+    client_id TEXT,
+    client_secret_encrypted TEXT,
+    tenant_id TEXT,
+    discovery_url TEXT,
+    scopes TEXT DEFAULT 'openid profile email',
+    auto_create_users BOOLEAN DEFAULT 0,
+    default_role TEXT DEFAULT 'viewer',
+    is_enabled BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.commit()
+conn.close()
+print("  ✓ OIDC config table ready")
+OIDCEOF
+
+# ── Create webhooks table ──
+python3 << 'WEBHOOKSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS webhooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    webhook_type TEXT DEFAULT 'generic',
+    alert_types TEXT,
+    is_enabled BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("""CREATE TABLE IF NOT EXISTS ams_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL,
+    ams_unit INTEGER NOT NULL,
+    humidity REAL,
+    temperature REAL,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_ams_telemetry_printer ON ams_telemetry(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_ams_telemetry_recorded ON ams_telemetry(recorded_at)")
+conn.commit()
+conn.close()
+print("  ✓ Webhooks and AMS telemetry tables ready")
+WEBHOOKSEOF
+
 # ── Enable SQLite WAL mode ──
 python3 -c "
 import sqlite3

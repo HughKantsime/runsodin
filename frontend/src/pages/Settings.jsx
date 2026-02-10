@@ -166,7 +166,7 @@ function AuditLogViewer() {
               {log.action || '—'}
             </span>
             <span className="text-farm-400 min-w-[60px]">{log.entity_type || '—'}</span>
-            <span className="text-farm-300 flex-1 truncate">{log.details || '—'}</span>
+            <span className="text-farm-300 flex-1 truncate">{typeof log.details === 'object' ? JSON.stringify(log.details) : (log.details || '—')}</span>
             {log.ip_address && <span className="text-farm-600">{log.ip_address}</span>}
           </div>
         ))}

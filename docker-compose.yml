@@ -20,6 +20,7 @@ services:
     ports:
       - "8000:8000"   # Web UI + API
       - "1984:1984"   # go2rtc (camera WebRTC/HLS)
+      - "8555:8555"   # go2rtc WebRTC
     volumes:
       - ./odin-data:/data
       - ./odin-data/go2rtc:/app/go2rtc
@@ -42,6 +43,10 @@ services:
       # CORS — add your domain/IP if accessing remotely
       - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
       
+      # Host IP for WebRTC ICE candidates (REQUIRED for camera streaming).
+      # Set to the LAN IP of the Docker host so browsers can reach go2rtc.
+      - ODIN_HOST_IP=${ODIN_HOST_IP:-}
+
       # Timezone (for log timestamps and scheduler)
       - TZ=${TZ:-America/New_York}
     

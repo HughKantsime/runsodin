@@ -4981,6 +4981,18 @@ def sanitize_camera_url(url: str) -> str:
     # rtsps://bblp:ACCESS_CODE@192.168.x.x:322/... -> rtsps://***@192.168.x.x:322/...
     return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', url)
 
+def _get_lan_ip():
+    """Auto-detect LAN IP for WebRTC ICE candidates."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
 def sync_go2rtc_config(db: Session):
     """Regenerate go2rtc config from printer camera URLs."""
     printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
@@ -4989,9 +5001,14 @@ def sync_go2rtc_config(db: Session):
         url = get_camera_url(p)
         if url:
             streams[f"printer_{p.id}"] = url
+    webrtc_config = {"listen": "0.0.0.0:8555"}
+    lan_ip = os.environ.get("ODIN_HOST_IP") or _get_lan_ip()
+    if lan_ip:
+        webrtc_config["candidates"] = [f"{lan_ip}:8555"]
+        logger.info(f"go2rtc WebRTC ICE candidate: {lan_ip}:8555")
     config = {
-        "api": {"listen": "127.0.0.1:1984"},
-        "webrtc": {"listen": "127.0.0.1:8555"},
+        "api": {"listen": "0.0.0.0:1984"},
+        "webrtc": webrtc_config,
         "streams": streams
     }
     with open(GO2RTC_CONFIG, "w") as f:

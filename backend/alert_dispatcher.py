@@ -250,8 +250,6 @@ Manage preferences in Settings > Notifications.
 # ============================================================
 
 def dispatch_alert(
-    # Quiet hours: save alert to DB but suppress external notifications
-    _suppress_external = should_suppress_notification()
 
     db: Session,
     alert_type: AlertType,
@@ -268,6 +266,9 @@ def dispatch_alert(
     
     Handles dedup, creates in-app records, sends push + email.
     """
+    # Quiet hours: save alert to DB but suppress external notifications
+    _suppress_external = should_suppress_notification()
+
     preferences = db.query(AlertPreference).filter(
         AlertPreference.alert_type == alert_type
     ).all()

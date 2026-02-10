@@ -42,8 +42,8 @@ from prusalink_adapter import PrusaLinkPrinter, PrusaLinkState
 log = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get(
-    "DB_PATH",
-    os.path.join(os.path.dirname(__file__), "odin.db")
+    "PRINTFARM_DB",
+    "/data/odin.db",
 )
 POLL_INTERVAL = 10  # seconds
 
@@ -243,7 +243,7 @@ def start_prusalink_monitors():
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, name, ip_address, api_key FROM printers WHERE type='prusalink' AND ip_address IS NOT NULL"
+            "SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active=1"
         ).fetchall()
         conn.close()
 
