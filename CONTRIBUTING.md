@@ -1,113 +1,89 @@
 # Contributing to O.D.I.N.
 
-Thanks for your interest in contributing.
+Thanks for your interest in contributing to O.D.I.N.! Here's how to get involved.
+
+## Ways to Contribute
+
+### Report Bugs
+Open a [GitHub issue](https://github.com/HughKantsime/runsodin/issues) with:
+- What you expected to happen
+- What actually happened
+- Steps to reproduce
+- Your environment (OS, Docker version, browser)
+- Screenshots if applicable
+
+### Request Features
+Open an issue tagged `feature-request`. Describe the problem you're trying to solve, not just the solution you want. The best feature requests explain the "why."
+
+### Join the Community
+- [Discord](https://discord.gg/odin-community) — chat, help others, share your setup
+- Star the repo — it helps with visibility
+
+### Submit Code
+We welcome pull requests for bug fixes and small improvements. For larger changes, open an issue first to discuss the approach.
 
 ## Development Setup
 
 ```bash
-# Clone the repo
 git clone https://github.com/HughKantsime/runsodin.git
 cd runsodin
-
-# Backend
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # Edit with your settings
-uvicorn main:app --reload
-
-# Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev
+docker compose up -d --build
 ```
 
-The frontend runs on `http://localhost:3000` and proxies API calls to the backend on port 8000.
+The app will be available at `http://localhost:8000`.
 
-## Project Structure
+### Project Structure
 
 ```
 runsodin/
 ├── backend/
-│   ├── main.py              # FastAPI app, all routes
-│   ├── models.py            # SQLAlchemy models
-│   ├── branding.py          # White-label branding models
-│   ├── mqtt_monitor.py      # MQTT printer monitoring daemon (Bambu)
-│   ├── moonraker_monitor.py # Klipper/Moonraker monitoring daemon
-│   ├── prusalink_monitor.py # PrusaLink monitoring daemon
-│   ├── elegoo_monitor.py    # Elegoo SDCP monitoring daemon
-│   ├── printer_events.py    # Universal printer abstraction
-│   ├── license_manager.py   # Ed25519 license verification
-│   └── static/              # Uploaded branding assets
+│   ├── main.py           # FastAPI application (routes, models, logic)
+│   ├── auth.py           # JWT authentication
+│   ├── models.py         # SQLAlchemy models
+│   ├── mqtt_monitor.py   # Bambu MQTT telemetry daemon
+│   ├── moonraker_monitor.py  # Klipper telemetry daemon
+│   └── ...
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx          # Main layout, sidebar, routing
-│   │   ├── pages/           # Page components
-│   │   ├── permissions.js   # RBAC config
-│   │   ├── i18n/            # Translations (EN, DE, JA, ES)
-│   │   └── BrandingContext.jsx
-│   ├── vite.config.js
-│   └── tailwind.config.js
-├── tests/
-│   ├── test_rbac.py         # 863 RBAC endpoint tests
-│   ├── test_security.py     # 31 security tests
-│   ├── test_features.py     # 62 feature tests
-│   ├── test_e2e/            # 75 Playwright E2E tests
-│   └── README.md            # Test suite documentation
-├── go2rtc/                  # Camera streaming config
-├── docker/                  # Docker entrypoint and configs
-├── systemd/                 # Service files for bare-metal installs
-├── docs/                    # Architecture diagrams
-├── VERSION                  # Current version (read at build time)
-└── CHANGELOG.md
+│   │   ├── App.jsx       # Main layout and routing
+│   │   ├── pages/        # Page components
+│   │   ├── components/   # Shared components
+│   │   └── api.js        # API client
+│   └── ...
+├── docker/
+│   ├── supervisord.conf  # Process manager config
+│   ├── entrypoint.sh     # Container startup script
+│   └── go2rtc.yaml       # Camera streaming config
+├── install/
+│   └── docker-compose.yml  # User-facing install file
+├── docker-compose.yml    # Dev compose (builds from source)
+└── Dockerfile
 ```
 
-## Version Bumping
+### Making Changes
 
-The version is defined in the root `VERSION` file and injected into the frontend at build time via Vite's `define` config.
-
-To bump the version:
-1. Update `VERSION`
-2. Add entry to `CHANGELOG.md`
-3. Rebuild frontend: `cd frontend && npm run build`
-4. Commit, tag, push
-
-The login page and any other version references pick it up automatically.
+1. **Backend changes**: Edit files in `backend/`, then rebuild: `docker compose up -d --build`
+2. **Frontend changes**: Edit files in `frontend/src/`, then rebuild. The frontend is built at Docker build time (no hot-reload in production mode).
+3. **Test your changes**: Run through the UI manually. Check the browser console for errors. Check `docker logs odin` for backend errors.
 
 ## Code Style
 
-- **Backend**: Python, FastAPI, SQLAlchemy. Single-file `main.py` (will be split as it grows).
-- **Frontend**: React 18, Vite, TailwindCSS. Functional components with hooks.
-- **Commits**: `v{X.Y.Z} - Short Description` for version bumps, descriptive messages otherwise.
+- **Python**: Follow existing patterns in `main.py`. No strict linter enforced, but keep it clean.
+- **React**: Functional components with hooks. TailwindCSS for styling. No CSS modules.
+- **Commits**: Clear, descriptive messages. Reference issue numbers where applicable.
 
-## Branching
+## Pull Request Process
 
-- `master` is the release branch — always deployable
-- `dev` is the working branch — all development happens here
-- Feature work goes on topic branches off `dev`
-- Merge to `master` only for tagged releases
+1. Fork the repo and create a branch from `master`
+2. Make your changes
+3. Test locally with Docker
+4. Submit a PR with a clear description of what and why
+5. Wait for review
 
-## Testing
+## Security Vulnerabilities
 
-O.D.I.N. has a comprehensive QA suite with 1,031 automated tests across 5 phases.
+**Do NOT open public issues for security vulnerabilities.** Email security@runsodin.com instead. See [SECURITY.md](SECURITY.md).
 
-```bash
-# Install test dependencies
-pip install -r tests/requirements-test.txt
+## License
 
-# Run all tests
-ADMIN_PASSWORD=<your-admin-password> pytest tests/ -v --tb=short
-
-# Run specific phases
-ADMIN_PASSWORD=<your-admin-password> pytest tests/test_rbac.py -v      # RBAC (863 tests)
-pytest tests/test_security.py -v                                        # Security (31 tests)
-pytest tests/test_features.py -v                                        # Features (62 tests)
-ADMIN_PASSWORD=<your-admin-password> pytest tests/test_e2e/ -v          # E2E (75 tests)
-```
-
-If you add or change API endpoints, please verify RBAC coverage with the test suite. New features should include test coverage where practical.
-
-## Scope
-
-This project targets self-hosted, air-gapped environments. Contributions should not introduce external service dependencies (cloud APIs, CDNs, analytics, telemetry).
+By contributing, you agree that your contributions will be licensed under the same [BSL 1.1](LICENSE) license as the project. Contributions will become Apache 2.0 licensed when the BSL converts on 2029-02-07.

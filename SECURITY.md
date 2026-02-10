@@ -2,145 +2,97 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | ✅ Current          |
-| < 1.0   | ❌ Not supported    |
+| Version | Supported |
+|---------|-----------|
+| 1.0.x   | ✅ Active |
+| < 1.0   | ❌ No     |
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly.
+If you discover a security vulnerability in O.D.I.N., **please report it responsibly**.
 
-**Do not open a public GitHub issue for security vulnerabilities.**
+### How to report
 
-Email: sublab3dp@gmail.com
+Email **security@runsodin.com** with:
 
-Include:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
+1. Description of the vulnerability
+2. Steps to reproduce
+3. Affected version(s)
+4. Impact assessment (what an attacker could do)
+5. Any suggested fix (optional but appreciated)
 
-You should receive a response within 48 hours.
+### What to expect
+
+- **Acknowledgment** within 48 hours
+- **Assessment** within 7 days
+- **Fix or mitigation** within 30 days for critical/high severity
+- **Credit** in the changelog and release notes (unless you prefer anonymity)
+
+### Please do NOT
+
+- Open a public GitHub issue for security vulnerabilities
+- Share vulnerability details publicly before a fix is available
+- Access, modify, or delete data belonging to other users during testing
 
 ## Security Architecture
 
-O.D.I.N. is designed for deployment in controlled, air-gapped environments. Security is a core design constraint, not an afterthought.
+O.D.I.N. is designed for self-hosted, air-gapped environments. Key security features:
 
 ### Authentication & Authorization
-- **JWT-based authentication** with configurable expiry
-- **Role-based access control (RBAC)** enforced on all 164 API endpoints — admin, operator, viewer
-- **334 automated RBAC tests** verifying endpoint-level access control
-- **bcrypt password hashing** with salt
-- **OIDC/SSO support** for Microsoft Entra ID integration (GCC High compatible)
-- **Visual permissions editor** for granular access control
-- **Rate limiting** — 10 login attempts per 5-minute window per IP
-- **Account lockout** — auto-lock after 5 failed attempts (15-minute cooldown)
-- **Password complexity** — minimum 8 characters, requires uppercase + lowercase + number
-- **Login audit trail** — all attempts logged with IP address
+- JWT-based authentication with configurable secret keys
+- Role-based access control (Viewer / Operator / Admin) enforced on all 164 API endpoints
+- OIDC/SSO support for enterprise identity providers
+- Rate limiting (10 login attempts per 5-minute window per IP)
+- Account lockout after 5 failed attempts (15-minute cooldown)
+- Password complexity enforcement (8+ chars, upper + lower + number)
 
 ### Data Protection
-- All data stored locally (SQLite with WAL mode) — no external database connections
-- Printer credentials (access codes, API keys) encrypted at rest with Fernet
-- No telemetry, analytics, or external API calls
-- No external CDN dependencies (fonts, scripts, stylesheets)
-- Database backup/restore functionality with admin-only access
+- Printer credentials encrypted at rest (Fernet symmetric encryption)
+- Auto-generated secrets on first run (no hardcoded defaults in production)
+- No telemetry, no analytics, no data leaves your network
+- SQLite database with WAL mode for safe concurrent access
 
 ### Network Security
-- Designed for LAN-only deployment behind a firewall
-- No outbound internet connections required (except optional: OIDC, SMTP, webhooks)
-- MQTT communication stays within the local network
-- Moonraker/Klipper REST polling stays within local network
-- Static branding assets are the only unauthenticated routes (`/static/branding/*`, `/api/branding`)
+- All printer communication stays on your local network
+- No cloud dependencies or phone-home behavior
+- License verification is fully offline (Ed25519 signature validation)
+- Camera streams proxied through go2rtc (credentials not exposed to browser)
 
-### Notification Security
-- **Browser Push**: VAPID keys stored in database, not exposed to clients beyond public key
-- **Email/SMTP**: Credentials stored in system_config table, supports STARTTLS
-- **Webhooks**: URLs stored server-side, webhook secrets never exposed to frontend
-- **All notifications**: Per-user opt-in preferences, no data sent without consent
+### Audit Trail
+- All login attempts logged with IP address and timestamp
+- Administrative actions recorded in audit log
+- Searchable audit log viewer (admin-only)
 
-### License System
-- **Ed25519 cryptographic signatures** — license keys are offline-verifiable signed tokens
-- **Air-gap friendly** — no phone home, no cloud validation, no internet required
-- **No license generator in repo** — the signing key is never distributed
+## Security Audit History
 
-### ITAR/CMMC Considerations
-- Fully self-hosted — no cloud services required
-- Air-gap ready — runs entirely on local network
-- Audit logging for accountability
-- Role-based access limits data exposure
-- No data leaves the network boundary
-- OIDC/SSO can be configured for GCC High environments
+| Date | Version | Findings | Resolved |
+|------|---------|----------|----------|
+| 2026-02-09 | v1.0.0 | 53 findings (7 ship-blocking, 5 high, 12 medium, 8 low) | All 53 resolved |
 
-## Secrets Management
-
-### Docker Deployment (Recommended)
-
-On first run with `docker-compose up`, secrets are **auto-generated** and persisted to the `odin-data/` volume. No manual secret management is required for standard deployments.
-
-| Secret | Location | Purpose |
-|--------|----------|---------|
-| `ENCRYPTION_KEY` | `odin-data/.env` (auto) | Fernet encryption for printer credentials |
-| `JWT_SECRET_KEY` | `odin-data/.env` (auto) | JWT token signing |
-| `API_KEY` | `odin-data/.env` (auto) | API authentication |
-| VAPID keys | Database `system_config` | Browser push notifications |
-| SMTP password | Database `system_config` | Email notifications |
-| OIDC client secret | Database `oidc_config` | SSO authentication |
-| Webhook URLs | Database `webhooks` | Discord/Slack notifications |
-
-### Manual Secret Generation
-
-If deploying without Docker or rotating secrets manually:
-
-```bash
-# Generate API_KEY
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-
-# Generate JWT_SECRET
-python3 -c "import secrets; print(secrets.token_urlsafe(64))"
-
-# Generate ENCRYPTION_KEY (Fernet)
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
+### Ship-blocking fixes in v1.0.0
+- RBAC enforcement on all mutating API endpoints
+- JWT secret unification (OIDC + local auth)
+- Setup endpoints locked after completion (SSRF prevention)
+- Auth bypass fixes on label and branding endpoints
+- SQL injection prevention via column whitelist on user updates
+- Admin-only access on audit logs and backup downloads
 
 ## Hardening Recommendations
 
 For production deployments:
 
-1. **Reverse proxy** — Put nginx/caddy in front with TLS termination
-2. **Firewall** — Restrict access to the server's IP and port
-3. **Unique secrets** — Verify auto-generated secrets exist in `odin-data/` (Docker handles this)
-4. **Database backups** — Use the built-in backup feature or schedule SQLite backups
-5. **OS hardening** — Follow CIS benchmarks for your host OS
-6. **Network segmentation** — Isolate the print farm VLAN from general network traffic
-7. **OIDC/SSO** — Use enterprise SSO instead of local passwords for compliance environments
-8. **Audit logs** — Review audit_logs table periodically for suspicious activity
+1. **Use a reverse proxy** (Nginx, Caddy, Traefik) with TLS termination
+2. **Set strong environment variables** — don't rely on auto-generated defaults for high-security environments
+3. **Restrict network access** — O.D.I.N. only needs to reach your printers on the local network
+4. **Back up regularly** — use the built-in backup feature in Settings → Data
+5. **Keep updated** — `docker compose pull && docker compose up -d`
+6. **Review audit logs** — check Settings → Audit Logs periodically
 
-## Security Testing
+## Scope
 
-O.D.I.N. includes automated security testing as part of its QA suite:
+This security policy covers the O.D.I.N. application code in this repository. It does not cover:
 
-- **31 security-specific tests** covering auth bypass, injection, session management
-- **334 RBAC tests** verifying all 164 API endpoints enforce proper role restrictions
-- **53 security findings** identified and resolved during pre-release audit
-
-To run the security test suite:
-
-```bash
-pip install -r tests/requirements-test.txt
-pytest tests/test_security.py -v --tb=short
-ADMIN_PASSWORD=<your-admin-password> pytest tests/test_rbac.py -v --tb=short
-```
-
-## Files Excluded from Version Control
-
-The following are gitignored and should never be committed:
-
-- `.env` — Contains all secrets
-- `odin-data/` — Database, backups, secrets volume
-- `backend/printfarm.db` — Production database
-- `backend/printfarm.db-shm` — SQLite WAL shared memory
-- `backend/printfarm.db-wal` — SQLite WAL log
-- `backend/backups/` — Database backup files
-- `go2rtc/go2rtc.yaml` — Contains camera credentials
-- `frontend/dist/` — Built frontend (contains baked-in env vars)
+- Third-party dependencies (report those to their maintainers)
+- Your network infrastructure or reverse proxy configuration
+- Printer firmware vulnerabilities
+- The go2rtc binary (report to [AlexxIT/go2rtc](https://github.com/AlexxIT/go2rtc))
