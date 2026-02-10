@@ -506,3 +506,23 @@ class MoonrakerMonitor:
                 
         except Exception as e:
             log.warning(f"[{self.name}] Filament deduction failed: {e}")
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+
+    # Daemon mode: keep running even if no printers exist yet.
+    while True:
+        threads = start_moonraker_monitors()
+        if not threads:
+            log.info("No Moonraker printers found in database — sleeping 60s")
+            time.sleep(60)
+            continue
+
+        log.info(f"Monitoring {len(threads)} Moonraker printer(s)")
+        try:
+            while True:
+                time.sleep(60)
+        except KeyboardInterrupt:
+            for t in threads:
+                t.stop()
+            break

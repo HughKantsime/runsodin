@@ -250,7 +250,7 @@ def start_prusalink_monitors():
         for row in rows:
             printer_id = row["id"]
             name = row["name"]
-            host = row["ip_address"]
+            host = row["api_host"]
             api_key_raw = row["api_key"] or ""
 
             # Decrypt credentials if encrypted (same as Moonraker)
@@ -290,10 +290,15 @@ def start_prusalink_monitors():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-    threads = start_prusalink_monitors()
-    if not threads:
-        log.info("No PrusaLink printers found in database")
-    else:
+
+    # Daemon mode: keep running even if no printers exist yet.
+    while True:
+        threads = start_prusalink_monitors()
+        if not threads:
+            log.info("No PrusaLink printers found in database — sleeping 60s")
+            time.sleep(60)
+            continue
+
         log.info(f"Monitoring {len(threads)} PrusaLink printer(s)")
         try:
             while True:
@@ -301,3 +306,4 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             for t in threads:
                 t.stop()
+            break

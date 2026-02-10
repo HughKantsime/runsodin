@@ -268,7 +268,7 @@ def start_elegoo_monitors():
         for row in rows:
             printer_id = row["id"]
             name = row["name"]
-            host = row["ip_address"]
+            host = row["api_host"]
             mainboard_id = ""
 
             # api_key stores mainboard_id for Elegoo (no auth needed)
@@ -294,7 +294,6 @@ def start_elegoo_monitors():
 
     return threads
 
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -309,10 +308,14 @@ if __name__ == "__main__":
             print("  No printers found.")
         sys.exit(0)
 
-    threads = start_elegoo_monitors()
-    if not threads:
-        log.info("No Elegoo printers found in database")
-    else:
+    # Daemon mode: keep running even if no printers exist yet.
+    while True:
+        threads = start_elegoo_monitors()
+        if not threads:
+            log.info("No Elegoo printers found in database — sleeping 60s")
+            time.sleep(60)
+            continue
+
         log.info(f"Monitoring {len(threads)} Elegoo printer(s)")
         try:
             while True:
@@ -320,3 +323,4 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             for t in threads:
                 t.stop()
+            break
