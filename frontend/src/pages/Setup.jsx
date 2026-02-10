@@ -7,6 +7,7 @@ const STEPS = [
   { id: 'welcome', title: 'Welcome' },
   { id: 'admin', title: 'Create Admin' },
   { id: 'printer', title: 'Add Printer' },
+  { id: 'network', title: 'Network' },
   { id: 'done', title: 'Ready' },
 ]
 
@@ -71,6 +72,10 @@ export default function Setup() {
   const [testLoading, setTestLoading] = useState(false)
   const [printerAdded, setPrinterAdded] = useState(false)
   const [addedPrinters, setAddedPrinters] = useState([])
+  // Network form
+  const [hostIp, setHostIp] = useState('')
+  const [detectedIp, setDetectedIp] = useState('')
+  const [networkSaved, setNetworkSaved] = useState(false)
 
   // Auto-set slot count when model changes
   useEffect(() => {
@@ -512,6 +517,70 @@ export default function Setup() {
     </div>
   )
 
+  const handleSaveNetwork = async () => {
+    setError('')
+    setIsLoading(true)
+    try {
+      const authToken = token || localStorage.getItem('token')
+      const resp = await fetch('/api/setup/network', {
+        method: 'POST',
+        headers: apiHeaders(authToken),
+        body: JSON.stringify({ host_ip: hostIp })
+      })
+      if (!resp.ok) {
+        const data = await resp.json()
+        throw new Error(data.detail || 'Failed to save')
+      }
+      setNetworkSaved(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const renderNetwork = () => {
+    // Auto-detect IP on mount
+    if (!detectedIp) {
+      const authToken = token || localStorage.getItem('token')
+      fetch('/api/setup/network', { headers: apiHeaders(authToken) })
+        .then(r => r.json())
+        .then(data => {
+          setDetectedIp(data.detected_ip || '')
+          if (!hostIp && data.detected_ip) setHostIp(data.detected_ip)
+        })
+        .catch(() => {})
+    }
+    return (
+      <div>
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold text-white mb-2">Network Configuration</h2>
+          <p className="text-white/50 text-sm max-w-sm mx-auto">
+            Set the IP address of this server so cameras can stream to your browser. This is the LAN IP where O.D.I.N. is running.
+          </p>
+        </div>
+        {errorBar()}
+        <div className="space-y-4">
+          <div>
+            <label className={labelClass}>Host IP Address</label>
+            <input type="text" value={hostIp} onChange={e => { setHostIp(e.target.value); setNetworkSaved(false) }} placeholder="e.g. 192.168.1.100" className={inputClass} />
+            {detectedIp && <p className="text-xs text-white/40 mt-1">Auto-detected: {detectedIp}</p>}
+          </div>
+          <p className="text-xs text-white/30">This is needed for WebRTC camera streaming. Use the LAN IP that your browser can reach — not 127.0.0.1 or a Docker internal IP.</p>
+          {networkSaved && <div className="p-3 bg-emerald-900/30 border border-emerald-700/50 rounded-lg text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 size={16} /> Network configured successfully</div>}
+          <div className="flex gap-3 pt-2">
+            <button onClick={handleSaveNetwork} disabled={!hostIp || isLoading} className={btnPrimary + " flex-1"}>
+              {isLoading ? 'Saving...' : networkSaved ? 'Saved ✓' : 'Save Network Config'}
+            </button>
+            <button onClick={() => setStep(step + 1)} className={btnSecondary}>
+              {networkSaved ? 'Continue' : 'Skip'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const renderDone = () => (
     <div className="text-center">
       <div className="mb-6">
@@ -543,7 +612,7 @@ export default function Setup() {
     </div>
   )
 
-  const stepViews = [renderWelcome, renderAdmin, renderPrinter, renderDone]
+  const stepViews = [renderWelcome, renderAdmin, renderPrinter, renderNetwork, renderDone]
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#0f1117' }}>

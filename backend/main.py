@@ -1384,6 +1384,31 @@ def setup_mark_complete(db: Session = Depends(get_db)):
     db.commit()
     return {"status": "complete"}
 
+@app.get("/api/setup/network", tags=["Setup"])
+def setup_network_info():
+    """Return auto-detected host IP for network configuration."""
+    lan_ip = _get_lan_ip()
+    return {"detected_ip": lan_ip or "", "configured_ip": os.environ.get("ODIN_HOST_IP", "")}
+
+@app.post("/api/setup/network", tags=["Setup"])
+async def setup_save_network(request: Request, db: Session = Depends(get_db)):
+    """Save host IP for WebRTC camera streaming."""
+    data = await request.json()
+    host_ip = data.get("host_ip", "").strip()
+    if not host_ip:
+        raise HTTPException(status_code=400, detail="host_ip is required")
+    import re
+    if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", host_ip):
+        raise HTTPException(status_code=400, detail="Invalid IP address format")
+    existing = db.execute(text("SELECT 1 FROM system_config WHERE key = 'host_ip'")).fetchone()
+    if existing:
+        db.execute(text("UPDATE system_config SET value = :v WHERE key = 'host_ip'"), {"v": host_ip})
+    else:
+        db.execute(text("INSERT INTO system_config (key, value) VALUES ('host_ip', :v)"), {"v": host_ip})
+    db.commit()
+    sync_go2rtc_config(db)
+    return {"success": True, "host_ip": host_ip}
+
 
 # ============== Models ==============
 
@@ -5002,7 +5027,14 @@ def sync_go2rtc_config(db: Session):
         if url:
             streams[f"printer_{p.id}"] = url
     webrtc_config = {"listen": "0.0.0.0:8555"}
-    lan_ip = os.environ.get("ODIN_HOST_IP") or _get_lan_ip()
+    # Priority: env var > system_config > auto-detect
+    lan_ip = os.environ.get("ODIN_HOST_IP")
+    if not lan_ip:
+        row = db.execute(text("SELECT value FROM system_config WHERE key = 'host_ip'")).fetchone()
+        if row:
+            lan_ip = row[0]
+    if not lan_ip:
+        lan_ip = _get_lan_ip()
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
         logger.info(f"go2rtc WebRTC ICE candidate: {lan_ip}:8555")

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import usePushNotifications from '../hooks/usePushNotifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload} from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi} from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -170,6 +170,103 @@ function AuditLogViewer() {
             {log.ip_address && <span className="text-farm-600">{log.ip_address}</span>}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function NetworkTab() {
+  const [hostIp, setHostIp] = useState('')
+  const [detectedIp, setDetectedIp] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const headers = { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    fetch('/api/setup/network', { headers })
+      .then(r => r.json())
+      .then(data => {
+        setDetectedIp(data.detected_ip || '')
+        // Show configured IP if available, otherwise show detected
+        const configuredRow = data.configured_ip
+        if (configuredRow) setHostIp(configuredRow)
+        else if (data.detected_ip) setHostIp(data.detected_ip)
+      })
+      .catch(() => {})
+    // Also fetch from system_config
+    fetch('/api/admin/oidc', { headers }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const headers = { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+    fetch('/api/settings', { headers })
+      .then(r => r.json())
+      .then(data => {
+        if (data.host_ip) setHostIp(data.host_ip)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSave = async () => {
+    setError('')
+    setSaving(true)
+    setSaved(false)
+    try {
+      const headers = { 'Content-Type': 'application/json', 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      const resp = await fetch('/api/setup/network', { method: 'POST', headers, body: JSON.stringify({ host_ip: hostIp }) })
+      if (!resp.ok) {
+        const data = await resp.json()
+        throw new Error(data.detail || 'Failed to save')
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="flex items-center gap-2 md:gap-3 mb-4">
+        <Wifi size={18} className="text-print-400" />
+        <h2 className="text-lg md:text-xl font-display font-semibold">Network & Camera Streaming</h2>
+      </div>
+      <p className="text-farm-500 text-sm mb-4">
+        Configure the host IP address for WebRTC camera streaming. This should be the LAN IP of the server running O.D.I.N., reachable from your browser.
+      </p>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-farm-300 mb-1.5">Host IP Address</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={hostIp}
+              onChange={e => { setHostIp(e.target.value); setSaved(false) }}
+              placeholder="e.g. 192.168.1.100"
+              className="flex-1 px-3 py-2 rounded bg-farm-800 border border-farm-700 text-farm-100 placeholder-farm-600 focus:outline-none focus:ring-2 focus:ring-print-500/50 focus:border-print-500/50"
+            />
+            <button
+              onClick={handleSave}
+              disabled={!hostIp || saving}
+              className="px-4 py-2 rounded bg-print-600 hover:bg-print-500 text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+              {saved ? 'Saved!' : 'Save'}
+            </button>
+          </div>
+          {detectedIp && <p className="text-xs text-farm-600 mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
+        </div>
+        {error && (
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded text-sm text-red-300">
+            {error}
+          </div>
+        )}
+        <p className="text-xs text-farm-600">
+          Without this setting, camera streams may show a black screen. The IP is used for WebRTC ICE candidates so your browser can connect to the go2rtc video relay. Changes take effect immediately.
+        </p>
       </div>
     </div>
   )
@@ -552,6 +649,7 @@ export default function Settings() {
     { id: 'users', label: 'Users', icon: Users },
     { id: 'permissions', label: 'Permissions', icon: Shield },
     { id: 'branding', label: 'Branding', icon: Palette },
+    { id: 'network', label: 'Network', icon: Wifi },
     { id: 'data', label: 'Data', icon: Database },
     { id: 'license', label: 'License', icon: FileText },
   ]
@@ -1023,6 +1121,9 @@ export default function Settings() {
 
       </div>}
 
+      {activeTab === 'network' && <div className="max-w-4xl">
+        <NetworkTab />
+      </div>}
       {/* ==================== DATA TAB ==================== */}
       {activeTab === 'license' && <div className="max-w-4xl">
         <LicenseTab />
