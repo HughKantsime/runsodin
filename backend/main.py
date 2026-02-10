@@ -3461,7 +3461,7 @@ async def get_unmatched_slots(printer_id: int, db: Session = Depends(get_db)):
         if slot.filament_type == FilamentType.OTHER:
             needs_attention = True
             reason.append("Unknown filament type")
-        if not slot.spoolman_id and slot.color_hex:
+        if not slot.spoolman_spool_id and slot.color_hex:
             needs_attention = True
             reason.append("No library match")
         if needs_attention:

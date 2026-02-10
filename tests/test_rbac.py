@@ -360,7 +360,7 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/users", _admin_only(), None, "List users"),
     ("POST",   "/api/users", _admin_only(),
      {"username": "rbac_tmp_99", "email": "rbac99@test.local", "password": "TmpPass1!"}, "Create user"),
-    ("PATCH",  "/api/users/1", _admin_only(), {"role": "viewer"}, "Update user"),
+    ("PATCH",  "/api/users/1", _admin_only(), {"email": "test@test.local"}, "Update user"),
     ("DELETE", "/api/users/99999", _admin_only(), None, "Delete user (nonexistent)"),
 
     # =========================================================================

@@ -49,6 +49,19 @@ EOF
 
 echo "  ✓ Configuration written"
 
+# ── Write environment file for supervisord processes ──
+cat > /data/.env.supervisor <<ENVEOF
+ENCRYPTION_KEY=${ENCRYPTION_KEY}
+JWT_SECRET_KEY=${JWT_SECRET_KEY}
+API_KEY=${API_KEY:-}
+DATABASE_URL=${DATABASE_URL:-sqlite:////data/odin.db}
+DATABASE_PATH=/data/odin.db
+BACKEND_PATH=/app/backend
+PYTHONUNBUFFERED=1
+ENVEOF
+chmod 600 /data/.env.supervisor
+echo "  ✓ Supervisor environment written"
+
 # ── Initialize database (creates tables if needed) ──
 cd /app/backend
 python3 -c "
@@ -210,6 +223,13 @@ echo "========================================="
 echo "  O.D.I.N. is ready!"
 echo "  Web UI: http://localhost:8000"
 echo "========================================="
+
+# ── Inject environment into supervisord config ──
+# Supervisord child processes don't inherit shell exports, so we inject them
+ENV_VARS="ENCRYPTION_KEY=\"${ENCRYPTION_KEY}\",JWT_SECRET_KEY=\"${JWT_SECRET_KEY}\",API_KEY=\"${API_KEY:-}\",DATABASE_URL=\"${DATABASE_URL:-sqlite:////data/odin.db}\",DATABASE_PATH=\"/data/odin.db\",BACKEND_PATH=\"/app/backend\",PYTHONUNBUFFERED=\"1\""
+
+sed -i "s|environment=PYTHONUNBUFFERED=\"1\"|environment=${ENV_VARS}|g" /etc/supervisor/conf.d/odin.conf
+echo "  ✓ Supervisor environment injected"
 
 # ── Start supervisord (manages all processes) ──
 exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/odin.conf
