@@ -5009,6 +5009,12 @@ def get_camera_url(printer):
     """Get RTSP URL for a printer - from camera_url field or auto-generated from Bambu credentials."""
     if printer.camera_url:
         return printer.camera_url
+    # Only auto-generate for models with built-in RTSP (X1C, X1E, H2D)
+    # A1/P1S require "LAN Live View" enabled in Bambu Handy first
+    RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+    model = (printer.model or '').strip()
+    if model not in RTSP_MODELS and printer.api_key and printer.api_host:
+        return None
     if printer.api_key and printer.api_host:
         try:
             parts = crypto.decrypt(printer.api_key).split("|")

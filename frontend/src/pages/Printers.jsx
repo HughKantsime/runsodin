@@ -69,7 +69,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   }
 
   const handleClear = () => {
-    onSave({ color: null, color_hex: null, spoolman_spool_id: null })
+    onSave({ filament_type: 'empty', color: null, color_hex: null, spoolman_spool_id: null })
     setIsEditing(false)
   }
 

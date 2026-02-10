@@ -814,7 +814,7 @@ class MQTTMonitorDaemon:
             
             # Also check staleness - no heartbeat in 60s
             if not is_dead and monitor._last_heartbeat > 0:
-                if time.time() - monitor._last_heartbeat > 60:
+                if time.time() - monitor._last_heartbeat > 120:
                     is_dead = True
             
             if is_dead:
@@ -858,7 +858,7 @@ class MQTTMonitorDaemon:
             
             # Check staleness for Moonraker
             if hasattr(monitor, '_last_heartbeat') and monitor._last_heartbeat > 0:
-                if time.time() - monitor._last_heartbeat > 60:
+                if time.time() - monitor._last_heartbeat > 120:
                     log.info(f"[{monitor.name}] Moonraker stale, reconnecting...")
                     try:
                         monitor.disconnect()
