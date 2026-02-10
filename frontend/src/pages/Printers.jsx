@@ -395,9 +395,14 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
   }, [printer, isOpen])
 
   const handleTestConnection = async () => {
-    if (!formData.api_host || !formData.serial || !formData.access_code) {
+    if (!formData.api_host) {
       setTestStatus('error')
-      setTestMessage('Please fill in IP, Serial, and Access Code')
+      setTestMessage('Please fill in the IP address')
+      return
+    }
+    if (formData.api_type === 'bambu' && (!formData.serial || !formData.access_code)) {
+      setTestStatus('error')
+      setTestMessage('Please fill in Serial and Access Code')
       return
     }
     
