@@ -71,6 +71,8 @@ class PrusaLinkMonitorThread(threading.Thread):
 
     def run(self):
         log.info(f"[{self.name}] PrusaLink monitor started for {self.host}")
+        # Auto-discover camera on startup
+        self._discover_and_save_camera()
         while self._running:
             try:
                 status = self.client.get_status()
@@ -79,6 +81,16 @@ class PrusaLinkMonitorThread(threading.Thread):
                 log.warning(f"[{self.name}] Poll error: {e}")
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] PrusaLink monitor stopped")
+
+    def _discover_and_save_camera(self):
+        """Discover camera URL and save to DB via printer_events."""
+        try:
+            cam_url = self.client.get_webcam_url()
+            if cam_url:
+                printer_events.discover_camera(self.printer_id, cam_url)
+                log.info(f"[{self.name}] Camera discovered: {cam_url}")
+        except Exception as e:
+            log.warning(f"[{self.name}] Camera discovery failed: {e}")
 
     def _process_status(self, status):
         """Process polled status — update DB, detect transitions, push events."""

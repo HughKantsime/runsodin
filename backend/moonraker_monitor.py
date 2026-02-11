@@ -77,6 +77,8 @@ class MoonrakerMonitor:
     def connect(self) -> bool:
         """Connect to the printer and start polling thread."""
         if self.printer.connect():
+            # Auto-discover camera URL and save to DB
+            self._discover_and_save_camera()
             self._running = True
             self._thread = threading.Thread(
                 target=self._poll_loop,
@@ -86,6 +88,17 @@ class MoonrakerMonitor:
             self._thread.start()
             return True
         return False
+
+    def _discover_and_save_camera(self):
+        """Save discovered webcam URL to DB via printer_events."""
+        try:
+            urls = self.printer.get_webcam_urls()
+            stream_url = urls.get("stream_url", "")
+            if stream_url:
+                printer_events.discover_camera(self.printer_id, stream_url)
+                log.info(f"[{self.name}] Camera discovered: {stream_url}")
+        except Exception as e:
+            log.warning(f"[{self.name}] Camera discovery failed: {e}")
     
     def disconnect(self):
         """Stop polling and disconnect."""
@@ -119,6 +132,7 @@ class MoonrakerMonitor:
             time.sleep(RECONNECT_INTERVAL)
             try:
                 if self.printer.connect():
+                    self._discover_and_save_camera()
                     log.info(f"[{self.name}] Reconnected")
                     return
             except Exception:

@@ -390,6 +390,27 @@ class ElegooPrinter:
             log.warning(f"SDCP command {cmd} failed: {e}")
             return False
 
+    def get_webcam_url(self) -> Optional[str]:
+        """Discover camera stream URL for Elegoo FDM printers.
+
+        Neptune 4 / Centauri Carbon expose an MJPEG stream on port 8080.
+        Resin printers (Saturn) typically have no camera.
+        """
+        import requests as _req
+        # Common camera endpoints for Elegoo FDM printers
+        candidates = [
+            f"http://{self.host}:8080/?action=stream",
+            f"http://{self.host}:8080/webcam/?action=stream",
+        ]
+        for url in candidates:
+            try:
+                resp = _req.head(url, timeout=3)
+                if resp.status_code == 200:
+                    return url
+            except Exception:
+                continue
+        return None
+
     def pause_print(self) -> bool:
         """Pause current print (Cmd 129)."""
         return self._send_command(SDCPCommand.PAUSE_PRINT)

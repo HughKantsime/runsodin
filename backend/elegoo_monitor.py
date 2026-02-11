@@ -76,6 +76,7 @@ class ElegooMonitorThread(threading.Thread):
 
     def run(self):
         log.info(f"[{self.name}] Elegoo SDCP monitor started for {self.host}")
+        camera_discovered = False
 
         while self._running:
             # Connect (or reconnect)
@@ -86,6 +87,10 @@ class ElegooMonitorThread(threading.Thread):
                     log.warning(f"[{self.name}] Connection failed, retrying in {RECONNECT_INTERVAL}s")
                     time.sleep(RECONNECT_INTERVAL)
                     continue
+                # Auto-discover camera on first connect
+                if not camera_discovered:
+                    self._discover_and_save_camera()
+                    camera_discovered = True
 
             # WebSocket is event-driven — just sleep and check connection health
             time.sleep(10)
@@ -97,6 +102,16 @@ class ElegooMonitorThread(threading.Thread):
                 time.sleep(2)
 
         log.info(f"[{self.name}] Elegoo SDCP monitor stopped")
+
+    def _discover_and_save_camera(self):
+        """Discover camera URL and save to DB via printer_events."""
+        try:
+            cam_url = self.client.get_webcam_url()
+            if cam_url:
+                printer_events.discover_camera(self.printer_id, cam_url)
+                log.info(f"[{self.name}] Camera discovered: {cam_url}")
+        except Exception as e:
+            log.warning(f"[{self.name}] Camera discovery failed: {e}")
 
     def _on_status_update(self, status: ElegooStatus):
         """Called by the adapter whenever a status WebSocket message arrives."""
