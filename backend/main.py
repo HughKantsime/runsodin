@@ -8057,7 +8057,7 @@ def get_order_invoice(
 
         from invoice_generator import InvoiceGenerator
         gen = InvoiceGenerator(branding, enriched.model_dump())
-        pdf_bytes = gen.generate()
+        pdf_bytes = bytes(gen.generate())
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
