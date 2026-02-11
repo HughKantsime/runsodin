@@ -71,11 +71,14 @@ const DEFAULTS = {
   support_url: "",
 }
 
-function getAuthHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'X-API-Key': import.meta.env.VITE_API_KEY
-  }
+function getAuthHeaders(contentType = 'application/json') {
+  const headers = {}
+  if (contentType) headers['Content-Type'] = contentType
+  const token = localStorage.getItem('token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const apiKey = import.meta.env.VITE_API_KEY
+  if (apiKey) headers['X-API-Key'] = apiKey
+  return headers
 }
 
 export default function Branding() {
@@ -137,10 +140,9 @@ export default function Branding() {
     const formData = new FormData()
     formData.append("file", file)
     try {
-      const token = localStorage.getItem("token")
       const res = await fetch(`${API_BASE}/branding/${endpoint}`, {
         method: 'POST',
-        headers: { 'X-API-Key': import.meta.env.VITE_API_KEY },
+        headers: getAuthHeaders(null),
         body: formData
       })
       if (!res.ok) throw new Error("Upload failed")
@@ -154,10 +156,9 @@ export default function Branding() {
 
   const handleRemoveLogo = async () => {
     try {
-      const token = localStorage.getItem("token")
       const res = await fetch(`${API_BASE}/branding/logo`, {
         method: 'DELETE',
-        headers: { 'X-API-Key': import.meta.env.VITE_API_KEY },
+        headers: getAuthHeaders(null),
       })
       if (!res.ok) throw new Error("Remove failed")
       setBranding(prev => ({ ...prev, logo_url: null }))
