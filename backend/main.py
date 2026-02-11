@@ -7896,10 +7896,14 @@ def get_order_invoice(
     gen = InvoiceGenerator(branding, enriched.model_dump())
     pdf_bytes = gen.generate()
 
-    return StreamingResponse(
-        iter([pdf_bytes]),
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=invoice_{order.order_number or order.id}.pdf"}
+        headers={
+            "Content-Disposition": f"attachment; filename=invoice_{order.order_number or order.id}.pdf",
+            "Content-Length": str(len(pdf_bytes)),
+        }
     )
 
 
