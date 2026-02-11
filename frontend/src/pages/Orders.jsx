@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { orders, products } from '../api'
-import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText } from 'lucide-react'
 
 const STATUS_CLASSES = {
   pending: 'bg-status-pending/20 text-status-pending',
@@ -146,6 +146,26 @@ export default function Orders() {
       }
     } catch (err) {
       console.error('Failed to ship:', err)
+    }
+  }
+
+  const handleDownloadInvoice = async (order) => {
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/orders/${order.id}/invoice.pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) throw new Error('Failed to generate invoice')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `invoice_${order.order_number || order.id}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Invoice download failed:', err)
+      alert('Failed to download invoice')
     }
   }
 
@@ -547,21 +567,28 @@ export default function Orders() {
                 </span>
                 <div className="flex gap-2">
                   {selectedOrder.status === 'pending' && (
-                    <button 
-                      onClick={() => handleSchedule(selectedOrder.id)} 
+                    <button
+                      onClick={() => handleSchedule(selectedOrder.id)}
                       className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm"
                     >
                       Schedule Jobs
                     </button>
                   )}
                   {selectedOrder.status === 'fulfilled' && (
-                    <button 
-                      onClick={() => handleShip(selectedOrder.id)} 
+                    <button
+                      onClick={() => handleShip(selectedOrder.id)}
                       className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm"
                     >
                       Mark Shipped
                     </button>
                   )}
+                  <button
+                    onClick={() => handleDownloadInvoice(selectedOrder)}
+                    className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm flex items-center gap-2"
+                    title="Download Invoice PDF"
+                  >
+                    <FileText size={14} /> Invoice
+                  </button>
                 </div>
               </div>
 
