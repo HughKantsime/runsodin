@@ -304,6 +304,41 @@ class PrusaLinkPrinter:
             log.warning(f"PrusaLink resume failed: {e}")
             return False
 
+    def get_webcam_url(self) -> Optional[str]:
+        """Discover camera snapshot URL from PrusaLink.
+
+        Prusa printers expose a snapshot endpoint. Newer firmware has
+        /api/v1/cameras; older firmware uses the OctoPrint-compatible
+        /webcam/?action=snapshot path.
+        """
+        # Try /api/v1/cameras first (newer firmware)
+        try:
+            data = self._get("/api/v1/cameras")
+            if data and isinstance(data, list) and data:
+                cam = data[0]
+                # The camera config contains resolution info; the actual
+                # snapshot/stream is at a fixed path
+                return f"{self.base_url}/api/v1/cameras/snap"
+        except Exception:
+            pass
+
+        # Fallback: try the snapshot endpoint directly
+        try:
+            url = f"{self.base_url}/webcam/?action=snapshot"
+            headers = {}
+            kwargs = {"timeout": 5}
+            if self.api_key:
+                headers["X-Api-Key"] = self.api_key
+            else:
+                kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
+            resp = requests.head(url, headers=headers, **kwargs)
+            if resp.status_code == 200:
+                return url
+        except Exception:
+            pass
+
+        return None
+
     def stop_print(self, job_id: int) -> bool:
         """DELETE /api/v1/job/{id} — stop/cancel current print."""
         try:

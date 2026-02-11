@@ -5194,16 +5194,20 @@ import yaml
 GO2RTC_CONFIG = os.environ.get("GO2RTC_CONFIG", "/app/go2rtc/go2rtc.yaml")
 
 def get_camera_url(printer):
-    """Get RTSP URL for a printer - from camera_url field or auto-generated from Bambu credentials."""
+    """Get camera URL for a printer - from DB field or auto-generated from credentials.
+
+    Works for all printer types:
+    - Bambu: auto-generates RTSP URL from serial|access_code credentials
+    - Moonraker/PrusaLink/Elegoo: uses camera_url populated by monitor auto-discovery
+    """
     if printer.camera_url:
         return printer.camera_url
-    # Only auto-generate for models with built-in RTSP (X1C, X1E, H2D)
-    # A1/P1S require "LAN Live View" enabled in Bambu Handy first
-    RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
-    model = (printer.model or '').strip()
-    if model not in RTSP_MODELS and printer.api_key and printer.api_host:
-        return None
-    if printer.api_key and printer.api_host:
+    # Auto-generate RTSP URL for Bambu printers with built-in cameras
+    if printer.api_type == "bambu" and printer.api_key and printer.api_host:
+        RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+        model = (printer.model or '').strip()
+        if model not in RTSP_MODELS:
+            return None
         try:
             parts = crypto.decrypt(printer.api_key).split("|")
             if len(parts) == 2:
@@ -7889,12 +7893,18 @@ def get_order_invoice(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    enriched = _enrich_order_response(order, db)
-    branding = branding_to_dict(get_or_create_branding(db))
+    try:
+        enriched = _enrich_order_response(order, db)
+        branding = branding_to_dict(get_or_create_branding(db))
 
-    from invoice_generator import InvoiceGenerator
-    gen = InvoiceGenerator(branding, enriched.model_dump())
-    pdf_bytes = gen.generate()
+        from invoice_generator import InvoiceGenerator
+        gen = InvoiceGenerator(branding, enriched.model_dump())
+        pdf_bytes = gen.generate()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[invoice] PDF generation failed for order {order_id}: {e}\n{tb}")
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
     from fastapi.responses import Response
     return Response(
