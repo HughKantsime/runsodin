@@ -26,7 +26,7 @@ except ImportError:
 # ── Embedded public key (ships with the software) ──
 # Replace this with your actual public key after running generate_license.py --keygen
 ODIN_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEASQ/2C3Ee4lswyEhLoQTtualXqnKhSngyPwoF8mxg/L0=
+MCowBQYDK2VwAyEA3nynDyOQuT1rfhSxbZD3gseI7Uq4TdbTVf4cZKgKaLw=
 -----END PUBLIC KEY-----
 """
 
