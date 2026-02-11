@@ -259,16 +259,18 @@ function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Fleet Status */}
         {printersData && (!collapsed || mobileOpen) && (
-          <NavLink to="/printers" className="flex-shrink-0 px-4 py-3 flex items-center gap-2 hover:opacity-80 transition-opacity" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
-            <div className="flex gap-0.5">
+          <NavLink to="/printers" className="flex-shrink-0 px-4 py-3 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-xs font-medium whitespace-nowrap" style={{ color: 'var(--brand-sidebar-text)' }}>
+                {printersData.filter(p => p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000).length}/{printersData.length} online
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-0.5">
               {printersData.map(p => {
                 const online = p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000
                 return <div key={p.id} className={`w-2 h-2 rounded-full ${online ? 'bg-green-500' : 'bg-farm-600'}`} />
               })}
             </div>
-            <span className="text-xs" style={{ color: 'var(--brand-sidebar-text)' }}>
-              {printersData.filter(p => p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000).length}/{printersData.length} online
-            </span>
           </NavLink>
         )}
 
