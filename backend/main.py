@@ -7077,7 +7077,7 @@ def get_current_nozzle(printer_id: int, current_user: dict = Depends(require_rol
         NozzleLifecycle.removed_at.is_(None)
     ).first()
     if not nozzle:
-        raise HTTPException(status_code=404, detail="No active nozzle tracked for this printer")
+        return None
     return NozzleLifecycleResponse.model_validate(nozzle)
 
 
