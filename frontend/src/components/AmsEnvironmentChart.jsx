@@ -15,9 +15,11 @@ export default function AmsEnvironmentChart({ printerId, onClose }) {
     setLoading(true)
     try {
       const result = await getAmsEnvironment(printerId, hours)
-      const formatted = (result || []).map(d => ({
+      const units = result?.units || {}
+      const allPoints = Object.values(units).flat()
+      const formatted = allPoints.map(d => ({
         ...d,
-        time: new Date(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         temp: d.temperature != null ? parseFloat(d.temperature.toFixed(1)) : null,
         humidity: d.humidity != null ? parseFloat(d.humidity.toFixed(1)) : null,
       }))
