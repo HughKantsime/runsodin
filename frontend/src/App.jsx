@@ -27,6 +27,7 @@ import {
   Circle,
   Sun,
   Moon,
+  Package,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -46,6 +47,7 @@ import Analytics from './pages/Analytics'
 import Utilization from './pages/Utilization'
 import SettingsPage from './pages/Settings'
 import Spools from './pages/Spools'
+import Consumables from './pages/Consumables'
 import Upload from './pages/Upload'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
@@ -230,6 +232,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
             {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>Models</NavItem>}
             {adv && lic.isPro && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products{!lic.isPro && <ProBadge />}</NavItem>}
             {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>Spools</NavItem>}
+            {adv && lic.isPro && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
           {/* Monitor */}
@@ -437,6 +440,7 @@ export default function App() {
             <Route path="/utilization" element={<ProGate feature="analytics"><Utilization /></ProGate>} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/spools" element={<Spools />} />
+            <Route path="/consumables" element={<ProGate feature="products"><Consumables /></ProGate>} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/admin" element={<Navigate to="/settings" replace />} />
             <Route path="/permissions" element={<ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate>} />

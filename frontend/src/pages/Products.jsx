@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { products, models } from '../api'
+import { products, models, consumables as consumablesApi } from '../api'
 import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
 
 export default function Products() {
@@ -11,6 +11,9 @@ export default function Products() {
   const [formData, setFormData] = useState({ name: '', sku: '', price: '', description: '' })
   const [components, setComponents] = useState([])
   const [expandedProduct, setExpandedProduct] = useState(null)
+  const [consumableList, setConsumableList] = useState([])
+  const [addingConsumable, setAddingConsumable] = useState(null) // product id
+  const [newConsumable, setNewConsumable] = useState({ consumable_id: '', quantity_per_product: 1 })
 
   useEffect(() => {
     loadData()
@@ -18,9 +21,10 @@ export default function Products() {
 
   const loadData = async () => {
     try {
-      const [prods, mods] = await Promise.all([products.list(), models.list()])
+      const [prods, mods, cons] = await Promise.all([products.list(), models.list(), consumablesApi.list().catch(() => [])])
       setProductList(prods)
       setModelList(mods)
+      setConsumableList(cons)
     } catch (err) {
       console.error('Failed to load data:', err)
     } finally {
@@ -113,6 +117,35 @@ export default function Products() {
     }
   }
 
+  const handleAddConsumable = async (productId) => {
+    if (!newConsumable.consumable_id) return
+    try {
+      await products.addConsumable(productId, {
+        consumable_id: parseInt(newConsumable.consumable_id),
+        quantity_per_product: parseFloat(newConsumable.quantity_per_product) || 1
+      })
+      const full = await products.get(productId)
+      setExpandedProduct(full)
+      setAddingConsumable(null)
+      setNewConsumable({ consumable_id: '', quantity_per_product: 1 })
+      loadData()
+    } catch (err) {
+      console.error('Failed to add consumable:', err)
+      alert('Failed to add consumable')
+    }
+  }
+
+  const handleRemoveConsumable = async (productId, linkId) => {
+    try {
+      await products.removeConsumable(productId, linkId)
+      const full = await products.get(productId)
+      setExpandedProduct(full)
+      loadData()
+    } catch (err) {
+      console.error('Failed to remove consumable:', err)
+    }
+  }
+
   if (loading) return <div className="p-6 text-farm-300">Loading...</div>
 
   return (
@@ -195,7 +228,7 @@ export default function Products() {
                 </div>
                 {expandedProduct?.id === product.id && (
                   <div className="mt-3 pt-3 border-t border-farm-800">
-                    <h4 className="font-medium mb-2 text-sm text-farm-200">Bill of Materials</h4>
+                    <h4 className="font-medium mb-2 text-sm text-farm-200">Printed Components</h4>
                     {expandedProduct.components.length === 0 ? (
                       <p className="text-sm text-farm-500">No components.</p>
                     ) : (
@@ -207,6 +240,29 @@ export default function Products() {
                           </li>
                         ))}
                       </ul>
+                    )}
+                    <h4 className="font-medium mb-2 mt-3 text-sm text-farm-200 flex items-center justify-between">
+                      Consumables
+                      <button onClick={() => setAddingConsumable(addingConsumable === product.id ? null : product.id)} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"><Plus size={12} /> Add</button>
+                    </h4>
+                    {(expandedProduct.consumables || []).length === 0 && addingConsumable !== product.id && (
+                      <p className="text-sm text-farm-500">No consumables in BOM.</p>
+                    )}
+                    {(expandedProduct.consumables || []).map(c => (
+                      <div key={c.id} className="flex items-center justify-between text-sm text-farm-300 py-1">
+                        <span><span className="px-2 py-0.5 rounded bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span> {c.consumable_name || `Consumable #${c.consumable_id}`}</span>
+                        <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400"><X size={12} /></button>
+                      </div>
+                    ))}
+                    {addingConsumable === product.id && (
+                      <div className="flex gap-2 items-center mt-2">
+                        <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100">
+                          <option value="">Select consumable...</option>
+                          {consumableList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-16 rounded px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100" />
+                        <button onClick={() => handleAddConsumable(product.id)} className="px-2 py-1 text-xs bg-print-600 hover:bg-print-500 rounded">Add</button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -270,9 +326,9 @@ export default function Products() {
                     <tr>
                       <td colSpan={6} className="px-4 py-3 bg-farm-950">
                         <div className="ml-4">
-                          <h4 className="font-medium mb-2 text-farm-200">Bill of Materials</h4>
+                          <h4 className="font-medium mb-2 text-farm-200">Printed Components</h4>
                           {expandedProduct.components.length === 0 ? (
-                            <p className="text-sm text-farm-500">No components. This is a simple product.</p>
+                            <p className="text-sm text-farm-500">No printed components.</p>
                           ) : (
                             <ul className="space-y-1">
                               {expandedProduct.components.map(comp => (
@@ -282,6 +338,34 @@ export default function Products() {
                                 </li>
                               ))}
                             </ul>
+                          )}
+                          <h4 className="font-medium mb-2 mt-4 text-farm-200 flex items-center justify-between">
+                            Consumables
+                            <button onClick={() => setAddingConsumable(addingConsumable === product.id ? null : product.id)} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"><Plus size={14} /> Add</button>
+                          </h4>
+                          {(expandedProduct.consumables || []).length === 0 && addingConsumable !== product.id && (
+                            <p className="text-sm text-farm-500">No consumables in BOM.</p>
+                          )}
+                          <ul className="space-y-1">
+                            {(expandedProduct.consumables || []).map(c => (
+                              <li key={c.id} className="flex items-center justify-between text-sm text-farm-300">
+                                <span className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span>
+                                  <span>{c.consumable_name || `Consumable #${c.consumable_id}`}</span>
+                                </span>
+                                <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"><Trash2 size={12} /></button>
+                              </li>
+                            ))}
+                          </ul>
+                          {addingConsumable === product.id && (
+                            <div className="flex gap-2 items-center mt-2">
+                              <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100">
+                                <option value="">Select consumable...</option>
+                                {consumableList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                              <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-20 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100" placeholder="Qty" />
+                              <button onClick={() => handleAddConsumable(product.id)} className="px-3 py-1.5 text-xs bg-print-600 hover:bg-print-500 rounded-lg transition-colors">Add</button>
+                            </div>
                           )}
                         </div>
                       </td>
