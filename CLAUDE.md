@@ -53,7 +53,7 @@ Updates: `VERSION`, `frontend/package.json`, `backend/main.py` (`__version__`), 
 
 ### Backend (`backend/`)
 
-- **main.py** — Monolithic FastAPI app (~8500 lines, 215+ routes under `/api/`). All API routes, middleware, and core logic live here.
+- **main.py** — Monolithic FastAPI app (~9000 lines, 230+ routes under `/api/`). All API routes, middleware, and core logic live here.
 - **models.py** — SQLAlchemy ORM: Printer, Job, Model, Spool, FilamentSlot, etc.
 - **schemas.py** — Pydantic request/response models
 - **auth.py** — JWT (HS256, 24h expiry) + bcrypt password hashing
@@ -63,6 +63,7 @@ Updates: `VERSION`, `frontend/package.json`, `backend/main.py` (`__version__`), 
 - **printer_events.py** → **alert_dispatcher.py** — Observer pattern: state changes dispatch to push notifications, email, Discord/Slack webhooks, ntfy, Telegram
 - **ws_hub.py** — WebSocket event broadcasting to connected clients
 - **license_manager.py** — Air-gap Ed25519 license validation (Community/Pro/Education/Enterprise tiers)
+- **vision_monitor.py** — AI print failure detection daemon (spaghetti, first layer, detachment). ONNX inference on go2rtc camera frames. Per-printer threads, confirmation buffers, auto-pause.
 
 ### Monitor Daemons
 
@@ -71,13 +72,14 @@ Each runs as a separate supervisord process:
 - **moonraker_monitor.py** — Klipper REST polling (3-sec interval)
 - **prusalink_monitor.py** — Prusa HTTP polling
 - **elegoo_monitor.py** — Elegoo SDCP protocol
+- **vision_monitor.py** — Camera-based AI failure detection (priority 35, after go2rtc)
 
 ### Frontend (`frontend/src/`)
 
 - **App.jsx** — React Router layout + sidebar
-- **api.js** — Axios API client with all endpoint definitions
+- **api.js** — Fetch-based API client (`fetchAPI` wrapper) with all endpoint definitions
 - **permissions.js** — Client-side RBAC permission checker
-- **pages/** — ~20 page components (Dashboard, Printers, Jobs, Models, Orders, Spools, Timeline, Analytics, Settings, etc.)
+- **pages/** — ~20 page components (Dashboard, Printers, Jobs, Models, Orders, Spools, Timeline, Analytics, Settings, Detections, etc.)
 - **hooks/useWebSocket.js** — Real-time state updates from backend
 - **contexts/** — BrandingContext, LicenseContext
 
@@ -85,7 +87,7 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 
 ### Docker (`docker/`)
 
-- **supervisord.conf** — Manages all 6 processes with auto-restart
+- **supervisord.conf** — Manages all 7 processes with auto-restart
 - **entrypoint.sh** — Auto-generates secrets, initializes DB (WAL mode), creates tables
 - **go2rtc.yaml** — Camera streaming relay config
 
@@ -96,6 +98,14 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 3. Frontend receives real-time updates via WebSocket, falls back to HTTP polling
 4. Scheduler assigns pending jobs to printers by color-match score and availability
 
+### Vision AI (`backend/vision_monitor.py`)
+
+- DB tables: `vision_detections`, `vision_settings`, `vision_models` (created in `entrypoint.sh`, not SQLAlchemy)
+- Frames stored at `/data/vision_frames/{printer_id}/`, served via `/api/vision/frames/`
+- Models stored at `/data/vision_models/`, defaults copied from `backend/vision_models_default/` on first boot
+- Default thresholds duplicated in vision_monitor.py, main.py API defaults, and SQL schema — keep in sync
+- ONNX models tracked via **Git LFS** (`.gitattributes` tracks `*.onnx`) — GitHub rejects files >100 MB without LFS
+
 ## Key Conventions
 
 - **Auth model**: Three tiers — no headers (blocked), API key only (perimeter), JWT+API key (full RBAC with viewer/operator/admin roles)
@@ -103,6 +113,7 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 - **Database**: SQLite at `/data/odin.db`. Users table created via raw SQL (not in SQLAlchemy models) to support OIDC columns
 - **Secrets**: Auto-generated on first run, persisted in `/data/`. `ENCRYPTION_KEY` (Fernet), `JWT_SECRET_KEY`, `API_KEY`
 - **Pre-commit**: gitleaks for secret scanning
+- **Git LFS**: Required for binary assets >100 MB (ONNX models). `*.onnx` tracked in `.gitattributes`
 - **Version sources**: `VERSION` file is source of truth; also in `frontend/package.json`, `backend/main.py __version__`, `docker-compose.yml` image tag
 - **License**: BSL 1.1 (converts to Apache 2.0 on 2029-02-07). Cannot offer as hosted service to third parties.
 
