@@ -7878,6 +7878,31 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     }
 
 
+@app.get("/api/orders/{order_id}/invoice.pdf", tags=["Orders"])
+def get_order_invoice(
+    order_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db)
+):
+    """Generate a branded PDF invoice for an order."""
+    order = db.query(Order).options(joinedload(Order.items)).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    enriched = _enrich_order_response(order, db)
+    branding = branding_to_dict(get_or_create_branding(db))
+
+    from invoice_generator import InvoiceGenerator
+    gen = InvoiceGenerator(branding, enriched.model_dump())
+    pdf_bytes = gen.generate()
+
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=invoice_{order.order_number or order.id}.pdf"}
+    )
+
+
 @app.patch("/api/orders/{order_id}/ship", response_model=OrderResponse, tags=["Orders"])
 def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark an order as shipped."""
