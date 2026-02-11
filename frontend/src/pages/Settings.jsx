@@ -150,6 +150,26 @@ function AuditLogViewer() {
             <option value={100}>100</option>
             <option value={200}>200</option>
           </select>
+          <button
+            onClick={() => {
+              let url = `/api/export/audit-logs?`
+              if (filter.entity_type) url += `entity_type=${filter.entity_type}&`
+              if (filter.action) url += `action=${filter.action}&`
+              fetch(url, { headers: getApiHeaders() })
+                .then(r => r.blob())
+                .then(blob => {
+                  const u = URL.createObjectURL(blob)
+                  const link = document.createElement('a')
+                  link.href = u
+                  link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`
+                  link.click()
+                  URL.revokeObjectURL(u)
+                })
+            }}
+            className="flex items-center gap-1 bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded px-2 py-1 text-xs text-farm-300 transition-colors"
+          >
+            <Download size={12} /> Export
+          </button>
         </div>
       </div>
       <div className="max-h-96 overflow-y-auto space-y-1">

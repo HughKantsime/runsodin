@@ -1751,12 +1751,13 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         status=initial_status,
         estimated_cost=estimated_cost,
         suggested_price=suggested_price,
-        submitted_by=submitted_by
+        submitted_by=submitted_by,
+        due_date=job.due_date,
     )
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
-    
+
     # If submitted for approval, notify approvers
     if initial_status == "submitted":
         try:
@@ -3308,6 +3309,43 @@ def export_models_csv(current_user: dict = Depends(require_role("operator")), db
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=models_export.csv"}
+    )
+
+
+@app.get("/api/export/audit-logs", tags=["Export"])
+def export_audit_logs_csv(
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Export audit logs as CSV."""
+    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    logs = query.limit(5000).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Timestamp", "Action", "Entity Type", "Entity ID", "Details", "IP Address"])
+    for log in logs:
+        writer.writerow([
+            log.id,
+            log.timestamp.isoformat() if log.timestamp else "",
+            log.action,
+            log.entity_type or "",
+            log.entity_id or "",
+            json.dumps(log.details) if isinstance(log.details, dict) else (log.details or ""),
+            log.ip_address or ""
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.utcnow().strftime('%Y%m%d')}.csv"}
     )
 
 

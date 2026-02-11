@@ -59,7 +59,10 @@ function JobRow({ job, onAction, dragProps }) {
 
 
   return (
-    <tr className="border-b border-farm-800 hover:bg-farm-900/50"
+    <tr className={clsx(
+          'border-b border-farm-800 hover:bg-farm-900/50',
+          job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
+        )}
         {...(dragProps || {})}>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-2">
