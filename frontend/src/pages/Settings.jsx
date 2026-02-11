@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import usePushNotifications from '../hooks/usePushNotifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi} from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye } from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -442,6 +442,302 @@ function LicenseTab() {
   )
 }
 
+function VisionSettingsTab() {
+  const [globalSettings, setGlobalSettings] = useState({ enabled: true, retention_days: 30 })
+  const [printerSettings, setPrinterSettings] = useState([])
+  const [models, setModels] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+  const headers = getApiHeaders()
+
+  useEffect(() => {
+    // Load global settings
+    fetch('/api/vision/settings', { headers }).then(r => r.json()).then(setGlobalSettings).catch(() => {})
+    // Load models
+    fetch('/api/vision/models', { headers }).then(r => r.json()).then(setModels).catch(() => {})
+    // Load printers with vision settings
+    fetch('/api/printers', { headers }).then(r => r.json()).then(async (printers) => {
+      const withVision = await Promise.all(
+        printers.filter(p => p.camera_url).map(async (p) => {
+          try {
+            const vs = await fetch(`/api/printers/${p.id}/vision`, { headers }).then(r => r.json())
+            return { ...p, vision: vs }
+          } catch { return { ...p, vision: null } }
+        })
+      )
+      setPrinterSettings(withVision)
+    }).catch(() => {})
+  }, [])
+
+  const saveGlobal = async () => {
+    setSaving(true)
+    try {
+      await fetch('/api/vision/settings', { method: 'PATCH', headers, body: JSON.stringify(globalSettings) })
+      setMsg('Settings saved')
+      setTimeout(() => setMsg(''), 2000)
+    } catch { setMsg('Save failed') }
+    setSaving(false)
+  }
+
+  const savePrinterVision = async (printerId, data) => {
+    try {
+      await fetch(`/api/printers/${printerId}/vision`, { method: 'PATCH', headers, body: JSON.stringify(data) })
+      setPrinterSettings(prev => prev.map(p =>
+        p.id === printerId ? { ...p, vision: { ...p.vision, ...data } } : p
+      ))
+    } catch (e) { console.error('Failed to save printer vision settings:', e) }
+  }
+
+  const activateModel = async (modelId) => {
+    try {
+      const res = await fetch(`/api/vision/models/${modelId}/activate`, { method: 'PATCH', headers })
+      if (res.ok) {
+        const data = await res.json()
+        setModels(prev => prev.map(m => ({
+          ...m,
+          is_active: m.detection_type === data.detection_type ? (m.id === modelId ? 1 : 0) : m.is_active
+        })))
+      }
+    } catch (e) { console.error('Failed to activate model:', e) }
+  }
+
+  return (
+    <div className="max-w-4xl space-y-6">
+      {/* Global Settings */}
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Eye size={18} className="text-purple-400" />
+          <h2 className="text-lg font-display font-semibold">Vision AI</h2>
+        </div>
+        <p className="text-sm text-farm-400 mb-4">
+          AI-powered print failure detection using local ONNX inference. No cloud services — all processing runs on this server.
+        </p>
+
+        <div className="space-y-4">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={globalSettings.enabled}
+              onChange={e => setGlobalSettings(s => ({ ...s, enabled: e.target.checked }))}
+              className="rounded"
+            />
+            <span className="text-sm">Enable Vision AI globally</span>
+          </label>
+
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-farm-400">Frame retention:</label>
+            <input
+              type="range" min="7" max="90" step="1"
+              value={globalSettings.retention_days}
+              onChange={e => setGlobalSettings(s => ({ ...s, retention_days: parseInt(e.target.value) }))}
+              className="flex-1 max-w-xs"
+            />
+            <span className="text-sm w-16">{globalSettings.retention_days} days</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={saveGlobal} disabled={saving} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+              <Save size={14} className="inline mr-1.5" />
+              Save
+            </button>
+            {msg && <span className="text-sm text-green-400">{msg}</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Per-Printer Settings */}
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6">
+        <h3 className="text-base font-semibold mb-3">Per-Printer Detection Settings</h3>
+        {printerSettings.length === 0 && (
+          <p className="text-sm text-farm-500">No printers with cameras configured</p>
+        )}
+        <div className="space-y-3">
+          {printerSettings.map(p => {
+            const vs = p.vision || {}
+            return (
+              <div key={p.id} className="bg-farm-800 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium text-sm">{p.nickname || p.name}</span>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={vs.enabled !== 0}
+                      onChange={e => savePrinterVision(p.id, { enabled: e.target.checked ? 1 : 0 })}
+                    />
+                    Enabled
+                  </label>
+                </div>
+                {vs.enabled !== 0 && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    {/* Spaghetti */}
+                    <div>
+                      <label className="flex items-center gap-1.5 mb-1">
+                        <input type="checkbox" checked={vs.spaghetti_enabled !== 0}
+                          onChange={e => savePrinterVision(p.id, { spaghetti_enabled: e.target.checked ? 1 : 0 })}
+                        />
+                        <span className="text-red-400">Spaghetti</span>
+                      </label>
+                      <input type="range" min="0.3" max="0.95" step="0.05"
+                        value={vs.spaghetti_threshold || 0.65}
+                        onChange={e => savePrinterVision(p.id, { spaghetti_threshold: parseFloat(e.target.value) })}
+                        className="w-full"
+                      />
+                      <span className="text-farm-500">{((vs.spaghetti_threshold || 0.65) * 100).toFixed(0)}%</span>
+                    </div>
+
+                    {/* First Layer */}
+                    <div>
+                      <label className="flex items-center gap-1.5 mb-1">
+                        <input type="checkbox" checked={vs.first_layer_enabled !== 0}
+                          onChange={e => savePrinterVision(p.id, { first_layer_enabled: e.target.checked ? 1 : 0 })}
+                        />
+                        <span className="text-amber-400">First Layer</span>
+                      </label>
+                      <input type="range" min="0.3" max="0.95" step="0.05"
+                        value={vs.first_layer_threshold || 0.60}
+                        onChange={e => savePrinterVision(p.id, { first_layer_threshold: parseFloat(e.target.value) })}
+                        className="w-full"
+                      />
+                      <span className="text-farm-500">{((vs.first_layer_threshold || 0.60) * 100).toFixed(0)}%</span>
+                    </div>
+
+                    {/* Detachment */}
+                    <div>
+                      <label className="flex items-center gap-1.5 mb-1">
+                        <input type="checkbox" checked={vs.detachment_enabled !== 0}
+                          onChange={e => savePrinterVision(p.id, { detachment_enabled: e.target.checked ? 1 : 0 })}
+                        />
+                        <span className="text-orange-400">Detachment</span>
+                      </label>
+                      <input type="range" min="0.3" max="0.95" step="0.05"
+                        value={vs.detachment_threshold || 0.70}
+                        onChange={e => savePrinterVision(p.id, { detachment_threshold: parseFloat(e.target.value) })}
+                        className="w-full"
+                      />
+                      <span className="text-farm-500">{((vs.detachment_threshold || 0.70) * 100).toFixed(0)}%</span>
+                    </div>
+
+                    {/* Options */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5">
+                        <input type="checkbox" checked={vs.auto_pause === 1}
+                          onChange={e => savePrinterVision(p.id, { auto_pause: e.target.checked ? 1 : 0 })}
+                        />
+                        Auto-pause
+                      </label>
+                      <label className="flex items-center gap-1.5">
+                        <input type="checkbox" checked={vs.collect_training_data === 1}
+                          onChange={e => savePrinterVision(p.id, { collect_training_data: e.target.checked ? 1 : 0 })}
+                        />
+                        Collect data
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <span className="text-farm-500">Interval:</span>
+                        <select
+                          value={vs.capture_interval_sec || 10}
+                          onChange={e => savePrinterVision(p.id, { capture_interval_sec: parseInt(e.target.value) })}
+                          className="bg-farm-700 border border-farm-600 rounded px-1 py-0.5 text-xs"
+                        >
+                          <option value={5}>5s</option>
+                          <option value={10}>10s</option>
+                          <option value={15}>15s</option>
+                          <option value={30}>30s</option>
+                          <option value={60}>60s</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Model Management */}
+      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6">
+        <h3 className="text-base font-semibold mb-3">ONNX Models</h3>
+        {models.length === 0 && (
+          <p className="text-sm text-farm-500">No models uploaded. Upload ONNX models to enable detection.</p>
+        )}
+        <div className="space-y-2">
+          {models.map(m => (
+            <div key={m.id} className="flex items-center justify-between py-2 px-3 bg-farm-800 rounded-lg">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">{m.name}</span>
+                <span className="text-xs text-farm-500">{m.detection_type}</span>
+                {m.version && <span className="text-xs text-farm-600">v{m.version}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                {m.is_active ? (
+                  <span className="flex items-center gap-1 text-xs text-green-400">
+                    <CheckCircle size={12} />
+                    Active
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => activateModel(m.id)}
+                    className="text-xs text-farm-400 hover:text-white px-2 py-1 bg-farm-700 rounded transition-colors"
+                  >
+                    Activate
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Upload */}
+        <div className="mt-3">
+          <ModelUpload headers={headers} onUploaded={(m) => setModels(prev => [m, ...prev])} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ModelUpload({ headers, onUploaded }) {
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef(null)
+
+  const handleUpload = async () => {
+    const file = fileRef.current?.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const name = file.name.replace('.onnx', '')
+      const dt = name.includes('spaghetti') ? 'spaghetti' : name.includes('first') ? 'first_layer' : name.includes('detach') ? 'detachment' : 'spaghetti'
+      const res = await fetch(`/api/vision/models?name=${encodeURIComponent(name)}&detection_type=${dt}&input_size=640`, {
+        method: 'POST',
+        headers: { 'X-API-Key': headers['X-API-Key'], 'Authorization': headers['Authorization'] },
+        body: formData,
+      })
+      if (res.ok) {
+        const data = await res.json()
+        onUploaded(data)
+        fileRef.current.value = ''
+      }
+    } catch (e) { console.error('Upload failed:', e) }
+    setUploading(false)
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input ref={fileRef} type="file" accept=".onnx" className="text-xs text-farm-400" />
+      <button
+        onClick={handleUpload}
+        disabled={uploading}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded text-xs font-medium transition-colors disabled:opacity-50"
+      >
+        <Upload size={12} />
+        {uploading ? 'Uploading...' : 'Upload Model'}
+      </button>
+    </div>
+  )
+}
+
 export default function Settings() {
   const queryClient = useQueryClient()
   const [settings, setSettings] = useState({
@@ -670,6 +966,7 @@ export default function Settings() {
     { id: 'permissions', label: 'Permissions', icon: Shield },
     { id: 'branding', label: 'Branding', icon: Palette },
     { id: 'network', label: 'Network', icon: Wifi },
+    { id: 'vision', label: 'Vision AI', icon: Eye },
     { id: 'data', label: 'Data', icon: Database },
     { id: 'license', label: 'License', icon: FileText },
   ]
@@ -1144,6 +1441,9 @@ export default function Settings() {
       {activeTab === 'network' && <div className="max-w-4xl">
         <NetworkTab />
       </div>}
+      {/* ==================== VISION AI TAB ==================== */}
+      {activeTab === 'vision' && <VisionSettingsTab />}
+
       {/* ==================== DATA TAB ==================== */}
       {activeTab === 'license' && <div className="max-w-4xl">
         <LicenseTab />

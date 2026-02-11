@@ -2,11 +2,11 @@ import { useState, useEffect } from "react"
 import { canAccessPage, canDo, getCurrentUser } from './permissions'
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { 
+import {
   LayoutDashboard,
-  Video, 
-  Calendar, 
-  Printer, 
+  Video,
+  Calendar,
+  Printer,
   Box,
   ListTodo,
   Settings,
@@ -28,6 +28,7 @@ import {
   Sun,
   Moon,
   Package,
+  Eye,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -56,6 +57,7 @@ import Cameras from "./pages/Cameras"
 import Products from './pages/Products'
 import Orders from './pages/Orders'
 import Alerts from './pages/Alerts'
+import Detections from './pages/Detections'
 import EducationReports from './pages/EducationReports'
 import { stats, printers } from './api'
 import useWebSocket from './hooks/useWebSocket'
@@ -239,6 +241,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {adv && lic.isPro && (canAccessPage("analytics") || canAccessPage("maintenance")) && <NavGroup label="Monitor" collapsed={collapsed && !mobileOpen} open={sections.monitor} onToggle={() => toggle("monitor")} />}
           {adv && lic.isPro && ((collapsed && !mobileOpen) || sections.monitor) && <>
             <NavItem collapsed={collapsed && !mobileOpen} to="/alerts" icon={BellIcon} onClick={handleNavClick}>Alerts</NavItem>
+            <NavItem collapsed={collapsed && !mobileOpen} to="/detections" icon={Eye} onClick={handleNavClick}>Detections</NavItem>
             {lic.isPro && canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization{!lic.isPro && <ProBadge />}</NavItem>}
@@ -452,6 +455,7 @@ export default function App() {
             <Route path="/products" element={<ProGate feature="products"><Products /></ProGate>} />
             <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/detections" element={<Detections />} />
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Education"><EducationReports /></ProGate>} />
           </Routes>
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}

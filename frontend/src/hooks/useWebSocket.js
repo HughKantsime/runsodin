@@ -103,6 +103,12 @@ export default function useWebSocket() {
               queryClient.invalidateQueries({ queryKey: ['alert-summary'] })
               queryClient.invalidateQueries({ queryKey: ['alerts'] })
               break
+
+            case 'vision_detection':
+              queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
+              queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
+              queryClient.invalidateQueries({ queryKey: ['alerts'] })
+              break
           }
         } catch (e) {
           // Ignore parse errors

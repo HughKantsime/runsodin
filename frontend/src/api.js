@@ -488,3 +488,17 @@ export const getAmsCurrent = (printerId) => fetchAPI(`/printers/${printerId}/ams
 // ---- Language / i18n ----
 export const getLanguage = () => fetchAPI('/settings/language')
 export const setLanguage = (lang) => fetchAPI('/settings/language', { method: 'PUT', body: JSON.stringify({ language: lang }) })
+
+// ---- Vision AI ----
+export const vision = {
+  getDetections: (params) => fetchAPI('/vision/detections?' + new URLSearchParams(params)),
+  getDetection: (id) => fetchAPI('/vision/detections/' + id),
+  reviewDetection: (id, status) => fetchAPI(`/vision/detections/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  getSettings: () => fetchAPI('/vision/settings'),
+  updateSettings: (data) => fetchAPI('/vision/settings', { method: 'PATCH', body: JSON.stringify(data) }),
+  getPrinterSettings: (id) => fetchAPI(`/printers/${id}/vision`),
+  updatePrinterSettings: (id, data) => fetchAPI(`/printers/${id}/vision`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getModels: () => fetchAPI('/vision/models'),
+  activateModel: (id) => fetchAPI(`/vision/models/${id}/activate`, { method: 'PATCH' }),
+  getStats: (days) => fetchAPI('/vision/stats?days=' + (days || 7)),
+}

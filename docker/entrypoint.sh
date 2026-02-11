@@ -31,7 +31,19 @@ if [ -z "$JWT_SECRET_KEY" ]; then
 fi
 
 # ── Ensure data directories exist ──
-mkdir -p /data/backups /data/uploads /data/static/branding
+mkdir -p /data/backups /data/uploads /data/static/branding /data/vision_frames /data/vision_models
+
+# ── Copy default vision models if not present ──
+if [ -d /app/backend/vision_models_default ]; then
+    for model in /app/backend/vision_models_default/*.onnx; do
+        [ -f "$model" ] || continue
+        basename=$(basename "$model")
+        if [ ! -f "/data/vision_models/$basename" ]; then
+            cp "$model" "/data/vision_models/$basename"
+            echo "  ✓ Copied default vision model: $basename"
+        fi
+    done
+fi
 
 # ── Symlink static/branding into backend so it can serve uploaded logos ──
 ln -sfn /data/static/branding /app/backend/static/branding 2>/dev/null || true
@@ -308,6 +320,85 @@ conn.commit()
 conn.close()
 print("  ✓ Consumables tables ready")
 CONSUMABLESEOF
+
+# ── Create vision AI tables ──
+python3 << 'VISIONEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS vision_detections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL REFERENCES printers(id),
+    print_job_id INTEGER,
+    detection_type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    status TEXT DEFAULT 'pending',
+    frame_path TEXT,
+    bbox_json TEXT,
+    metadata_json TEXT,
+    reviewed_by INTEGER,
+    reviewed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_vision_detections_printer ON vision_detections(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_vision_detections_type ON vision_detections(detection_type)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_vision_detections_status ON vision_detections(status)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_vision_detections_created ON vision_detections(created_at)")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS vision_settings (
+    printer_id INTEGER PRIMARY KEY,
+    enabled INTEGER DEFAULT 1,
+    spaghetti_enabled INTEGER DEFAULT 1,
+    spaghetti_threshold REAL DEFAULT 0.65,
+    first_layer_enabled INTEGER DEFAULT 1,
+    first_layer_threshold REAL DEFAULT 0.60,
+    detachment_enabled INTEGER DEFAULT 1,
+    detachment_threshold REAL DEFAULT 0.70,
+    auto_pause INTEGER DEFAULT 0,
+    capture_interval_sec INTEGER DEFAULT 10,
+    collect_training_data INTEGER DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS vision_models (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    detection_type TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    version TEXT,
+    input_size INTEGER DEFAULT 640,
+    is_active INTEGER DEFAULT 0,
+    metadata_json TEXT,
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+
+conn.commit()
+conn.close()
+print("  ✓ Vision AI tables ready")
+VISIONEOF
+
+# ── Register default vision models if not already registered ──
+python3 << 'VISIONMODELSEOF'
+import sqlite3, os
+conn = sqlite3.connect("/data/odin.db")
+cur = conn.cursor()
+cur.execute("SELECT COUNT(*) FROM vision_models")
+count = cur.fetchone()[0]
+if count == 0:
+    model_path = "/data/vision_models/obico_spaghetti.onnx"
+    if os.path.isfile(model_path):
+        cur.execute(
+            """INSERT INTO vision_models (name, detection_type, filename, version, input_size, is_active, uploaded_at)
+            VALUES ('Obico Spaghetti Detector', 'spaghetti', 'obico_spaghetti.onnx', '1.0', 416, 1, datetime('now'))"""
+        )
+        conn.commit()
+        print("  ✓ Registered default spaghetti detection model (Obico, 416x416)")
+    else:
+        print("  - No default vision models found")
+else:
+    print("  ✓ Vision models already registered")
+conn.close()
+VISIONMODELSEOF
 
 # ── Enable SQLite WAL mode ──
 python3 -c "

@@ -105,3 +105,21 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 - **Pre-commit**: gitleaks for secret scanning
 - **Version sources**: `VERSION` file is source of truth; also in `frontend/package.json`, `backend/main.py __version__`, `docker-compose.yml` image tag
 - **License**: BSL 1.1 (converts to Apache 2.0 on 2029-02-07). Cannot offer as hosted service to third parties.
+
+## Server Topology
+
+This project runs across multiple servers — never assume single-server architecture:
+
+- **Sandbox**: `.200` — development/staging instance
+- **Production**: `.211` — live instance
+- **License Manager**: `.6` — issues and verifies Ed25519 licenses (`/opt/odin-license-manager/`)
+
+When debugging cross-server issues, always confirm which server a request originates from and which it targets. Trace the full request path before suggesting fixes.
+
+## Release Workflow
+
+When deploying or completing a feature, ALWAYS bump the version and create a git tag. Never suggest skipping version bumps — if code is going live, it gets a new version. Use `./ops/bump-version.sh`.
+
+## Seed Data & Demo Scripts
+
+When creating seed data or demo data, validate against actual model schemas and enum definitions in `models.py` and `schemas.py` BEFORE writing the script. Check enum case sensitivity, field types (dict vs list), and ensure no references to non-existent resources (e.g., fake printer IPs that monitors will try to reach). Prefer minimal, realistic seed data over comprehensive fake data.

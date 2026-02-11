@@ -52,6 +52,9 @@ DEFAULT_PREFERENCES = [
     {"alert_type": AlertType.PRINT_FAILED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.SPOOL_LOW, "in_app": True, "browser_push": False, "email": False, "threshold_value": 100.0},
     {"alert_type": AlertType.MAINTENANCE_OVERDUE, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.SPAGHETTI_DETECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.FIRST_LAYER_ISSUE, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.DETACHMENT_DETECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
 ]
 
 

@@ -600,6 +600,7 @@ def main():
     order_item_ids = list(range(1, total_items + 1))
     random.shuffle(order_item_ids)
     oi_cursor = 0
+    sched_counter = 0  # track which printer gets the next scheduled job
 
     for i in range(500):
         status = JOB_STATUSES[i]
@@ -627,14 +628,15 @@ def main():
             sched_start = None
             sched_end = None
         elif status == "SCHEDULED":
-            # Stagger across printers — each scheduled job gets its own time window
-            sched_start = NOW + timedelta(hours=random.uniform(2, 48))
+            # Each scheduled job on a different printer, evenly spaced in time
+            pid = printer_ids[sched_counter % len(printer_ids)]
+            base_offset = 4 + (sched_counter * 3)  # 4h, 7h, 10h, 13h, ...
+            sched_start = NOW + timedelta(hours=base_offset + random.uniform(-0.5, 0.5))
             sched_end = sched_start + timedelta(hours=build_time * random.uniform(0.9, 1.1))
             actual_start = None
             actual_end = None
             duration = None
-            # Assign to a unique printer to avoid timeline overlap
-            pid = printer_ids[i % len(printer_ids)]
+            sched_counter += 1
         elif status == "FAILED":
             actual_start = rand_dt(60, 1)
             actual_end = actual_start + timedelta(hours=build_time * random.uniform(0.1, 0.8))

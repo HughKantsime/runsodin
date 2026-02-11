@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move } from 'lucide-react'
+import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye } from 'lucide-react'
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
@@ -87,6 +87,30 @@ function PipPlayer({ camera, onClose }) {
   )
 }
 
+function AiIndicator({ printerId }) {
+  const { data } = useQuery({
+    queryKey: ['vision-settings', printerId],
+    queryFn: async () => {
+      const token = localStorage.getItem('token')
+      const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const res = await fetch(`${API_BASE}/printers/${printerId}/vision`, { headers })
+      if (!res.ok) return null
+      return res.json()
+    },
+    refetchInterval: 60000,
+    retry: false,
+  })
+  if (!data || !data.enabled) return null
+  return (
+    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded text-[10px] text-purple-300 font-medium" title="Vision AI active">
+      <Eye size={10} />
+      <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+      AI
+    </div>
+  )
+}
+
 function CameraCard({ camera, onExpand, onPip }) {
   const videoRef = useRef(null)
   const pcRef = useRef(null)
@@ -154,6 +178,7 @@ function CameraCard({ camera, onExpand, onPip }) {
         <div className="flex items-center gap-2">
           <div className={'w-2 h-2 rounded-full ' + dotColor} />
           <span className="font-medium text-sm">{camera.name}</span>
+          <AiIndicator printerId={camera.id} />
         </div>
         <span className="text-xs text-farm-500 capitalize">{status}</span>
       </div>
