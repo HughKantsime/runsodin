@@ -197,8 +197,9 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onShowAms, onShowTelemetry, onShowNozzle, onShowHms, onPlugToggle, plugStates }) {
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates }) {
   const [syncing, setSyncing] = useState(false)
+  const [activePanel, setActivePanel] = useState(null)
   
   const handleSyncAms = async () => {
     setSyncing(true)
@@ -255,18 +256,6 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
               <Plug size={16} />
             </button>
           )}
-          {onShowAms && <button onClick={() => onShowAms(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="AMS Environment">
-            <Thermometer size={16} />
-          </button>}
-          {onShowTelemetry && <button onClick={() => onShowTelemetry(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Print Telemetry">
-            <Activity size={16} />
-          </button>}
-          {onShowNozzle && <button onClick={() => onShowNozzle(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Nozzle Lifecycle">
-            <CircleDot size={16} />
-          </button>}
-          {onShowHms && <button onClick={() => onShowHms(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="HMS Error History">
-            <AlertTriangle size={16} />
-          </button>}
           {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Scan spool QR">
             <QrCode size={16} />
           </button>}
@@ -359,6 +348,38 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           )
         })()}
       </div>
+      {/* Data & Diagnostics toolbar */}
+      <div className="px-3 md:px-4 py-2 border-t border-farm-800 flex items-center gap-1">
+        <span className="text-xs text-farm-600 mr-1">Data</span>
+        <button onClick={() => setActivePanel(activePanel === 'ams' ? null : 'ams')}
+          className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
+            activePanel === 'ams' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
+          title="AMS Environment">
+          <Thermometer size={14} /> <span className="hidden sm:inline">AMS</span>
+        </button>
+        <button onClick={() => setActivePanel(activePanel === 'telemetry' ? null : 'telemetry')}
+          className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
+            activePanel === 'telemetry' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
+          title="Print Telemetry">
+          <Activity size={14} /> <span className="hidden sm:inline">Telemetry</span>
+        </button>
+        <button onClick={() => setActivePanel(activePanel === 'nozzle' ? null : 'nozzle')}
+          className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
+            activePanel === 'nozzle' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
+          title="Nozzle Lifecycle">
+          <CircleDot size={14} /> <span className="hidden sm:inline">Nozzle</span>
+        </button>
+        <button onClick={() => setActivePanel(activePanel === 'hms' ? null : 'hms')}
+          className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
+            activePanel === 'hms' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
+          title="HMS Error History">
+          <AlertTriangle size={14} /> <span className="hidden sm:inline">HMS</span>
+        </button>
+      </div>
+      {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} onClose={() => setActivePanel(null)} />}
     </div>
   )
 }
@@ -656,10 +677,6 @@ export default function Printers() {
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
-  const [showAmsChart, setShowAmsChart] = useState(null)
-  const [showTelemetryChart, setShowTelemetryChart] = useState(null)
-  const [showNozzleCard, setShowNozzleCard] = useState(null)
-  const [showHmsHistory, setShowHmsHistory] = useState(null)
   const [plugStates, setPlugStates] = useState({})
 
   // Load plug states for printers that have plugs
@@ -812,49 +829,12 @@ export default function Printers() {
               onDragOver={(e) => handleDragOver(e, printer.id)}
               onDragEnd={handleDragEnd}
               onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
-              onShowAms={(id) => setShowAmsChart(showAmsChart === id ? null : id)}
-              onShowTelemetry={(id) => setShowTelemetryChart(showTelemetryChart === id ? null : id)}
-              onShowNozzle={(id) => setShowNozzleCard(showNozzleCard === id ? null : id)}
-              onShowHms={(id) => setShowHmsHistory(showHmsHistory === id ? null : id)}
               onPlugToggle={handlePlugToggle}
               plugStates={plugStates}
             />
           ))}
         </div>
       )}
-      {showAmsChart && (
-        <div className="mb-6">
-          <AmsEnvironmentChart
-            printerId={showAmsChart}
-            onClose={() => setShowAmsChart(null)}
-          />
-        </div>
-      )}
-      {showTelemetryChart && (
-        <div className="mb-6">
-          <PrinterTelemetryChart
-            printerId={showTelemetryChart}
-            onClose={() => setShowTelemetryChart(null)}
-          />
-        </div>
-      )}
-      {showNozzleCard && (
-        <div className="mb-6">
-          <NozzleStatusCard
-            printerId={showNozzleCard}
-            onClose={() => setShowNozzleCard(null)}
-          />
-        </div>
-      )}
-      {showHmsHistory && (
-        <div className="mb-6">
-          <HmsHistoryPanel
-            printerId={showHmsHistory}
-            onClose={() => setShowHmsHistory(null)}
-          />
-        </div>
-      )}
-
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}
       {showScanner && (
