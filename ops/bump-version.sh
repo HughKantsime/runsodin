@@ -1,38 +1,136 @@
 #!/usr/bin/env bash
-# bump-version.sh — Update version across all files from VERSION (single source of truth)
-# Usage: ./ops/bump-version.sh 1.0.23
-#   or:  ./ops/bump-version.sh        (reads current VERSION file)
+# ============================================================
+# bump-version.sh — Bump version, commit, tag, and optionally push
+#
+# Usage:
+#   ./ops/bump-version.sh 1.0.29            # bump + commit + tag (no push)
+#   ./ops/bump-version.sh 1.0.29 --push     # bump + commit + tag + push
+#   ./ops/bump-version.sh                    # show current version
+#
+# This script ensures the version bump commit is created BEFORE
+# the git tag, so the Docker image always contains the correct
+# VERSION file.
+# ============================================================
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-if [ $# -ge 1 ]; then
-    VERSION="$1"
-    echo "$VERSION" > "$REPO_ROOT/VERSION"
-else
-    VERSION="$(cat "$REPO_ROOT/VERSION" | tr -d '[:space:]')"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+ok()   { echo -e "${GREEN}✓${NC} $1"; }
+die()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
+step() { echo -e "\n${CYAN}${BOLD}▶ $1${NC}"; }
+
+DO_PUSH=false
+
+# Parse args
+for arg in "$@"; do
+    case "$arg" in
+        --push) DO_PUSH=true ;;
+    esac
+done
+
+# Get version argument (first non-flag arg)
+VERSION=""
+for arg in "$@"; do
+    case "$arg" in
+        --*) ;; # skip flags
+        *) VERSION="$arg"; break ;;
+    esac
+done
+
+# If no version given, show current and exit
+if [ -z "$VERSION" ]; then
+    CURRENT="$(cat "$REPO_ROOT/VERSION" | tr -d '[:space:]')"
+    echo "Current version: $CURRENT"
+    echo ""
+    echo "Usage: ./ops/bump-version.sh <new-version> [--push]"
+    exit 0
 fi
 
-echo "Bumping all version references to $VERSION"
+CURRENT="$(cat "$REPO_ROOT/VERSION" | tr -d '[:space:]')"
+echo -e "${BOLD}Bumping O.D.I.N. version: ${CURRENT} → ${VERSION}${NC}"
 
-# 1. frontend/package.json
-node -e "
-  const fs = require('fs');
-  const path = '$REPO_ROOT/frontend/package.json';
-  const pkg = JSON.parse(fs.readFileSync(path, 'utf-8'));
-  pkg.version = '$VERSION';
-  fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
-"
-echo "  ✓ frontend/package.json → $VERSION"
+# --- Safety checks ---
+step "Pre-flight checks"
 
-# 2. backend/main.py fallback version
+cd "$REPO_ROOT"
+
+# Must be on main/master
+BRANCH=$(git branch --show-current)
+if [[ "$BRANCH" != "main" && "$BRANCH" != "master" ]]; then
+    die "Must be on main or master branch (currently on: ${BRANCH})"
+fi
+
+# Working tree must be clean
+if [[ -n "$(git status --porcelain)" ]]; then
+    die "Working tree is dirty — commit or stash changes first"
+fi
+
+# Tag must not already exist
+if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+    die "Tag v${VERSION} already exists. Delete it first if re-releasing."
+fi
+
+ok "On branch ${BRANCH}, clean tree, tag v${VERSION} is available"
+
+# --- Step 1: Update version files ---
+step "Updating version files"
+
+echo "$VERSION" > "$REPO_ROOT/VERSION"
+ok "VERSION → $VERSION"
+
+# frontend/package.json
+if command -v node &>/dev/null; then
+    node -e "
+      const fs = require('fs');
+      const path = '$REPO_ROOT/frontend/package.json';
+      const pkg = JSON.parse(fs.readFileSync(path, 'utf-8'));
+      pkg.version = '$VERSION';
+      fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+    "
+    ok "frontend/package.json → $VERSION"
+else
+    echo "  ⚠ node not found — skipping frontend/package.json"
+fi
+
+# backend/main.py fallback version
 sed -i "s/__version__ = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/__version__ = \"$VERSION\"/" \
     "$REPO_ROOT/backend/main.py"
-echo "  ✓ backend/main.py fallback → $VERSION"
+ok "backend/main.py fallback → $VERSION"
+
+# --- Step 2: Commit ---
+step "Creating version bump commit"
+
+git add VERSION frontend/package.json backend/main.py
+git commit -m "release: bump version to $VERSION"
+ok "Committed: release: bump version to $VERSION"
+
+# --- Step 3: Tag (on the bump commit, not before it) ---
+step "Creating git tag"
+
+git tag "v${VERSION}"
+ok "Tagged: v${VERSION} → $(git rev-parse --short HEAD)"
+
+# --- Step 4: Push (optional) ---
+if [[ "$DO_PUSH" == true ]]; then
+    step "Pushing to origin"
+    git push origin "$BRANCH" "v${VERSION}"
+    ok "Pushed branch ${BRANCH} and tag v${VERSION}"
+else
+    echo ""
+    echo -e "${BOLD}Ready to push. Run:${NC}"
+    echo "  git push origin ${BRANCH} v${VERSION}"
+fi
 
 echo ""
-echo "Done. Dynamic sources (vite.config.js, backend runtime, CI tags) read VERSION automatically."
-echo "Next steps:"
-echo "  git add -A && git commit -m \"release: v$VERSION\""
-echo "  git tag v$VERSION"
-echo "  git push origin main v$VERSION"
+echo -e "${GREEN}${BOLD}✅ Version $VERSION is ready${NC}"
+echo ""
+echo "  VERSION file:     $VERSION"
+echo "  Git tag:          v${VERSION} → $(git rev-parse --short HEAD)"
+echo "  Docker workflow:  will trigger on push of tag v${VERSION}"
+echo ""
