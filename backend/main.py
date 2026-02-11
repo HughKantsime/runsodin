@@ -5243,7 +5243,12 @@ def sync_go2rtc_config(db: Session):
     for p in printers:
         url = get_camera_url(p)
         if url:
-            streams[f"printer_{p.id}"] = url
+            # HTTP streams (MJPEG) need ffmpeg transcoding to H264 for WebRTC;
+            # RTSP streams already carry H264 and can be proxied directly.
+            if url.startswith(("http://", "https://")):
+                streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
+            else:
+                streams[f"printer_{p.id}"] = url
             # Save generated URL back to DB if not already set
             if not p.camera_url and url:
                 p.camera_url = url
