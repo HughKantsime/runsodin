@@ -45,6 +45,7 @@ DB_PATH = os.environ.get(
     "/data/odin.db",
 )
 POLL_INTERVAL = 10  # seconds
+MAX_CONSECUTIVE_FAILURES = 5  # Treat as disconnect after this many failures
 
 
 class PrusaLinkMonitorThread(threading.Thread):
@@ -61,6 +62,7 @@ class PrusaLinkMonitorThread(threading.Thread):
             username=username, password=password, api_key=api_key
         )
         self._running = True
+        self._consecutive_failures = 0
         self._last_heartbeat = 0
         self._last_state = None
         self._last_filename = None
@@ -76,9 +78,17 @@ class PrusaLinkMonitorThread(threading.Thread):
         while self._running:
             try:
                 status = self.client.get_status()
+                # If recovering from disconnect, re-discover camera
+                if self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    log.info(f"[{self.name}] Connection recovered, re-discovering camera...")
+                    self._discover_and_save_camera()
+                self._consecutive_failures = 0
                 self._process_status(status)
             except Exception as e:
-                log.warning(f"[{self.name}] Poll error: {e}")
+                self._consecutive_failures += 1
+                if self._consecutive_failures == MAX_CONSECUTIVE_FAILURES:
+                    log.warning(f"[{self.name}] {MAX_CONSECUTIVE_FAILURES} consecutive failures, treating as disconnect")
+                log.warning(f"[{self.name}] Poll error ({self._consecutive_failures}): {e}")
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] PrusaLink monitor stopped")
 

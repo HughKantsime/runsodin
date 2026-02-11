@@ -98,6 +98,7 @@ class ElegooMonitorThread(threading.Thread):
             # Heartbeat: if no status update for 60s, try reconnecting
             if self._last_heartbeat > 0 and time.time() - self._last_heartbeat > 60:
                 log.warning(f"[{self.name}] No status update for 60s, reconnecting...")
+                camera_discovered = False  # Re-discover camera on reconnect
                 self.client.disconnect()
                 time.sleep(2)
 
