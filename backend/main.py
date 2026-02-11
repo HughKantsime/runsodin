@@ -21,7 +21,7 @@ from pydantic import BaseModel as PydanticBaseModel, field_validator, ConfigDict
 from fastapi import FastAPI, Depends, HTTPException, Query, status, Header, Request, Response, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, joinedload
 import httpx
 import shutil
 import asyncio
@@ -1751,12 +1751,13 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         status=initial_status,
         estimated_cost=estimated_cost,
         suggested_price=suggested_price,
-        submitted_by=submitted_by
+        submitted_by=submitted_by,
+        due_date=job.due_date,
     )
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
-    
+
     # If submitted for approval, notify approvers
     if initial_status == "submitted":
         try:
@@ -3042,6 +3043,109 @@ def get_analytics(db: Session = Depends(get_db)):
     }
 
 
+# ============== Education Usage Report ==============
+
+@app.get("/api/education/usage-report", tags=["Education"])
+def get_education_usage_report(
+    days: int = Query(default=30, ge=7, le=90),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("operator")),
+):
+    """Education usage report — per-user job metrics and summary stats."""
+    require_feature("usage_reports")
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    # Get all users
+    users_rows = db.execute(
+        text("SELECT id, username, email, role, is_active, last_login FROM users")
+    ).fetchall()
+
+    # Get jobs in window, eager-load model for filament data
+    jobs_in_range = (
+        db.query(Job)
+        .options(joinedload(Job.model))
+        .filter(Job.created_at >= cutoff)
+        .all()
+    )
+
+    # Build per-user stats
+    user_stats = []
+    fleet_hours = 0
+    fleet_jobs = 0
+    fleet_approved = 0
+    fleet_rejected = 0
+    active_ids = set()
+
+    for row in users_rows:
+        u = dict(row._mapping)
+        uid = u["id"]
+        user_jobs = [j for j in jobs_in_range if j.submitted_by == uid]
+        if not user_jobs:
+            continue
+
+        active_ids.add(uid)
+        n_submitted = len(user_jobs)
+        n_approved = sum(1 for j in user_jobs if j.approved_by is not None and j.rejected_reason is None)
+        n_rejected = sum(1 for j in user_jobs if j.rejected_reason is not None)
+        n_completed = sum(1 for j in user_jobs if j.status == JobStatus.COMPLETED)
+        n_failed = sum(1 for j in user_jobs if j.status == JobStatus.FAILED)
+
+        hours = sum(
+            (j.duration_hours or (j.model.build_time_hours if j.model else 0) or 0) * j.quantity
+            for j in user_jobs if j.status == JobStatus.COMPLETED
+        )
+        grams = sum(
+            (j.model.total_filament_grams if j.model else 0) * j.quantity
+            for j in user_jobs if j.status == JobStatus.COMPLETED
+        )
+
+        last_act = max((j.created_at for j in user_jobs), default=None)
+
+        user_stats.append({
+            "user_id": uid,
+            "username": u["username"],
+            "email": u["email"],
+            "role": u["role"],
+            "total_jobs_submitted": n_submitted,
+            "total_jobs_approved": n_approved,
+            "total_jobs_rejected": n_rejected,
+            "total_jobs_completed": n_completed,
+            "total_jobs_failed": n_failed,
+            "total_print_hours": round(hours, 1),
+            "total_filament_grams": round(grams, 1),
+            "approval_rate": round(n_approved / n_submitted * 100, 1) if n_submitted else 0,
+            "success_rate": round(n_completed / (n_completed + n_failed) * 100, 1) if (n_completed + n_failed) else 0,
+            "last_activity": last_act.isoformat() if last_act else None,
+        })
+
+        fleet_hours += hours
+        fleet_jobs += n_submitted
+        fleet_approved += n_approved
+        fleet_rejected += n_rejected
+
+    user_stats.sort(key=lambda x: x["total_jobs_submitted"], reverse=True)
+
+    # Daily submissions for chart
+    daily = {}
+    for j in jobs_in_range:
+        d = j.created_at.strftime("%Y-%m-%d")
+        daily[d] = daily.get(d, 0) + 1
+
+    return {
+        "summary": {
+            "total_users_active": len(active_ids),
+            "total_print_hours": round(fleet_hours, 1),
+            "total_jobs": fleet_jobs,
+            "approval_rate": round(fleet_approved / fleet_jobs * 100, 1) if fleet_jobs else 0,
+            "rejection_rate": round(fleet_rejected / fleet_jobs * 100, 1) if fleet_jobs else 0,
+        },
+        "users": user_stats,
+        "daily_submissions": daily,
+        "days": days,
+    }
+
+
 # ============== CSV Export ==============
 
 from fastapi.responses import StreamingResponse
@@ -3205,6 +3309,43 @@ def export_models_csv(current_user: dict = Depends(require_role("operator")), db
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=models_export.csv"}
+    )
+
+
+@app.get("/api/export/audit-logs", tags=["Export"])
+def export_audit_logs_csv(
+    entity_type: Optional[str] = None,
+    action: Optional[str] = None,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Export audit logs as CSV."""
+    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
+    if entity_type:
+        query = query.filter(AuditLog.entity_type == entity_type)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    logs = query.limit(5000).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Timestamp", "Action", "Entity Type", "Entity ID", "Details", "IP Address"])
+    for log in logs:
+        writer.writerow([
+            log.id,
+            log.timestamp.isoformat() if log.timestamp else "",
+            log.action,
+            log.entity_type or "",
+            log.entity_id or "",
+            json.dumps(log.details) if isinstance(log.details, dict) else (log.details or ""),
+            log.ip_address or ""
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.utcnow().strftime('%Y%m%d')}.csv"}
     )
 
 
@@ -6989,6 +7130,10 @@ RBAC_DEFAULT_PAGE_ACCESS = {
     ],
     "branding": [
         "admin"
+    ],
+    "education_reports": [
+        "admin",
+        "operator"
     ]
 }
 
@@ -7731,6 +7876,31 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
         "jobs_created": len(jobs_created),
         "details": jobs_created
     }
+
+
+@app.get("/api/orders/{order_id}/invoice.pdf", tags=["Orders"])
+def get_order_invoice(
+    order_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db)
+):
+    """Generate a branded PDF invoice for an order."""
+    order = db.query(Order).options(joinedload(Order.items)).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    enriched = _enrich_order_response(order, db)
+    branding = branding_to_dict(get_or_create_branding(db))
+
+    from invoice_generator import InvoiceGenerator
+    gen = InvoiceGenerator(branding, enriched.model_dump())
+    pdf_bytes = gen.generate()
+
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=invoice_{order.order_number or order.id}.pdf"}
+    )
 
 
 @app.patch("/api/orders/{order_id}/ship", response_model=OrderResponse, tags=["Orders"])

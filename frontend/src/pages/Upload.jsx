@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight, Calendar, CheckSquare, Square } from 'lucide-react'
+import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Trash2, ArrowRight, Calendar, CheckSquare, Square, Zap } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 
@@ -63,6 +63,12 @@ function FilamentBadge({ filament }) {
 }
 
 function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, onUpdateObjects, submitForApproval, onSaveQuantity }) {
+  const [quickPrinted, setQuickPrinted] = useState(false)
+  const quickPrintMut = useMutation({
+    mutationFn: () => modelsApi.schedule(data.model_id),
+    onSuccess: () => setQuickPrinted(true),
+  })
+
   return (
     <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
       <div className="flex flex-col md:flex-row">
@@ -176,6 +182,16 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
         <button onClick={onUploadAnother} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-farm-700 hover:bg-farm-800 transition-colors text-sm">
           <UploadIcon size={16} /> Upload Another
         </button>
+        {data.model_id && (
+          <button
+            onClick={() => quickPrintMut.mutate()}
+            disabled={quickPrintMut.isPending || quickPrinted}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-medium transition-colors text-sm"
+          >
+            <Zap size={16} />
+            {quickPrinted ? 'Queued!' : quickPrintMut.isPending ? 'Queuing...' : 'Quick Print'}
+          </button>
+        )}
         <button onClick={onScheduleNow} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors text-sm">
           <Calendar size={16} /> {submitForApproval ? 'Submit for Approval' : 'Schedule Now'}
         </button>

@@ -229,6 +229,7 @@ class JobBase(BaseModel):
     filament_type: Optional[FilamentType] = None
     notes: Optional[str] = None
     hold: bool = False
+    due_date: Optional[datetime] = None
 
 
 class JobCreate(JobBase):
@@ -250,6 +251,7 @@ class JobUpdate(BaseModel):
     notes: Optional[str] = None
     hold: Optional[bool] = None
     is_locked: Optional[bool] = None
+    due_date: Optional[datetime] = None
 
 
 class JobResponse(JobBase):

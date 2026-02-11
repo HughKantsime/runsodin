@@ -22,6 +22,7 @@ const DEFAULT_PAGE_ACCESS = {
   orders:             ['admin', 'operator', 'viewer'],
   products:            ['admin', 'operator', 'viewer'],
   alerts:              ['admin', 'operator', 'viewer'],
+  education_reports:   ['admin', 'operator'],
 }
 
 const DEFAULT_ACTION_ACCESS = {

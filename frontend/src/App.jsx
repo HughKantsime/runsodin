@@ -54,6 +54,7 @@ import Cameras from "./pages/Cameras"
 import Products from './pages/Products'
 import Orders from './pages/Orders'
 import Alerts from './pages/Alerts'
+import EducationReports from './pages/EducationReports'
 import { stats, printers } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
@@ -238,6 +239,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
             {lic.isPro && canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization{!lic.isPro && <ProBadge />}</NavItem>}
+            {lic.isEducation && canAccessPage('education_reports') && <NavItem collapsed={collapsed && !mobileOpen} to="/education-reports" icon={BarChart3} onClick={handleNavClick}>Usage Reports</NavItem>}
           </>}
 
           {/* Tools */}
@@ -444,6 +446,7 @@ export default function App() {
             <Route path="/products" element={<ProGate feature="products"><Products /></ProGate>} />
             <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Education"><EducationReports /></ProGate>} />
           </Routes>
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
