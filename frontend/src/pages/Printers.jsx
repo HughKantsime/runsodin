@@ -1,10 +1,13 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb,
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot,
 } from 'lucide-react'
 import clsx from 'clsx'
 import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
+import PrinterTelemetryChart from '../components/PrinterTelemetryChart'
+import NozzleStatusCard from '../components/NozzleStatusCard'
+import HmsHistoryPanel from '../components/HmsHistoryPanel'
 import { getPlugState, plugPowerOn, plugPowerOff } from '../api'
 import { printers, filaments } from '../api'
 import { Video, QrCode, Thermometer, Plug } from 'lucide-react'
@@ -194,7 +197,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   )
 }
 
-function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onShowAms, onPlugToggle, plugStates }) {
+function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onShowAms, onShowTelemetry, onShowNozzle, onShowHms, onPlugToggle, plugStates }) {
   const [syncing, setSyncing] = useState(false)
   
   const handleSyncAms = async () => {
@@ -254,6 +257,15 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           )}
           {onShowAms && <button onClick={() => onShowAms(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="AMS Environment">
             <Thermometer size={16} />
+          </button>}
+          {onShowTelemetry && <button onClick={() => onShowTelemetry(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Print Telemetry">
+            <Activity size={16} />
+          </button>}
+          {onShowNozzle && <button onClick={() => onShowNozzle(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Nozzle Lifecycle">
+            <CircleDot size={16} />
+          </button>}
+          {onShowHms && <button onClick={() => onShowHms(printer.id)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="HMS Error History">
+            <AlertTriangle size={16} />
           </button>}
           {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Scan spool QR">
             <QrCode size={16} />
@@ -645,6 +657,9 @@ export default function Printers() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [showAmsChart, setShowAmsChart] = useState(null)
+  const [showTelemetryChart, setShowTelemetryChart] = useState(null)
+  const [showNozzleCard, setShowNozzleCard] = useState(null)
+  const [showHmsHistory, setShowHmsHistory] = useState(null)
   const [plugStates, setPlugStates] = useState({})
 
   // Load plug states for printers that have plugs
@@ -798,6 +813,9 @@ export default function Printers() {
               onDragEnd={handleDragEnd}
               onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
               onShowAms={(id) => setShowAmsChart(showAmsChart === id ? null : id)}
+              onShowTelemetry={(id) => setShowTelemetryChart(showTelemetryChart === id ? null : id)}
+              onShowNozzle={(id) => setShowNozzleCard(showNozzleCard === id ? null : id)}
+              onShowHms={(id) => setShowHmsHistory(showHmsHistory === id ? null : id)}
               onPlugToggle={handlePlugToggle}
               plugStates={plugStates}
             />
@@ -809,6 +827,30 @@ export default function Printers() {
           <AmsEnvironmentChart
             printerId={showAmsChart}
             onClose={() => setShowAmsChart(null)}
+          />
+        </div>
+      )}
+      {showTelemetryChart && (
+        <div className="mb-6">
+          <PrinterTelemetryChart
+            printerId={showTelemetryChart}
+            onClose={() => setShowTelemetryChart(null)}
+          />
+        </div>
+      )}
+      {showNozzleCard && (
+        <div className="mb-6">
+          <NozzleStatusCard
+            printerId={showNozzleCard}
+            onClose={() => setShowNozzleCard(null)}
+          />
+        </div>
+      )}
+      {showHmsHistory && (
+        <div className="mb-6">
+          <HmsHistoryPanel
+            printerId={showHmsHistory}
+            onClose={() => setShowHmsHistory(null)}
           />
         </div>
       )}

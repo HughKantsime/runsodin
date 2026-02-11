@@ -148,7 +148,8 @@ class Printer(Base):
     lights_toggled_at = Column(DateTime, nullable=True)
     nozzle_type = Column(String(20), nullable=True)
     nozzle_diameter = Column(Float, nullable=True)
-    
+    fan_speed = Column(Integer, nullable=True)
+
     # Smart plug integration
     plug_type = Column(String(20), nullable=True)         # 'tasmota', 'homeassistant', 'mqtt'
     plug_host = Column(String(255), nullable=True)        # IP or HA URL
@@ -547,6 +548,22 @@ class MaintenanceLog(Base):
     task = relationship("MaintenanceTask", back_populates="logs")
 
 
+class NozzleLifecycle(Base):
+    """Track nozzle installs, retirements, and accumulated usage."""
+    __tablename__ = "nozzle_lifecycle"
+
+    id = Column(Integer, primary_key=True)
+    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
+    nozzle_type = Column(String(20), nullable=True)
+    nozzle_diameter = Column(Float, nullable=True)
+    installed_at = Column(DateTime, server_default=func.now())
+    removed_at = Column(DateTime, nullable=True)
+    print_hours_accumulated = Column(Float, default=0)
+    print_count = Column(Integer, default=0)
+    notes = Column(Text, nullable=True)
+
+    printer = relationship("Printer")
+
 
 # ============================================================
 # Orders, Products & BOM (v0.14.0)
@@ -678,6 +695,60 @@ class OrderItem(Base):
     
     def __repr__(self):
         return f"<OrderItem {self.order_id}:{self.product_id} x{self.quantity}>"
+
+
+# ============================================================
+# Consumables (non-printed inventory)
+# ============================================================
+
+class Consumable(Base):
+    """Non-printed item in inventory (hardware, packaging, labels, etc.)."""
+    __tablename__ = "consumables"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    sku = Column(String(50), nullable=True)
+    unit = Column(String(20), default="piece")  # piece, gram, ml, meter, pack
+    cost_per_unit = Column(Float, default=0)
+    current_stock = Column(Float, default=0)
+    min_stock = Column(Float, default=0)
+    vendor = Column(String(200), nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(String(20), default="active")  # active, depleted, discontinued
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    product_links = relationship("ProductConsumable", back_populates="consumable")
+    usage_history = relationship("ConsumableUsage", back_populates="consumable")
+
+
+class ProductConsumable(Base):
+    """BOM entry linking a consumable to a product (parallel to ProductComponent)."""
+    __tablename__ = "product_consumables"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    consumable_id = Column(Integer, ForeignKey("consumables.id"), nullable=False)
+    quantity_per_product = Column(Float, default=1)
+    notes = Column(Text, nullable=True)
+
+    product = relationship("Product", backref="consumable_links")
+    consumable = relationship("Consumable", back_populates="product_links")
+
+
+class ConsumableUsage(Base):
+    """Audit trail for consumable stock changes."""
+    __tablename__ = "consumable_usage"
+
+    id = Column(Integer, primary_key=True)
+    consumable_id = Column(Integer, ForeignKey("consumables.id"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    quantity_used = Column(Float, nullable=False)
+    used_at = Column(DateTime, server_default=func.now())
+    notes = Column(String(255), nullable=True)
+
+    consumable = relationship("Consumable", back_populates="usage_history")
+    order = relationship("Order")
 
 
 class SystemConfig(Base):

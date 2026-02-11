@@ -214,13 +214,14 @@ class PrinterMonitor:
                     if isinstance(noz_dia, str):
                         try: noz_dia = float(noz_dia)
                         except: noz_dia = None
+                    fan_speed_val = self._state.get('cooling_fan_speed')
                     conn.execute(
                         "UPDATE printers SET last_seen=datetime('now'),"
                         " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
                         " gcode_state=?,print_stage=?,hms_errors=?,lights_on=COALESCE(?,lights_on),"
-                        " nozzle_type=?,nozzle_diameter=? WHERE id=?",
+                        " nozzle_type=?,nozzle_diameter=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
                         (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
-                         hms_j, lights_on, noz_type, noz_dia, self.printer_id))
+                         hms_j, lights_on, noz_type, noz_dia, fan_speed_val, self.printer_id))
                     conn.commit()
                     # Republish telemetry to external broker
                     if mqtt_republish:
@@ -237,6 +238,20 @@ class PrinterMonitor:
                         except Exception:
                             pass
                     self._last_heartbeat = time.time()
+
+                    # ---- Timeseries Telemetry Capture ----
+                    # Record temps + fan speed every 60s during active prints
+                    if gstate in ('RUNNING', 'PREPARE', 'PAUSE') and time.time() - getattr(self, '_last_telemetry_insert', 0) >= 60:
+                        self._last_telemetry_insert = time.time()
+                        try:
+                            conn.execute(
+                                "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
+                                (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
+                            )
+                            conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                            conn.commit()
+                        except Exception as e:
+                            log.debug(f"[{self.name}] Telemetry insert: {e}")
 
                     # ---- AMS Environmental Data Capture ----
                     # Record AMS humidity every 5 minutes (not every heartbeat)
@@ -265,9 +280,9 @@ class PrinterMonitor:
                                             "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
                                             (self.printer_id, unit_idx, humidity, temperature)
                                         )
-                            # Prune old data (keep 7 days)
+                            # Prune old data (keep 90 days)
                             conn.execute(
-                                "DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-7 days')"
+                                "DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-90 days')"
                             )
                             conn.commit()
                         except Exception as e:
@@ -291,6 +306,23 @@ class PrinterMonitor:
                     
                     # Process HMS errors through universal handler for alerts
                     if hms_raw:
+                        # Record HMS error history on change
+                        hms_key = _json.dumps(hms_raw)
+                        if hms_key != getattr(self, '_last_hms_key', None):
+                            self._last_hms_key = hms_key
+                            try:
+                                hconn = sqlite3.connect(DB_PATH)
+                                parsed = printer_events.parse_hms_errors(hms_raw)
+                                for err in parsed:
+                                    hconn.execute(
+                                        "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",
+                                        (self.printer_id, err.get('code', ''), err.get('message', ''), err.get('severity', 'warning'), 'bambu_hms')
+                                    )
+                                hconn.execute("DELETE FROM hms_error_history WHERE occurred_at < datetime('now', '-90 days')")
+                                hconn.commit()
+                                hconn.close()
+                            except Exception as e:
+                                log.debug(f"[{self.name}] HMS history insert: {e}")
                         printer_events.process_hms_errors(self.printer_id, hms_raw)
                         
                 except Exception as e:

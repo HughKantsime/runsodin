@@ -409,8 +409,28 @@ def increment_care_counters(printer_id: int, print_hours: float, print_count: in
         conn.commit()
         conn.close()
         log.debug(f"Incremented care counters for printer {printer_id}: +{print_hours:.2f}h, +{print_count} prints")
+        # Also increment nozzle lifecycle counters
+        increment_nozzle_lifecycle(printer_id, print_hours, print_count)
     except Exception as e:
         log.error(f"Failed to increment care counters for printer {printer_id}: {e}")
+
+
+def increment_nozzle_lifecycle(printer_id: int, print_hours: float, print_count: int = 1):
+    """Increment the current (active) nozzle's usage counters after job completion."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            """UPDATE nozzle_lifecycle SET
+                print_hours_accumulated = print_hours_accumulated + ?,
+                print_count = print_count + ?
+            WHERE printer_id = ? AND removed_at IS NULL""",
+            (print_hours, print_count, printer_id)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.debug(f"Nozzle lifecycle update for printer {printer_id}: {e}")
 
 
 def reset_maintenance_counters(printer_id: int):

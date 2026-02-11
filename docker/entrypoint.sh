@@ -210,6 +210,105 @@ conn.close()
 print("  ✓ Webhooks and AMS telemetry tables ready")
 WEBHOOKSEOF
 
+# ── Create telemetry expansion tables ──
+python3 << 'TELEMETRYEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS printer_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL,
+    bed_temp REAL,
+    nozzle_temp REAL,
+    bed_target REAL,
+    nozzle_target REAL,
+    fan_speed INTEGER,
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_printer_telemetry_printer ON printer_telemetry(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_printer_telemetry_recorded ON printer_telemetry(recorded_at)")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS hms_error_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    message TEXT,
+    severity TEXT DEFAULT 'warning',
+    source TEXT DEFAULT 'bambu_hms',
+    occurred_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_hms_history_printer ON hms_error_history(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_hms_history_occurred ON hms_error_history(occurred_at)")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS nozzle_lifecycle (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL,
+    nozzle_type TEXT,
+    nozzle_diameter REAL,
+    installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    removed_at DATETIME,
+    print_hours_accumulated REAL DEFAULT 0,
+    print_count INTEGER DEFAULT 0,
+    notes TEXT
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_nozzle_lifecycle_printer ON nozzle_lifecycle(printer_id)")
+
+# Add fan_speed column to printers if missing
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN fan_speed INTEGER")
+except Exception:
+    pass  # Column already exists
+
+conn.commit()
+conn.close()
+print("  ✓ Telemetry expansion tables ready")
+TELEMETRYEOF
+
+# ── Create consumables tables ──
+python3 << 'CONSUMABLESEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS consumables (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    sku TEXT,
+    unit TEXT DEFAULT 'piece',
+    cost_per_unit REAL DEFAULT 0,
+    current_stock REAL DEFAULT 0,
+    min_stock REAL DEFAULT 0,
+    vendor TEXT,
+    notes TEXT,
+    status TEXT DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS product_consumables (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    consumable_id INTEGER NOT NULL REFERENCES consumables(id),
+    quantity_per_product REAL DEFAULT 1,
+    notes TEXT
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_product_consumables_product ON product_consumables(product_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_product_consumables_consumable ON product_consumables(consumable_id)")
+
+conn.execute("""CREATE TABLE IF NOT EXISTS consumable_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    consumable_id INTEGER NOT NULL REFERENCES consumables(id),
+    order_id INTEGER,
+    quantity_used REAL NOT NULL,
+    used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_consumable_usage_consumable ON consumable_usage(consumable_id)")
+
+conn.commit()
+conn.close()
+print("  ✓ Consumables tables ready")
+CONSUMABLESEOF
+
 # ── Enable SQLite WAL mode ──
 python3 -c "
 import sqlite3

@@ -35,11 +35,11 @@ from auth import (
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
-from models import (Spool, SpoolUsage, SpoolStatus, AuditLog, 
+from models import (Spool, SpoolUsage, SpoolStatus, AuditLog,
     Base, Printer, FilamentSlot, Model, Job, JobStatus,
     FilamentType, SchedulerRun, init_db, FilamentLibrary,
     Alert, AlertPreference, AlertType, AlertSeverity, PushSubscription,
-    MaintenanceTask, MaintenanceLog, SystemConfig
+    MaintenanceTask, MaintenanceLog, SystemConfig, NozzleLifecycle
 )
 
 # Bambu Lab Integration
@@ -62,7 +62,8 @@ from schemas import (
     HealthCheck,
     AlertResponse, AlertSummary, AlertPreferenceResponse,
     AlertPreferencesUpdate, SmtpConfigBase, SmtpConfigResponse,
-    PushSubscriptionCreate, AlertTypeEnum, AlertSeverityEnum
+    PushSubscriptionCreate, AlertTypeEnum, AlertSeverityEnum,
+    TelemetryDataPoint, HmsErrorHistoryEntry, NozzleInstall, NozzleLifecycleResponse
 )
 from scheduler import Scheduler, SchedulerConfig, run_scheduler
 from config import settings
@@ -7033,6 +7034,107 @@ def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("ad
     return {"message": f"Seeded {created} tasks ({skipped} already existed)", "created": created, "skipped": skipped}
 
 
+# ============== Telemetry & Nozzle Lifecycle ==============
+
+@app.get("/api/printers/{printer_id}/telemetry", tags=["Telemetry"])
+def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
+                          current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get timeseries telemetry data for a printer (recorded during prints)."""
+    rows = db.execute(text(
+        "SELECT recorded_at, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed "
+        "FROM printer_telemetry WHERE printer_id = :pid AND recorded_at > datetime('now', :cutoff) "
+        "ORDER BY recorded_at ASC"
+    ), {"pid": printer_id, "cutoff": f"-{hours} hours"}).fetchall()
+    return [{"recorded_at": r[0], "bed_temp": r[1], "nozzle_temp": r[2],
+             "bed_target": r[3], "nozzle_target": r[4], "fan_speed": r[5]} for r in rows]
+
+
+@app.get("/api/printers/{printer_id}/hms-history", tags=["Telemetry"])
+def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
+                          current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get HMS error history with occurrence timestamps."""
+    rows = db.execute(text(
+        "SELECT id, printer_id, code, message, severity, source, occurred_at "
+        "FROM hms_error_history WHERE printer_id = :pid AND occurred_at > datetime('now', :cutoff) "
+        "ORDER BY occurred_at DESC"
+    ), {"pid": printer_id, "cutoff": f"-{days} days"}).fetchall()
+    entries = [{"id": r[0], "printer_id": r[1], "code": r[2], "message": r[3],
+                "severity": r[4], "source": r[5], "occurred_at": r[6]} for r in rows]
+    # Frequency summary
+    freq = {}
+    for e in entries:
+        key = e["code"]
+        freq[key] = freq.get(key, 0) + 1
+    return {"entries": entries, "frequency": freq, "total": len(entries)}
+
+
+@app.get("/api/printers/{printer_id}/nozzle", tags=["Telemetry"])
+def get_current_nozzle(printer_id: int, current_user: dict = Depends(require_role("viewer")),
+                       db: Session = Depends(get_db)):
+    """Get the currently installed nozzle for a printer."""
+    nozzle = db.query(NozzleLifecycle).filter(
+        NozzleLifecycle.printer_id == printer_id,
+        NozzleLifecycle.removed_at.is_(None)
+    ).first()
+    if not nozzle:
+        raise HTTPException(status_code=404, detail="No active nozzle tracked for this printer")
+    return NozzleLifecycleResponse.model_validate(nozzle)
+
+
+@app.post("/api/printers/{printer_id}/nozzle", tags=["Telemetry"])
+def install_nozzle(printer_id: int, data: NozzleInstall,
+                   current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Install a new nozzle (auto-retires the previous one)."""
+    # Verify printer exists
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    # Retire current nozzle if any
+    current = db.query(NozzleLifecycle).filter(
+        NozzleLifecycle.printer_id == printer_id,
+        NozzleLifecycle.removed_at.is_(None)
+    ).first()
+    if current:
+        current.removed_at = datetime.utcnow()
+    # Install new nozzle
+    nozzle = NozzleLifecycle(
+        printer_id=printer_id,
+        nozzle_type=data.nozzle_type,
+        nozzle_diameter=data.nozzle_diameter,
+        notes=data.notes
+    )
+    db.add(nozzle)
+    db.commit()
+    db.refresh(nozzle)
+    return NozzleLifecycleResponse.model_validate(nozzle)
+
+
+@app.patch("/api/printers/{printer_id}/nozzle/{nozzle_id}/retire", tags=["Telemetry"])
+def retire_nozzle(printer_id: int, nozzle_id: int,
+                  current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Retire a specific nozzle."""
+    nozzle = db.query(NozzleLifecycle).filter(
+        NozzleLifecycle.id == nozzle_id,
+        NozzleLifecycle.printer_id == printer_id
+    ).first()
+    if not nozzle:
+        raise HTTPException(status_code=404, detail="Nozzle not found")
+    if nozzle.removed_at:
+        raise HTTPException(status_code=400, detail="Nozzle already retired")
+    nozzle.removed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(nozzle)
+    return NozzleLifecycleResponse.model_validate(nozzle)
+
+
+@app.get("/api/printers/{printer_id}/nozzle/history", tags=["Telemetry"])
+def get_nozzle_history(printer_id: int, current_user: dict = Depends(require_role("viewer")),
+                       db: Session = Depends(get_db)):
+    """Get all nozzles (past and present) for a printer."""
+    nozzles = db.query(NozzleLifecycle).filter(
+        NozzleLifecycle.printer_id == printer_id
+    ).order_by(NozzleLifecycle.installed_at.desc()).all()
+    return [NozzleLifecycleResponse.model_validate(n) for n in nozzles]
 
 
 # ============== Model Variants (v0.11.0) ==============
@@ -7492,12 +7594,14 @@ def calculate_model_cost(
 
 # ============== Products & Orders (v0.14.0) ==============
 # Imports for this section
-from models import Product, ProductComponent, Order, OrderItem, OrderStatus
+from models import Product, ProductComponent, Order, OrderItem, OrderStatus, Consumable, ProductConsumable, ConsumableUsage
 from schemas import (
     ProductResponse, ProductCreate, ProductUpdate,
     ProductComponentResponse, ProductComponentCreate,
+    ProductConsumableResponse, ProductConsumableCreate,
     OrderResponse, OrderCreate, OrderUpdate, OrderSummary,
-    OrderItemResponse, OrderItemCreate, OrderItemUpdate, OrderShipRequest
+    OrderItemResponse, OrderItemCreate, OrderItemUpdate, OrderShipRequest,
+    ConsumableCreate, ConsumableUpdate, ConsumableResponse, ConsumableAdjust
 )
 
 
@@ -7511,12 +7615,22 @@ def list_products(db: Session = Depends(get_db)):
     for p in products:
         resp = ProductResponse.model_validate(p)
         resp.component_count = len(p.components)
-        # Calculate estimated COGS from components
+        # Calculate estimated COGS from printed components + consumables
         cogs = 0
         for comp in p.components:
             if comp.model and comp.model.cost_per_item:
                 cogs += comp.model.cost_per_item * comp.quantity_needed
+        for pc in getattr(p, 'consumable_links', []):
+            if pc.consumable and pc.consumable.cost_per_unit:
+                cogs += pc.consumable.cost_per_unit * pc.quantity_per_product
         resp.estimated_cogs = round(cogs, 2) if cogs > 0 else None
+        # Enrich consumables
+        resp.consumables = [
+            ProductConsumableResponse(id=pc.id, product_id=pc.product_id, consumable_id=pc.consumable_id,
+                                      quantity_per_product=pc.quantity_per_product, notes=pc.notes,
+                                      consumable_name=pc.consumable.name if pc.consumable else None)
+            for pc in getattr(p, 'consumable_links', [])
+        ]
         result.append(resp)
     return result
 
@@ -7558,7 +7672,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     
     resp = ProductResponse.model_validate(product)
     resp.component_count = len(product.components)
-    
+
     # Enrich components with model names
     enriched_components = []
     cogs = 0
@@ -7569,8 +7683,20 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
             if comp.model.cost_per_item:
                 cogs += comp.model.cost_per_item * comp.quantity_needed
         enriched_components.append(comp_resp)
-    
     resp.components = enriched_components
+
+    # Enrich consumables and add to COGS
+    resp.consumables = []
+    for pc in getattr(product, 'consumable_links', []):
+        pc_resp = ProductConsumableResponse(
+            id=pc.id, product_id=pc.product_id, consumable_id=pc.consumable_id,
+            quantity_per_product=pc.quantity_per_product, notes=pc.notes,
+            consumable_name=pc.consumable.name if pc.consumable else None
+        )
+        resp.consumables.append(pc_resp)
+        if pc.consumable and pc.consumable.cost_per_unit:
+            cogs += pc.consumable.cost_per_unit * pc.quantity_per_product
+
     resp.estimated_cogs = round(cogs, 2) if cogs > 0 else None
     return resp
 
@@ -7873,17 +7999,44 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
                     "quantity_on_bed": qty_this_job
                 })
     
+    # Deduct consumables from inventory
+    consumable_deductions = []
+    for item in order.items:
+        product = item.product
+        if not product:
+            continue
+        for pc in getattr(product, 'consumable_links', []):
+            consumable = pc.consumable
+            if not consumable or consumable.status != 'active':
+                continue
+            total_needed = pc.quantity_per_product * item.quantity
+            consumable.current_stock = max(0, consumable.current_stock - total_needed)
+            consumable.updated_at = datetime.utcnow()
+            usage = ConsumableUsage(
+                consumable_id=consumable.id,
+                order_id=order.id,
+                quantity_used=total_needed,
+                notes=f"Auto-deducted for Order #{order.order_number or order.id}"
+            )
+            db.add(usage)
+            consumable_deductions.append({
+                "consumable": consumable.name,
+                "quantity_deducted": total_needed,
+                "remaining_stock": consumable.current_stock
+            })
+
     # Update order status
-    if jobs_created:
+    if jobs_created or consumable_deductions:
         order.status = OrderStatus.IN_PROGRESS
-    
+
     db.commit()
-    
+
     return {
         "success": True,
         "order_id": order_id,
         "jobs_created": len(jobs_created),
-        "details": jobs_created
+        "details": jobs_created,
+        "consumables_deducted": consumable_deductions
     }
 
 
@@ -7987,6 +8140,157 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
         resp.margin_percent = round((resp.profit / order.revenue) * 100, 1) if order.revenue > 0 else None
     
     return resp
+
+
+# ============== Consumables ==============
+
+@app.get("/api/consumables", tags=["Consumables"])
+def list_consumables(status: str = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """List all consumables with low-stock flag."""
+    query = db.query(Consumable)
+    if status:
+        query = query.filter(Consumable.status == status)
+    items = query.order_by(Consumable.name).all()
+    result = []
+    for c in items:
+        resp = ConsumableResponse.model_validate(c)
+        resp.is_low_stock = c.current_stock < c.min_stock if c.min_stock and c.min_stock > 0 else False
+        result.append(resp)
+    return result
+
+
+@app.post("/api/consumables", tags=["Consumables"])
+def create_consumable(data: ConsumableCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Create a new consumable item."""
+    item = Consumable(**data.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    resp = ConsumableResponse.model_validate(item)
+    resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
+    return resp
+
+
+@app.get("/api/consumables/low-stock", tags=["Consumables"])
+def low_stock_consumables(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get consumables below their minimum stock threshold."""
+    items = db.query(Consumable).filter(
+        Consumable.status == "active",
+        Consumable.min_stock > 0,
+        Consumable.current_stock < Consumable.min_stock
+    ).all()
+    result = []
+    for c in items:
+        resp = ConsumableResponse.model_validate(c)
+        resp.is_low_stock = True
+        result.append(resp)
+    return result
+
+
+@app.get("/api/consumables/{consumable_id}", tags=["Consumables"])
+def get_consumable(consumable_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get a consumable with recent usage history."""
+    item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+    resp = ConsumableResponse.model_validate(item)
+    resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
+    # Include recent usage
+    usage = db.query(ConsumableUsage).filter(
+        ConsumableUsage.consumable_id == consumable_id
+    ).order_by(ConsumableUsage.used_at.desc()).limit(50).all()
+    return {
+        **resp.model_dump(),
+        "usage_history": [{"id": u.id, "quantity_used": u.quantity_used, "used_at": u.used_at,
+                           "order_id": u.order_id, "notes": u.notes} for u in usage]
+    }
+
+
+@app.patch("/api/consumables/{consumable_id}", tags=["Consumables"])
+def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Update a consumable."""
+    item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+    for key, val in data.model_dump(exclude_unset=True).items():
+        setattr(item, key, val)
+    item.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+    resp = ConsumableResponse.model_validate(item)
+    resp.is_low_stock = item.current_stock < item.min_stock if item.min_stock and item.min_stock > 0 else False
+    return resp
+
+
+@app.delete("/api/consumables/{consumable_id}", tags=["Consumables"])
+def delete_consumable(consumable_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Delete a consumable."""
+    item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+    db.delete(item)
+    db.commit()
+    return {"success": True}
+
+
+@app.post("/api/consumables/{consumable_id}/adjust", tags=["Consumables"])
+def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Manual stock adjustment (restock or deduct)."""
+    item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+    if data.type == "restock":
+        item.current_stock += data.quantity
+    else:
+        item.current_stock = max(0, item.current_stock - data.quantity)
+    usage = ConsumableUsage(
+        consumable_id=consumable_id,
+        quantity_used=data.quantity if data.type == "deduct" else -data.quantity,
+        notes=data.notes or f"Manual {data.type}"
+    )
+    db.add(usage)
+    item.updated_at = datetime.utcnow()
+    db.commit()
+    return {"success": True, "new_stock": item.current_stock}
+
+
+@app.post("/api/products/{product_id}/consumables", tags=["Products"])
+def add_product_consumable(product_id: int, data: ProductConsumableCreate,
+                           current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Add a consumable to a product's BOM."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    consumable = db.query(Consumable).filter(Consumable.id == data.consumable_id).first()
+    if not consumable:
+        raise HTTPException(status_code=404, detail="Consumable not found")
+    link = ProductConsumable(
+        product_id=product_id,
+        consumable_id=data.consumable_id,
+        quantity_per_product=data.quantity_per_product,
+        notes=data.notes
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    resp = ProductConsumableResponse.model_validate(link)
+    resp.consumable_name = consumable.name
+    return resp
+
+
+@app.delete("/api/products/{product_id}/consumables/{consumable_link_id}", tags=["Products"])
+def remove_product_consumable(product_id: int, consumable_link_id: int,
+                              current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Remove a consumable from a product's BOM."""
+    link = db.query(ProductConsumable).filter(
+        ProductConsumable.id == consumable_link_id,
+        ProductConsumable.product_id == product_id
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Product consumable not found")
+    db.delete(link)
+    db.commit()
+    return {"success": True}
 
 
 # ======================

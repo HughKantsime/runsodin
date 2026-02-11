@@ -265,6 +265,27 @@ export const modelCost = {
 }
 
 
+// Printer Telemetry & Nozzle Lifecycle
+export const printerTelemetry = {
+  get: (printerId, hours = 24) => fetchAPI(`/printers/${printerId}/telemetry?hours=${hours}`),
+  hmsHistory: (printerId, days = 30) => fetchAPI(`/printers/${printerId}/hms-history?days=${days}`),
+  nozzle: (printerId) => fetchAPI(`/printers/${printerId}/nozzle`),
+  installNozzle: (printerId, data) => fetchAPI(`/printers/${printerId}/nozzle`, { method: 'POST', body: JSON.stringify(data) }),
+  retireNozzle: (printerId, nozzleId) => fetchAPI(`/printers/${printerId}/nozzle/${nozzleId}/retire`, { method: 'PATCH' }),
+  nozzleHistory: (printerId) => fetchAPI(`/printers/${printerId}/nozzle/history`),
+}
+
+// Consumables
+export const consumables = {
+  list: (status) => fetchAPI('/consumables' + (status ? '?status=' + status : '')),
+  get: (id) => fetchAPI(`/consumables/${id}`),
+  create: (data) => fetchAPI('/consumables', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/consumables/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/consumables/${id}`, { method: 'DELETE' }),
+  adjust: (id, data) => fetchAPI(`/consumables/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
+  lowStock: () => fetchAPI('/consumables/low-stock'),
+}
+
 // Products (v0.14.0)
 export const products = {
   list: () => fetchAPI('/products'),
@@ -274,6 +295,8 @@ export const products = {
   delete: (id) => fetchAPI(`/products/${id}`, { method: 'DELETE' }),
   addComponent: (productId, data) => fetchAPI(`/products/${productId}/components`, { method: 'POST', body: JSON.stringify(data) }),
   removeComponent: (productId, componentId) => fetchAPI(`/products/${productId}/components/${componentId}`, { method: 'DELETE' }),
+  addConsumable: (productId, data) => fetchAPI(`/products/${productId}/consumables`, { method: 'POST', body: JSON.stringify(data) }),
+  removeConsumable: (productId, linkId) => fetchAPI(`/products/${productId}/consumables/${linkId}`, { method: 'DELETE' }),
 }
 
 // Orders (v0.14.0)

@@ -84,6 +84,7 @@ class PrinterBase(BaseModel):
     lights_on: Optional[bool] = None
     nozzle_type: Optional[str] = None
     nozzle_diameter: Optional[float] = None
+    fan_speed: Optional[int] = None
     last_seen: Optional[datetime] = None
     # Care counters (universal)
     total_print_hours: Optional[float] = None
@@ -447,14 +448,33 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
 
 
+class ProductConsumableBase(BaseModel):
+    consumable_id: int
+    quantity_per_product: float = 1
+    notes: Optional[str] = None
+
+
+class ProductConsumableCreate(ProductConsumableBase):
+    pass
+
+
+class ProductConsumableResponse(ProductConsumableBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    consumable_name: Optional[str] = None  # Populated by API
+
+
 class ProductResponse(ProductBase):
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: int
     created_at: datetime
     updated_at: datetime
     components: List[ProductComponentResponse] = []
-    
+    consumables: List[ProductConsumableResponse] = []
+
     # Calculated fields (populated by API)
     estimated_cogs: Optional[float] = None
     component_count: Optional[int] = None
@@ -670,6 +690,94 @@ class AlertPreferenceResponse(AlertPreferenceBase):
 class AlertPreferencesUpdate(BaseModel):
     """Bulk update of all alert preferences for a user."""
     preferences: List[AlertPreferenceBase]
+
+
+# ============== Telemetry & Nozzle Schemas ==============
+
+class TelemetryDataPoint(BaseModel):
+    recorded_at: datetime
+    bed_temp: Optional[float] = None
+    nozzle_temp: Optional[float] = None
+    bed_target: Optional[float] = None
+    nozzle_target: Optional[float] = None
+    fan_speed: Optional[int] = None
+
+
+class HmsErrorHistoryEntry(BaseModel):
+    id: int
+    printer_id: int
+    code: str
+    message: Optional[str] = None
+    severity: str = "warning"
+    source: str = "bambu_hms"
+    occurred_at: datetime
+
+
+class NozzleLifecycleBase(BaseModel):
+    nozzle_type: Optional[str] = None
+    nozzle_diameter: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class NozzleInstall(NozzleLifecycleBase):
+    pass
+
+
+class NozzleLifecycleResponse(NozzleLifecycleBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    printer_id: int
+    installed_at: datetime
+    removed_at: Optional[datetime] = None
+    print_hours_accumulated: float = 0
+    print_count: int = 0
+
+
+# ============== Consumable Schemas ==============
+
+class ConsumableBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    sku: Optional[str] = None
+    unit: str = "piece"
+    cost_per_unit: float = 0
+    current_stock: float = 0
+    min_stock: float = 0
+    vendor: Optional[str] = None
+    notes: Optional[str] = None
+    status: str = "active"
+
+
+class ConsumableCreate(ConsumableBase):
+    pass
+
+
+class ConsumableUpdate(BaseModel):
+    name: Optional[str] = None
+    sku: Optional[str] = None
+    unit: Optional[str] = None
+    cost_per_unit: Optional[float] = None
+    current_stock: Optional[float] = None
+    min_stock: Optional[float] = None
+    vendor: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+class ConsumableResponse(ConsumableBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    is_low_stock: Optional[bool] = None  # Populated by API
+
+
+class ConsumableAdjust(BaseModel):
+    """Manual stock adjustment."""
+    quantity: float
+    type: str = "restock"  # "restock" or "deduct"
+    notes: Optional[str] = None
 
 
 class SmtpConfigBase(BaseModel):
