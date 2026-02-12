@@ -30,8 +30,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List, Any, Tuple
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+except ImportError:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+    logging.getLogger('vision_monitor').warning(
+        'Vision monitor disabled — cv2/numpy not available. '
+        'This is normal if opencv is not installed in this environment.'
+    )
+    sys.exit(0)  # Exit cleanly so supervisor doesn't restart
 
 try:
     import onnxruntime as ort
