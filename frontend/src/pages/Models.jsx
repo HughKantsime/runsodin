@@ -13,14 +13,15 @@ import {
   ChevronDown,
   CalendarPlus,
   Printer as PrinterIcon,
-  Star, Box } from 'lucide-react'
+  Star, Box, History } from 'lucide-react'
 import ModelViewer from '../components/ModelViewer'
+import ModelRevisionPanel from '../components/ModelRevisionPanel'
 import clsx from 'clsx'
 
 import { models, filaments, printers } from '../api'
 import { canDo } from '../permissions'
 
-function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D }) {
+function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions }) {
   return (
     <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
       <div className="h-28 md:h-32 bg-farm-950 flex items-center justify-center">
@@ -77,6 +78,13 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             >
               <Pencil size={14} />
             </button>}
+            <button
+              onClick={() => onRevisions(model)}
+              className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+              aria-label="View revisions"
+            >
+              <History size={14} />
+            </button>
             {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
               className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
@@ -488,6 +496,7 @@ export default function Models() {
   const [selectedPrinter, setSelectedPrinter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+  const [revisionModel, setRevisionModel] = useState(null)
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter], queryFn: () => models.listWithPricing(categoryFilter || null) })
   
@@ -585,7 +594,7 @@ export default function Models() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {modelsData?.filter(m => !showFavoritesOnly || m.is_favorite).map((model) => (
-            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite}  onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} />
+            <ModelCard key={model.id} model={model} onEdit={handleEdit} onDelete={handleDelete} onSchedule={handleScheduleClick} onToggleFavorite={handleToggleFavorite} onView3D={(m) => { setViewerModelId(m.id); setViewerModelName(m.name) }} onRevisions={(m) => setRevisionModel(m)} />
           ))}
         </div>
       )}
@@ -605,6 +614,14 @@ export default function Models() {
           modelId={viewerModelId}
           modelName={viewerModelName}
           onClose={() => { setViewerModelId(null); setViewerModelName('') }}
+        />
+      )}
+
+      {revisionModel && (
+        <ModelRevisionPanel
+          modelId={revisionModel.id}
+          modelName={revisionModel.name}
+          onClose={() => setRevisionModel(null)}
         />
       )}
     </div>

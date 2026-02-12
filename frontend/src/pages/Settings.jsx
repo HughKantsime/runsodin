@@ -15,6 +15,10 @@ import SessionManager from '../components/SessionManager'
 import QuotaManager from '../components/QuotaManager'
 import IPAllowlistSettings from '../components/IPAllowlistSettings'
 import DataRetentionSettings from '../components/DataRetentionSettings'
+import BackupRestore from '../components/BackupRestore'
+import OrgManager from '../components/OrgManager'
+import ReportScheduleManager from '../components/ReportScheduleManager'
+import ChargebackReport from '../components/ChargebackReport'
 import { alertPreferences, smtpConfig } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
@@ -974,6 +978,9 @@ export default function Settings() {
         <div className="border-t border-farm-700 pt-6">
           <IPAllowlistSettings />
         </div>
+        <div className="border-t border-farm-700 pt-6">
+          <OrgManager />
+        </div>
       </div>}
 
       {/* ==================== INTEGRATIONS TAB (Webhooks) ==================== */}
@@ -1543,6 +1550,9 @@ export default function Settings() {
         <p className="text-xs text-farm-500 mt-3">
           Backups use SQLite's online backup API — safe to create while the system is running.
         </p>
+        <div className="border-t border-farm-700 mt-4 pt-4">
+          <BackupRestore />
+        </div>
       </div>
 
       {/* Data Export */}
@@ -1592,6 +1602,16 @@ export default function Settings() {
       {/* Data Retention */}
       <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <DataRetentionSettings />
+      </div>
+
+      {/* Scheduled Reports */}
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <ReportScheduleManager />
+      </div>
+
+      {/* Cost Chargebacks */}
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <ChargebackReport />
       </div>
 
       <InstallAppCard />
