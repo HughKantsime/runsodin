@@ -458,7 +458,11 @@ class Job(Base):
     # Failure logging (v0.18.0)
     fail_reason = Column(String(100), nullable=True)   # Category: spaghetti, adhesion, clog, etc.
     fail_notes = Column(Text, nullable=True)            # Freeform notes
-    
+
+    # Chargeback tracking
+    charged_to_user_id = Column(Integer, nullable=True)
+    charged_to_org_id = Column(Integer, nullable=True)
+
     # User preferences
     is_favorite = Column(Boolean, default=False)
 

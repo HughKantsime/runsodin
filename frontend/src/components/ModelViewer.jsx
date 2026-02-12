@@ -342,14 +342,14 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="model-viewer-title">
       <div className="relative w-[90vw] h-[80vh] max-w-6xl bg-[#1a1a2e] rounded-lg border border-farm-700 overflow-hidden flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-farm-700 bg-farm-900/80">
           <div className="flex items-center gap-3">
-            <Box size={18} className="text-amber-400" />
-            <h3 className="font-medium text-white">{modelName || '3D Preview'}</h3>
+            <Box size={18} className="text-amber-400" aria-hidden="true" />
+            <h3 id="model-viewer-title" className="font-medium text-white">{modelName || '3D Preview'}</h3>
             {meshInfo && (
               <span className="text-xs text-farm-400">
                 {meshInfo.vertices.toLocaleString()} vertices · {meshInfo.triangles.toLocaleString()} triangles
@@ -369,14 +369,14 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             <button
               onClick={() => controlsRef.current?.zoomIn()}
               className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
-              title="Zoom in"
+              aria-label="Zoom in"
             >
               <ZoomIn size={14} />
             </button>
             <button
               onClick={() => controlsRef.current?.zoomOut()}
               className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
-              title="Zoom out"
+              aria-label="Zoom out"
             >
               <ZoomOut size={14} />
             </button>
@@ -384,7 +384,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             <button
               onClick={() => controlsRef.current?.reset()}
               className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
-              title="Reset view"
+              aria-label="Reset view"
             >
               <RotateCcw size={14} />
             </button>
@@ -392,7 +392,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             <button
               onClick={onClose}
               className="p-1.5 bg-farm-700 hover:bg-red-600 rounded-lg text-farm-300"
-              title="Close (Esc)"
+              aria-label="Close 3D preview"
             >
               <X size={14} />
             </button>

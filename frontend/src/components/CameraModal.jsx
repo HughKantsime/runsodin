@@ -103,7 +103,7 @@ export default function CameraModal({ printer, onClose }) {
       : 'bg-farm-950 rounded-lg border border-farm-800 shadow-2xl w-96 flex flex-col'
 
   return (
-    <div className={sizeClasses} onClick={size !== 'small' ? onClose : undefined}>
+    <div className={sizeClasses} role="dialog" aria-modal={size !== 'small' ? 'true' : undefined} aria-label={`Camera feed for ${printer.name}`} onClick={size !== 'small' ? onClose : undefined}>
       <div className={containerClasses} onClick={e => e.stopPropagation()}>
         {/* Video */}
         <div className={size === 'fullscreen' ? 'flex-1 relative bg-black' : 'relative aspect-video bg-black rounded-t-xl overflow-hidden'}>
@@ -112,6 +112,7 @@ export default function CameraModal({ printer, onClose }) {
             autoPlay
             playsInline
             muted
+            aria-label={`Live camera feed for ${printer.name}`}
             className="w-full h-full object-contain"
           />
           {status === 'connecting' && (
@@ -130,7 +131,7 @@ export default function CameraModal({ printer, onClose }) {
               <button
                 onClick={() => setSize('large')}
                 className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                title="Expand"
+                aria-label="Expand camera view"
               >
                 <Maximize2 size={14} />
               </button>
@@ -140,14 +141,14 @@ export default function CameraModal({ printer, onClose }) {
                 <button
                   onClick={() => setSize('small')}
                   className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                  title="Minimize"
+                  aria-label="Minimize camera view"
                 >
                   <Minimize2 size={14} />
                 </button>
                 <button
                   onClick={() => setSize('fullscreen')}
                   className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                  title="Fullscreen"
+                  aria-label="Enter fullscreen"
                 >
                   <Monitor size={14} />
                 </button>
@@ -157,7 +158,7 @@ export default function CameraModal({ printer, onClose }) {
               <button
                 onClick={() => setSize('large')}
                 className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                title="Exit fullscreen"
+                aria-label="Exit fullscreen"
               >
                 <Minimize2 size={14} />
               </button>
@@ -165,7 +166,7 @@ export default function CameraModal({ printer, onClose }) {
             <button
               onClick={onClose}
               className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-              title="Close"
+              aria-label="Close camera"
             >
               <X size={14} />
             </button>

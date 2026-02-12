@@ -1,94 +1,229 @@
 # O.D.I.N. Feature Roadmap
 
-Generated 2026-02-12 at v1.1.4.
+Updated 2026-02-12 at v1.2.0.
 
-## Backlog (prioritized)
+## Shipped in v1.2.0
 
-### 1. Fleet Failure Analytics Dashboard
-**Effort: Medium** — Data already exists in jobs, print_jobs, hms_error_history tables.
-
-Add failure analytics section to Analytics page:
-- Success/failure rate by printer (bar chart)
-- Success rate by model (which models fail most)
-- Failure rate by filament type
-- Mean time between failures per printer
-- Most common failure reasons (from failure_reason field)
-- HMS error frequency by code
-
-Backend: `GET /api/analytics/failures` with date range filters.
-Frontend: charts on Analytics page.
+- ~~Fleet Failure Analytics Dashboard~~
+- ~~Printer Tags/Groups for Fleet Organization~~
+- ~~Audit Log Viewer Page~~
+- ~~PWA Manifest for Mobile Install~~
+- ~~Estimated vs Actual Print Time Tracking~~
+- ~~Filament Drying Log~~
+- ~~Print Profiles / Presets~~
+- ~~Timelapse Generation from Camera Streams~~
 
 ---
 
-### 2. Printer Tags/Groups for Fleet Organization
-**Effort: Medium** — Structural improvement that unlocks smarter scheduling.
+## Backlog — Enterprise & Education Readiness
 
-Free-form labels on printers: "Room A", "PLA-only", "Production", "Testing".
+### 1. MFA / Two-Factor Authentication
+**Effort: Medium** — No implementation exists. Procurement blocker for enterprise and education IT.
 
-Backend: `printer_tags` table (printer_id, tag), endpoints to add/remove/filter. Tags usable as scheduler constraints.
-Frontend: tag chips on printer cards, tag filter on Printers page, tag editor in printer settings, optional tag constraint on job creation.
+TOTP-based 2FA (Google Authenticator, Authy, etc.):
+- `user_totp_secret` column (encrypted at rest via existing Fernet key)
+- `POST /api/auth/mfa/setup` — generate secret + QR code
+- `POST /api/auth/mfa/verify` — validate TOTP code during login
+- `DELETE /api/auth/mfa` — disable MFA (require current TOTP or admin override)
+- Login flow: username/password → if MFA enabled → prompt for TOTP → issue JWT
+- Admin can enforce MFA for all users via `/api/config/require-mfa`
 
----
-
-### 3. Audit Log Viewer Page
-**Effort: Low** — Table already exists, CSV export works, just needs a JSON endpoint + page.
-
-Admin-only page at `/audit`. Filterable table: timestamp, user, action, target, details. Filters: date range, user, action type. Paginated (50/page).
-
-Backend: `GET /api/audit-logs` with pagination + filters (JSON, not CSV).
-Frontend: new `AuditLog.jsx` page.
+Frontend: MFA setup in user profile, TOTP input step in login page.
 
 ---
 
-### 4. PWA Manifest for Mobile Install
-**Effort: Low** — Push notifications already work.
+### 2. Scoped API Tokens (Per-User)
+**Effort: Medium** — Currently a single global `API_KEY`. Enterprise needs per-user tokens with granular permissions.
 
-- `manifest.json` (app name from branding, icons, theme color, `display: standalone`)
-- Basic service worker for app shell caching (not offline-first data)
-- Meta tags in `index.html` (theme-color, apple-mobile-web-app-capable)
-- Install prompt or button in Settings
+- `api_tokens` table: `id`, `user_id`, `name`, `token_hash`, `scopes` (JSON array), `expires_at`, `last_used_at`, `created_at`
+- Scopes: `read:printers`, `write:printers`, `read:jobs`, `write:jobs`, `read:spools`, `admin`, etc.
+- `POST /api/tokens` — create token (returns plaintext once), `GET /api/tokens` — list user's tokens, `DELETE /api/tokens/{id}` — revoke
+- Middleware: check `X-API-Key` against `api_tokens` table, enforce scopes per route
+- Keep legacy global API key for backward compatibility, deprecate over time
 
-Goal: "Add to Home Screen" on tablets carried around the farm floor.
-
----
-
-### 5. Estimated vs Actual Print Time Tracking
-**Effort: Low** — Data already exists, just needs columns + chart.
-
-Add `estimated_duration_min` and `actual_duration_min` to jobs table. Estimated from slicer metadata at creation, actual from print completion events.
-
-Backend: `GET /api/analytics/time-accuracy` with per-printer accuracy stats.
-Frontend: est vs actual on job cards, accuracy trend chart on Analytics page.
+Frontend: token management page in user settings — create, list, copy, revoke.
 
 ---
 
-### 6. Filament Drying Log
-**Effort: Medium** — New table + UI. Important for production farms with hygroscopic materials.
+### 3. Session Management & Token Revocation
+**Effort: Low** — JWT has no revocation mechanism. Users can't see or kill active sessions.
 
-Track drying sessions per spool (nylon, PETG, TPU, PA).
+- `active_sessions` table: `id`, `user_id`, `token_jti`, `ip_address`, `user_agent`, `created_at`, `last_seen_at`
+- Record session on login, update `last_seen_at` on each authenticated request
+- `GET /api/sessions` — list current user's sessions
+- `DELETE /api/sessions/{id}` — revoke session (add `token_jti` to blacklist)
+- `DELETE /api/sessions` — revoke all sessions except current
+- Token blacklist checked in auth middleware (short-lived set, cleaned up after JWT expiry)
+- Admin: `GET /api/admin/sessions` — view all active sessions, force-logout users
 
-Backend: `drying_logs` table (spool_id, dried_at, duration_hours, temp_c, method, notes). `POST /api/spools/{id}/dry`, `GET /api/spools/{id}/drying-history`. Alert when hygroscopic spool overdue for drying.
-Frontend: "Log Drying" button on spool detail, drying history, "needs drying" indicator on spool cards.
-
----
-
-### 7. Print Profiles / Presets
-**Effort: Medium** — Quality-of-life for operators doing repeat work.
-
-Save reusable configs: model + preferred printer/tag + filament + quantity + notes.
-
-Backend: `print_presets` table, CRUD endpoints, `POST /api/presets/{id}/schedule`.
-Frontend: Presets section on Jobs page, "Save as Preset" on job form, "Quick Schedule" from presets.
+Frontend: active sessions list in user profile with device info, "Sign out everywhere" button.
 
 ---
 
-### 8. Timelapse Generation from Camera Streams
-**Effort: High** — Needs ffmpeg in Docker, background capture thread, storage management.
+### 4. Print Quotas
+**Effort: Medium** — Feature flag exists in license system (`print_quotas`) but zero backend implementation. Critical for education.
 
-Capture JPEG snapshots every 30s during prints via existing camera endpoint. On completion, stitch with ffmpeg into MP4. Store in `/data/timelapses/`.
+- Quota config per user or per group: `quota_grams`, `quota_hours`, `quota_jobs`, `quota_period` (daily/weekly/monthly/semester)
+- `quota_usage` table tracking consumption per period
+- Enforcement at job creation: reject or warn when quota exceeded
+- `GET /api/quotas` — current user's quota and usage
+- `GET /api/admin/quotas` — admin view of all users' quota status
+- `PUT /api/admin/quotas/{user_id}` — set user quotas
+- `PUT /api/admin/quotas/group/{group_id}` — set group-level quotas (inherited by members)
+- Quota reset on period boundary (cron or lazy evaluation)
 
-Backend: timelapse capture service, `GET /api/jobs/{id}/timelapse`, `GET /api/timelapses`, `DELETE /api/timelapses/{id}`. `timelapse_enabled` flag per printer. Auto-delete after N days.
-Frontend: timelapse player on job detail, gallery page, toggle in printer settings.
+Frontend: quota usage bar in sidebar/header, quota management in admin settings, "quota exceeded" state on job form.
+
+---
+
+### 5. Organizations & Multi-Tenancy
+**Effort: High** — Groups exist (single-level team grouping) but no resource isolation. Enterprise with multiple departments needs scoped views.
+
+Extend existing `groups` into full organizations:
+- `org_id` foreign key on printers, jobs, spools, models — scoping all resources
+- Org-level admins vs instance-level superadmin
+- Org members only see their org's printers, jobs, spools, models
+- Shared printers: flag to make a printer visible across orgs
+- Org-level settings: default filament, notification preferences, branding
+- `GET /api/orgs` — list orgs (superadmin), `POST /api/orgs`, `PATCH /api/orgs/{id}`
+- All existing list endpoints gain implicit org filtering via auth context
+
+Frontend: org switcher in header (superadmin), org management page, org assignment on printers.
+
+This is the largest structural change — touches nearly every query. Should be implemented before scoped API tokens so tokens can inherit org context.
+
+---
+
+### 6. Cost Chargebacks & Department Billing
+**Effort: Medium** — Cost calculation exists (`calculate_job_cost()`), but costs are never allocated to users/departments.
+
+- `charged_to_user_id` and `charged_to_org_id` on jobs (auto-set from submitter)
+- `GET /api/reports/chargebacks` — cost summary by user, org, date range (filterable)
+- CSV/PDF export of chargeback reports for accounting
+- Optional: `cost_center` field on orgs for ERP integration
+- Dashboard widget: "This month's spend" per user/org
+
+Frontend: cost column on job tables, chargeback report page (admin), personal spend summary in user profile.
+
+---
+
+### 7. IP Allowlisting
+**Effort: Low** — No implementation. Enterprise networks want to restrict access.
+
+- `ip_allowlist` config: list of CIDR ranges or individual IPs
+- Middleware check on all routes (or configurable: API-only, UI+API)
+- `GET /api/config/ip-allowlist`, `PUT /api/config/ip-allowlist` (superadmin only)
+- Bypass for localhost/Docker internal networks
+- Lock-out protection: always allow the IP that set the allowlist
+
+Frontend: IP allowlist editor in admin settings with CIDR validation.
+
+---
+
+### 8. GDPR Data Export & Right to Erasure
+**Effort: Low** — Zero implementation. Legal requirement in EU.
+
+- `GET /api/users/{id}/export` — JSON dump of all user data: profile, jobs, audit log entries, sessions, alert preferences, quota usage
+- `DELETE /api/users/{id}/erase` — anonymize user data: replace PII with "[deleted]", retain job records for analytics but strip user association
+- Admin-only endpoints with audit log entry
+- Include data inventory documentation (which tables store PII)
+
+Frontend: "Export My Data" and "Delete My Account" buttons in user profile.
+
+---
+
+### 9. File / Model Versioning
+**Effort: Medium** — No revision tracking. Operators lose track of which iteration of a model was printed.
+
+- `model_revisions` table: `id`, `model_id`, `revision_number`, `file_path`, `changelog`, `uploaded_by`, `created_at`
+- Uploading a new file to an existing model creates a revision, preserves old files
+- `GET /api/models/{id}/revisions` — revision history
+- `POST /api/models/{id}/revisions` — upload new revision
+- `GET /api/models/{id}/revisions/{rev}/download` — download specific revision
+- Jobs reference `model_revision_id` so you know exactly which version was printed
+
+Frontend: revision history on model detail page, revision selector on job form, "Upload New Version" button.
+
+---
+
+### 10. WCAG 2.1 Accessibility
+**Effort: Medium** — No ARIA attributes, no screen reader support, no semantic roles in current frontend.
+
+Systematic pass across all frontend components:
+- Add `aria-label`, `aria-describedby`, `aria-live` to interactive elements
+- Add `role` attributes to custom widgets (modals, dropdowns, tabs)
+- Add `sr-only` text for icon-only buttons
+- Ensure all form inputs have associated `<label>` with `htmlFor`
+- Keyboard navigation: all interactive elements focusable and operable via keyboard
+- Color contrast: verify all text meets WCAG AA (4.5:1 ratio)
+- Focus management: trap focus in modals, restore focus on close
+- Skip-to-content link
+- Required for Section 508 (US education) and EN 301 549 (EU)
+
+No backend changes. Frontend-only effort, but touches every component.
+
+---
+
+## Backlog — Complete Partial Implementations
+
+### 11. Bulk Operations UI
+**Effort: Low** — Backend `POST /api/jobs/bulk` exists. No multi-select UI.
+
+- Checkbox column on Jobs, Printers, Spools tables
+- Select all / deselect all
+- Bulk action toolbar: cancel jobs, change priority, reassign printer, delete, add tag (printers)
+- Backend: `POST /api/jobs/bulk-update`, `POST /api/printers/bulk-update` for batch status/field changes
+
+Frontend: multi-select state management, floating action bar on selection.
+
+---
+
+### 12. Backup Restore via UI
+**Effort: Low** — Backup create/download/delete works. No restore.
+
+- `POST /api/backups/restore` — upload a backup file, validate it, replace current DB
+- Pre-restore validation: check SQLite integrity, schema version compatibility
+- Auto-backup current DB before restore
+- Restart advisory after restore (supervisor restart or container restart)
+
+Frontend: "Restore" button on backup list, file upload dialog, confirmation with warnings.
+
+---
+
+### 13. Broadened Data Retention Policies
+**Effort: Low** — Only vision frames have configurable retention. Jobs, audit logs, timelapses, alerts have none.
+
+- Configurable retention per data type in admin settings:
+  - Completed jobs: N days (default: unlimited)
+  - Audit logs: N days (default: 365)
+  - Timelapses: N days (default: 30)
+  - Alert history: N days (default: 90)
+  - Vision detections: already exists (7-90 days)
+- Background cleanup task (daily cron via existing scheduler)
+- `GET /api/config/retention`, `PUT /api/config/retention`
+
+Frontend: retention settings panel in admin settings alongside existing vision retention slider.
+
+---
+
+### 14. Scheduled Reports
+**Effort: Medium** — Quiet-hours digest exists. No periodic summaries.
+
+- `report_schedules` table: `id`, `name`, `report_type`, `frequency` (daily/weekly/monthly), `recipients` (email list), `filters` (JSON), `next_run_at`
+- Report types: fleet utilization, job summary, filament consumption, failure analysis, chargeback summary
+- Render as HTML email with inline charts (or PDF attachment)
+- `POST /api/report-schedules`, `GET /api/report-schedules`, `DELETE /api/report-schedules/{id}`
+- Background runner checks `next_run_at` and sends via existing email infrastructure
+
+Frontend: report schedule builder in admin settings — pick type, frequency, recipients, filters.
+
+---
+
+### 15. Fix Frontend Password Validation Mismatch
+**Effort: Trivial** — Backend enforces 8-char + uppercase + lowercase + digit. `Setup.jsx` only checks 6-char minimum.
+
+- Update `Setup.jsx` to match backend validation rules
+- Single line change
 
 ---
 

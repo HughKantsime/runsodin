@@ -101,9 +101,127 @@ conn.execute("""CREATE TABLE IF NOT EXISTS users (
     oidc_provider VARCHAR(50)
 )""")
 conn.commit()
+
+# Add MFA columns if missing
+for col, coldef in [
+    ("mfa_enabled", "BOOLEAN DEFAULT 0"),
+    ("mfa_secret", "TEXT"),
+]:
+    try:
+        conn.execute(f"ALTER TABLE users ADD COLUMN {col} {coldef}")
+    except Exception:
+        pass  # column already exists
+
+conn.commit()
 conn.close()
 print("  ✓ Users table ready")
 USERSEOF
+
+# ── Create api_tokens table ──
+python3 << 'TOKENSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name VARCHAR(100) NOT NULL,
+    token_hash VARCHAR(200) NOT NULL,
+    token_prefix VARCHAR(10) NOT NULL,
+    scopes TEXT DEFAULT '[]',
+    expires_at DATETIME,
+    last_used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.commit()
+conn.close()
+print("  ✓ API tokens table ready")
+TOKENSEOF
+
+# ── Create active_sessions table ──
+python3 << 'SESSIONSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS active_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    token_jti VARCHAR(64) UNIQUE NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("""CREATE TABLE IF NOT EXISTS token_blacklist (
+    jti VARCHAR(64) PRIMARY KEY,
+    expires_at DATETIME NOT NULL
+)""")
+conn.commit()
+conn.close()
+print("  ✓ Sessions tables ready")
+SESSIONSEOF
+
+# ── Create quota_usage table ──
+python3 << 'QUOTAEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS quota_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    period_key VARCHAR(20) NOT NULL,
+    grams_used REAL DEFAULT 0,
+    hours_used REAL DEFAULT 0,
+    jobs_used INTEGER DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, period_key)
+)""")
+conn.commit()
+
+# Add quota columns to users if missing
+for col, coldef in [
+    ("quota_grams", "REAL"),
+    ("quota_hours", "REAL"),
+    ("quota_jobs", "INTEGER"),
+    ("quota_period", "VARCHAR(20) DEFAULT 'monthly'"),
+]:
+    try:
+        conn.execute(f"ALTER TABLE users ADD COLUMN {col} {coldef}")
+    except Exception:
+        pass
+
+conn.commit()
+conn.close()
+print("  ✓ Quota tables ready")
+QUOTAEOF
+
+# ── Create model_revisions table ──
+python3 << 'REVISIONSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS model_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id INTEGER NOT NULL REFERENCES models(id),
+    revision_number INTEGER NOT NULL DEFAULT 1,
+    file_path TEXT,
+    changelog TEXT,
+    uploaded_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(model_id, revision_number)
+)""")
+conn.commit()
+
+# Add chargeback columns to jobs if missing
+for col, coldef in [
+    ("charged_to_user_id", "INTEGER"),
+    ("charged_to_org_id", "INTEGER"),
+]:
+    try:
+        conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {coldef}")
+    except Exception:
+        pass
+
+conn.commit()
+conn.close()
+print("  ✓ Model revisions & chargeback columns ready")
+REVISIONSEOF
 
 # ── Create groups table (raw SQL, not in SQLAlchemy models) ──
 python3 << 'GROUPSEOF'
@@ -126,9 +244,49 @@ except Exception:
     conn.execute("ALTER TABLE users ADD COLUMN group_id INTEGER REFERENCES groups(id)")
     conn.commit()
 
+# Migration: add org columns
+for col, coldef in [
+    ("is_org", "BOOLEAN DEFAULT 0"),
+    ("branding_json", "TEXT"),
+]:
+    try:
+        conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {coldef}")
+    except Exception:
+        pass
+
+# Add org_id to printers, models, spools for resource scoping
+for tbl in ["printers", "models", "spools"]:
+    try:
+        conn.execute(f"ALTER TABLE {tbl} ADD COLUMN org_id INTEGER REFERENCES groups(id)")
+    except Exception:
+        pass
+
+conn.commit()
 conn.close()
-print("  ✓ Groups table ready")
+print("  ✓ Groups/Orgs table ready")
 GROUPSEOF
+
+# ── Create report_schedules table ──
+python3 << 'REPORTSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS report_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(100) NOT NULL,
+    report_type VARCHAR(50) NOT NULL,
+    frequency VARCHAR(20) NOT NULL DEFAULT 'weekly',
+    recipients TEXT NOT NULL,
+    filters TEXT DEFAULT '{}',
+    is_active BOOLEAN DEFAULT 1,
+    next_run_at DATETIME,
+    last_run_at DATETIME,
+    created_by INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.commit()
+conn.close()
+print("  ✓ Report schedules table ready")
+REPORTSEOF
 
 # ── Create print_jobs table (raw SQL, not in SQLAlchemy models) ──
 python3 << 'PRINTJOBSEOF'

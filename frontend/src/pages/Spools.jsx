@@ -285,11 +285,11 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
   }
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="add-spool-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Add New Spool</h2>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+          <h2 id="add-spool-title" className="text-lg md:text-xl font-semibold text-farm-100">Add New Spool</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
             <X size={20} />
           </button>
         </div>
@@ -407,11 +407,11 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
   }
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="load-spool-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Load Spool</h2>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+          <h2 id="load-spool-title" className="text-lg md:text-xl font-semibold text-farm-100">Load Spool</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
             <X size={20} />
           </button>
         </div>
@@ -503,11 +503,11 @@ function UseSpoolModal({ spool, onClose, onUse }) {
   }
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="record-usage-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Record Usage</h2>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+          <h2 id="record-usage-title" className="text-lg md:text-xl font-semibold text-farm-100">Record Usage</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
             <X size={20} />
           </button>
         </div>
@@ -599,11 +599,11 @@ function DryingModal({ spool, onClose, onSubmit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="drying-session-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Log Drying Session</h2>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200"><X size={20} /></button>
+          <h2 id="drying-session-title" className="text-lg md:text-xl font-semibold text-farm-100">Log Drying Session</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close"><X size={20} /></button>
         </div>
 
         <div className="mb-4 p-3 bg-farm-800 rounded-lg">
@@ -685,11 +685,11 @@ function EditSpoolModal({ spool, onClose, onSave }) {
   if (!spool) return null;
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-spool-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Edit Spool</h2>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+          <h2 id="edit-spool-title" className="text-lg md:text-xl font-semibold text-farm-100">Edit Spool</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
             <X size={20} />
           </button>
         </div>
@@ -788,13 +788,13 @@ function EditFilamentModal({ filament, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="filament-modal-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg md:text-xl font-semibold text-farm-100">
+          <h2 id="filament-modal-title" className="text-lg md:text-xl font-semibold text-farm-100">
             {filament ? 'Edit Filament' : 'Add Filament'}
           </h2>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200">
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
             <X size={20} />
           </button>
         </div>

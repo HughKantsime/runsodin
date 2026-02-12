@@ -40,7 +40,7 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="failure-modal-title" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
         className="relative bg-farm-950 border border-farm-700 rounded-lg shadow-2xl w-full max-w-md mx-4"
@@ -48,10 +48,10 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-farm-800">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={18} className="text-red-400" />
-            <h2 className="text-lg font-semibold text-farm-100">Print Failure</h2>
+            <AlertTriangle size={18} className="text-red-400" aria-hidden="true" />
+            <h2 id="failure-modal-title" className="text-lg font-semibold text-farm-100">Print Failure</h2>
           </div>
-          <button onClick={onClose} className="p-1 text-farm-400 hover:text-farm-200 rounded-lg">
+          <button onClick={onClose} className="p-1 text-farm-400 hover:text-farm-200 rounded-lg" aria-label="Close failure reason dialog">
             <X size={18} />
           </button>
         </div>
@@ -62,10 +62,11 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
           )}
 
           <div>
-            <label className="block text-sm font-medium text-farm-300 mb-1.5">
+            <label htmlFor="failure-reason" className="block text-sm font-medium text-farm-300 mb-1.5">
               Failure Reason <span className="text-red-400">*</span>
             </label>
             <select
+              id="failure-reason"
               value={reason}
               onChange={e => setReason(e.target.value)}
               className="w-full bg-farm-900 border border-farm-700 rounded-md px-3 py-2 text-sm text-farm-100 focus:outline-none focus:border-amber-500"
@@ -78,10 +79,11 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-farm-300 mb-1.5">
+            <label htmlFor="failure-notes" className="block text-sm font-medium text-farm-300 mb-1.5">
               Notes <span className="text-farm-500">(optional)</span>
             </label>
             <textarea
+              id="failure-notes"
               value={notes}
               onChange={e => setNotes(e.target.value)}
               placeholder="What happened? Any details that might help prevent this next time..."

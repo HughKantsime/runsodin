@@ -25,15 +25,15 @@ const shortcuts = [
 
 export default function KeyboardShortcutsModal({ onClose }) {
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="kb-shortcuts-title" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
         className="relative bg-farm-950 border border-farm-700 rounded-lg shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-farm-800">
-          <h2 className="text-lg font-semibold text-farm-100">Keyboard Shortcuts</h2>
-          <button onClick={onClose} className="p-1 text-farm-400 hover:text-farm-200 rounded-lg">
+          <h2 id="kb-shortcuts-title" className="text-lg font-semibold text-farm-100">Keyboard Shortcuts</h2>
+          <button onClick={onClose} className="p-1 text-farm-400 hover:text-farm-200 rounded-lg" aria-label="Close keyboard shortcuts">
             <X size={18} />
           </button>
         </div>

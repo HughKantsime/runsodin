@@ -91,10 +91,13 @@ export default function AlertBell() {
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 rounded-lg transition-colors hover:bg-farm-800"
         style={{ color: 'var(--brand-text-secondary)' }}
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        aria-expanded={isOpen}
+        aria-haspopup="true"
       >
-        <Bell size={20} />
+        <Bell size={20} aria-hidden="true" />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1" aria-hidden="true">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}

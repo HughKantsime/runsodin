@@ -193,7 +193,125 @@ export const auth = {
     })
     if (!response.ok) return null
     return response.json()
-  }
+  },
+  mfaVerify: (mfa_token, code) => fetchAPI('/auth/mfa/verify', {
+    method: 'POST', body: JSON.stringify({ mfa_token, code })
+  }),
+  mfaSetup: () => fetchAPI('/auth/mfa/setup', { method: 'POST' }),
+  mfaConfirm: (code) => fetchAPI('/auth/mfa/confirm', {
+    method: 'POST', body: JSON.stringify({ code })
+  }),
+  mfaDisable: (code) => fetchAPI('/auth/mfa', {
+    method: 'DELETE', body: JSON.stringify({ code })
+  }),
+  mfaStatus: () => fetchAPI('/auth/mfa/status'),
+  adminDisableMfa: (userId) => fetchAPI(`/admin/users/${userId}/mfa`, { method: 'DELETE' }),
+}
+
+// Session management
+export const sessions = {
+  list: () => fetchAPI('/sessions'),
+  revoke: (id) => fetchAPI(`/sessions/${id}`, { method: 'DELETE' }),
+  revokeAll: () => fetchAPI('/sessions', { method: 'DELETE' }),
+}
+
+// Scoped API tokens
+export const apiTokens = {
+  list: () => fetchAPI('/tokens'),
+  create: (data) => fetchAPI('/tokens', { method: 'POST', body: JSON.stringify(data) }),
+  revoke: (id) => fetchAPI(`/tokens/${id}`, { method: 'DELETE' }),
+}
+
+// Quotas
+export const quotas = {
+  getMine: () => fetchAPI('/quotas'),
+  adminList: () => fetchAPI('/admin/quotas'),
+  adminSet: (userId, data) => fetchAPI(`/admin/quotas/${userId}`, {
+    method: 'PUT', body: JSON.stringify(data)
+  }),
+}
+
+// IP Allowlist
+export const ipAllowlist = {
+  get: () => fetchAPI('/config/ip-allowlist'),
+  set: (data) => fetchAPI('/config/ip-allowlist', {
+    method: 'PUT', body: JSON.stringify(data)
+  }),
+}
+
+// GDPR
+export const gdpr = {
+  exportData: (userId) => fetchAPI(`/users/${userId}/export`),
+  eraseData: (userId) => fetchAPI(`/users/${userId}/erase`, { method: 'DELETE' }),
+}
+
+// Data Retention
+export const retention = {
+  get: () => fetchAPI('/config/retention'),
+  set: (data) => fetchAPI('/config/retention', {
+    method: 'PUT', body: JSON.stringify(data)
+  }),
+  runCleanup: () => fetchAPI('/admin/retention/cleanup', { method: 'POST' }),
+}
+
+// Scheduled Reports
+export const reportSchedules = {
+  list: () => fetchAPI('/report-schedules'),
+  create: (data) => fetchAPI('/report-schedules', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/report-schedules/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/report-schedules/${id}`, { method: 'DELETE' }),
+}
+
+// Organizations
+export const orgs = {
+  list: () => fetchAPI('/orgs'),
+  create: (data) => fetchAPI('/orgs', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/orgs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/orgs/${id}`, { method: 'DELETE' }),
+  addMember: (orgId, userId) => fetchAPI(`/orgs/${orgId}/members`, {
+    method: 'POST', body: JSON.stringify({ user_id: userId })
+  }),
+  assignPrinter: (orgId, printerId) => fetchAPI(`/orgs/${orgId}/printers`, {
+    method: 'POST', body: JSON.stringify({ printer_id: printerId })
+  }),
+}
+
+// Chargebacks
+export const chargebacks = {
+  report: (startDate, endDate) => {
+    let q = '/reports/chargebacks?'
+    if (startDate) q += `start_date=${startDate}&`
+    if (endDate) q += `end_date=${endDate}`
+    return fetchAPI(q)
+  },
+}
+
+// Model Versioning
+export const modelRevisions = {
+  list: (modelId) => fetchAPI(`/models/${modelId}/revisions`),
+  create: async (modelId, changelog, file) => {
+    const formData = new FormData()
+    formData.append('changelog', changelog)
+    if (file) formData.append('file', file)
+    const token = localStorage.getItem('token')
+    const res = await fetch(`${API_BASE}/models/${modelId}/revisions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': API_KEY },
+      body: formData,
+    })
+    if (!res.ok) throw new Error('Failed to create revision')
+    return res.json()
+  },
+}
+
+// Bulk Operations
+export const bulkOps = {
+  jobs: (jobIds, action, extra = {}) => fetchAPI('/jobs/bulk-update', {
+    method: 'POST', body: JSON.stringify({ job_ids: jobIds, action, ...extra })
+  }),
+  printers: (printerIds, action, extra = {}) => fetchAPI('/printers/bulk-update', {
+    method: 'POST', body: JSON.stringify({ printer_ids: printerIds, action, ...extra })
+  }),
 }
 
 // Users (admin only)

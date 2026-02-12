@@ -9,6 +9,12 @@ import OIDCSettings from '../components/OIDCSettings'
 import WebhookSettings from '../components/WebhookSettings'
 import GroupManager from '../components/GroupManager'
 
+import MFASetup from '../components/MFASetup'
+import APITokenManager from '../components/APITokenManager'
+import SessionManager from '../components/SessionManager'
+import QuotaManager from '../components/QuotaManager'
+import IPAllowlistSettings from '../components/IPAllowlistSettings'
+import DataRetentionSettings from '../components/DataRetentionSettings'
 import { alertPreferences, smtpConfig } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
@@ -941,7 +947,7 @@ export default function Settings() {
         ))}
       </div>
 
-      {/* ==================== ACCESS TAB (Users + Permissions + SSO) ==================== */}
+      {/* ==================== ACCESS TAB (Users + Permissions + SSO + MFA) ==================== */}
       {activeTab === 'access' && <div className="max-w-4xl space-y-6">
         <Admin />
         <div className="border-t border-farm-700 pt-6">
@@ -952,6 +958,21 @@ export default function Settings() {
         </div>
         <div className="border-t border-farm-700 pt-6">
           <OIDCSettings />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <MFASetup />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <APITokenManager />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <SessionManager />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <QuotaManager />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <IPAllowlistSettings />
         </div>
       </div>}
 
@@ -1568,6 +1589,11 @@ export default function Settings() {
           </a>
         </div>
       </div>
+      {/* Data Retention */}
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <DataRetentionSettings />
+      </div>
+
       <InstallAppCard />
       <AuditLogLink />
 

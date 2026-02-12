@@ -31,6 +31,9 @@ pywebpush==2.0.1
 # OIDC/SSO
 authlib==1.4.1
 
+# MFA / TOTP
+pyotp==2.9.0
+
 # YAML (go2rtc config)
 pyyaml==6.0.2
 qrcode[pil]

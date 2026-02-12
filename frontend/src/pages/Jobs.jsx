@@ -130,55 +130,55 @@ function JobRow({ job, onAction, dragProps }) {
         <div className="flex items-center gap-1">
           {job.status === 'submitted' && canDo('jobs.approve') && (
             <>
-              <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" title="Approve">
+              <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" aria-label="Approve job">
                 <CheckCircle size={16} />
               </button>
-              <button onClick={() => onAction('reject', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" title="Reject">
+              <button onClick={() => onAction('reject', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Reject job">
                 <XCircle size={16} />
               </button>
             </>
           )}
           {job.status === 'rejected' && job.submitted_by && canDo('jobs.resubmit') && (
-            <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" title="Resubmit">
+            <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" aria-label="Resubmit job">
               <RefreshCw size={14} />
             </button>
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
-            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg" title="Start Print">
+            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Start print">
               <Play size={16} />
             </button>
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (
             <>
-              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" title="Complete">
+              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" aria-label="Mark job complete">
                 <CheckCircle size={16} />
               </button>
-              <button onClick={() => onAction('markFailed', job.id, job.item_name)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" title="Mark Failed">
+              <button onClick={() => onAction('markFailed', job.id, job.item_name)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Mark job failed">
                 <AlertTriangle size={16} />
               </button>
             </>
           )}
           {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
-            <button onClick={() => onAction('edit', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" title="Edit Job">
+            <button onClick={() => onAction('edit', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Edit job">
               <Pencil size={14} />
             </button>
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
-            <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" title="Cancel">
+            <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Cancel job">
               <XCircle size={16} />
             </button>
           )}
           {job.status === 'failed' && (
-            <button onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" title={job.fail_reason ? 'Edit Failure Reason' : 'Add Failure Reason'}>
+            <button onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" aria-label={job.fail_reason ? 'Edit failure reason' : 'Add failure reason'}>
               <AlertTriangle size={16} />
             </button>
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <>
-              <button onClick={() => onAction('repeat', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" title="Print Again">
+              <button onClick={() => onAction('repeat', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Print again">
                 <RefreshCw size={14} />
               </button>
-              <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg" title="Delete">
+              <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Delete job">
                 <Trash2 size={16} />
               </button>
             </>
@@ -234,9 +234,9 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="create-job-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg sm:text-xl font-display font-semibold mb-4">Create New Job</h2>
+        <h2 id="create-job-title" className="text-lg sm:text-xl font-display font-semibold mb-4">Create New Job</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-farm-400 mb-1">Model (optional)</label>
@@ -321,9 +321,9 @@ function RejectModal({ isOpen, onClose, onSubmit }) {
   const [reason, setReason] = useState('')
   if (!isOpen) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="reject-job-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700">
-        <h2 className="text-lg font-display font-semibold mb-4">Reject Job</h2>
+        <h2 id="reject-job-title" className="text-lg font-display font-semibold mb-4">Reject Job</h2>
         <div className="mb-4">
           <label className="block text-sm text-farm-400 mb-1">Reason (required)</label>
           <textarea
@@ -388,9 +388,9 @@ function EditJobModal({ isOpen, onClose, onSubmit, job, printersData }) {
   if (!isOpen || !job) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-job-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg sm:text-xl font-display font-semibold mb-4">Edit Job</h2>
+        <h2 id="edit-job-title" className="text-lg sm:text-xl font-display font-semibold mb-4">Edit Job</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-farm-400 mb-1">Item Name *</label>
@@ -850,26 +850,26 @@ export default function Jobs() {
           <table className="w-full min-w-[600px]">
             <thead className="bg-farm-950 border-b border-farm-800">
               <tr>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('status')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('status')}>
                   <div className="flex items-center gap-1">Status <SortIcon field="status" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('item_name')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('item_name')}>
                   <div className="flex items-center gap-1">Item <SortIcon field="item_name" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('priority')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('priority')}>
                   <div className="flex items-center gap-1">Pri <SortIcon field="priority" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('printer')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('printer')}>
                   <div className="flex items-center gap-1">Printer <SortIcon field="printer" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell">Colors</th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden md:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('duration_hours')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell">Colors</th>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden md:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('duration_hours')}>
                   <div className="flex items-center gap-1">Duration <SortIcon field="duration_hours" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('scheduled_start')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('scheduled_start')}>
                   <div className="flex items-center gap-1">Scheduled <SortIcon field="scheduled_start" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Actions</th>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Actions</th>
               </tr>
             </thead>
             <tbody>

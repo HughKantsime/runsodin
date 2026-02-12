@@ -84,7 +84,7 @@ export default function EmergencyStop() {
             ? 'bg-farm-800 text-white'
             : 'bg-red-600 hover:bg-red-500 text-white animate-pulse'
         }`}
-        title="Emergency Controls"
+        aria-label={showPanel ? "Close emergency controls" : `Emergency controls, ${activePrinting} active prints`}
       >
         {showPanel ? (
           <X size={20} />
@@ -98,9 +98,9 @@ export default function EmergencyStop() {
 
       {/* Control Panel */}
       {showPanel && (
-        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded-lg shadow-2xl overflow-hidden">
+        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded-lg shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
           <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
-            <AlertTriangle className="text-red-400" size={18} />
+            <AlertTriangle className="text-red-400" size={18} aria-hidden="true" />
             <span className="font-medium text-red-200">Emergency Controls</span>
           </div>
           

@@ -28,6 +28,7 @@ import asyncio
 from fastapi.staticfiles import StaticFiles
 from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 
+import auth as auth_module
 from auth import (
     Token, UserCreate, UserResponse,
     verify_password, hash_password, create_access_token, decode_token, has_permission
@@ -122,14 +123,35 @@ async def get_current_user(
     if token:
         token_data = decode_token(token)
         if token_data:
+            from jose import jwt as jose_jwt
+            try:
+                payload = jose_jwt.decode(token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+                # Reject mfa_pending tokens from normal routes
+                if payload.get("mfa_pending"):
+                    return None
+                # Check token blacklist (revoked sessions)
+                jti = payload.get("jti")
+                if jti:
+                    blacklisted = db.execute(
+                        text("SELECT 1 FROM token_blacklist WHERE jti = :jti"), {"jti": jti}
+                    ).fetchone()
+                    if blacklisted:
+                        return None
+                    # Update last_seen_at for session tracking
+                    db.execute(text("UPDATE active_sessions SET last_seen_at = :now WHERE token_jti = :jti"),
+                               {"now": datetime.now(), "jti": jti})
+                    db.commit()
+            except Exception:
+                pass
             user = db.execute(text("SELECT * FROM users WHERE username = :username"),
                               {"username": token_data.username}).fetchone()
             if user:
                 return dict(user._mapping)
 
-    # Try 2: X-API-Key header (fallback for raw fetch calls missing Bearer)
+    # Try 2: X-API-Key header — check global key first, then scoped user tokens
     api_key = request.headers.get("X-API-Key")
     if api_key and api_key != "undefined":
+        # 2a: Global API key (legacy)
         configured_key = os.getenv("API_KEY", "")
         if configured_key and api_key == configured_key:
             admin = db.execute(
@@ -137,6 +159,35 @@ async def get_current_user(
             ).fetchone()
             if admin:
                 return dict(admin._mapping)
+
+        # 2b: Per-user scoped tokens (odin_xxx format)
+        if api_key.startswith("odin_"):
+            prefix = api_key[:10]
+            candidates = db.execute(
+                text("SELECT * FROM api_tokens WHERE token_prefix = :prefix"), {"prefix": prefix}
+            ).fetchall()
+            for candidate in candidates:
+                if verify_password(api_key, candidate.token_hash):
+                    # Check expiry
+                    if candidate.expires_at:
+                        from dateutil.parser import parse as parse_dt
+                        try:
+                            exp = parse_dt(candidate.expires_at) if isinstance(candidate.expires_at, str) else candidate.expires_at
+                            if exp < datetime.now():
+                                continue
+                        except Exception:
+                            pass
+                    # Update last_used_at
+                    db.execute(text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
+                               {"now": datetime.now(), "id": candidate.id})
+                    db.commit()
+                    # Fetch the user
+                    user = db.execute(text("SELECT * FROM users WHERE id = :id"),
+                                      {"id": candidate.user_id}).fetchone()
+                    if user:
+                        user_dict = dict(user._mapping)
+                        user_dict["_token_scopes"] = json.loads(candidate.scopes) if candidate.scopes else []
+                        return user_dict
 
     return None
 
@@ -278,11 +329,33 @@ def _is_locked_out(username: str) -> bool:
 
 @app.middleware("http")
 async def authenticate_request(request: Request, call_next):
-    """Check API key for all routes except health check."""
+    """Check IP allowlist and API key for all routes."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
     if request.url.path in ("/health", "/metrics", "/ws") or (request.url.path.endswith("/label") or request.url.path.endswith("/labels/batch")) or request.url.path.startswith("/api/auth") or request.url.path.startswith("/api/setup") or request.url.path == "/api/license" or (request.url.path == "/api/branding" and request.method == "GET") or request.url.path.startswith("/static/branding") or request.method == "OPTIONS":
         return await call_next(request)
-    
+
+    # IP allowlist check
+    if request.url.path.startswith("/api/"):
+        try:
+            _db = next(get_db())
+            ip_row = _db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
+            if ip_row:
+                import ipaddress
+                ip_config = json.loads(ip_row[0]) if isinstance(ip_row[0], str) else ip_row[0]
+                if ip_config and ip_config.get("enabled") and ip_config.get("cidrs"):
+                    client_ip = request.client.host if request.client else "127.0.0.1"
+                    # Always allow localhost/Docker internal
+                    if client_ip not in ("127.0.0.1", "::1"):
+                        allowed = any(
+                            ipaddress.ip_address(client_ip) in ipaddress.ip_network(c, strict=False)
+                            for c in ip_config["cidrs"]
+                        )
+                        if not allowed:
+                            from fastapi.responses import JSONResponse
+                            return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})
+        except Exception:
+            pass
+
     # If no API key configured, auth is disabled
     if not settings.api_key:
         return await call_next(request)
@@ -1815,11 +1888,20 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     workflow (status='submitted') when require_job_approval is enabled. The approval flow handles
     authorization; operators/admins bypass it and create jobs directly as 'pending'.
     """
+    # Check print quota before creating job
+    if current_user:
+        quota_jobs = current_user.get("quota_jobs")
+        if quota_jobs is not None and quota_jobs > 0:
+            period = current_user.get("quota_period") or "monthly"
+            usage = _get_quota_usage(db, current_user["id"], period)
+            if usage["jobs_used"] >= quota_jobs:
+                raise HTTPException(status_code=429, detail=f"Job quota exceeded ({usage['jobs_used']}/{quota_jobs} for this {period} period)")
+
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
         estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=job.model_id)
-    
+
     # Check if approval workflow is enabled
     approval_required = False
     approval_config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
@@ -1848,10 +1930,21 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         suggested_price=suggested_price,
         submitted_by=submitted_by,
         due_date=job.due_date,
+        charged_to_user_id=current_user["id"] if current_user else None,
     )
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
+
+    # Increment quota usage
+    if current_user and current_user.get("quota_jobs"):
+        period = current_user.get("quota_period") or "monthly"
+        pk = _get_period_key(period)
+        db.execute(text("""INSERT INTO quota_usage (user_id, period_key, jobs_used)
+                           VALUES (:uid, :pk, 1)
+                           ON CONFLICT(user_id, period_key) DO UPDATE SET jobs_used = jobs_used + 1, updated_at = CURRENT_TIMESTAMP"""),
+                   {"uid": current_user["id"], "pk": pk})
+        db.commit()
 
     # If submitted for approval, notify group owner (or all operators/admins as fallback)
     if initial_status == "submitted":
@@ -5258,7 +5351,7 @@ def schedule_print_file(
 
 
 # ============== Auth Endpoints ==============
-@app.post("/api/auth/login", response_model=Token, tags=["Auth"])
+@app.post("/api/auth/login", tags=["Auth"])
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Security checks
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
@@ -5281,8 +5374,1187 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
                {"now": datetime.now(), "id": user.id})
     db.commit()
     
+    # Check MFA
+    if user.mfa_enabled:
+        mfa_token = create_access_token(
+            data={"sub": user.username, "role": user.role, "mfa_pending": True},
+            expires_delta=timedelta(minutes=5)
+        )
+        return {"access_token": mfa_token, "token_type": "bearer", "mfa_required": True}
+
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
+    _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+def _record_session(db, user_id, access_token, ip, user_agent):
+    """Record an active session from a JWT token."""
+    from jose import jwt as jose_jwt
+    try:
+        payload = jose_jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+        jti = payload.get("jti")
+        if jti:
+            db.execute(text("""INSERT OR IGNORE INTO active_sessions (user_id, token_jti, ip_address, user_agent)
+                               VALUES (:uid, :jti, :ip, :ua)"""),
+                       {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
+            db.commit()
+    except Exception:
+        pass
+
+
+# =============================================================================
+# MFA / Two-Factor Authentication
+# =============================================================================
+
+@app.post("/api/auth/mfa/verify", tags=["Auth"])
+async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)):
+    """Verify TOTP code during login. Requires mfa_pending token."""
+    import pyotp
+
+    mfa_token = body.get("mfa_token", "")
+    code = body.get("code", "")
+    if not mfa_token or not code:
+        raise HTTPException(status_code=400, detail="mfa_token and code are required")
+
+    token_data = decode_token(mfa_token)
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
+
+    # Decode raw payload to check mfa_pending flag
+    from jose import jwt as jose_jwt
+    payload = jose_jwt.decode(mfa_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+    if not payload.get("mfa_pending"):
+        raise HTTPException(status_code=400, detail="Token is not an MFA challenge token")
+
+    user = db.execute(text("SELECT * FROM users WHERE username = :username"),
+                      {"username": token_data.username}).fetchone()
+    if not user or not user.mfa_enabled or not user.mfa_secret:
+        raise HTTPException(status_code=400, detail="MFA not configured for this user")
+
+    from crypto import decrypt
+    secret = decrypt(user.mfa_secret)
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(code, valid_window=1):
+        raise HTTPException(status_code=401, detail="Invalid MFA code")
+
+    # Issue full access token
+    access_token = create_access_token(data={"sub": user.username, "role": user.role})
+    client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
+    _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/api/auth/mfa/setup", tags=["Auth"])
+async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Generate TOTP secret and provisioning URI for MFA setup."""
+    import pyotp
+    import qrcode
+    import qrcode.image.svg
+    import io, base64
+
+    if current_user.get("mfa_enabled"):
+        raise HTTPException(status_code=400, detail="MFA is already enabled. Disable it first.")
+
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(
+        name=current_user["username"],
+        issuer_name="O.D.I.N."
+    )
+
+    # Generate QR code as base64 PNG
+    img = qrcode.make(provisioning_uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    # Store secret temporarily (encrypted) — not enabled until confirmed
+    from crypto import encrypt
+    encrypted_secret = encrypt(secret)
+    db.execute(text("UPDATE users SET mfa_secret = :secret WHERE id = :id"),
+               {"secret": encrypted_secret, "id": current_user["id"]})
+    db.commit()
+
+    return {
+        "secret": secret,
+        "provisioning_uri": provisioning_uri,
+        "qr_code": f"data:image/png;base64,{qr_b64}",
+    }
+
+
+@app.post("/api/auth/mfa/confirm", tags=["Auth"])
+async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Confirm MFA setup by verifying a TOTP code. Enables MFA on the account."""
+    import pyotp
+
+    code = body.get("code", "")
+    if not code:
+        raise HTTPException(status_code=400, detail="TOTP code is required")
+
+    user = db.execute(text("SELECT * FROM users WHERE id = :id"),
+                      {"id": current_user["id"]}).fetchone()
+    if not user or not user.mfa_secret:
+        raise HTTPException(status_code=400, detail="Run /api/auth/mfa/setup first")
+    if user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is already enabled")
+
+    from crypto import decrypt
+    secret = decrypt(user.mfa_secret)
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
+
+    db.execute(text("UPDATE users SET mfa_enabled = 1 WHERE id = :id"),
+               {"id": current_user["id"]})
+    db.commit()
+
+    log_audit(db, "mfa_enabled", "user", current_user["id"], "MFA enabled")
+
+    return {"status": "ok", "message": "MFA enabled successfully"}
+
+
+@app.delete("/api/auth/mfa", tags=["Auth"])
+async def mfa_disable(body: dict = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Disable MFA. Requires current TOTP code or admin role."""
+    import pyotp
+
+    user = db.execute(text("SELECT * FROM users WHERE id = :id"),
+                      {"id": current_user["id"]}).fetchone()
+    if not user or not user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is not enabled")
+
+    # Require TOTP code to disable (unless admin is disabling for another user)
+    code = (body or {}).get("code", "")
+    if code:
+        from crypto import decrypt
+        secret = decrypt(user.mfa_secret)
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code, valid_window=1):
+            raise HTTPException(status_code=401, detail="Invalid MFA code")
+    else:
+        raise HTTPException(status_code=400, detail="TOTP code is required to disable MFA")
+
+    db.execute(text("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = :id"),
+               {"id": current_user["id"]})
+    db.commit()
+
+    log_audit(db, "mfa_disabled", "user", current_user["id"], "MFA disabled")
+
+    return {"status": "ok", "message": "MFA disabled"}
+
+
+@app.delete("/api/admin/users/{user_id}/mfa", tags=["Auth"])
+async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Admin: force-disable MFA for a user (no TOTP required)."""
+    user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is not enabled for this user")
+
+    db.execute(text("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = :id"),
+               {"id": user_id})
+    db.commit()
+
+    log_audit(db, "mfa_disabled_admin", "user", user_id,
+             f"Admin force-disabled MFA for user {user.username}")
+
+    return {"status": "ok", "message": f"MFA disabled for {user.username}"}
+
+
+@app.get("/api/auth/mfa/status", tags=["Auth"])
+async def mfa_status(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get MFA status for the current user."""
+    return {"mfa_enabled": bool(current_user.get("mfa_enabled"))}
+
+
+@app.get("/api/config/require-mfa", tags=["Config"])
+async def get_require_mfa(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Get whether MFA is required for all users."""
+    row = db.execute(text("SELECT value FROM system_config WHERE key = 'require_mfa'")).fetchone()
+    return {"require_mfa": row[0] == "true" if row else False}
+
+
+@app.put("/api/config/require-mfa", tags=["Config"])
+async def set_require_mfa(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Set whether MFA is required for all users."""
+    require = bool(body.get("require_mfa", False))
+    db.execute(text("""INSERT INTO system_config (key, value) VALUES ('require_mfa', :val)
+                       ON CONFLICT(key) DO UPDATE SET value = :val"""),
+               {"val": "true" if require else "false"})
+    db.commit()
+    return {"require_mfa": require}
+
+
+# =============================================================================
+# Session Management
+# =============================================================================
+
+@app.get("/api/sessions", tags=["Sessions"])
+async def list_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """List active sessions for the current user."""
+    rows = db.execute(text(
+        "SELECT s.id, s.token_jti, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
+        "FROM active_sessions s WHERE s.user_id = :uid ORDER BY s.last_seen_at DESC"),
+        {"uid": current_user["id"]}).fetchall()
+
+    # Determine current session's jti
+    current_jti = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from jose import jwt as jose_jwt
+            payload = jose_jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+            current_jti = payload.get("jti")
+        except Exception:
+            pass
+
+    return [{
+        "id": r.id,
+        "ip_address": r.ip_address,
+        "user_agent": r.user_agent,
+        "created_at": r.created_at,
+        "last_seen_at": r.last_seen_at,
+        "is_current": r.token_jti == current_jti,
+    } for r in rows]
+
+
+@app.delete("/api/sessions/{session_id}", tags=["Sessions"])
+async def revoke_session(session_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Revoke a specific session."""
+    row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id AND user_id = :uid"),
+                     {"id": session_id, "uid": current_user["id"]}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Add to blacklist (expires when the JWT would expire — 24h from creation)
+    from dateutil.parser import parse as parse_dt
+    try:
+        created = parse_dt(row.created_at) if isinstance(row.created_at, str) else row.created_at
+        expires_at = created + timedelta(hours=24)
+    except Exception:
+        expires_at = datetime.now() + timedelta(hours=24)
+
+    db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+               {"jti": row.token_jti, "exp": expires_at})
+    db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
+    db.commit()
+
+    return {"status": "ok"}
+
+
+@app.delete("/api/sessions", tags=["Sessions"])
+async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Revoke all sessions except the current one."""
+    # Find current jti
+    current_jti = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from jose import jwt as jose_jwt
+            payload = jose_jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+            current_jti = payload.get("jti")
+        except Exception:
+            pass
+
+    rows = db.execute(text("SELECT token_jti, created_at FROM active_sessions WHERE user_id = :uid"),
+                      {"uid": current_user["id"]}).fetchall()
+    count = 0
+    for r in rows:
+        if r.token_jti == current_jti:
+            continue
+        try:
+            from dateutil.parser import parse as parse_dt
+            created = parse_dt(r.created_at) if isinstance(r.created_at, str) else r.created_at
+            expires_at = created + timedelta(hours=24)
+        except Exception:
+            expires_at = datetime.now() + timedelta(hours=24)
+        db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+                   {"jti": r.token_jti, "exp": expires_at})
+        count += 1
+
+    db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid AND token_jti != :jti"),
+               {"uid": current_user["id"], "jti": current_jti or ""})
+    db.commit()
+
+    return {"status": "ok", "revoked": count}
+
+
+@app.get("/api/admin/sessions", tags=["Sessions"])
+async def admin_list_sessions(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Admin: list all active sessions across all users."""
+    rows = db.execute(text(
+        "SELECT s.id, s.user_id, u.username, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
+        "FROM active_sessions s JOIN users u ON s.user_id = u.id "
+        "ORDER BY s.last_seen_at DESC LIMIT 200")).fetchall()
+    return [{
+        "id": r.id, "user_id": r.user_id, "username": r.username,
+        "ip_address": r.ip_address, "user_agent": r.user_agent,
+        "created_at": r.created_at, "last_seen_at": r.last_seen_at,
+    } for r in rows]
+
+
+@app.delete("/api/admin/sessions/{session_id}", tags=["Sessions"])
+async def admin_revoke_session(session_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Admin: force-revoke any session."""
+    row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id"), {"id": session_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        from dateutil.parser import parse as parse_dt
+        created = parse_dt(row.created_at) if isinstance(row.created_at, str) else row.created_at
+        expires_at = created + timedelta(hours=24)
+    except Exception:
+        expires_at = datetime.now() + timedelta(hours=24)
+
+    db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+               {"jti": row.token_jti, "exp": expires_at})
+    db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
+    db.commit()
+
+    log_audit(db, "session_revoked_admin", "session", session_id,
+              f"Admin revoked session for user_id={row.user_id}")
+
+    return {"status": "ok"}
+
+
+# =============================================================================
+# Scoped API Tokens (Per-User)
+# =============================================================================
+
+VALID_SCOPES = {
+    "read:printers", "write:printers",
+    "read:jobs", "write:jobs",
+    "read:spools", "write:spools",
+    "read:models", "write:models",
+    "read:analytics",
+    "admin",
+}
+
+
+@app.post("/api/tokens", tags=["API Tokens"])
+async def create_api_token(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Create a new scoped API token for the current user."""
+    import secrets
+    name = body.get("name", "").strip()
+    scopes = body.get("scopes", [])
+    expires_days = body.get("expires_days")
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Token name is required")
+    if len(name) > 100:
+        raise HTTPException(status_code=400, detail="Token name too long")
+
+    # Validate scopes
+    if not isinstance(scopes, list):
+        raise HTTPException(status_code=400, detail="Scopes must be a list")
+    invalid = set(scopes) - VALID_SCOPES
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid scopes: {', '.join(invalid)}")
+
+    # Non-admins can't grant admin scope
+    if "admin" in scopes and current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create tokens with admin scope")
+
+    # Generate token
+    raw_token = f"odin_{secrets.token_urlsafe(32)}"
+    token_prefix = raw_token[:10]
+    token_hash_val = hash_password(raw_token)
+
+    expires_at = None
+    if expires_days and int(expires_days) > 0:
+        expires_at = datetime.now() + timedelta(days=int(expires_days))
+
+    db.execute(text("""INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
+                       VALUES (:user_id, :name, :token_hash, :prefix, :scopes, :expires_at)"""),
+               {"user_id": current_user["id"], "name": name, "token_hash": token_hash_val,
+                "prefix": token_prefix, "scopes": json.dumps(scopes), "expires_at": expires_at})
+    db.commit()
+
+    token_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+
+    log_audit(db, "api_token_created", "api_token", token_id, f"Token '{name}' created")
+
+    return {
+        "id": token_id,
+        "name": name,
+        "token": raw_token,  # Only returned once
+        "prefix": token_prefix,
+        "scopes": scopes,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/tokens", tags=["API Tokens"])
+async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """List all API tokens for the current user."""
+    rows = db.execute(text(
+        "SELECT id, name, token_prefix, scopes, expires_at, last_used_at, created_at "
+        "FROM api_tokens WHERE user_id = :uid ORDER BY created_at DESC"),
+        {"uid": current_user["id"]}).fetchall()
+    return [{
+        "id": r.id, "name": r.name, "prefix": r.token_prefix,
+        "scopes": json.loads(r.scopes) if r.scopes else [],
+        "expires_at": r.expires_at, "last_used_at": r.last_used_at,
+        "created_at": r.created_at,
+    } for r in rows]
+
+
+@app.delete("/api/tokens/{token_id}", tags=["API Tokens"])
+async def revoke_api_token(token_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Revoke (delete) an API token."""
+    row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id AND user_id = :uid"),
+                     {"id": token_id, "uid": current_user["id"]}).fetchone()
+    if not row:
+        # Admins can delete any token
+        if current_user["role"] == "admin":
+            row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id"), {"id": token_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+    db.execute(text("DELETE FROM api_tokens WHERE id = :id"), {"id": token_id})
+    db.commit()
+
+    log_audit(db, "api_token_revoked", "api_token", token_id, f"Token '{row.name}' revoked")
+
+    return {"status": "ok"}
+
+
+# =============================================================================
+# Print Quotas
+# =============================================================================
+
+def _get_period_key(period: str) -> str:
+    """Generate a period key like '2026-02' for monthly, '2026-W07' for weekly."""
+    now = datetime.now()
+    if period == "daily":
+        return now.strftime("%Y-%m-%d")
+    elif period == "weekly":
+        return now.strftime("%Y-W%W")
+    elif period == "semester":
+        return f"{now.year}-S{'1' if now.month <= 6 else '2'}"
+    else:  # monthly
+        return now.strftime("%Y-%m")
+
+
+def _get_quota_usage(db, user_id, period):
+    """Get or create quota usage row for current period."""
+    key = _get_period_key(period)
+    row = db.execute(text("SELECT * FROM quota_usage WHERE user_id = :uid AND period_key = :pk"),
+                     {"uid": user_id, "pk": key}).fetchone()
+    if row:
+        return dict(row._mapping)
+    db.execute(text("INSERT INTO quota_usage (user_id, period_key) VALUES (:uid, :pk)"),
+               {"uid": user_id, "pk": key})
+    db.commit()
+    return {"user_id": user_id, "period_key": key, "grams_used": 0, "hours_used": 0, "jobs_used": 0}
+
+
+@app.get("/api/quotas", tags=["Quotas"])
+async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Get current user's quota config and usage."""
+    period = current_user.get("quota_period") or "monthly"
+    usage = _get_quota_usage(db, current_user["id"], period)
+    return {
+        "quota_grams": current_user.get("quota_grams"),
+        "quota_hours": current_user.get("quota_hours"),
+        "quota_jobs": current_user.get("quota_jobs"),
+        "quota_period": period,
+        "usage": {
+            "grams_used": usage["grams_used"],
+            "hours_used": usage["hours_used"],
+            "jobs_used": usage["jobs_used"],
+        },
+        "period_key": usage["period_key"],
+    }
+
+
+@app.get("/api/admin/quotas", tags=["Quotas"])
+async def admin_list_quotas(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Admin: list all users' quota config and usage."""
+    users = db.execute(text(
+        "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users WHERE is_active = 1"
+    )).fetchall()
+    result = []
+    for u in users:
+        period = u.quota_period or "monthly"
+        usage = _get_quota_usage(db, u.id, period)
+        result.append({
+            "user_id": u.id, "username": u.username,
+            "quota_grams": u.quota_grams, "quota_hours": u.quota_hours,
+            "quota_jobs": u.quota_jobs, "quota_period": period,
+            "usage": {"grams_used": usage["grams_used"], "hours_used": usage["hours_used"], "jobs_used": usage["jobs_used"]},
+        })
+    return result
+
+
+@app.put("/api/admin/quotas/{user_id}", tags=["Quotas"])
+async def admin_set_quota(user_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Admin: set quotas for a user."""
+    user = db.execute(text("SELECT id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    sets = []
+    params = {"id": user_id}
+    for field in ["quota_grams", "quota_hours", "quota_jobs", "quota_period"]:
+        if field in body:
+            sets.append(f"{field} = :{field}")
+            params[field] = body[field]
+
+    if sets:
+        db.execute(text(f"UPDATE users SET {', '.join(sets)} WHERE id = :id"), params)
+        db.commit()
+
+    log_audit(db, "quota_updated", "user", user_id, f"Quotas updated: {body}")
+    return {"status": "ok"}
+
+
+# =============================================================================
+# IP Allowlisting
+# =============================================================================
+
+@app.get("/api/config/ip-allowlist", tags=["Config"])
+async def get_ip_allowlist(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Get the IP allowlist configuration."""
+    row = db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
+    if not row:
+        return {"enabled": False, "cidrs": [], "mode": "api_and_ui"}
+    val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
+    return val
+
+
+@app.put("/api/config/ip-allowlist", tags=["Config"])
+async def set_ip_allowlist(request: Request, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Set the IP allowlist. Includes lock-out protection."""
+    import ipaddress
+    enabled = body.get("enabled", False)
+    cidrs = body.get("cidrs", [])
+    mode = body.get("mode", "api_and_ui")
+
+    # Validate CIDRs
+    for cidr in cidrs:
+        try:
+            ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid CIDR: {cidr}")
+
+    # Lock-out protection: always include the requester's IP
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    if enabled and cidrs:
+        client_in_list = any(
+            ipaddress.ip_address(client_ip) in ipaddress.ip_network(c, strict=False) for c in cidrs
+        )
+        if not client_in_list:
+            cidrs.append(client_ip + "/32")
+
+    config = {"enabled": enabled, "cidrs": cidrs, "mode": mode}
+    db.execute(text("""INSERT INTO system_config (key, value) VALUES ('ip_allowlist', :val)
+                       ON CONFLICT(key) DO UPDATE SET value = :val"""),
+               {"val": json.dumps(config)})
+    db.commit()
+
+    log_audit(db, "ip_allowlist_updated", details=f"Enabled={enabled}, {len(cidrs)} CIDRs")
+    return config
+
+
+# =============================================================================
+# GDPR Data Export & Erasure
+# =============================================================================
+
+@app.get("/api/users/{user_id}/export", tags=["GDPR"])
+async def export_user_data(user_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """Export all personal data for a user (GDPR Article 20)."""
+    # Users can export their own data; admins can export anyone's
+    if current_user["id"] != user_id and current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Can only export your own data")
+
+    user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    u = dict(user._mapping)
+    # Strip sensitive fields
+    u.pop("password_hash", None)
+    u.pop("mfa_secret", None)
+
+    # Collect related data
+    jobs = [dict(r._mapping) for r in db.execute(
+        text("SELECT * FROM jobs WHERE submitted_by = :uid"), {"uid": user_id}).fetchall()]
+    audit = [dict(r._mapping) for r in db.execute(
+        text("SELECT * FROM audit_log WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1000"),
+        {"uid": user_id}).fetchall()]
+    sessions_data = [dict(r._mapping) for r in db.execute(
+        text("SELECT id, ip_address, user_agent, created_at, last_seen_at FROM active_sessions WHERE user_id = :uid"),
+        {"uid": user_id}).fetchall()]
+    prefs = [dict(r._mapping) for r in db.execute(
+        text("SELECT * FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id}).fetchall()]
+
+    export = {
+        "exported_at": datetime.now().isoformat(),
+        "user": u,
+        "jobs_submitted": jobs,
+        "audit_log_entries": audit,
+        "active_sessions": sessions_data,
+        "alert_preferences": prefs,
+    }
+
+    log_audit(db, "gdpr_export", "user", user_id, f"Data exported for user {user.username}")
+    return export
+
+
+@app.delete("/api/users/{user_id}/erase", tags=["GDPR"])
+async def erase_user_data(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Anonymize user data (GDPR Article 17). Admin only. Preserves job records for analytics."""
+    user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == "admin":
+        admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot erase the last admin account")
+
+    # Anonymize user record
+    db.execute(text("""UPDATE users SET
+        username = :anon_name, email = '[deleted]', password_hash = '[deleted]',
+        is_active = 0, mfa_enabled = 0, mfa_secret = NULL,
+        oidc_subject = NULL, oidc_provider = NULL
+        WHERE id = :id"""),
+        {"anon_name": f"[deleted-{user_id}]", "id": user_id})
+
+    # Clean up related data
+    db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
+    db.commit()
+
+    log_audit(db, "gdpr_erasure", "user", user_id, f"User data erased (was: {user.username})")
+    return {"status": "ok", "message": f"User {user.username} data erased"}
+
+
+# =============================================================================
+# Data Retention Policies
+# =============================================================================
+
+RETENTION_DEFAULTS = {
+    "completed_jobs_days": 0,       # 0 = unlimited
+    "audit_logs_days": 365,
+    "timelapses_days": 30,
+    "alert_history_days": 90,
+}
+
+
+@app.get("/api/config/retention", tags=["Config"])
+async def get_retention_config(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Get data retention policy configuration."""
+    row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
+    if not row:
+        return RETENTION_DEFAULTS
+    val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
+    return {**RETENTION_DEFAULTS, **val}
+
+
+@app.put("/api/config/retention", tags=["Config"])
+async def set_retention_config(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Set data retention policy configuration."""
+    config = {}
+    for key in RETENTION_DEFAULTS:
+        if key in body:
+            val = int(body[key])
+            if val < 0:
+                raise HTTPException(status_code=400, detail=f"{key} must be >= 0")
+            config[key] = val
+
+    db.execute(text("""INSERT INTO system_config (key, value) VALUES ('data_retention', :val)
+                       ON CONFLICT(key) DO UPDATE SET value = :val"""),
+               {"val": json.dumps(config)})
+    db.commit()
+
+    log_audit(db, "retention_updated", details=f"Retention config: {config}")
+    return {**RETENTION_DEFAULTS, **config}
+
+
+@app.post("/api/admin/retention/cleanup", tags=["Config"])
+async def run_retention_cleanup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Manually trigger data retention cleanup."""
+    row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
+    config = {**RETENTION_DEFAULTS}
+    if row:
+        val = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
+        config.update(val)
+
+    deleted = {}
+    now = datetime.now()
+
+    if config["completed_jobs_days"] > 0:
+        cutoff = now - timedelta(days=config["completed_jobs_days"])
+        r = db.execute(text("DELETE FROM jobs WHERE status IN ('completed','failed','cancelled') AND updated_at < :cutoff"),
+                       {"cutoff": cutoff})
+        deleted["completed_jobs"] = r.rowcount
+
+    if config["audit_logs_days"] > 0:
+        cutoff = now - timedelta(days=config["audit_logs_days"])
+        r = db.execute(text("DELETE FROM audit_log WHERE created_at < :cutoff"), {"cutoff": cutoff})
+        deleted["audit_logs"] = r.rowcount
+
+    if config["alert_history_days"] > 0:
+        cutoff = now - timedelta(days=config["alert_history_days"])
+        r = db.execute(text("DELETE FROM alerts WHERE created_at < :cutoff"), {"cutoff": cutoff})
+        deleted["alerts"] = r.rowcount
+
+    if config["timelapses_days"] > 0:
+        cutoff = now - timedelta(days=config["timelapses_days"])
+        r = db.execute(text("DELETE FROM timelapses WHERE created_at < :cutoff"), {"cutoff": cutoff})
+        deleted["timelapses"] = r.rowcount
+
+    # Clean expired token blacklist entries
+    db.execute(text("DELETE FROM token_blacklist WHERE expires_at < :now"), {"now": now})
+    # Clean stale sessions (older than 24h with no JWT to match)
+    stale = now - timedelta(hours=48)
+    db.execute(text("DELETE FROM active_sessions WHERE last_seen_at < :cutoff"), {"cutoff": stale})
+
+    db.commit()
+    return {"status": "ok", "deleted": deleted}
+
+
+# =============================================================================
+# Backup Restore
+# =============================================================================
+
+@app.post("/api/backups/restore", tags=["System"])
+async def restore_backup(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Restore database from an uploaded backup file."""
+    import sqlite3
+    import tempfile
+
+    if not file.filename.endswith(".db"):
+        raise HTTPException(status_code=400, detail="Only .db files are supported")
+
+    # Save uploaded file to temp
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    # Validate the uploaded DB
+    try:
+        test_conn = sqlite3.connect(tmp_path)
+        result = test_conn.execute("PRAGMA integrity_check").fetchone()
+        if result[0] != "ok":
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=400, detail="Backup file failed integrity check")
+        # Check it has a users table
+        tables = [r[0] for r in test_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if "users" not in tables:
+            test_conn.close()
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=400, detail="Backup file is not a valid O.D.I.N. database")
+        test_conn.close()
+    except sqlite3.Error as e:
+        os.unlink(tmp_path)
+        raise HTTPException(status_code=400, detail=f"Invalid database file: {e}")
+
+    # Auto-backup current DB before restore
+    db_path = "/data/odin.db"
+    backup_dir = "/data/backups"
+    os.makedirs(backup_dir, exist_ok=True)
+    pre_restore_name = f"pre-restore-{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
+    shutil.copy2(db_path, os.path.join(backup_dir, pre_restore_name))
+
+    # Replace the DB file
+    shutil.copy2(tmp_path, db_path)
+    os.unlink(tmp_path)
+
+    log_audit(db, "backup_restored", details=f"Restored from {file.filename}, pre-restore backup: {pre_restore_name}")
+
+    return {
+        "status": "ok",
+        "message": "Database restored. Restart the container to apply changes.",
+        "pre_restore_backup": pre_restore_name,
+    }
+
+
+# =============================================================================
+# Cost Chargebacks
+# =============================================================================
+
+@app.get("/api/reports/chargebacks", tags=["Reports"])
+async def chargeback_report(
+    start_date: str = None, end_date: str = None,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """Generate chargeback report — cost summary by user."""
+    query = """
+        SELECT j.charged_to_user_id as user_id, u.username,
+               COUNT(*) as job_count,
+               SUM(j.estimated_cost) as total_cost,
+               SUM(j.duration_hours) as total_hours
+        FROM jobs j
+        LEFT JOIN users u ON j.charged_to_user_id = u.id
+        WHERE j.charged_to_user_id IS NOT NULL
+    """
+    params = {}
+    if start_date:
+        query += " AND j.created_at >= :start"
+        params["start"] = start_date
+    if end_date:
+        query += " AND j.created_at <= :end"
+        params["end"] = end_date
+    query += " GROUP BY j.charged_to_user_id ORDER BY total_cost DESC"
+
+    rows = db.execute(text(query), params).fetchall()
+    return [{
+        "user_id": r.user_id, "username": r.username or f"[user-{r.user_id}]",
+        "job_count": r.job_count,
+        "total_cost": round(r.total_cost or 0, 2),
+        "total_hours": round(r.total_hours or 0, 1),
+    } for r in rows]
+
+
+# =============================================================================
+# Model Versioning
+# =============================================================================
+
+@app.get("/api/models/{model_id}/revisions", tags=["Models"])
+async def list_model_revisions(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+    """List all revisions for a model."""
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    rows = db.execute(text(
+        "SELECT r.*, u.username as uploaded_by_name FROM model_revisions r "
+        "LEFT JOIN users u ON r.uploaded_by = u.id "
+        "WHERE r.model_id = :mid ORDER BY r.revision_number DESC"),
+        {"mid": model_id}).fetchall()
+
+    return [{
+        "id": r.id, "revision_number": r.revision_number,
+        "file_path": r.file_path, "changelog": r.changelog,
+        "uploaded_by": r.uploaded_by, "uploaded_by_name": r.uploaded_by_name,
+        "created_at": r.created_at,
+    } for r in rows]
+
+
+@app.post("/api/models/{model_id}/revisions", tags=["Models"])
+async def create_model_revision(
+    model_id: int, changelog: str = "", file: UploadFile = File(None),
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+):
+    """Upload a new revision for a model."""
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Get next revision number
+    max_rev = db.execute(text(
+        "SELECT MAX(revision_number) FROM model_revisions WHERE model_id = :mid"),
+        {"mid": model_id}).scalar() or 0
+    next_rev = max_rev + 1
+
+    # Save file if uploaded
+    file_path = None
+    if file:
+        rev_dir = f"/data/model_revisions/{model_id}"
+        os.makedirs(rev_dir, exist_ok=True)
+        file_path = f"{rev_dir}/v{next_rev}_{file.filename}"
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+    db.execute(text("""INSERT INTO model_revisions (model_id, revision_number, file_path, changelog, uploaded_by)
+                       VALUES (:mid, :rev, :fp, :cl, :uid)"""),
+               {"mid": model_id, "rev": next_rev, "fp": file_path,
+                "cl": changelog, "uid": current_user["id"]})
+    db.commit()
+
+    log_audit(db, "model_revision_created", "model", model_id, f"Revision v{next_rev}")
+    return {"revision_number": next_rev, "file_path": file_path}
+
+
+# =============================================================================
+# Bulk Operations
+# =============================================================================
+
+@app.post("/api/jobs/bulk-update", tags=["Jobs"])
+async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Bulk update job fields (status, priority) for multiple jobs."""
+    job_ids = body.get("job_ids", [])
+    if not job_ids or not isinstance(job_ids, list):
+        raise HTTPException(status_code=400, detail="job_ids list is required")
+    if len(job_ids) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 jobs per batch")
+
+    action = body.get("action", "")
+    count = 0
+
+    if action == "cancel":
+        for jid in job_ids:
+            db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
+                       {"id": jid})
+            count += 1
+    elif action == "set_priority":
+        priority = body.get("priority", 3)
+        if priority not in range(1, 6):
+            raise HTTPException(status_code=400, detail="Priority must be 1-5")
+        for jid in job_ids:
+            db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id"), {"p": priority, "id": jid})
+            count += 1
+    elif action == "delete":
+        for jid in job_ids:
+            db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
+                       {"id": jid})
+            count += 1
+    elif action == "hold":
+        for jid in job_ids:
+            db.execute(text("UPDATE jobs SET hold = 1 WHERE id = :id"), {"id": jid})
+            count += 1
+    elif action == "unhold":
+        for jid in job_ids:
+            db.execute(text("UPDATE jobs SET hold = 0 WHERE id = :id"), {"id": jid})
+            count += 1
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+    db.commit()
+    log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
+    return {"status": "ok", "affected": count}
+
+
+@app.post("/api/printers/bulk-update", tags=["Printers"])
+async def bulk_update_printers(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Bulk update printer fields for multiple printers."""
+    printer_ids = body.get("printer_ids", [])
+    if not printer_ids or not isinstance(printer_ids, list):
+        raise HTTPException(status_code=400, detail="printer_ids list is required")
+
+    action = body.get("action", "")
+    count = 0
+
+    if action == "enable":
+        for pid in printer_ids:
+            db.execute(text("UPDATE printers SET is_active = 1 WHERE id = :id"), {"id": pid})
+            count += 1
+    elif action == "disable":
+        for pid in printer_ids:
+            db.execute(text("UPDATE printers SET is_active = 0 WHERE id = :id"), {"id": pid})
+            count += 1
+    elif action == "add_tag":
+        tag = body.get("tag", "").strip()
+        if not tag:
+            raise HTTPException(status_code=400, detail="Tag is required")
+        for pid in printer_ids:
+            existing = db.execute(text("SELECT 1 FROM printer_tags WHERE printer_id = :pid AND tag = :tag"),
+                                  {"pid": pid, "tag": tag}).fetchone()
+            if not existing:
+                db.execute(text("INSERT INTO printer_tags (printer_id, tag) VALUES (:pid, :tag)"),
+                           {"pid": pid, "tag": tag})
+            count += 1
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+    db.commit()
+    return {"status": "ok", "affected": count}
+
+
+# =============================================================================
+# Scheduled Reports
+# =============================================================================
+
+REPORT_TYPES = ["fleet_utilization", "job_summary", "filament_consumption", "failure_analysis", "chargeback_summary"]
+
+@app.get("/api/report-schedules", tags=["Reports"])
+async def list_report_schedules(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """List all scheduled reports."""
+    rows = db.execute(text("SELECT * FROM report_schedules ORDER BY created_at DESC")).fetchall()
+    return [{
+        "id": r.id, "name": r.name, "report_type": r.report_type,
+        "frequency": r.frequency, "recipients": json.loads(r.recipients) if r.recipients else [],
+        "filters": json.loads(r.filters) if r.filters else {},
+        "is_active": bool(r.is_active), "next_run_at": r.next_run_at,
+        "last_run_at": r.last_run_at, "created_at": r.created_at,
+    } for r in rows]
+
+
+@app.post("/api/report-schedules", tags=["Reports"])
+async def create_report_schedule(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Create a new scheduled report."""
+    name = body.get("name", "").strip()
+    report_type = body.get("report_type", "")
+    frequency = body.get("frequency", "weekly")
+    recipients = body.get("recipients", [])
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Report name is required")
+    if report_type not in REPORT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid report type. Valid: {', '.join(REPORT_TYPES)}")
+    if not recipients:
+        raise HTTPException(status_code=400, detail="At least one recipient email is required")
+    if frequency not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="Frequency must be daily, weekly, or monthly")
+
+    # Calculate next run
+    now = datetime.now()
+    if frequency == "daily":
+        next_run = now + timedelta(days=1)
+    elif frequency == "weekly":
+        next_run = now + timedelta(weeks=1)
+    else:
+        next_run = now + timedelta(days=30)
+    next_run = next_run.replace(hour=8, minute=0, second=0)
+
+    db.execute(text("""INSERT INTO report_schedules (name, report_type, frequency, recipients, filters, next_run_at, created_by)
+                       VALUES (:name, :type, :freq, :recip, :filters, :next, :uid)"""),
+               {"name": name, "type": report_type, "freq": frequency,
+                "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
+                "next": next_run, "uid": current_user["id"]})
+    db.commit()
+
+    sched_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    return {"id": sched_id, "status": "ok"}
+
+
+@app.delete("/api/report-schedules/{schedule_id}", tags=["Reports"])
+async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Delete a scheduled report."""
+    row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    db.execute(text("DELETE FROM report_schedules WHERE id = :id"), {"id": schedule_id})
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.patch("/api/report-schedules/{schedule_id}", tags=["Reports"])
+async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Update a scheduled report (toggle active, change recipients, etc.)."""
+    row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    sets = []
+    params = {"id": schedule_id}
+    for field in ["name", "frequency", "is_active"]:
+        if field in body:
+            sets.append(f"{field} = :{field}")
+            params[field] = body[field]
+    if "recipients" in body:
+        sets.append("recipients = :recipients")
+        params["recipients"] = json.dumps(body["recipients"])
+    if sets:
+        db.execute(text(f"UPDATE report_schedules SET {', '.join(sets)} WHERE id = :id"), params)
+        db.commit()
+
+    return {"status": "ok"}
+
+
+# =============================================================================
+# Organizations (Multi-Tenancy)
+# =============================================================================
+
+@app.get("/api/orgs", tags=["Organizations"])
+async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """List all organizations."""
+    rows = db.execute(text(
+        "SELECT g.*, "
+        "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
+        "FROM groups g WHERE g.is_org = 1 ORDER BY g.name")).fetchall()
+    return [{
+        "id": r.id, "name": r.name, "description": r.description,
+        "owner_id": r.owner_id, "member_count": r.member_count,
+        "created_at": r.created_at,
+    } for r in rows]
+
+
+@app.post("/api/orgs", tags=["Organizations"])
+async def create_org(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Create a new organization."""
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Organization name is required")
+
+    existing = db.execute(text("SELECT 1 FROM groups WHERE name = :name"), {"name": name}).fetchone()
+    if existing:
+        raise HTTPException(status_code=409, detail="Organization name already exists")
+
+    db.execute(text("""INSERT INTO groups (name, description, owner_id, is_org)
+                       VALUES (:name, :desc, :owner, 1)"""),
+               {"name": name, "desc": body.get("description", ""), "owner": current_user["id"]})
+    db.commit()
+    org_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+
+    log_audit(db, "org_created", "org", org_id, f"Organization '{name}' created")
+    return {"id": org_id, "name": name, "status": "ok"}
+
+
+@app.patch("/api/orgs/{org_id}", tags=["Organizations"])
+async def update_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Update an organization."""
+    org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    sets = []
+    params = {"id": org_id}
+    for field in ["name", "description", "owner_id"]:
+        if field in body:
+            sets.append(f"{field} = :{field}")
+            params[field] = body[field]
+    if sets:
+        db.execute(text(f"UPDATE groups SET {', '.join(sets)} WHERE id = :id"), params)
+        db.commit()
+
+    return {"status": "ok"}
+
+
+@app.delete("/api/orgs/{org_id}", tags=["Organizations"])
+async def delete_org(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Delete an organization. Unlinks members but does not delete them."""
+    org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Unlink members
+    db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :id"), {"id": org_id})
+    # Unlink resources
+    for tbl in ["printers", "models", "spools"]:
+        db.execute(text(f"UPDATE {tbl} SET org_id = NULL WHERE org_id = :id"), {"id": org_id})
+    db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": org_id})
+    db.commit()
+
+    log_audit(db, "org_deleted", "org", org_id, f"Organization '{org.name}' deleted")
+    return {"status": "ok"}
+
+
+@app.post("/api/orgs/{org_id}/members", tags=["Organizations"])
+async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Add a user to an organization."""
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    db.execute(text("UPDATE users SET group_id = :org_id WHERE id = :uid"), {"org_id": org_id, "uid": user_id})
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/api/orgs/{org_id}/printers", tags=["Organizations"])
+async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Assign a printer to an organization."""
+    printer_id = body.get("printer_id")
+    db.execute(text("UPDATE printers SET org_id = :oid WHERE id = :pid"),
+               {"oid": org_id, "pid": printer_id})
+    db.commit()
+    return {"status": "ok"}
+
 
 # =============================================================================
 # OIDC / SSO Authentication

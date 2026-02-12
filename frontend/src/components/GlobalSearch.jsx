@@ -102,21 +102,26 @@ export default function GlobalSearch() {
   return (
     <div ref={containerRef} className="relative">
       {/* Search Input */}
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+      <div className="relative" role="search">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" aria-hidden="true" />
+        <label htmlFor="global-search" className="sr-only">Search printers, jobs, models, spools</label>
         <input
+          id="global-search"
           ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setIsOpen(true)}
           placeholder="Search... (⌘K)"
+          aria-autocomplete="list"
+          aria-expanded={isOpen && query.length >= 2}
           className="w-44 md:w-64 bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-farm-600"
         />
         {query && (
           <button
             onClick={() => { setQuery(''); setResults(null) }}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-farm-500 hover:text-farm-300"
+            aria-label="Clear search"
           >
             <X size={14} />
           </button>

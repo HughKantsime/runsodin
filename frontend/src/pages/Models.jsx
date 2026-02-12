@@ -58,27 +58,29 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             <button
               onClick={() => onToggleFavorite(model)}
               className={clsx("p-1 md:p-1.5 rounded-lg transition-colors", model.is_favorite ? "text-yellow-400" : "text-farm-600 hover:text-yellow-400")}
-              title={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
+              aria-label={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
             >
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
             </button>
-            
+
             {canDo('models.create') && <button
               onClick={() => onSchedule(model)}
               className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
-              title="Schedule print job"
+              aria-label="Schedule print job"
             >
               <CalendarPlus size={14} />
             </button>}
             {canDo('models.edit') && <button
               onClick={() => onEdit(model)}
               className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+              aria-label="Edit model"
             >
               <Pencil size={14} />
             </button>}
             {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
               className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+              aria-label="Delete model"
             >
               <Trash2 size={14} />
             </button>}
@@ -296,9 +298,9 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="model-modal-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border border-farm-700">
-        <h2 className="text-lg sm:text-xl font-display font-semibold mb-4">{editingModel ? 'Edit Model' : 'Add New Model'}</h2>
+        <h2 id="model-modal-title" className="text-lg sm:text-xl font-display font-semibold mb-4">{editingModel ? 'Edit Model' : 'Add New Model'}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-farm-400 mb-1">Model Name *</label>
@@ -393,9 +395,9 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
   if (!isOpen || !model) return null
   
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="schedule-print-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700">
-        <h2 className="text-lg font-display font-semibold mb-1">Schedule Print</h2>
+        <h2 id="schedule-print-title" className="text-lg font-display font-semibold mb-1">Schedule Print</h2>
         <p className="text-sm text-farm-500 mb-2">{model.name}</p>
         
         {variants.length > 0 && (

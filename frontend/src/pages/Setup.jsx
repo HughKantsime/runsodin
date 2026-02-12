@@ -113,7 +113,10 @@ export default function Setup() {
     if (!username.trim()) return setError('Username is required')
     if (!email.trim()) return setError('Email is required')
     if (!password) return setError('Password is required')
-    if (password.length < 6) return setError('Password must be at least 6 characters')
+    if (password.length < 8) return setError('Password must be at least 8 characters')
+    if (!/[A-Z]/.test(password)) return setError('Password must contain at least one uppercase letter')
+    if (!/[a-z]/.test(password)) return setError('Password must contain at least one lowercase letter')
+    if (!/[0-9]/.test(password)) return setError('Password must contain at least one number')
     if (password !== confirmPassword) return setError('Passwords do not match')
 
     setIsLoading(true)

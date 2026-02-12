@@ -83,7 +83,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
           <div className="flex items-center gap-2 flex-shrink-0">
             {hasCamera && (
-              <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-farm-700 rounded-lg transition-colors" title="View camera">
+              <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-farm-700 rounded-lg transition-colors" aria-label="View camera">
                 <Video size={14} className="text-farm-400" />
               </button>
             )}
@@ -100,8 +100,8 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
                 <span className="text-lg font-bold text-green-400">{activeJob.progress_percent || 0}%</span>
               </div>
             </div>
-            <div className="w-full bg-farm-700 rounded-full h-2 mb-1.5">
-              <div 
+            <div className="w-full bg-farm-700 rounded-full h-2 mb-1.5" role="progressbar" aria-valuenow={activeJob.progress_percent || 0} aria-valuemin={0} aria-valuemax={100} aria-label="Print progress">
+              <div
                 className="bg-green-500 h-2 rounded-full transition-all duration-500"
                 style={{ width: `${activeJob.progress_percent || 0}%` }}
               />
@@ -149,7 +149,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
             <button
               onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
               className={`p-0.5 rounded-lg transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
-              title={printer.lights_on ? 'Lights on (click to toggle)' : 'Lights off (click to toggle)'}
+              aria-label={printer.lights_on ? 'Turn lights off' : 'Turn lights on'}
             >
               <Lightbulb size={14} />
             </button>
@@ -210,12 +210,12 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
             )}>{job.status}</span>
           )}
           {canDo('dashboard.actions') && job.status === 'printing' && (
-            <button onClick={() => onComplete(job.id)} className="p-1.5 md:p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" title="Mark Complete">
+            <button onClick={() => onComplete(job.id)} className="p-1.5 md:p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" aria-label="Mark job complete">
               <CheckCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
           {canDo('dashboard.actions') && (job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
-            <button onClick={() => onCancel(job.id)} className="p-1.5 md:p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" title="Cancel">
+            <button onClick={() => onCancel(job.id)} className="p-1.5 md:p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" aria-label="Cancel job">
               <XCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
@@ -225,7 +225,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
       {job.colors_list?.length > 0 && (
         <div className="flex gap-1 mt-2">
           {job.colors_list.map((color, i) => (
-            <div key={i} className="w-4 h-4 md:w-5 md:h-5 rounded-full border border-farm-600" style={{ backgroundColor: color }} title={color} />
+            <div key={i} className="w-4 h-4 md:w-5 md:h-5 rounded-full border border-farm-600" style={{ backgroundColor: color }} role="img" aria-label={`Color: ${color}`} />
           ))}
         </div>
       )}

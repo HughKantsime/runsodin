@@ -3,6 +3,7 @@ Authentication utilities for O.D.I.N.
 Handles password hashing, JWT tokens, and user verification.
 """
 import os
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 from passlib.context import CryptContext
@@ -56,13 +57,13 @@ def hash_password(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token."""
+    """Create a JWT access token with unique jti for session tracking."""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

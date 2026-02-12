@@ -164,7 +164,9 @@ function Sidebar({ mobileOpen, onMobileClose }) {
         />
       )}
       
-      <aside 
+      <aside
+        role="navigation"
+        aria-label="Main navigation"
         className={clsx(
           "flex flex-col h-full transition-all duration-300",
           // Mobile: fixed drawer, hidden by default
@@ -173,7 +175,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           // Width
           collapsed ? "w-64 md:w-16" : "w-64"
         )}
-        style={{ 
+        style={{
           backgroundColor: 'var(--brand-sidebar-bg)',
           borderRight: '1px solid var(--brand-sidebar-border)',
         }}
@@ -201,18 +203,20 @@ function Sidebar({ mobileOpen, onMobileClose }) {
             )}
           </div>
           {/* Desktop collapse button */}
-          <button 
-            onClick={() => setCollapsed(!collapsed)} 
+          <button
+            onClick={() => setCollapsed(!collapsed)}
             className="hidden md:block transition-colors"
             style={{ color: 'var(--brand-sidebar-text)' }}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
           </button>
           {/* Mobile close button */}
-          <button 
+          <button
             onClick={onMobileClose}
             className="md:hidden transition-colors"
             style={{ color: 'var(--brand-sidebar-text)' }}
+            aria-label="Close menu"
           >
             <X size={20} />
           </button>
@@ -270,13 +274,13 @@ function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Fleet Status */}
         {printersData && (!collapsed || mobileOpen) && (
-          <NavLink to="/printers" className="flex-shrink-0 px-4 py-3 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+          <NavLink to="/printers" className="flex-shrink-0 px-4 py-3 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} aria-label={`Fleet status: ${printersData.filter(p => p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000).length} of ${printersData.length} printers online`}>
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-xs font-medium whitespace-nowrap" style={{ color: 'var(--brand-sidebar-text)' }}>
                 {printersData.filter(p => p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000).length}/{printersData.length} online
               </span>
             </div>
-            <div className="flex flex-wrap gap-0.5">
+            <div className="flex flex-wrap gap-0.5" aria-hidden="true">
               {printersData.map(p => {
                 const online = p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000
                 return <div key={p.id} className={`w-2 h-2 rounded-full ${online ? 'bg-green-500' : 'bg-farm-600'}`} />
@@ -299,6 +303,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
               }}
               className="flex items-center gap-2 hover:text-red-400 text-sm transition-colors"
               style={{ color: 'var(--brand-sidebar-text)' }}
+              aria-label="Logout"
             >
               <LogOut size={14} />
               {(!collapsed || mobileOpen) && "Logout"}
@@ -326,7 +331,7 @@ function ThemeToggle() {
     <button
       onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
       className="p-2 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-farm-200 transition-colors"
-      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
     </button>
@@ -356,10 +361,11 @@ function MobileHeader({ onMenuClick }) {
         <GlobalSearch />
         <ThemeToggle />
         <AlertBell />
-        <button 
+        <button
           onClick={onMenuClick}
           className="p-2 rounded-lg transition-colors"
           style={{ color: 'var(--brand-sidebar-text)' }}
+          aria-label="Open menu"
         >
           <Menu size={24} />
         </button>
@@ -439,24 +445,29 @@ export default function App() {
   return (
     <ProtectedRoute>
       <div className="h-screen flex flex-col md:flex-row overflow-hidden">
+        {/* Skip to content — WCAG 2.4.1 */}
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-print-600 focus:text-white focus:rounded-lg focus:text-sm">
+          Skip to content
+        </a>
+
         {/* Mobile header with hamburger */}
         <MobileHeader onMenuClick={() => setMobileMenuOpen(true)} />
-        
+
         {/* Sidebar - hidden on mobile until opened */}
-        <Sidebar 
-          mobileOpen={mobileMenuOpen} 
-          onMobileClose={() => setMobileMenuOpen(false)} 
+        <Sidebar
+          mobileOpen={mobileMenuOpen}
+          onMobileClose={() => setMobileMenuOpen(false)}
         />
-        
+
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Desktop search header */}
-          <div className="hidden md:flex items-center justify-end gap-3 p-4 border-b border-farm-800" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <div className="hidden md:flex items-center justify-end gap-3 p-4 border-b border-farm-800" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />
             <ThemeToggle />
             <AlertBell />
           </div>
-          <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <main id="main-content" className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/timeline" element={<Timeline />} />

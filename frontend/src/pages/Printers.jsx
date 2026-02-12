@@ -105,9 +105,9 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
       </div>
       
       {isEditing && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-          <div 
-            className="absolute inset-0 bg-black/50" 
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label={`Select filament for slot ${slot.slot_number}`}>
+          <div
+            className="absolute inset-0 bg-black/50"
             onClick={() => { setIsEditing(false); setSearch('') }}
           />
           <div className="relative bg-farm-800 rounded-t-xl sm:rounded p-4 w-full sm:w-80 shadow-xl border border-farm-600 max-h-[80vh] flex flex-col">
@@ -243,28 +243,28 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {canDo('printers.edit') && <button onClick={() => onEdit(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Printer Settings">
+          {canDo('printers.edit') && <button onClick={() => onEdit(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="Edit printer settings">
             <Settings size={16} />
           </button>}
-          {canDo('printers.edit') && <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-1.5 md:p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} title={printer.is_active ? 'Deactivate' : 'Activate'}>
+          {canDo('printers.edit') && <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-1.5 md:p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'}>
             {printer.is_active ? <Power size={16} /> : <PowerOff size={16} />}
           </button>}
-          {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="View camera">
+          {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="View camera">
             <Video size={16} />
           </button>}
           {printer.plug_type && onPlugToggle && (
             <button
               onClick={() => onPlugToggle(printer.id)}
               className={`p-1.5 md:p-2 rounded-lg transition-colors ${plugStates?.[printer.id] ? 'text-green-400 hover:bg-green-900/30' : 'text-farm-500 hover:bg-farm-800'}`}
-              title={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
+              aria-label={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
             >
               <Plug size={16} />
             </button>
           )}
-          {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Scan spool QR">
+          {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="Scan spool QR code">
             <QrCode size={16} />
           </button>}
-          {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-1.5 md:p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
+          {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-1.5 md:p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" aria-label="Delete printer">
             <Trash2 size={16} />
           </button>}
         </div>
@@ -328,7 +328,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
                   <button
                     onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
                     className={`p-0.5 rounded-lg transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
-                    title={printer.lights_on ? 'Lights on (click to toggle)' : 'Lights off (click to toggle)'}
+                    aria-label={printer.lights_on ? 'Turn lights off' : 'Turn lights on'}
                   >
                     <Lightbulb size={14} />
                   </button>
@@ -359,25 +359,25 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
         <button onClick={() => setActivePanel(activePanel === 'ams' ? null : 'ams')}
           className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
             activePanel === 'ams' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
-          title="AMS Environment">
+          aria-label="AMS environment data" aria-pressed={activePanel === 'ams'}>
           <Thermometer size={14} /> <span className="hidden sm:inline">AMS</span>
         </button>
         <button onClick={() => setActivePanel(activePanel === 'telemetry' ? null : 'telemetry')}
           className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
             activePanel === 'telemetry' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
-          title="Print Telemetry">
+          aria-label="Print telemetry" aria-pressed={activePanel === 'telemetry'}>
           <Activity size={14} /> <span className="hidden sm:inline">Telemetry</span>
         </button>
         <button onClick={() => setActivePanel(activePanel === 'nozzle' ? null : 'nozzle')}
           className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
             activePanel === 'nozzle' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
-          title="Nozzle Lifecycle">
+          aria-label="Nozzle lifecycle" aria-pressed={activePanel === 'nozzle'}>
           <CircleDot size={14} /> <span className="hidden sm:inline">Nozzle</span>
         </button>
         <button onClick={() => setActivePanel(activePanel === 'hms' ? null : 'hms')}
           className={clsx('p-1.5 rounded-lg text-xs flex items-center gap-1 transition-colors',
             activePanel === 'hms' ? 'bg-print-600/20 text-print-400' : 'text-farm-400 hover:bg-farm-800')}
-          title="HMS Error History">
+          aria-label="HMS error history" aria-pressed={activePanel === 'hms'}>
           <AlertTriangle size={14} /> <span className="hidden sm:inline">HMS</span>
         </button>
       </div>
@@ -510,11 +510,11 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
   const showConnectionFields = !!formData.api_type && formData.api_type !== ''
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="printer-modal-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg sm:text-xl font-display font-semibold">{isEditing ? 'Edit Printer' : 'Add New Printer'}</h2>
-          <button onClick={onClose} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
+          <h2 id="printer-modal-title" className="text-lg sm:text-xl font-display font-semibold">{isEditing ? 'Edit Printer' : 'Add New Printer'}</h2>
+          <button onClick={onClose} className="text-farm-500 hover:text-farm-300" aria-label="Close printer form"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

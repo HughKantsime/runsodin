@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import SSOButton from '../components/SSOButton'
 import { useNavigate } from 'react-router-dom'
-import { Lock, User, AlertCircle } from 'lucide-react'
+import { Lock, User, AlertCircle, ShieldCheck } from 'lucide-react'
 import { useBranding } from '../BrandingContext'
 import { refreshPermissions } from '../permissions'
 
@@ -13,26 +13,48 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  
+  // MFA state
+  const [mfaRequired, setMfaRequired] = useState(false)
+  const [mfaToken, setMfaToken] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const mfaInputRef = useRef(null)
+
+
   // Handle OIDC callback
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlToken = urlParams.get('token');
     const urlError = urlParams.get('error');
-    
+
     if (urlToken) {
       localStorage.setItem('token', urlToken);
       window.history.replaceState({}, '', '/');
       window.location.reload();
     }
-    
+
     if (urlError) {
-      setError(urlError === 'user_not_found' 
+      setError(urlError === 'user_not_found'
         ? 'Your account is not authorized. Contact an administrator.'
         : 'SSO login failed. Please try again.');
       window.history.replaceState({}, '', '/login');
     }
   }, []);
+
+  // Auto-focus MFA input
+  useEffect(() => {
+    if (mfaRequired && mfaInputRef.current) {
+      mfaInputRef.current.focus()
+    }
+  }, [mfaRequired])
+
+  const completeLogin = (data) => {
+    localStorage.setItem('token', data.access_token)
+    const payload = JSON.parse(atob(data.access_token.split('.')[1]));
+    localStorage.setItem('user', JSON.stringify({
+      username: payload.sub,
+      role: payload.role
+    }))
+  }
 
 const handleSubmit = async (e) => {
     e.preventDefault()
@@ -52,21 +74,49 @@ const handleSubmit = async (e) => {
       }
 
       const data = await response.json()
-      // Store token
-      localStorage.setItem('token', data.access_token)
-      const payload = JSON.parse(atob(data.access_token.split('.')[1]));
-      localStorage.setItem('user', JSON.stringify({
-        username: payload.sub,
-        role: payload.role
-      }))
 
-      // Fetch and cache RBAC permissions
+      // Check if MFA is required
+      if (data.mfa_required) {
+        setMfaToken(data.access_token)
+        setMfaRequired(true)
+        setIsLoading(false)
+        return
+      }
+
+      completeLogin(data)
       await refreshPermissions()
-
-      // Redirect to dashboard
       navigate('/')
     } catch (err) {
       setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleMfaSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('/api/auth/mfa/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfa_token: mfaToken, code: mfaCode })
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || 'Invalid code')
+      }
+
+      const data = await response.json()
+      completeLogin(data)
+      await refreshPermissions()
+      navigate('/')
+    } catch (err) {
+      setError(err.message)
+      setMfaCode('')
     } finally {
       setIsLoading(false)
     }
@@ -77,7 +127,7 @@ const handleSubmit = async (e) => {
       style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="w-full max-w-md">
         <div className="rounded-lg p-8"
-          style={{ 
+          style={{
             backgroundColor: 'var(--brand-card-bg)',
             border: '1px solid var(--brand-card-border)',
           }}>
@@ -91,7 +141,7 @@ const handleSubmit = async (e) => {
               </h1>
             )}
             <p className="mt-1" style={{ color: 'var(--brand-text-muted)' }}>
-              {branding.app_subtitle}
+              {mfaRequired ? 'Two-Factor Authentication' : branding.app_subtitle}
             </p>
           </div>
 
@@ -103,58 +153,112 @@ const handleSubmit = async (e) => {
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Username</label>
-              <div className="relative">
-                <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
-                  style={{
-                    backgroundColor: 'var(--brand-input-bg)',
-                    border: '1px solid var(--brand-input-border)',
-                    color: 'var(--brand-text-primary)',
-                  }}
-                  placeholder="Enter username"
-                  required
-                />
+          {mfaRequired ? (
+            /* MFA Code Form */
+            <form onSubmit={handleMfaSubmit} className="space-y-6">
+              <div className="text-center mb-4">
+                <ShieldCheck size={40} className="mx-auto mb-3" style={{ color: 'var(--brand-accent)' }} />
+                <p className="text-sm" style={{ color: 'var(--brand-text-secondary)' }}>
+                  Enter the 6-digit code from your authenticator app
+                </p>
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Password</label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
-                  style={{
-                    backgroundColor: 'var(--brand-input-bg)',
-                    border: '1px solid var(--brand-input-border)',
-                    color: 'var(--brand-text-primary)',
-                  }}
-                  placeholder="Enter password"
-                  required
-                />
+              <div>
+                <div className="relative">
+                  <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
+                  <input
+                    ref={mfaInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none text-center text-2xl tracking-[0.5em] font-mono"
+                    style={{
+                      backgroundColor: 'var(--brand-input-bg)',
+                      border: '1px solid var(--brand-input-border)',
+                      color: 'var(--brand-text-primary)',
+                    }}
+                    placeholder="000000"
+                    required
+                  />
+                </div>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
-              style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
-            >
-              {isLoading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={isLoading || mfaCode.length !== 6}
+                className="w-full font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+                style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
+              >
+                {isLoading ? 'Verifying...' : 'Verify'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setMfaRequired(false); setMfaToken(''); setMfaCode(''); setError('') }}
+                className="w-full text-sm py-2 transition-colors"
+                style={{ color: 'var(--brand-text-muted)' }}
+              >
+                Back to login
+              </button>
+            </form>
+          ) : (
+            /* Normal Login Form */
+            <>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                  <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Username</label>
+                  <div className="relative">
+                    <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
+                      style={{
+                        backgroundColor: 'var(--brand-input-bg)',
+                        border: '1px solid var(--brand-input-border)',
+                        color: 'var(--brand-text-primary)',
+                      }}
+                      placeholder="Enter username"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Password</label>
+                  <div className="relative">
+                    <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
+                      style={{
+                        backgroundColor: 'var(--brand-input-bg)',
+                        border: '1px solid var(--brand-input-border)',
+                        color: 'var(--brand-text-primary)',
+                      }}
+                      placeholder="Enter password"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
+                >
+                  {isLoading ? 'Signing in...' : 'Sign In'}
+                </button>
+              </form>
               <SSOButton />
+            </>
+          )}
         </div>
 
         <div className="text-center mt-6" style={{ color: 'var(--brand-text-muted)' }}>

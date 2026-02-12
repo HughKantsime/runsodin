@@ -20,11 +20,11 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="group-modal-title">
       <div className="bg-farm-900 rounded-t-xl sm:rounded border border-farm-800 w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4 md:mb-6">
-          <h2 className="text-lg md:text-xl font-display font-bold">{group ? 'Edit Group' : 'New Group'}</h2>
-          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
+          <h2 id="group-modal-title" className="text-lg md:text-xl font-display font-bold">{group ? 'Edit Group' : 'New Group'}</h2>
+          <button onClick={onClose} className="text-farm-500 hover:text-white" aria-label="Close"><X size={20} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
