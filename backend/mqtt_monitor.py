@@ -75,7 +75,8 @@ class PrinterMonitor:
                 ip=self.ip,
                 serial=self.serial,
                 access_code=self.access_code,
-                on_status_update=self._on_status
+                on_status_update=self._on_status,
+                client_id=f"odin_{self.printer_id}_{int(time.time())}"
             )
             if self._bambu.connect():
                 log.info(f"[{self.name}] Connected")
@@ -91,6 +92,7 @@ class PrinterMonitor:
         """Disconnect from printer."""
         if self._bambu:
             self._bambu.disconnect()
+            self._bambu = None
             log.info(f"[{self.name}] Disconnected")
     
 
@@ -855,7 +857,8 @@ class MQTTMonitorDaemon:
                     monitor.disconnect()
                 except:
                     pass
-                
+                time.sleep(1)  # let old TLS socket fully tear down
+
                 new_mon = PrinterMonitor(
                     printer_id=p['id'],
                     name=p['name'],
