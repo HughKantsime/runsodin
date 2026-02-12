@@ -4,8 +4,11 @@ Moonraker Adapter for PrintFarm Scheduler
 Connects to Klipper printers via Moonraker REST API for:
 - Status monitoring (idle, printing, error, paused)
 - Print progress (%, layers, time remaining)
-- Temperature monitoring (bed, extruder)
+- Temperature monitoring (bed, extruder, chamber)
+- Fan speed, speed/flow factors
 - MMU/ACE filament slot state
+- Filament runout sensor detection
+- Nozzle diameter from config
 - Job control (start, pause, resume, cancel)
 - Webcam URL discovery
 
@@ -79,13 +82,25 @@ class MoonrakerStatus:
     """Complete printer status snapshot."""
     state: MoonrakerState = MoonrakerState.DISCONNECTED
     internal_state: str = "OFFLINE"
-    
+
     # Temperatures
     bed_temp: float = 0.0
     bed_target: float = 0.0
     nozzle_temp: float = 0.0
     nozzle_target: float = 0.0
-    
+    chamber_temp: Optional[float] = None
+
+    # Fan & motion
+    fan_speed: int = 0           # 0-100 (converted from Klipper's 0.0-1.0)
+    speed_factor: float = 1.0   # gcode_move speed multiplier
+    extrude_factor: float = 1.0 # gcode_move extrusion multiplier
+
+    # Nozzle config (cached from configfile)
+    nozzle_diameter: Optional[float] = None
+
+    # Filament sensor
+    filament_detected: Optional[bool] = None  # None = no sensor
+
     # Print progress
     filename: str = ""
     progress_percent: float = 0.0
@@ -93,18 +108,24 @@ class MoonrakerStatus:
     total_layers: int = 0
     print_duration: float = 0.0
     filament_used_mm: float = 0.0
-    
+
+    # Error message (from webhooks.state_message on error)
+    error_message: str = ""
+
     # Printer info
     device_type: str = ""
     klippy_state: str = ""
-    
+
     # Filament slots (MMU/ACE)
     filament_slots: List[MoonrakerFilamentSlot] = field(default_factory=list)
-    
+
+    # Environment sensors (temp sensors associated with MMU/enclosure)
+    environment_sensors: Dict[str, float] = field(default_factory=dict)
+
     # Webcam
     webcam_stream_url: str = ""
     webcam_snapshot_url: str = ""
-    
+
     # Raw data for debugging
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
@@ -117,6 +138,9 @@ class MoonrakerPrinter:
     No persistent connection needed — each call is a simple HTTP request.
     """
     
+    # Sensor name patterns that indicate MMU/enclosure environment
+    _ENV_SENSOR_KEYWORDS = ("ace", "mmu", "dryer", "drybox", "enclosure", "chamber", "filament_box")
+
     def __init__(self, host: str, port: int = 80, api_key: str = ""):
         self.host = host
         self.port = port
@@ -126,6 +150,12 @@ class MoonrakerPrinter:
         self._device_type = ""
         self._webcam_stream = ""
         self._webcam_snapshot = ""
+        self._nozzle_diameter: Optional[float] = None
+        # Discovered optional objects (populated on connect)
+        self._temperature_sensors: List[str] = []   # e.g. ["temperature_sensor chamber"]
+        self._env_sensors: List[str] = []            # subset of above matching enclosure keywords
+        self._filament_sensors: List[str] = []       # filament_switch_sensor / filament_motion_sensor
+        self._has_fan: bool = False
     
     # ==================== Connection ====================
     
@@ -146,10 +176,16 @@ class MoonrakerPrinter:
             printer_info = self._get("/printer/info")
             if printer_info and "result" in printer_info:
                 self._device_type = printer_info["result"].get("device_type", "")
-            
+
+            # Discover available objects (sensors, fans, etc.)
+            self._discover_objects()
+
+            # Cache nozzle diameter from config (one-time)
+            self._cache_nozzle_diameter()
+
             # Cache webcam URLs
             self._discover_webcam()
-            
+
             self._connected = True
             log.info(f"Connected to {self._device_type or 'Moonraker'} at {self.host}")
             return True
@@ -167,6 +203,58 @@ class MoonrakerPrinter:
     def connected(self) -> bool:
         return self._connected
     
+    # ==================== Object Discovery ====================
+
+    def _discover_objects(self):
+        """Query available Klipper objects and cache sensor/fan names."""
+        try:
+            data = self._get("/printer/objects/list")
+            if not data or "result" not in data:
+                return
+            objects = data["result"].get("objects", [])
+
+            self._has_fan = "fan" in objects
+            self._temperature_sensors = [o for o in objects if o.startswith("temperature_sensor ")]
+            self._filament_sensors = [
+                o for o in objects
+                if o.startswith("filament_switch_sensor ") or o.startswith("filament_motion_sensor ")
+            ]
+
+            # Identify environment sensors (MMU/enclosure/dryer)
+            self._env_sensors = [
+                s for s in self._temperature_sensors
+                if any(kw in s.lower() for kw in self._ENV_SENSOR_KEYWORDS)
+            ]
+
+            discovered = []
+            if self._has_fan:
+                discovered.append("fan")
+            if self._temperature_sensors:
+                discovered.append(f"{len(self._temperature_sensors)} temp sensor(s)")
+            if self._env_sensors:
+                discovered.append(f"env: {', '.join(s.split(' ', 1)[1] for s in self._env_sensors)}")
+            if self._filament_sensors:
+                discovered.append(f"{len(self._filament_sensors)} filament sensor(s)")
+            if discovered:
+                log.info(f"Discovered objects on {self.host}: {', '.join(discovered)}")
+        except Exception as e:
+            log.warning(f"Object discovery failed on {self.host}: {e}")
+
+    def _cache_nozzle_diameter(self):
+        """Read nozzle diameter from Klipper config (one-time on connect)."""
+        try:
+            data = self._get("/printer/objects/query?configfile")
+            if data and "result" in data:
+                cfg = data["result"].get("status", {}).get("configfile", {})
+                settings = cfg.get("settings", {})
+                extruder_cfg = settings.get("extruder", {})
+                nozzle = extruder_cfg.get("nozzle_diameter")
+                if nozzle is not None:
+                    self._nozzle_diameter = float(nozzle)
+                    log.info(f"Nozzle diameter from config: {self._nozzle_diameter}mm")
+        except Exception as e:
+            log.debug(f"Could not read nozzle diameter: {e}")
+
     # ==================== Status ====================
     
     def get_status(self) -> MoonrakerStatus:
@@ -185,7 +273,13 @@ class MoonrakerPrinter:
             "idle_timeout",
             "mmu",
             "virtual_sdcard",
+            "gcode_move",
+            "webhooks",
         ]
+        if self._has_fan:
+            objects.append("fan")
+        objects.extend(self._temperature_sensors)
+        objects.extend(self._filament_sensors)
         query = "&".join(objects)
         
         try:
@@ -245,7 +339,49 @@ class MoonrakerPrinter:
             mmu = result.get("mmu", {})
             if mmu and mmu.get("enabled"):
                 status.filament_slots = self._parse_mmu_slots(mmu)
-            
+
+            # Fan speed (Klipper reports 0.0-1.0, convert to 0-100)
+            fan_data = result.get("fan", {})
+            if fan_data:
+                status.fan_speed = round(fan_data.get("speed", 0.0) * 100)
+
+            # Speed / extrusion factors
+            gcode_move = result.get("gcode_move", {})
+            if gcode_move:
+                status.speed_factor = gcode_move.get("speed_factor", 1.0)
+                status.extrude_factor = gcode_move.get("extrude_factor", 1.0)
+
+            # Nozzle diameter (cached on connect)
+            status.nozzle_diameter = self._nozzle_diameter
+
+            # Error message from webhooks
+            webhooks = result.get("webhooks", {})
+            if webhooks:
+                status.error_message = webhooks.get("state_message", "")
+
+            # Temperature sensors (chamber + environment)
+            for sensor_name in self._temperature_sensors:
+                sensor_data = result.get(sensor_name, {})
+                if sensor_data:
+                    temp = sensor_data.get("temperature")
+                    if temp is not None:
+                        short_name = sensor_name.split(" ", 1)[1] if " " in sensor_name else sensor_name
+                        # First chamber-like sensor becomes chamber_temp
+                        if status.chamber_temp is None and any(
+                            kw in short_name.lower() for kw in ("chamber", "enclosure")
+                        ):
+                            status.chamber_temp = round(temp, 1)
+                        # All env sensors go into environment_sensors dict
+                        if sensor_name in self._env_sensors:
+                            status.environment_sensors[short_name] = round(temp, 1)
+
+            # Filament sensor(s)
+            for sensor_name in self._filament_sensors:
+                sensor_data = result.get(sensor_name, {})
+                if sensor_data and "filament_detected" in sensor_data:
+                    status.filament_detected = sensor_data["filament_detected"]
+                    break  # Use first sensor found
+
         except Exception as e:
             log.error(f"Failed to get status from {self.host}: {e}")
             status.state = MoonrakerState.DISCONNECTED

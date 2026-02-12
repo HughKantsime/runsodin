@@ -552,13 +552,86 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
         raise HTTPException(status_code=400, detail="Printer api_type not configured")
     if not printer.api_host:
         raise HTTPException(status_code=400, detail="Printer api_host (IP) not configured")
+
+    # ---- Moonraker / Klipper MMU sync ----
+    if printer.api_type.lower() == "moonraker":
+        from moonraker_adapter import MoonrakerPrinter
+        api_host = (printer.api_host or "").strip()
+        host, port = api_host, 80
+        if ":" in api_host:
+            h, prt = api_host.rsplit(":", 1)
+            host = h.strip() or host
+            try:
+                port = int(prt)
+            except Exception:
+                port = 80
+        api_key = ""
+        if printer.api_key:
+            try:
+                api_key = crypto.decrypt(printer.api_key)
+            except Exception:
+                api_key = printer.api_key
+        mk = MoonrakerPrinter(host=host, port=port, api_key=api_key)
+        if not mk.connect():
+            raise HTTPException(status_code=503, detail="Failed to connect to Moonraker")
+        mk_status = mk.get_status()
+        mk.disconnect()
+        if not mk_status.filament_slots:
+            return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
+                    "slots_synced": 0, "slots": [], "mismatches": [],
+                    "message": "No MMU/ACE detected on this printer"}
+        filament_type_map_mk = {
+            "PLA": FilamentType.PLA, "PETG": FilamentType.PETG, "ABS": FilamentType.ABS,
+            "ASA": FilamentType.ASA, "TPU": FilamentType.TPU, "PA": FilamentType.PA,
+            "PC": FilamentType.PC, "PVA": FilamentType.PVA,
+            "PA-CF": FilamentType.NYLON_CF, "PA-GF": FilamentType.NYLON_GF,
+            "PET-CF": FilamentType.PETG_CF, "PLA-CF": FilamentType.PLA_CF,
+        }
+        updated_slots = []
+        for mmu_slot in mk_status.filament_slots:
+            slot_num = mmu_slot.gate + 1
+            db_slot = db.query(FilamentSlot).filter(
+                FilamentSlot.printer_id == printer_id,
+                FilamentSlot.slot_number == slot_num
+            ).first()
+            if not db_slot:
+                db_slot = FilamentSlot(printer_id=printer_id, slot_number=slot_num)
+                db.add(db_slot)
+            material_key = (mmu_slot.material or "").upper()
+            ftype = filament_type_map_mk.get(material_key, FilamentType.PLA)
+            color_hex = mmu_slot.color_hex[:6] if mmu_slot.color_hex else None
+            color_name = mmu_slot.name or mmu_slot.material or None
+            if mmu_slot.loaded:
+                db_slot.filament_type = ftype
+                db_slot.color = color_name
+                db_slot.color_hex = color_hex
+                db_slot.loaded_at = datetime.utcnow()
+                updated_slots.append({
+                    "slot": slot_num, "type": ftype.value, "color": color_name,
+                    "color_hex": color_hex, "matched": "mmu_gate"})
+            else:
+                db_slot.filament_type = FilamentType.EMPTY
+                db_slot.color = None
+                db_slot.color_hex = None
+                updated_slots.append({"slot": slot_num, "type": "EMPTY", "color": None, "empty": True})
+        # Remove stale slots
+        max_slot = len(mk_status.filament_slots)
+        db.query(FilamentSlot).filter(
+            FilamentSlot.printer_id == printer_id,
+            FilamentSlot.slot_number > max_slot
+        ).delete()
+        db.commit()
+        log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "source": "moonraker_mmu"})
+        return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
+                "slots_synced": len(updated_slots), "slots": updated_slots, "mismatches": []}
+
     if not printer.api_key:
         raise HTTPException(status_code=400, detail="Printer api_key not configured")
-    
-    # Currently only Bambu is supported
+
+    # ---- Bambu AMS sync ----
     if printer.api_type.lower() != "bambu":
         raise HTTPException(status_code=400, detail=f"Sync not supported for {printer.api_type}")
-    
+
     # Parse credentials (format: "serial|access_code")
     decrypted_key = crypto.decrypt(printer.api_key)
     if "|" not in decrypted_key:

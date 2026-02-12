@@ -9,7 +9,12 @@ Handles:
 - Periodic status polling (every 3 seconds)
 - Print job start/end detection and DB logging
 - Progress tracking (percent, layers)
-- Filament slot sync (ACE MMU)
+- Fan speed, nozzle diameter, speed/flow factors
+- Timeseries telemetry (printer_telemetry table, 60s inserts)
+- Filament slot sync (ACE/MMU → filament_slots table)
+- Environment telemetry (ACE/chamber temp → ams_telemetry table)
+- Filament runout detection and alerts
+- Klipper error capture (hms_error_history table)
 - Reconnection on failure
 """
 
@@ -47,6 +52,17 @@ DB_PATH = os.environ.get(
 POLL_INTERVAL = 3          # seconds between status polls
 RECONNECT_INTERVAL = 30    # seconds between reconnection attempts
 PROGRESS_DB_INTERVAL = 5   # seconds between progress DB writes (throttle)
+TELEMETRY_INSERT_INTERVAL = 60   # seconds between timeseries inserts
+SLOT_SYNC_INTERVAL = 60         # seconds between filament slot syncs
+ENV_TELEMETRY_INTERVAL = 300    # seconds between environment telemetry inserts (5 min)
+
+# Material string → FilamentType enum value mapping (matches Bambu sync in main.py)
+_MATERIAL_MAP = {
+    "PLA": "PLA", "PETG": "PETG", "ABS": "ABS", "ASA": "ASA",
+    "TPU": "TPU", "PA": "PA", "PC": "PC", "PVA": "PVA",
+    "PLA-S": "PLA_SUPPORT", "PA-S": "PLA_SUPPORT", "PETG-S": "PLA_SUPPORT",
+    "PA-CF": "NYLON_CF", "PA-GF": "NYLON_GF", "PET-CF": "PETG_CF", "PLA-CF": "PLA_CF",
+}
 
 
 class MoonrakerMonitor:
@@ -71,6 +87,10 @@ class MoonrakerMonitor:
         self._current_job_db_id: Optional[int] = None
         self._last_progress_write = 0.0
         self._last_filename = ""
+        self._last_telemetry_insert = 0.0
+        self._last_slot_sync = 0.0
+        self._last_env_telemetry = 0.0
+        self._prev_filament_detected: Optional[bool] = None
     
     # ==================== Lifecycle ====================
     
@@ -143,11 +163,11 @@ class MoonrakerMonitor:
     
     def _process_status(self, status):
         """Process a status update — detect state changes, track jobs."""
+        now = time.time()
+
         # Update telemetry + heartbeat (throttled to every 10 seconds)
-        import time as _time
-        if _time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
+        if now - getattr(self, '_last_heartbeat', 0) >= 10:
             try:
-                import sqlite3
                 conn = sqlite3.connect(DB_PATH)
                 bed_t = bed_tt = noz_t = noz_tt = None
                 gstate = None
@@ -156,6 +176,8 @@ class MoonrakerMonitor:
                 remaining_min = None
                 current_layer = None
                 total_layers = None
+                fan_speed_val = status.fan_speed or None
+                noz_dia = status.nozzle_diameter
 
                 if hasattr(status, 'raw_data') and status.raw_data:
                     rd = status.raw_data
@@ -189,8 +211,11 @@ class MoonrakerMonitor:
                     "UPDATE printers SET last_seen=datetime('now'),"
                     " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
                     " nozzle_temp=COALESCE(?,nozzle_temp),nozzle_target_temp=COALESCE(?,nozzle_target_temp),"
-                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage) WHERE id=?",
-                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, self.printer_id))
+                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage),"
+                    " fan_speed=COALESCE(?,fan_speed),nozzle_diameter=COALESCE(?,nozzle_diameter)"
+                    " WHERE id=?",
+                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
+                     fan_speed_val, noz_dia, self.printer_id))
                 conn.commit()
 
                 # WebSocket push to frontend (same as Bambu monitor)
@@ -205,6 +230,7 @@ class MoonrakerMonitor:
                     'remaining_min': remaining_min,
                     'current_layer': current_layer,
                     'total_layers': total_layers,
+                    'fan_speed': fan_speed_val,
                 })
 
                 # MQTT republish to external broker (same as Bambu monitor)
@@ -218,40 +244,96 @@ class MoonrakerMonitor:
                             "remaining_min": remaining_min,
                             "current_layer": current_layer,
                             "total_layers": total_layers,
+                            "fan_speed": fan_speed_val,
                         })
                     except Exception:
                         pass
 
+                # ---- Timeseries telemetry (60s inserts during prints) ----
+                if gstate in ('RUNNING', 'PRINTING', 'PAUSE', 'PAUSED') and now - self._last_telemetry_insert >= TELEMETRY_INSERT_INTERVAL:
+                    self._last_telemetry_insert = now
+                    try:
+                        conn.execute(
+                            "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
+                            (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val))
+                        conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                        conn.commit()
+                    except Exception as e:
+                        log.debug(f"[{self.name}] Telemetry insert: {e}")
+
+                # ---- Environment telemetry (5-min inserts for ACE/chamber sensors) ----
+                if status.environment_sensors and now - self._last_env_telemetry >= ENV_TELEMETRY_INTERVAL:
+                    self._last_env_telemetry = now
+                    try:
+                        for idx, (sensor_name, temp_val) in enumerate(status.environment_sensors.items()):
+                            conn.execute(
+                                "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
+                                (self.printer_id, idx, None, temp_val))
+                        conn.execute("DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                        conn.commit()
+                    except Exception as e:
+                        log.debug(f"[{self.name}] Env telemetry insert: {e}")
+
                 conn.close()
-                self._last_heartbeat = _time.time()
+                self._last_heartbeat = now
             except Exception as e:
                 log.warning(f"Failed to update telemetry for {self.name}: {e}")
-        
+
         internal_state = status.internal_state
-        
+
+        # ---- Filament slot sync (every 60s) ----
+        if status.filament_slots and now - self._last_slot_sync >= SLOT_SYNC_INTERVAL:
+            self._last_slot_sync = now
+            self._sync_filament_slots(status.filament_slots)
+
+        # ---- Filament runout detection ----
+        if status.filament_detected is not None:
+            if self._prev_filament_detected is True and status.filament_detected is False:
+                if internal_state in ("RUNNING",):
+                    log.warning(f"[{self.name}] Filament runout detected!")
+                    printer_events.dispatch_alert(
+                        alert_type="filament_runout",
+                        severity="warning",
+                        title=f"Filament Runout: {self.name}",
+                        message=f"Filament sensor triggered on {self.name}",
+                        printer_id=self.printer_id,
+                    )
+            self._prev_filament_detected = status.filament_detected
+
         # Detect state change
         if internal_state != self._prev_state:
             log.info(f"[{self.name}] State: {self._prev_state} -> {internal_state}")
-            
+
             # Job started
             if internal_state == "RUNNING" and self._prev_state != "PAUSE":
                 self._job_started(status)
-            
+
             # Job paused
             elif internal_state == "PAUSE" and self._prev_state == "RUNNING":
                 log.info(f"[{self.name}] Print paused")
-            
+
             # Job resumed
             elif internal_state == "RUNNING" and self._prev_state == "PAUSE":
                 log.info(f"[{self.name}] Print resumed")
-            
+
             # Job ended (was running/paused, now idle/error)
             elif self._prev_state in ("RUNNING", "PAUSE") and internal_state in ("IDLE", "FAILED"):
                 end_status = "completed" if internal_state == "IDLE" else "failed"
                 self._job_ended(end_status, status)
-            
+
+                # Capture Klipper error message on failure
+                if end_status == "failed" and status.error_message:
+                    printer_events.record_error(
+                        printer_id=self.printer_id,
+                        error_code="KLIPPER_ERROR",
+                        error_message=status.error_message,
+                        source="klipper",
+                        severity="error",
+                        create_alert=False,  # _job_ended already dispatches alert
+                    )
+
             self._prev_state = internal_state
-        
+
         # Progress updates while printing
         if internal_state == "RUNNING" and self._current_job_db_id:
             self._update_progress(status)
@@ -406,6 +488,48 @@ class MoonrakerMonitor:
         except Exception as e:
             log.warning(f"[{self.name}] Progress update failed: {e}")
     
+    # ==================== Filament Slot Sync ====================
+
+    def _sync_filament_slots(self, slots):
+        """Sync MMU/ACE gate data to filament_slots DB table."""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+
+            for slot in slots:
+                slot_num = slot.gate + 1  # DB uses 1-based slot numbers
+                material_key = (slot.material or "").upper()
+                filament_type = _MATERIAL_MAP.get(material_key, material_key or "EMPTY")
+                color_hex = slot.color_hex[:6] if slot.color_hex else None
+                color_name = slot.name or slot.material or None
+
+                # Check if slot exists
+                cur.execute(
+                    "SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?",
+                    (self.printer_id, slot_num))
+                existing = cur.fetchone()
+
+                if existing:
+                    cur.execute(
+                        "UPDATE filament_slots SET filament_type=?, color=?, color_hex=?, loaded_at=datetime('now') WHERE id=?",
+                        (filament_type, color_name, color_hex, existing[0]))
+                else:
+                    cur.execute(
+                        "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                        (self.printer_id, slot_num, filament_type, color_name, color_hex))
+
+            # Remove stale slots beyond current gate count
+            max_slot = len(slots)
+            if max_slot > 0:
+                cur.execute(
+                    "DELETE FROM filament_slots WHERE printer_id=? AND slot_number>?",
+                    (self.printer_id, max_slot))
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            log.debug(f"[{self.name}] Filament slot sync: {e}")
+
     # ==================== Job Auto-Linking ====================
     
     def _try_auto_link(self, filename: str, total_layers: int):

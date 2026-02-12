@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-O.D.I.N. (Orchestrated Dispatch & Inventory Network) is a self-hosted 3D print farm management system. Single Docker container running 6 supervised processes: FastAPI backend, 4 printer monitor daemons (Bambu MQTT, Moonraker, PrusaLink, Elegoo), and go2rtc camera streaming. Python 3.11 backend, React 18 frontend, SQLite (WAL mode) database.
+O.D.I.N. (Orchestrated Dispatch & Inventory Network) is a self-hosted 3D print farm management system. Single Docker container running 7 supervised processes: FastAPI backend, 4 printer monitor daemons (Bambu MQTT, Moonraker, PrusaLink, Elegoo), go2rtc camera streaming, and vision_monitor AI failure detection. Python 3.11 backend, React 18 frontend, SQLite (WAL mode) database.
 
 ## Build & Run Commands
 
@@ -48,6 +48,25 @@ Test config via `tests/.env.test` or environment variables: `BASE_URL`, `API_KEY
 ```
 
 Updates: `VERSION`, `frontend/package.json`, `backend/main.py` (`__version__`), `docker-compose.yml` image tag. GHCR workflow triggers on tag push.
+
+## Deployment
+
+```bash
+# Sandbox (.200) — builds from source + Phase 0 + pytest
+./ops/deploy_sandbox.sh              # full pipeline
+./ops/deploy_sandbox.sh --skip-build # retest only
+./ops/deploy_sandbox.sh --skip-tests # Phase 0 only
+
+# Production (.211) — pulls from GHCR, never builds
+./ops/deploy_prod.sh                 # deploy :latest
+./ops/deploy_prod.sh v1.0.XX         # deploy specific tag
+./ops/deploy_prod.sh --check-only    # Phase 0 health check only
+
+# Health verification (runs automatically in deploy scripts)
+./ops/phase0_verify.sh               # container + API + auth + DB write probe
+```
+
+Sandbox compose: `/opt/printfarm-scheduler/docker-compose.yml`. Production compose: `/opt/odin/runsodin/runsodin/docker-compose.yml`. Production deploys are logged to `/opt/odin/deploy.log`.
 
 ## Architecture
 
@@ -110,12 +129,15 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 
 - **Auth model**: Three tiers — no headers (blocked), API key only (perimeter), JWT+API key (full RBAC with viewer/operator/admin roles)
 - **API prefix**: All routes under `/api/`. Swagger at `/api/docs`, ReDoc at `/api/redoc`
-- **Database**: SQLite at `/data/odin.db`. Users table created via raw SQL (not in SQLAlchemy models) to support OIDC columns
+- **Database**: SQLite at `/data/odin.db`. Several tables created via raw SQL in `entrypoint.sh` (not in SQLAlchemy `models.py`): `users`, `print_jobs`, `print_files`, `oidc_config`, `webhooks`, `vision_detections`, `vision_settings`, `vision_models`
 - **Secrets**: Auto-generated on first run, persisted in `/data/`. `ENCRYPTION_KEY` (Fernet), `JWT_SECRET_KEY`, `API_KEY`
 - **Pre-commit**: gitleaks for secret scanning
 - **Git LFS**: Required for binary assets >100 MB (ONNX models). `*.onnx` tracked in `.gitattributes`
 - **Version sources**: `VERSION` file is source of truth; also in `frontend/package.json`, `backend/main.py __version__`, `docker-compose.yml` image tag
 - **License**: BSL 1.1 (converts to Apache 2.0 on 2029-02-07). Cannot offer as hosted service to third parties.
+- **Commit style**: `feat:`, `fix:`, `refactor:`, `release:` prefixes. No co-author lines.
+- **Adding API endpoints**: Backend route in `main.py` → frontend function in `api.js` using `fetchAPI` wrapper (not Axios). Always add both sides.
+- **Code style**: No strict linter. Python follows existing patterns in `main.py`. React uses functional components with hooks + TailwindCSS (no CSS modules).
 
 ## Server Topology
 
