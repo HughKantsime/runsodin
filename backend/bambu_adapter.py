@@ -92,21 +92,26 @@ class BambuPrinter:
         ip: str,
         serial: str,
         access_code: str,
-        on_status_update: Optional[Callable[[PrinterStatus], None]] = None
+        on_status_update: Optional[Callable[[PrinterStatus], None]] = None,
+        client_id: Optional[str] = None
     ):
         """
         Initialize Bambu printer connection.
-        
+
         Args:
             ip: Printer IP address (e.g., "192.168.1.100")
             serial: Printer serial number (e.g., "00M00A000000000")
             access_code: Access code from printer screen (e.g., "12345678")
             on_status_update: Optional callback for real-time status updates
+            client_id: MQTT client ID (default: printfarm_{serial}). Use a
+                       unique value for command connections to avoid colliding
+                       with the monitor daemon's persistent connection.
         """
         self.ip = ip
         self.serial = serial
         self.access_code = access_code
         self.on_status_update = on_status_update
+        self._client_id = client_id or f"printfarm_{serial}"
         
         self._client: Optional[mqtt.Client] = None
         self._connected = False
@@ -127,7 +132,7 @@ class BambuPrinter:
         try:
             # Create MQTT client
             self._client = mqtt.Client(
-                client_id=f"printfarm_{self.serial}",
+                client_id=self._client_id,
                 protocol=mqtt.MQTTv311
             )
             
@@ -353,16 +358,20 @@ class BambuPrinter:
         return self._publish(payload)
     
     def _publish(self, payload: Dict) -> bool:
-        """Publish message to printer."""
+        """Publish message to printer and wait for broker acknowledgement."""
         if not self._client or not self._connected:
             return False
-        
+
         try:
             result = self._client.publish(
                 self._topic_request,
                 json.dumps(payload)
             )
-            return result.rc == mqtt.MQTT_ERR_SUCCESS
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                return False
+            # Block until the broker ACKs delivery (up to 5s)
+            result.wait_for_publish(timeout=5)
+            return result.is_published()
         except Exception as e:
             print(f"Publish error: {e}")
             return False

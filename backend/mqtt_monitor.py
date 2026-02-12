@@ -302,6 +302,7 @@ class PrinterMonitor:
                         'remaining_min': self._state.get('mc_remaining_time'),
                         'current_layer': self._state.get('layer_num'),
                         'total_layers': self._state.get('total_layer_num'),
+                        'gcode_file': self._state.get('subtask_name') or self._state.get('gcode_file'),
                     })
                     
                     # Process HMS errors through universal handler for alerts

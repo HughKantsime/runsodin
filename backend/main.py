@@ -7057,40 +7057,95 @@ try:
 except Exception:
     pass
 
+def _bambu_command(printer, action: str) -> bool:
+    """Send a command to a Bambu printer via a short-lived MQTT connection.
+
+    Uses a unique client_id so we don't collide with the monitor daemon's
+    persistent connection on the same broker.
+    """
+    from bambu_adapter import BambuPrinter
+    import time as _time
+    try:
+        creds = crypto.decrypt(printer.api_key)
+        serial, access_code = creds.split("|", 1)
+        adapter = BambuPrinter(
+            printer.api_host, serial, access_code,
+            client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
+        )
+        if adapter.connect():
+            success = getattr(adapter, action)()
+            _time.sleep(0.3)  # let the ACK settle
+            adapter.disconnect()
+            return success
+    except Exception as e:
+        log.error(f"Bambu {action} failed for printer {printer.id}: {e}")
+    return False
+
+
+def _prusalink_command(printer, action: str) -> bool:
+    """Send a command to a PrusaLink printer."""
+    from prusalink_adapter import PrusaLinkPrinter
+    try:
+        decrypted = crypto.decrypt(printer.api_key) if printer.api_key else ""
+        if "|" in decrypted:
+            username, password = decrypted.split("|", 1)
+            adapter = PrusaLinkPrinter(printer.api_host, username=username, password=password)
+        else:
+            adapter = PrusaLinkPrinter(printer.api_host, api_key=decrypted)
+        # PrusaLink needs the current job_id for pause/resume/stop
+        status = adapter.get_status()
+        if not status or not status.job_id:
+            log.error(f"PrusaLink {action}: no active job_id for printer {printer.id}")
+            return False
+        return getattr(adapter, action)(status.job_id)
+    except Exception as e:
+        log.error(f"PrusaLink {action} failed for printer {printer.id}: {e}")
+    return False
+
+
+def _elegoo_command(printer, action: str) -> bool:
+    """Send a command to an Elegoo printer."""
+    from elegoo_adapter import ElegooPrinter
+    try:
+        mainboard_id = crypto.decrypt(printer.api_key) if printer.api_key else ""
+        adapter = ElegooPrinter(printer.api_host, mainboard_id=mainboard_id)
+        if adapter.connect():
+            success = getattr(adapter, action)()
+            adapter.disconnect()
+            return success
+    except Exception as e:
+        log.error(f"Elegoo {action} failed for printer {printer.id}: {e}")
+    return False
+
+
+def _send_printer_command(printer, action: str) -> bool:
+    """Route a command to the correct adapter based on printer type."""
+    if printer.api_type == "moonraker":
+        from moonraker_adapter import MoonrakerPrinter
+        adapter = MoonrakerPrinter(printer.api_host)
+        return getattr(adapter, action)()
+    elif printer.api_type == "prusalink":
+        return _prusalink_command(printer, action)
+    elif printer.api_type == "elegoo":
+        return _elegoo_command(printer, action)
+    else:
+        return _bambu_command(printer, action)
+
+
 @app.post("/api/printers/{printer_id}/stop", tags=["Printers"])
 async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    
-    success = False
-    
-    if printer.api_type == "moonraker":
-        from moonraker_adapter import MoonrakerPrinter
-        adapter = MoonrakerPrinter(printer.api_host)
-        success = adapter.cancel_print()
-    else:
-        # Bambu printers
-        from bambu_adapter import BambuPrinter
-        from crypto import decrypt
-        try:
-            creds = decrypt(printer.api_key)
-            serial, access_code = creds.split("|", 1)
-            adapter = BambuPrinter(printer.api_host, serial, access_code)
-            if adapter.connect():
-                success = adapter.stop_print()
-                adapter.disconnect()
-        except Exception as e:
-            log.error(f"Stop failed for printer {printer_id}: {e}")
-    
-    if success:
-        # Update printer state
+
+    # Moonraker uses cancel_print, others use stop_print
+    action = "cancel_print" if printer.api_type == "moonraker" else "stop_print"
+    if _send_printer_command(printer, action):
         db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print stopped"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to stop print")
+    raise HTTPException(status_code=500, detail="Failed to stop print")
 
 
 @app.post("/api/printers/{printer_id}/pause", tags=["Printers"])
@@ -7099,32 +7154,12 @@ async def pause_printer(printer_id: int, current_user: dict = Depends(require_ro
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    
-    success = False
-    
-    if printer.api_type == "moonraker":
-        from moonraker_adapter import MoonrakerPrinter
-        adapter = MoonrakerPrinter(printer.api_host)
-        success = adapter.pause_print()
-    else:
-        from bambu_adapter import BambuPrinter
-        from crypto import decrypt
-        try:
-            creds = decrypt(printer.api_key)
-            serial, access_code = creds.split("|", 1)
-            adapter = BambuPrinter(printer.api_host, serial, access_code)
-            if adapter.connect():
-                success = adapter.pause_print()
-                adapter.disconnect()
-        except Exception as e:
-            log.error(f"Pause failed for printer {printer_id}: {e}")
-    
-    if success:
+
+    if _send_printer_command(printer, "pause_print"):
         db.execute(text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print paused"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to pause print")
+    raise HTTPException(status_code=500, detail="Failed to pause print")
 
 
 @app.post("/api/printers/{printer_id}/resume", tags=["Printers"])
@@ -7133,32 +7168,12 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    
-    success = False
-    
-    if printer.api_type == "moonraker":
-        from moonraker_adapter import MoonrakerPrinter
-        adapter = MoonrakerPrinter(printer.api_host)
-        success = adapter.resume_print()
-    else:
-        from bambu_adapter import BambuPrinter
-        from crypto import decrypt
-        try:
-            creds = decrypt(printer.api_key)
-            serial, access_code = creds.split("|", 1)
-            adapter = BambuPrinter(printer.api_host, serial, access_code)
-            if adapter.connect():
-                success = adapter.resume_print()
-                adapter.disconnect()
-        except Exception as e:
-            log.error(f"Resume failed for printer {printer_id}: {e}")
-    
-    if success:
+
+    if _send_printer_command(printer, "resume_print"):
         db.execute(text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print resumed"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to resume print")
+    raise HTTPException(status_code=500, detail="Failed to resume print")
 
 
 

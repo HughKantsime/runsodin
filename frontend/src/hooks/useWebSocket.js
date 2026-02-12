@@ -66,6 +66,11 @@ export default function useWebSocket() {
                     nozzle_temp: d.nozzle_temp ?? p.nozzle_temp,
                     nozzle_target_temp: d.nozzle_target ?? p.nozzle_target_temp,
                     gcode_state: d.state ?? p.gcode_state,
+                    mc_percent: d.progress ?? p.mc_percent,
+                    mc_remaining_time: d.remaining_min ?? p.mc_remaining_time,
+                    layer_num: d.current_layer ?? p.layer_num,
+                    total_layer_num: d.total_layers ?? p.total_layer_num,
+                    gcode_file: d.gcode_file ?? p.gcode_file,
                     last_seen: new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0],
                   }
                 })
