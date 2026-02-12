@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { orders, products } from '../api'
-import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil } from 'lucide-react'
+import { canDo } from '../permissions'
 
 const STATUS_CLASSES = {
   pending: 'bg-status-pending/20 text-status-pending',
@@ -34,6 +35,8 @@ export default function Orders() {
     notes: ''
   })
   const [items, setItems] = useState([])
+  const [editingOrder, setEditingOrder] = useState(null)
+  const [editFormData, setEditFormData] = useState({})
 
   useEffect(() => {
     loadData()
@@ -107,6 +110,45 @@ export default function Orders() {
     } catch (err) {
       console.error('Failed to create order:', err)
       alert('Failed to create order')
+    }
+  }
+
+  const openEditModal = (order) => {
+    setEditFormData({
+      customer_name: order.customer_name || '',
+      customer_email: order.customer_email || '',
+      platform: order.platform || 'etsy',
+      order_number: order.order_number || '',
+      notes: order.notes || '',
+      tracking_number: order.tracking_number || '',
+      revenue: order.revenue || '',
+      platform_fees: order.platform_fees || '',
+      payment_fees: order.payment_fees || '',
+      shipping_charged: order.shipping_charged || '',
+    })
+    setEditingOrder(order)
+  }
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault()
+    try {
+      await orders.update(editingOrder.id, {
+        customer_name: editFormData.customer_name || null,
+        customer_email: editFormData.customer_email || null,
+        platform: editFormData.platform,
+        order_number: editFormData.order_number || null,
+        notes: editFormData.notes || null,
+        tracking_number: editFormData.tracking_number || null,
+        revenue: editFormData.revenue ? parseFloat(editFormData.revenue) : null,
+        platform_fees: editFormData.platform_fees ? parseFloat(editFormData.platform_fees) : null,
+        payment_fees: editFormData.payment_fees ? parseFloat(editFormData.payment_fees) : null,
+        shipping_charged: editFormData.shipping_charged ? parseFloat(editFormData.shipping_charged) : null,
+      })
+      setEditingOrder(null)
+      loadData()
+    } catch (err) {
+      console.error('Failed to update order:', err)
+      alert('Failed to update order')
     }
   }
 
@@ -219,12 +261,14 @@ export default function Orders() {
             <option value="fulfilled">Fulfilled</option>
             <option value="shipped">Shipped</option>
           </select>
-          <button
-            onClick={openCreateModal}
-            className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
-          >
-            <Plus size={16} /> New Order
-          </button>
+          {canDo('orders.create') && (
+            <button
+              onClick={openCreateModal}
+              className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+            >
+              <Plus size={16} /> New Order
+            </button>
+          )}
         </div>
       </div>
 
@@ -276,38 +320,49 @@ export default function Orders() {
                   <div>Revenue: {order.revenue ? `$${order.revenue.toFixed(2)}` : '-'}</div>
                 </div>
                 <div className="flex gap-1">
-                  <button 
-                    onClick={() => openDetailModal(order)} 
+                  <button
+                    onClick={() => openDetailModal(order)}
                     className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
                     title="View Details"
                   >
                     <Eye size={14} />
                   </button>
-                  {order.status === 'pending' && (
-                    <button 
-                      onClick={() => handleSchedule(order.id)} 
+                  {canDo('orders.edit') && (
+                    <button
+                      onClick={() => openEditModal(order)}
+                      className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+                      title="Edit Order"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                  {canDo('orders.edit') && order.status === 'pending' && (
+                    <button
+                      onClick={() => handleSchedule(order.id)}
                       className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
                       title="Schedule Jobs"
                     >
                       <Play size={14} />
                     </button>
                   )}
-                  {order.status === 'fulfilled' && (
-                    <button 
-                      onClick={() => handleShip(order.id)} 
+                  {canDo('orders.ship') && order.status === 'fulfilled' && (
+                    <button
+                      onClick={() => handleShip(order.id)}
                       className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
                       title="Mark Shipped"
                     >
                       <Truck size={14} />
                     </button>
                   )}
-                  <button 
-                    onClick={() => handleDelete(order.id)} 
-                    className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {canDo('orders.delete') && (
+                    <button
+                      onClick={() => handleDelete(order.id)}
+                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -347,38 +402,49 @@ export default function Orders() {
                   <td className="px-4 py-3 text-farm-300">{order.item_count || 0}</td>
                   <td className="px-4 py-3 text-farm-200">{order.revenue ? `$${order.revenue.toFixed(2)}` : '-'}</td>
                   <td className="px-4 py-3 text-right">
-                    <button 
-                      onClick={() => openDetailModal(order)} 
+                    <button
+                      onClick={() => openDetailModal(order)}
                       className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
                       title="View Details"
                     >
                       <Eye size={14} />
                     </button>
-                    {order.status === 'pending' && (
-                      <button 
-                        onClick={() => handleSchedule(order.id)} 
+                    {canDo('orders.edit') && (
+                      <button
+                        onClick={() => openEditModal(order)}
+                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+                        title="Edit Order"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    {canDo('orders.edit') && order.status === 'pending' && (
+                      <button
+                        onClick={() => handleSchedule(order.id)}
                         className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
                         title="Schedule Jobs"
                       >
                         <Play size={14} />
                       </button>
                     )}
-                    {order.status === 'fulfilled' && (
-                      <button 
-                        onClick={() => handleShip(order.id)} 
+                    {canDo('orders.ship') && order.status === 'fulfilled' && (
+                      <button
+                        onClick={() => handleShip(order.id)}
                         className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
                         title="Mark Shipped"
                       >
                         <Truck size={14} />
                       </button>
                     )}
-                    <button 
-                      onClick={() => handleDelete(order.id)} 
-                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {canDo('orders.delete') && (
+                      <button
+                        onClick={() => handleDelete(order.id)}
+                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -566,7 +632,7 @@ export default function Orders() {
                   {selectedOrder.status?.replace('_', ' ')}
                 </span>
                 <div className="flex gap-2">
-                  {selectedOrder.status === 'pending' && (
+                  {canDo('orders.edit') && selectedOrder.status === 'pending' && (
                     <button
                       onClick={() => handleSchedule(selectedOrder.id)}
                       className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm"
@@ -574,7 +640,7 @@ export default function Orders() {
                       Schedule Jobs
                     </button>
                   )}
-                  {selectedOrder.status === 'fulfilled' && (
+                  {canDo('orders.ship') && selectedOrder.status === 'fulfilled' && (
                     <button
                       onClick={() => handleShip(selectedOrder.id)}
                       className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm"
@@ -691,6 +757,79 @@ export default function Orders() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Order Modal */}
+      {editingOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-farm-800 flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-farm-100">Edit Order {editingOrder.order_number || `#${editingOrder.id}`}</h2>
+              <button onClick={() => setEditingOrder(null)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="p-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-farm-200">Order Number</label>
+                  <input type="text" value={editFormData.order_number} onChange={(e) => setEditFormData(d => ({ ...d, order_number: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-farm-200">Platform</label>
+                  <select value={editFormData.platform} onChange={(e) => setEditFormData(d => ({ ...d, platform: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm">
+                    {PLATFORMS.map(p => (
+                      <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-farm-200">Customer Name</label>
+                  <input type="text" value={editFormData.customer_name} onChange={(e) => setEditFormData(d => ({ ...d, customer_name: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-farm-200">Customer Email</label>
+                  <input type="email" value={editFormData.customer_email} onChange={(e) => setEditFormData(d => ({ ...d, customer_email: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-farm-200">Tracking Number</label>
+                <input type="text" value={editFormData.tracking_number} onChange={(e) => setEditFormData(d => ({ ...d, tracking_number: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" placeholder="Optional" />
+              </div>
+              <div className="border-t border-farm-800 pt-4">
+                <label className="block text-sm font-medium mb-2 text-farm-200">Financials</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs mb-1 text-farm-400">Revenue</label>
+                    <input type="number" step="0.01" value={editFormData.revenue} onChange={(e) => setEditFormData(d => ({ ...d, revenue: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1 text-farm-400">Platform Fees</label>
+                    <input type="number" step="0.01" value={editFormData.platform_fees} onChange={(e) => setEditFormData(d => ({ ...d, platform_fees: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1 text-farm-400">Payment Fees</label>
+                    <input type="number" step="0.01" value={editFormData.payment_fees} onChange={(e) => setEditFormData(d => ({ ...d, payment_fees: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1 text-farm-400">Shipping Charged</label>
+                    <input type="number" step="0.01" value={editFormData.shipping_charged} onChange={(e) => setEditFormData(d => ({ ...d, shipping_charged: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-farm-200">Notes</label>
+                <textarea value={editFormData.notes} onChange={(e) => setEditFormData(d => ({ ...d, notes: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" rows={2} />
+              </div>
+              <div className="flex justify-end gap-2 pt-4 border-t border-farm-800">
+                <button type="button" onClick={() => setEditingOrder(null)} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Save Changes</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

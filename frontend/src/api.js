@@ -334,6 +334,16 @@ export const spools = {
 };
 
 
+// ============== Groups (Education/Enterprise) ==============
+
+export const groups = {
+  list: () => fetchAPI('/groups'),
+  get: (id) => fetchAPI(`/groups/${id}`),
+  create: (data) => fetchAPI('/groups', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/groups/${id}`, { method: 'DELETE' }),
+}
+
 // ============== Alerts & Notifications (v0.17.0) ==============
 
 export const alerts = {

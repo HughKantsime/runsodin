@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../LicenseContext'
+import { groups as groupsApi } from '../api'
 import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -18,16 +19,21 @@ const fetchUsers = async () => {
 const roleIcons = { admin: Shield, operator: UserCheck, viewer: Eye }
 const roleColors = { admin: 'text-red-400 bg-red-900/30', operator: 'text-print-400 bg-print-900/30', viewer: 'text-farm-400 bg-farm-800' }
 
-function UserModal({ user, onClose, onSave }) {
+function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
   const [formData, setFormData] = useState({
     username: user?.username || '',
     email: user?.email || '',
     password: '',
     role: user?.role || 'operator',
-    is_active: user?.is_active ?? true
+    is_active: user?.is_active ?? true,
+    group_id: user?.group_id || '',
   })
 
-  const handleSubmit = (e) => { e.preventDefault(); onSave(formData) }
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const data = { ...formData, group_id: formData.group_id ? parseInt(formData.group_id) : null }
+    onSave(data)
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
@@ -58,6 +64,17 @@ function UserModal({ user, onClose, onSave }) {
               <option value="admin">Admin (full access)</option>
             </select>
           </div>
+          {hasGroups && (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Group</label>
+              <select value={formData.group_id} onChange={(e) => setFormData({ ...formData, group_id: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500">
+                <option value="">No group</option>
+                {groupsList?.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {user && (
             <div className="flex items-center gap-2">
               <input type="checkbox" id="is_active" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="rounded" />
@@ -81,7 +98,10 @@ export default function Admin() {
 
   const { data: users, isLoading } = useQuery({ queryKey: ['users'], queryFn: fetchUsers })
   const lic = useLicense()
+  const hasGroups = lic.hasFeature('user_groups')
   const atUserLimit = lic.atUserLimit(users?.length || 0)
+  const { data: groupsList } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list, enabled: hasGroups })
+  const groupsById = Object.fromEntries((groupsList || []).map(g => [g.id, g]))
 
   const createUser = useMutation({
     mutationFn: async (userData) => {
@@ -140,6 +160,7 @@ export default function Admin() {
               <tr>
                 <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">User</th>
                 <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">Role</th>
+                {hasGroups && <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm hidden md:table-cell">Group</th>}
                 <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">Status</th>
                 <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm hidden md:table-cell">Last Login</th>
                 <th className="text-right py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">Actions</th>
@@ -147,9 +168,9 @@ export default function Admin() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="py-8 text-center text-farm-500 text-sm">Loading...</td></tr>
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">Loading...</td></tr>
               ) : users?.length === 0 ? (
-                <tr><td colSpan={5} className="py-8 text-center text-farm-500 text-sm">No users found</td></tr>
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">No users found</td></tr>
               ) : (
                 users?.map((user) => {
                   const RoleIcon = roleIcons[user.role] || Eye
@@ -167,6 +188,9 @@ export default function Admin() {
                           {user.role}
                         </span>
                       </td>
+                      {hasGroups && <td className="py-3 px-3 md:px-4 text-sm text-farm-300 hidden md:table-cell">
+                        {user.group_id ? (groupsById[user.group_id]?.name || '—') : <span className="text-farm-600">—</span>}
+                      </td>}
                       <td className="py-3 px-3 md:px-4 text-sm">
                         {user.is_active ? <span className="text-green-400">Active</span> : <span className="text-farm-500">Disabled</span>}
                       </td>
@@ -189,7 +213,7 @@ export default function Admin() {
       </div>
 
       {showModal && (
-        <UserModal user={editingUser} onClose={() => { setShowModal(false); setEditingUser(null) }} onSave={handleSave} />
+        <UserModal user={editingUser} groupsList={groupsList} hasGroups={hasGroups} onClose={() => { setShowModal(false); setEditingUser(null) }} onSave={handleSave} />
       )}
     </div>
   )

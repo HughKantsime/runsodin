@@ -33,6 +33,7 @@ class UserCreate(BaseModel):
     email: str
     password: str
     role: str = "operator"
+    group_id: Optional[int] = None
 
 
 class UserResponse(BaseModel):

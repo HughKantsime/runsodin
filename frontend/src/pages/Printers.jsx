@@ -1,7 +1,7 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot,
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown,
 } from 'lucide-react'
 import clsx from 'clsx'
 import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
@@ -222,7 +222,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
         "bg-farm-900 rounded border overflow-hidden h-fit transition-all",
         isDragging ? "border-print-500 opacity-50 scale-95" : "border-farm-800"
       )}
-      draggable
+      draggable={!!onDragStart}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
@@ -405,15 +405,16 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         serial = parts[0] || ''
         access_code = parts[1] || ''
       }
-      setFormData({ 
-        name: printer.name || '', 
+      setFormData({
+        name: printer.name || '',
         nickname: printer.nickname || '',
-        model: printer.model || '', 
+        model: printer.model || '',
         slot_count: printer.slot_count || 4,
         api_type: printer.api_type || '',
         api_host: printer.api_host || '',
         serial: serial,
         access_code: access_code,
+        camera_url: printer.camera_url || '',
         plug_type: printer.plug_type || '',
         plug_host: printer.plug_host || '',
         plug_topic: printer.plug_topic || '',
@@ -421,7 +422,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         plug_token: printer.plug_token || '',
       })
     } else {
-      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '' })
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '' })
     }
     setTestStatus(null)
     setTestMessage('')
@@ -480,15 +481,16 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
       name: formData.name,
       nickname: formData.nickname || null,
       model: formData.model,
-      slot_count: formData.slot_count
+      slot_count: formData.slot_count,
+      camera_url: formData.camera_url || null,
     }
-    
+
     if (formData.api_type) submitData.api_type = formData.api_type
     if (formData.api_host) submitData.api_host = formData.api_host
     if (formData.serial && formData.access_code) {
       submitData.api_key = `${formData.serial}|${formData.access_code}`
     }
-    
+
     onSubmit(submitData, printer?.id)
   }
 
@@ -651,6 +653,19 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
           </div>
           )}
 
+          {/* Camera URL */}
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="block text-sm text-farm-400 mb-1">Camera URL (optional)</label>
+            <input type="text" value={formData.camera_url} onChange={(e) => setFormData(prev => ({ ...prev, camera_url: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g. http://192.168.1.50:8080/?action=stream" />
+            {formData.api_type === 'bambu' && /^(P1S|P1P|A1)/i.test(formData.model) ? (
+              <p className="text-xs text-farm-500 mt-1">P1S/A1 built-in cameras require LAN Live View which isn't available on these models. Use an external camera (USB webcam + MJPEG streamer, or IP camera) for Vision AI.</p>
+            ) : formData.api_type === 'bambu' && /^(X1|H2D)/i.test(formData.model) ? (
+              <p className="text-xs text-farm-500 mt-1">Leave blank to auto-detect built-in camera.</p>
+            ) : (
+              <p className="text-xs text-farm-500 mt-1">MJPEG, RTSP, or HTTP snapshot URL for Vision AI monitoring.</p>
+            )}
+          </div>
+
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
@@ -699,6 +714,10 @@ export default function Printers() {
   const [draggedId, setDraggedId] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
   const [scannerPrinterId, setScannerPrinterId] = useState(null)
+  const [searchTerm, setSearchTerm] = useState(() => sessionStorage.getItem('printers_search') || '')
+  const [statusFilter, setStatusFilter] = useState(() => sessionStorage.getItem('printers_status') || 'all')
+  const [typeFilter, setTypeFilter] = useState(() => sessionStorage.getItem('printers_type') || 'all')
+  const [sortBy, setSortBy] = useState(() => sessionStorage.getItem('printers_sort') || 'manual')
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const lic = useLicense()
@@ -728,6 +747,61 @@ export default function Printers() {
       })
     }
   }, [printersData])
+
+  // Persist filter state to sessionStorage
+  useEffect(() => { sessionStorage.setItem('printers_search', searchTerm) }, [searchTerm])
+  useEffect(() => { sessionStorage.setItem('printers_status', statusFilter) }, [statusFilter])
+  useEffect(() => { sessionStorage.setItem('printers_type', typeFilter) }, [typeFilter])
+  useEffect(() => { sessionStorage.setItem('printers_sort', sortBy) }, [sortBy])
+
+  // Derive unique api_types from printers
+  const apiTypes = [...new Set((printersData || []).map(p => p.api_type).filter(Boolean))]
+
+  const isFiltered = searchTerm || statusFilter !== 'all' || typeFilter !== 'all' || sortBy !== 'manual'
+
+  const filteredPrinters = (() => {
+    let list = [...(orderedPrinters || [])]
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase()
+      list = list.filter(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.nickname || '').toLowerCase().includes(q) ||
+        (p.model || '').toLowerCase().includes(q)
+      )
+    }
+    if (statusFilter !== 'all') {
+      list = list.filter(p => {
+        const online = p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000
+        const stage = p.print_stage && p.print_stage !== 'Idle' ? p.print_stage : null
+        switch (statusFilter) {
+          case 'online': return online
+          case 'offline': return !online
+          case 'printing': return stage === 'Running' || stage === 'Printing'
+          case 'idle': return online && (!stage || stage === 'Idle')
+          default: return true
+        }
+      })
+    }
+    if (typeFilter !== 'all') {
+      list = list.filter(p => p.api_type === typeFilter)
+    }
+    if (sortBy !== 'manual') {
+      list.sort((a, b) => {
+        switch (sortBy) {
+          case 'name_asc': return (a.nickname || a.name || '').localeCompare(b.nickname || b.name || '')
+          case 'name_desc': return (b.nickname || b.name || '').localeCompare(a.nickname || a.name || '')
+          case 'status': {
+            const aOn = a.last_seen && (Date.now() - new Date(a.last_seen + 'Z').getTime()) < 90000 ? 0 : 1
+            const bOn = b.last_seen && (Date.now() - new Date(b.last_seen + 'Z').getTime()) < 90000 ? 0 : 1
+            return aOn - bOn
+          }
+          case 'model': return (a.model || '').localeCompare(b.model || '')
+          default: return 0
+        }
+      })
+    }
+    return list
+  })()
 
   const handleDragStart = (e, printerId) => {
     setDraggedId(printerId)
@@ -802,6 +876,49 @@ export default function Printers() {
             </button>
         )}
       </div>
+      {/* Filter Toolbar */}
+      {printersData?.length > 0 && (
+        <div className="bg-farm-900 border border-farm-800 rounded-lg p-3 mb-4 md:mb-6 flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-farm-500" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search printers..."
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg pl-8 pr-3 py-1.5 text-sm"
+            />
+          </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+            <option value="all">All Status</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="printing">Printing</option>
+            <option value="idle">Idle</option>
+          </select>
+          {apiTypes.length > 1 && (
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+              <option value="all">All Types</option>
+              {apiTypes.map(t => (
+                <option key={t} value={t}>{t === 'bambu' ? 'Bambu' : t === 'moonraker' ? 'Moonraker' : t === 'prusalink' ? 'PrusaLink' : t === 'elegoo' ? 'Elegoo' : t}</option>
+              ))}
+            </select>
+          )}
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+            <option value="manual">Manual Order</option>
+            <option value="name_asc">Name A-Z</option>
+            <option value="name_desc">Name Z-A</option>
+            <option value="status">Status (online first)</option>
+            <option value="model">Model</option>
+          </select>
+          {isFiltered && (
+            <span className="text-xs text-farm-400">
+              Showing {filteredPrinters.length} of {orderedPrinters.length} printers
+            </span>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading printers...</div>
       ) : printersData?.length === 0 ? (
@@ -811,28 +928,33 @@ export default function Printers() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">
-          {orderedPrinters?.map((printer) => (
-            <PrinterCard 
-              key={printer.id} 
-              printer={printer} 
+          {filteredPrinters.map((printer) => (
+            <PrinterCard
+              key={printer.id}
+              printer={printer}
               allFilaments={filamentsData}
               spools={spoolsData}
-              onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }} 
-              onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })} 
-              onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })} 
+              onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }}
+              onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })}
+              onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })}
               onEdit={handleEdit}
               onSyncAms={handleSyncAms}
               hasCamera={cameraIds.has(printer.id)}
               onCameraClick={setCameraTarget}
               isDragging={draggedId === printer.id}
-              onDragStart={(e) => handleDragStart(e, printer.id)}
-              onDragOver={(e) => handleDragOver(e, printer.id)}
-              onDragEnd={handleDragEnd}
+              onDragStart={isFiltered ? undefined : (e) => handleDragStart(e, printer.id)}
+              onDragOver={isFiltered ? undefined : (e) => handleDragOver(e, printer.id)}
+              onDragEnd={isFiltered ? undefined : handleDragEnd}
               onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
               onPlugToggle={handlePlugToggle}
               plugStates={plugStates}
             />
           ))}
+          {filteredPrinters.length === 0 && orderedPrinters.length > 0 && (
+            <div className="col-span-full bg-farm-900 rounded border border-farm-800 p-8 text-center">
+              <p className="text-farm-500 text-sm">No printers match your filters.</p>
+            </div>
+          )}
         </div>
       )}
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />

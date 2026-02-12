@@ -633,6 +633,12 @@ class AlertTypeEnum(str, Enum):
     PRINT_FAILED = "print_failed"
     SPOOL_LOW = "spool_low"
     MAINTENANCE_OVERDUE = "maintenance_overdue"
+    JOB_SUBMITTED = "job_submitted"
+    JOB_APPROVED = "job_approved"
+    JOB_REJECTED = "job_rejected"
+    SPAGHETTI_DETECTED = "spaghetti_detected"
+    FIRST_LAYER_ISSUE = "first_layer_issue"
+    DETACHMENT_DETECTED = "detachment_detected"
 
 
 class AlertSeverityEnum(str, Enum):

@@ -60,7 +60,7 @@ TIERS = {
             "orders", "products", "bom",
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
-            "job_approval", "usage_reports",
+            "job_approval", "user_groups", "usage_reports",
         ],
     },
     "enterprise": {
@@ -73,7 +73,7 @@ TIERS = {
             "orders", "products", "bom",
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
-            "job_approval", "usage_reports",
+            "job_approval", "user_groups", "usage_reports",
             "opcua", "mqtt_republish", "audit_export", "sqlcipher",
         ],
     },

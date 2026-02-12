@@ -1793,7 +1793,12 @@ def list_jobs(
 
 @app.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
-    """Create a new print job. If approval is required and user is a viewer, job is created as 'submitted'."""
+    """Create a new print job. If approval is required and user is a viewer, job is created as 'submitted'.
+
+    Note: No require_role() here — intentional. Viewers can create jobs that enter the approval
+    workflow (status='submitted') when require_job_approval is enabled. The approval flow handles
+    authorization; operators/admins bypass it and create jobs directly as 'pending'.
+    """
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
     if job.model_id:
@@ -1832,17 +1837,20 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     db.commit()
     db.refresh(db_job)
 
-    # If submitted for approval, notify approvers
+    # If submitted for approval, notify group owner (or all operators/admins as fallback)
     if initial_status == "submitted":
         try:
-            from alert_dispatcher import dispatch_alert
+            from alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
+            owner_id = get_group_owner_id(db, current_user["id"])
+            target_ids = [owner_id] if owner_id else get_operator_admin_ids(db)
             dispatch_alert(
                 db=db,
                 alert_type=AlertType.JOB_SUBMITTED,
                 severity=AlertSeverity.INFO,
                 title=f"Job awaiting approval: {job.item_name or 'Untitled'}",
                 message=f"{current_user.get('display_name') or current_user.get('username', 'A user')} submitted a print job",
-                job_id=db_job.id
+                job_id=db_job.id,
+                target_user_ids=target_ids,
             )
         except Exception as e:
             logger.warning(f"Failed to dispatch job_submitted alert: {e}")
@@ -2156,7 +2164,8 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
                 severity=AlertSeverity.INFO,
                 title=f"Job approved: {job.item_name or 'Untitled'}",
                 message=f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
-                job_id=job.id
+                job_id=job.id,
+                target_user_ids=[job.submitted_by],
             )
         except Exception as e:
             logger.warning(f"Failed to dispatch job_approved alert: {e}")
@@ -2197,7 +2206,8 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
                 severity=AlertSeverity.WARNING,
                 title=f"Job rejected: {job.item_name or 'Untitled'}",
                 message=f"Reason: {body.reason.strip()}",
-                job_id=job.id
+                job_id=job.id,
+                target_user_ids=[job.submitted_by],
             )
         except Exception as e:
             logger.warning(f"Failed to dispatch job_rejected alert: {e}")
@@ -2229,16 +2239,19 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
     db.commit()
     db.refresh(job)
     
-    # Re-notify approvers
+    # Re-notify group owner (or all operators/admins as fallback)
     try:
-        from alert_dispatcher import dispatch_alert
+        from alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
+        owner_id = get_group_owner_id(db, current_user["id"])
+        target_ids = [owner_id] if owner_id else get_operator_admin_ids(db)
         dispatch_alert(
             db=db,
             alert_type=AlertType.JOB_SUBMITTED,
             severity=AlertSeverity.INFO,
             title=f"Job resubmitted: {job.item_name or 'Untitled'}",
             message=f"{current_user.get('display_name') or current_user.get('username', 'A user')} resubmitted a previously rejected job",
-            job_id=job.id
+            job_id=job.id,
+            target_user_ids=target_ids,
         )
     except Exception as e:
         logger.warning(f"Failed to dispatch job_submitted alert: {e}")
@@ -5210,11 +5223,11 @@ async def update_oidc_config(
 async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"username": current_user["username"], "email": current_user["email"], "role": current_user["role"]}
+    return {"username": current_user["username"], "email": current_user["email"], "role": current_user["role"], "group_id": current_user.get("group_id")}
 
 @app.get("/api/users", tags=["Users"])
 async def list_users(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at FROM users")).fetchall()
+    users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users")).fetchall()
     return [dict(u._mapping) for u in users]
 
 @app.post("/api/users", tags=["Users"])
@@ -5226,9 +5239,9 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
     password_hash = hash_password(user.password)
     try:
         db.execute(text("""
-            INSERT INTO users (username, email, password_hash, role) 
-            VALUES (:username, :email, :password_hash, :role)
-        """), {"username": user.username, "email": user.email, "password_hash": password_hash, "role": user.role})
+            INSERT INTO users (username, email, password_hash, role, group_id)
+            VALUES (:username, :email, :password_hash, :role, :group_id)
+        """), {"username": user.username, "email": user.email, "password_hash": password_hash, "role": user.role, "group_id": user.group_id})
         db.commit()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Username or email already exists")
@@ -5245,7 +5258,7 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
         updates.pop('password', None)
     
     # SB-6: Whitelist allowed columns to prevent SQL injection via column names
-    ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash"}
+    ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash", "group_id"}
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
     
     if updates:
@@ -5262,6 +5275,110 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
     db.commit()
     return {"status": "deleted"}
+
+
+# ============== Groups (Education/Enterprise) ==============
+
+@app.get("/api/groups", tags=["Groups"])
+async def list_groups(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    require_feature("user_groups")
+    groups = db.execute(text("""
+        SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
+               u.username AS owner_username,
+               (SELECT COUNT(*) FROM users WHERE group_id = g.id) AS member_count
+        FROM groups g
+        LEFT JOIN users u ON u.id = g.owner_id
+        ORDER BY g.name
+    """)).fetchall()
+    return [dict(g._mapping) for g in groups]
+
+
+@app.post("/api/groups", tags=["Groups"])
+async def create_group(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    require_feature("user_groups")
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+    description = body.get("description", "").strip() or None
+    owner_id = body.get("owner_id")
+
+    if owner_id:
+        owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active = 1"), {"id": owner_id}).fetchone()
+        if not owner:
+            raise HTTPException(status_code=400, detail="Owner not found")
+        if owner.role not in ("operator", "admin"):
+            raise HTTPException(status_code=400, detail="Group owner must be an operator or admin")
+
+    try:
+        result = db.execute(text("""
+            INSERT INTO groups (name, description, owner_id) VALUES (:name, :description, :owner_id)
+        """), {"name": name, "description": description, "owner_id": owner_id})
+        db.commit()
+        return {"status": "created", "id": result.lastrowid}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Group name already exists")
+
+
+@app.get("/api/groups/{group_id}", tags=["Groups"])
+async def get_group(group_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    require_feature("user_groups")
+    group = db.execute(text("""
+        SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
+               u.username AS owner_username
+        FROM groups g
+        LEFT JOIN users u ON u.id = g.owner_id
+        WHERE g.id = :id
+    """), {"id": group_id}).fetchone()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    members = db.execute(text(
+        "SELECT id, username, email, role FROM users WHERE group_id = :gid"
+    ), {"gid": group_id}).fetchall()
+
+    result = dict(group._mapping)
+    result["members"] = [dict(m._mapping) for m in members]
+    return result
+
+
+@app.patch("/api/groups/{group_id}", tags=["Groups"])
+async def update_group(group_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    require_feature("user_groups")
+    existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    ALLOWED_GROUP_FIELDS = {"name", "description", "owner_id"}
+    updates = {k: v for k, v in body.items() if k in ALLOWED_GROUP_FIELDS}
+
+    if "owner_id" in updates and updates["owner_id"]:
+        owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active = 1"), {"id": updates["owner_id"]}).fetchone()
+        if not owner:
+            raise HTTPException(status_code=400, detail="Owner not found")
+        if owner.role not in ("operator", "admin"):
+            raise HTTPException(status_code=400, detail="Group owner must be an operator or admin")
+
+    if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
+        updates["id"] = group_id
+        db.execute(text(f"UPDATE groups SET {set_clause} WHERE id = :id"), updates)
+        db.commit()
+    return {"status": "updated"}
+
+
+@app.delete("/api/groups/{group_id}", tags=["Groups"])
+async def delete_group(group_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    require_feature("user_groups")
+    existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Group not found")
+    # Unassign members first
+    db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :gid"), {"gid": group_id})
+    db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
+    db.commit()
+    return {"status": "deleted"}
+
 
 import yaml
 
@@ -7500,7 +7617,8 @@ DEFAULT_PRICING_CONFIG = {
     "packing_min": 5,
     "support_min": 5,
     "default_margin": 50.0,
-    "other_costs": 0.0
+    "other_costs": 0.0,
+    "ui_mode": "advanced"
 }
 
 

@@ -30,7 +30,7 @@ import threading
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional
+from typing import Optional, List
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -52,6 +52,9 @@ DEFAULT_PREFERENCES = [
     {"alert_type": AlertType.PRINT_FAILED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.SPOOL_LOW, "in_app": True, "browser_push": False, "email": False, "threshold_value": 100.0},
     {"alert_type": AlertType.MAINTENANCE_OVERDUE, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.JOB_SUBMITTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.JOB_APPROVED, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.JOB_REJECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.SPAGHETTI_DETECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.FIRST_LAYER_ISSUE, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.DETACHMENT_DETECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
@@ -249,11 +252,35 @@ Manage preferences in Settings > Notifications.
 
 
 # ============================================================
+# Group / Role helpers for targeted dispatch
+# ============================================================
+
+def get_group_owner_id(db: Session, user_id: int) -> Optional[int]:
+    """Get the group owner for a user. Returns None if user has no group or group has no owner."""
+    row = db.execute(
+        text("""
+            SELECT g.owner_id FROM groups g
+            JOIN users u ON u.group_id = g.id
+            WHERE u.id = :user_id AND g.owner_id IS NOT NULL
+        """),
+        {"user_id": user_id}
+    ).fetchone()
+    return row[0] if row else None
+
+
+def get_operator_admin_ids(db: Session) -> List[int]:
+    """Get all active operator/admin user IDs (fallback when no group owner)."""
+    rows = db.execute(
+        text("SELECT id FROM users WHERE role IN ('operator', 'admin') AND is_active = 1")
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+# ============================================================
 # Main Dispatcher
 # ============================================================
 
 def dispatch_alert(
-
     db: Session,
     alert_type: AlertType,
     severity: AlertSeverity,
@@ -262,11 +289,15 @@ def dispatch_alert(
     printer_id: int = None,
     job_id: int = None,
     spool_id: int = None,
-    metadata: dict = None
+    metadata: dict = None,
+    target_user_ids: List[int] = None,
 ):
     """
-    Fan out an alert to all users based on their preferences.
-    
+    Fan out an alert to users based on their preferences.
+
+    If target_user_ids is set, only those users receive the alert.
+    Otherwise broadcasts to all users (original behavior).
+
     Handles dedup, creates in-app records, sends push + email.
     """
     # Quiet hours: save alert to DB but suppress external notifications
@@ -275,7 +306,7 @@ def dispatch_alert(
     preferences = db.query(AlertPreference).filter(
         AlertPreference.alert_type == alert_type
     ).all()
-    
+
     # Auto-seed preferences for existing users if none found
     if not preferences:
         users = db.execute(text("SELECT id FROM users WHERE is_active = 1")).fetchall()
@@ -284,6 +315,11 @@ def dispatch_alert(
         preferences = db.query(AlertPreference).filter(
             AlertPreference.alert_type == alert_type
         ).all()
+
+    # Filter to targeted users if specified
+    if target_user_ids is not None:
+        target_set = set(target_user_ids)
+        preferences = [p for p in preferences if p.user_id in target_set]
     
     alerts_created = 0
     

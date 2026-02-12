@@ -7,6 +7,7 @@ import Permissions from './Permissions'
 import Branding from './Branding'
 import OIDCSettings from '../components/OIDCSettings'
 import WebhookSettings from '../components/WebhookSettings'
+import GroupManager from '../components/GroupManager'
 
 import { alertPreferences, smtpConfig } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
@@ -817,6 +818,9 @@ export default function Settings() {
     'print_failed': { label: 'Print Failed', desc: 'When a print fails or errors out', icon: '❌' },
     'spool_low': { label: 'Spool Low', desc: 'When filament drops below threshold', icon: '🟡' },
     'maintenance_overdue': { label: 'Maintenance Due', desc: 'When printer maintenance is overdue', icon: '🔧' },
+    'job_submitted': { label: 'Job Submitted', desc: 'When a user submits a job for approval', icon: '📋' },
+    'job_approved': { label: 'Job Approved', desc: 'When a submitted job is approved', icon: '👍' },
+    'job_rejected': { label: 'Job Rejected', desc: 'When a submitted job is rejected', icon: '👎' },
   }
 
   const normalizeType = (type) => type.toLowerCase()
@@ -955,20 +959,15 @@ export default function Settings() {
     })
   }
 
-  const PRO_TABS = ['sso', 'webhooks', 'email', 'users', 'permissions', 'branding']
+  const PRO_TABS = ['access', 'integrations', 'branding']
   const ALL_TABS = [
     { id: 'general', label: 'General', icon: SettingsIcon },
-    { id: 'alerts', label: 'Alerts', icon: Bell },
-    { id: 'email', label: 'Email', icon: Mail },
-    { id: 'sso', label: 'SSO', icon: Key },
-    { id: 'webhooks', label: 'Webhooks', icon: Webhook },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'permissions', label: 'Permissions', icon: Shield },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'access', label: 'Access', icon: Users },
+    { id: 'integrations', label: 'Integrations', icon: Webhook },
+    ...(uiMode === 'advanced' ? [{ id: 'vision', label: 'Vision AI', icon: Eye }] : []),
     { id: 'branding', label: 'Branding', icon: Palette },
-    { id: 'network', label: 'Network', icon: Wifi },
-    { id: 'vision', label: 'Vision AI', icon: Eye },
-    { id: 'data', label: 'Data', icon: Database },
-    { id: 'license', label: 'License', icon: FileText },
+    { id: 'system', label: 'System', icon: Database },
   ]
   const TABS = lic.isPro ? ALL_TABS : ALL_TABS.filter(t => !PRO_TABS.includes(t.id))
 
@@ -997,25 +996,30 @@ export default function Settings() {
         ))}
       </div>
 
-      {/* ==================== USERS TAB ==================== */}
-      {activeTab === 'sso' && <div className="max-w-4xl">
-        <OIDCSettings />
+      {/* ==================== ACCESS TAB (Users + Permissions + SSO) ==================== */}
+      {activeTab === 'access' && <div className="max-w-4xl space-y-6">
+        <Admin />
+        <div className="border-t border-farm-700 pt-6">
+          <GroupManager />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <Permissions />
+        </div>
+        <div className="border-t border-farm-700 pt-6">
+          <OIDCSettings />
+        </div>
       </div>}
 
-      {activeTab === 'webhooks' && <div className="max-w-4xl">
+      {/* ==================== INTEGRATIONS TAB (Webhooks) ==================== */}
+      {activeTab === 'integrations' && <div className="max-w-4xl">
         <WebhookSettings />
       </div>}
-
-      {activeTab === 'users' && <Admin />}
-
-      {/* ==================== PERMISSIONS TAB ==================== */}
-      {activeTab === 'permissions' && <Permissions />}
 
       {/* ==================== BRANDING TAB ==================== */}
       {activeTab === 'branding' && <Branding />}
 
-      {/* ==================== GENERAL TAB ==================== */}
-      {activeTab === 'alerts' && <div className="max-w-4xl">
+      {/* ==================== NOTIFICATIONS TAB (Alerts + Email) ==================== */}
+      {activeTab === 'notifications' && <div className="max-w-4xl">
           {/* Push Notification Status */}
           {pushSupported && (
             <div className="mb-6 p-4 bg-farm-800 rounded-lg">
@@ -1168,11 +1172,8 @@ export default function Settings() {
         )}
       </div>
 
-      </div>}
-
-      {/* ==================== EMAIL TAB ==================== */}
-      {activeTab === 'email' && <div className="max-w-4xl">
-      {/* SMTP Email Configuration */}
+      {/* SMTP Email Configuration — merged into Notifications tab */}
+      {lic.isPro && <>
       <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Mail size={18} className="text-print-400" />
@@ -1303,9 +1304,11 @@ export default function Settings() {
         )}
       </div>
 
+      </>}
+
       </div>}
 
-      {/* ==================== GENERAL TAB (continued) ==================== */}
+      {/* ==================== GENERAL TAB ==================== */}
       {activeTab === 'general' && <div className="max-w-4xl">
       {/* Spoolman Integration */}
       <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
@@ -1436,20 +1439,16 @@ export default function Settings() {
         )}
       </div>
 
+      {/* Network — merged into General tab */}
+      <NetworkTab />
+
       </div>}
 
-      {activeTab === 'network' && <div className="max-w-4xl">
-        <NetworkTab />
-      </div>}
       {/* ==================== VISION AI TAB ==================== */}
       {activeTab === 'vision' && <VisionSettingsTab />}
 
-      {/* ==================== DATA TAB ==================== */}
-      {activeTab === 'license' && <div className="max-w-4xl">
-        <LicenseTab />
-      </div>}
-
-      {activeTab === 'data' && <div className="max-w-4xl">
+      {/* ==================== SYSTEM TAB (Data + License) ==================== */}
+      {activeTab === 'system' && <div className="max-w-4xl">
       {/* Database Info */}
       <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
@@ -1625,6 +1624,11 @@ export default function Settings() {
         </div>
       </div>
       <AuditLogViewer />
+
+      {/* License — merged into System tab */}
+      <div className="border-t border-farm-700 pt-6 mt-6">
+        <LicenseTab />
+      </div>
 
       </div>}
     </div>

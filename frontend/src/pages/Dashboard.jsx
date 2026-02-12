@@ -480,64 +480,65 @@ export default function Dashboard() {
         <StatCard label="Maintenance Due" value={dashAlertSummary?.maintenance_overdue || 0} icon={Activity} color="maintenance" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-        {/* Printers */}
-        <div className="lg:col-span-2">
+      <div className="space-y-6 md:space-y-8">
+        {/* Printers — full width */}
+        <div>
           <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Printers</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {printersData?.map((printer) => (
-              <PrinterCard 
-                key={printer.id} 
-                printer={printer} 
-                hasCamera={cameraIds.has(printer.id)} 
+              <PrinterCard
+                key={printer.id}
+                printer={printer}
+                hasCamera={cameraIds.has(printer.id)}
                 onCameraClick={setCameraTarget}
                 activeJob={runningMqttJobs.find(j => j.printer_id === printer.id)}
               />
             ))}
             {(!printersData || printersData.length === 0) && (
-              <div className="col-span-1 md:col-span-2 bg-farm-900 rounded p-8 text-center text-farm-500">No printers configured.</div>
+              <div className="col-span-full bg-farm-900 rounded p-8 text-center text-farm-500">No printers configured.</div>
             )}
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Active Jobs - includes running MQTT prints */}
-          <div>
-            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Scheduled Jobs</h2>
-            <div className="space-y-3">
-              {/* Scheduled/pending jobs from Jobs table (printing jobs show on printer cards) */}
-              {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status))
-                .slice(0, 8)
-                .map((job) => (
-                  <JobQueueItem 
-                    key={job.id} 
-                    job={job}
-                    onStart={(id) => startJob.mutate(id)}
-                    onComplete={(id) => completeJob.mutate(id)}
-                    onCancel={(id) => cancelJob.mutate(id)}
-                  />
-                ))}
-              {!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0 && (
-                <div className="bg-farm-900 rounded p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
-              )}
-            </div>
+        {/* Scheduled Jobs — full width */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg md:text-xl font-display font-semibold">Scheduled Jobs</h2>
+            {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status)).length > 12 && (
+              <a href="/jobs" className="text-xs text-print-400 hover:text-print-300 transition-colors">View all →</a>
+            )}
           </div>
-
-          {/* Recent Prints - only completed/failed/cancelled */}
-          <div>
-            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Recent Prints</h2>
-            <div className="space-y-3">
-              {completedMqttJobs.slice(0, 10).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
-              {completedMqttJobs.length === 0 && (
-                <div className="bg-farm-900 rounded p-6 text-center text-farm-500 text-sm">No print history yet</div>
-              )}
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status))
+              .slice(0, 12)
+              .map((job) => (
+                <JobQueueItem
+                  key={job.id}
+                  job={job}
+                  onStart={(id) => startJob.mutate(id)}
+                  onComplete={(id) => completeJob.mutate(id)}
+                  onCancel={(id) => cancelJob.mutate(id)}
+                />
+              ))}
           </div>
-
-          {/* Maintenance Alerts */}
-          <MaintenanceWidget />
+          {(!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0) && (
+            <div className="bg-farm-900 rounded p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
+          )}
         </div>
+
+        {/* Recent Prints — full width */}
+        <div>
+          <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Recent Prints</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {completedMqttJobs.slice(0, 12).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
+          </div>
+          {completedMqttJobs.length === 0 && (
+            <div className="bg-farm-900 rounded p-6 text-center text-farm-500 text-sm">No print history yet</div>
+          )}
+        </div>
+
+        {/* Maintenance */}
+        <MaintenanceWidget />
       </div>
 
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}

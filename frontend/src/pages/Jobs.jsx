@@ -7,12 +7,12 @@ function formatHours(h) {
   const mins = Math.round((h - hrs) * 60)
   return mins > 0 ? hrs + "h " + mins + "m" : hrs + "h"
 }
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle , Calendar, Flag, History } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { jobs, models, printers, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting } from '../api'
+import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting } from '../api'
 import { canDo } from '../permissions'
 import FailureReasonModal from '../components/FailureReasonModal'
 import { updateJobFailure } from '../api'
@@ -118,7 +118,7 @@ function JobRow({ job, onAction, dragProps }) {
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-1">
-          {job.status === 'submitted' && (
+          {job.status === 'submitted' && canDo('jobs.approve') && (
             <>
               <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Approve">
                 <CheckCircle size={16} />
@@ -128,17 +128,17 @@ function JobRow({ job, onAction, dragProps }) {
               </button>
             </>
           )}
-          {job.status === 'rejected' && job.submitted_by && (
+          {job.status === 'rejected' && job.submitted_by && canDo('jobs.resubmit') && (
             <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded" title="Resubmit">
               <RefreshCw size={14} />
             </button>
           )}
-          {job.status === 'scheduled' && (
+          {job.status === 'scheduled' && canDo('jobs.start') && (
             <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded" title="Start Print">
               <Play size={16} />
             </button>
           )}
-          {job.status === 'printing' && (
+          {job.status === 'printing' && canDo('jobs.complete') && (
             <>
               <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Complete">
                 <CheckCircle size={16} />
@@ -147,6 +147,11 @@ function JobRow({ job, onAction, dragProps }) {
                 <AlertTriangle size={16} />
               </button>
             </>
+          )}
+          {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
+            <button onClick={() => onAction('edit', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded" title="Edit Job">
+              <Pencil size={14} />
+            </button>
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
             <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Cancel">
@@ -303,7 +308,102 @@ function RejectModal({ isOpen, onClose, onSubmit }) {
   )
 }
 
+function EditJobModal({ isOpen, onClose, onSubmit, job, printersData }) {
+  const [formData, setFormData] = useState({})
 
+  useEffect(() => {
+    if (job) {
+      setFormData({
+        item_name: job.item_name || '',
+        quantity: job.quantity || 1,
+        priority: job.priority || 3,
+        duration_hours: job.duration_hours || '',
+        colors_required: job.colors_list?.join(', ') || '',
+        filament_type: job.filament_type || '',
+        notes: job.notes || '',
+        due_date: job.due_date ? job.due_date.split('T')[0] : '',
+        printer_id: job.printer_id || '',
+      })
+    }
+  }, [job])
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onSubmit(job.id, {
+      item_name: formData.item_name,
+      quantity: formData.quantity ? Number(formData.quantity) : null,
+      priority: Number(formData.priority),
+      duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
+      colors_required: formData.colors_required || null,
+      filament_type: formData.filament_type || null,
+      notes: formData.notes || null,
+      due_date: formData.due_date || null,
+      printer_id: formData.printer_id ? Number(formData.printer_id) : null,
+    })
+    onClose()
+  }
+
+  if (!isOpen || !job) return null
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg sm:text-xl font-display font-semibold mb-4">Edit Job</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Item Name *</label>
+            <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Priority</label>
+              <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                {priorityOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Quantity</label>
+              <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Duration (hours)</label>
+              <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Assign Printer</label>
+              <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                <option value="">Unassigned</option>
+                {printersData?.map(p => (
+                  <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
+            <input type="text" value={formData.colors_required} onChange={(e) => setFormData(prev => ({ ...prev, colors_required: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., black, white, green matte" />
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Due Date</label>
+            <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Notes</label>
+            <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" rows={2} />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
+            <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 function RecentlyCompleted({ jobs }) {
   const recent = jobs
@@ -406,6 +506,7 @@ export default function Jobs() {
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [rejectingJobId, setRejectingJobId] = useState(null)
   const [failureModal, setFailureModal] = useState(null)
+  const [editingJob, setEditingJob] = useState(null)
   // Drag-and-drop queue reorder
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
@@ -458,6 +559,16 @@ export default function Jobs() {
   const { data: modelsData } = useQuery({
     queryKey: ['models'],
     queryFn: () => models.list(),
+  })
+
+  const { data: printersData } = useQuery({
+    queryKey: ['printers'],
+    queryFn: () => printersApi.list(),
+  })
+
+  const updateJob = useMutation({
+    mutationFn: ({ id, data }) => jobs.update(id, data),
+    onSuccess: () => queryClient.invalidateQueries(['jobs']),
   })
 
   const createJob = useMutation({
@@ -517,6 +628,14 @@ export default function Jobs() {
       case 'cancel': cancelJob.mutate(jobId); break
       case 'repeat': repeatJob.mutate(jobId); break
       case 'delete': if (confirm('Delete this job?')) deleteJob.mutate(jobId); break
+      case 'edit': {
+        const job = (jobsData || []).find(j => j.id === jobId)
+        if (job) setEditingJob(job)
+        break
+      }
+      case 'approve': approveJobMut.mutate(jobId); break
+      case 'reject': setRejectingJobId(jobId); setShowRejectModal(true); break
+      case 'resubmit': resubmitJobMut.mutate(jobId); break
       case 'markFailed':
         cancelJob.mutate(jobId, {
           onSuccess: () => setFailureModal({ jobId, jobName })
@@ -706,6 +825,18 @@ export default function Jobs() {
         onClose={() => setShowCreateModal(false)}
         onSubmit={(data) => createJob.mutate(data)}
         modelsData={modelsData}
+      />
+      <EditJobModal
+        isOpen={!!editingJob}
+        onClose={() => setEditingJob(null)}
+        onSubmit={(id, data) => updateJob.mutate({ id, data })}
+        job={editingJob}
+        printersData={printersData}
+      />
+      <RejectModal
+        isOpen={showRejectModal}
+        onClose={() => { setShowRejectModal(false); setRejectingJobId(null) }}
+        onSubmit={(reason) => rejectJobMut.mutate({ jobId: rejectingJobId, reason })}
       />
     </div>
   )

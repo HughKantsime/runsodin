@@ -105,6 +105,31 @@ conn.close()
 print("  ✓ Users table ready")
 USERSEOF
 
+# ── Create groups table (raw SQL, not in SQLAlchemy models) ──
+python3 << 'GROUPSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    owner_id INTEGER REFERENCES users(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.commit()
+
+# Migration: add group_id to users table
+try:
+    conn.execute("SELECT group_id FROM users LIMIT 1")
+except Exception:
+    conn.execute("ALTER TABLE users ADD COLUMN group_id INTEGER REFERENCES groups(id)")
+    conn.commit()
+
+conn.close()
+print("  ✓ Groups table ready")
+GROUPSEOF
+
 # ── Create print_jobs table (raw SQL, not in SQLAlchemy models) ──
 python3 << 'PRINTJOBSEOF'
 import sqlite3
