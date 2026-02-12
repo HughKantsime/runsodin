@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye, Tv } from 'lucide-react'
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
@@ -170,14 +171,14 @@ function CameraCard({ camera, onExpand, onPip }) {
             <VideoOff size={32} className="text-farm-600" />
           </div>
         )}
-        <button onClick={() => onExpand(camera)} className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80">
+        <Link to={`/cameras/${camera.id}`} className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80">
           <Maximize2 size={16} />
-        </button>
+        </Link>
       </div>
       <div className="p-2 md:p-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={'w-2 h-2 rounded-full ' + dotColor} />
-          <span className="font-medium text-sm">{camera.name}</span>
+          <Link to={`/cameras/${camera.id}`} className="font-medium text-sm hover:text-print-400 transition-colors">{camera.name}</Link>
           <AiIndicator printerId={camera.id} />
         </div>
         <span className="text-xs text-farm-500 capitalize">{status}</span>
@@ -354,6 +355,16 @@ export default function Cameras() {
             <Monitor size={14} />
             <span className="hidden sm:inline">Control Room</span>
           </button>
+          <a
+            href="/tv"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors text-farm-300"
+            title="Open TV Dashboard in new tab"
+          >
+            <Tv size={14} />
+            <span className="hidden sm:inline">TV Mode</span>
+          </a>
         </div>
       </div>
 

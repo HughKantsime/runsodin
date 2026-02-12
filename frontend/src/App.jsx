@@ -54,6 +54,8 @@ import Login from './pages/Login'
 import Setup from './pages/Setup'
 import Maintenance from './pages/Maintenance'
 import Cameras from "./pages/Cameras"
+import CameraDetail from "./pages/CameraDetail"
+import TVDashboard from "./pages/TVDashboard"
 import Products from './pages/Products'
 import Orders from './pages/Orders'
 import Alerts from './pages/Alerts'
@@ -399,7 +401,7 @@ export default function App() {
 
   // Check if first-time setup is needed
   useEffect(() => {
-    if (location.pathname === '/setup' || location.pathname === '/login') return
+    if (location.pathname === '/setup' || location.pathname === '/login' || location.pathname === '/tv') return
     const API_KEY = import.meta.env.VITE_API_KEY
     const headers = { 'Content-Type': 'application/json' }
     if (API_KEY) headers['X-API-Key'] = API_KEY
@@ -421,6 +423,11 @@ export default function App() {
   // Show login page without sidebar
   if (location.pathname === '/login') {
     return <Login />
+  }
+
+  // TV dashboard mode — full viewport, no sidebar
+  if (location.pathname === '/tv') {
+    return <ProtectedRoute><TVDashboard /></ProtectedRoute>
   }
 
   return (
@@ -461,6 +468,7 @@ export default function App() {
             <Route path="/permissions" element={<ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate>} />
             <Route path="/maintenance" element={<ProGate feature="maintenance"><Maintenance /></ProGate>} />
             <Route path="/cameras" element={<Cameras />} />
+            <Route path="/cameras/:id" element={<CameraDetail />} />
             <Route path="/branding" element={<ProGate feature="branding"><Navigate to="/settings" replace /></ProGate>} />
             <Route path="/products" element={<ProGate feature="products"><Products /></ProGate>} />
             <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
