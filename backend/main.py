@@ -74,7 +74,7 @@ from license_manager import get_license, require_feature, check_printer_limit, c
 
 
 # Database setup
-engine = create_engine(settings.database_url, echo=settings.debug)
+engine = create_engine(settings.database_url, echo=settings.debug, pool_size=10, max_overflow=20, pool_timeout=60)
 # Enable WAL mode for concurrent read support (5-10 readers + writers)
 with engine.connect() as conn:
     conn.execute(text("PRAGMA journal_mode=WAL"))
@@ -337,22 +337,25 @@ async def authenticate_request(request: Request, call_next):
     # IP allowlist check
     if request.url.path.startswith("/api/"):
         try:
-            _db = next(get_db())
-            ip_row = _db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
-            if ip_row:
-                import ipaddress
-                ip_config = json.loads(ip_row[0]) if isinstance(ip_row[0], str) else ip_row[0]
-                if ip_config and ip_config.get("enabled") and ip_config.get("cidrs"):
-                    client_ip = request.client.host if request.client else "127.0.0.1"
-                    # Always allow localhost/Docker internal
-                    if client_ip not in ("127.0.0.1", "::1"):
-                        allowed = any(
-                            ipaddress.ip_address(client_ip) in ipaddress.ip_network(c, strict=False)
-                            for c in ip_config["cidrs"]
-                        )
-                        if not allowed:
-                            from fastapi.responses import JSONResponse
-                            return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})
+            _db = SessionLocal()
+            try:
+                ip_row = _db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
+                if ip_row:
+                    import ipaddress
+                    ip_config = json.loads(ip_row[0]) if isinstance(ip_row[0], str) else ip_row[0]
+                    if ip_config and ip_config.get("enabled") and ip_config.get("cidrs"):
+                        client_ip = request.client.host if request.client else "127.0.0.1"
+                        # Always allow localhost/Docker internal
+                        if client_ip not in ("127.0.0.1", "::1"):
+                            allowed = any(
+                                ipaddress.ip_address(client_ip) in ipaddress.ip_network(c, strict=False)
+                                for c in ip_config["cidrs"]
+                            )
+                            if not allowed:
+                                from fastapi.responses import JSONResponse
+                                return JSONResponse(status_code=403, content={"detail": "IP address not allowed"})
+            finally:
+                _db.close()
         except Exception:
             pass
 
