@@ -413,11 +413,12 @@ class PrinterMonitor:
     def _on_state_change(self, old_state: Optional[str], new_state: str):
         """Handle print state transitions."""
         log.info(f"[{self.name}] State: {old_state} -> {new_state}")
-        
-        # IDLE/FINISH -> RUNNING = Job started
-        if new_state == 'RUNNING' and old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE'):
-            self._job_started()
-        
+
+        # Entering RUNNING or PAUSE without a tracked job = new job
+        if new_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
+            if old_state in (None, 'IDLE', 'FINISH', 'FAILED', 'PREPARE', 'PAUSE'):
+                self._job_started()
+
         # RUNNING/PAUSE -> FINISH = Job completed
         elif new_state == 'FINISH' and old_state in ('RUNNING', 'PAUSE'):
             self._job_ended('completed')

@@ -192,11 +192,27 @@ class BambuPrinter:
     
     def pause_print(self) -> bool:
         """Pause current print."""
-        return self._send_gcode("M400\nM25")
-    
+        if not self._connected:
+            return False
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "pause"
+            }
+        }
+        return self._publish(payload)
+
     def resume_print(self) -> bool:
         """Resume paused print."""
-        return self._send_gcode("M400\nM24")
+        if not self._connected:
+            return False
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "resume"
+            }
+        }
+        return self._publish(payload)
     
     def stop_print(self) -> bool:
         """Stop/cancel current print."""
