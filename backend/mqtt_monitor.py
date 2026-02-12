@@ -331,11 +331,10 @@ class PrinterMonitor:
                 except Exception as e:
                     log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
             
-            # Check for camera URL auto-discovery (X1C only broadcasts this)
+            # Check for camera URL auto-discovery
+            # X1C/H2D send rtsp_url explicitly; A1/P1S only send ipcam_dev
             ipcam = raw.get('ipcam', {})
-            rtsp_url = ipcam.get('rtsp_url')
-            if rtsp_url:
-                # Build full URL with auth
+            if ipcam.get('rtsp_url') or ipcam.get('ipcam_dev') == '1':
                 full_url = f"rtsps://bblp:{self.access_code}@{self.ip}:322/streaming/live/1"
                 printer_events.discover_camera(self.printer_id, full_url)
             
