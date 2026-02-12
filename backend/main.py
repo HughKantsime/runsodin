@@ -102,7 +102,7 @@ _version_file = _pathlib.Path(__file__).parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "1.3.7"
+    __version__ = "1.3.8"
 
 
 def get_db():
