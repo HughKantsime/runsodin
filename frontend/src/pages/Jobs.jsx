@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting } from '../api'
+import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets } from '../api'
 import { canDo } from '../permissions'
 import FailureReasonModal from '../components/FailureReasonModal'
 import { updateJobFailure } from '../api'
@@ -112,7 +112,17 @@ function JobRow({ job, onAction, dragProps }) {
           </div>
         ) : '—'}
       </td>
-      <td className="px-3 md:px-4 py-3 text-sm text-farm-400 hidden md:table-cell">{formatHours(job.duration_hours)}</td>
+      <td className="px-3 md:px-4 py-3 text-sm text-farm-400 hidden md:table-cell">
+        <span>{formatHours(job.duration_hours)}</span>
+        {job.actual_start && job.actual_end && (() => {
+          const actualH = (new Date(job.actual_end) - new Date(job.actual_start)) / 3600000
+          return (
+            <span className="block text-xs text-farm-500" title="Actual duration">
+              {formatHours(actualH)} actual
+            </span>
+          )
+        })()}
+      </td>
       <td className="px-3 md:px-4 py-3 text-sm text-farm-400 hidden lg:table-cell">
         {job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}
       </td>
@@ -184,7 +194,7 @@ function SortIcon({ field, sortField, sortDirection }) {
   return sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
 }
 
-function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
+function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData }) {
   const [formData, setFormData] = useState({
     item_name: '',
     model_id: '',
@@ -193,17 +203,20 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
     colors_required: '',
     notes: '',
     due_date: '',
+    required_tags: '',
   })
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    const tags = formData.required_tags ? formData.required_tags.split(',').map(t => t.trim()).filter(Boolean) : []
     onSubmit({
       ...formData,
       model_id: formData.model_id ? Number(formData.model_id) : null,
       duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
       due_date: formData.due_date || null,
+      required_tags: tags,
     })
-    setFormData({ item_name: '', model_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '', due_date: '' })
+    setFormData({ item_name: '', model_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '' })
     onClose()
   }
 
@@ -261,11 +274,40 @@ function CreateJobModal({ isOpen, onClose, onSubmit, modelsData }) {
             <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
+            <label className="block text-sm text-farm-400 mb-1">Printer Tags (optional)</label>
+            <input type="text" value={formData.required_tags} onChange={(e) => setFormData(prev => ({ ...prev, required_tags: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Room A, Production" />
+            <p className="text-xs text-farm-500 mt-0.5">Only schedule on printers with these tags</p>
+          </div>
+          <div>
             <label className="block text-sm text-farm-400 mb-1">Notes</label>
             <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" rows={2} />
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
+            {onSavePreset && formData.item_name && (
+              <button
+                type="button"
+                onClick={() => {
+                  const name = prompt('Preset name:', formData.item_name)
+                  if (name) {
+                    const tags = formData.required_tags ? formData.required_tags.split(',').map(t => t.trim()).filter(Boolean) : []
+                    onSavePreset({
+                      name,
+                      model_id: formData.model_id ? Number(formData.model_id) : null,
+                      item_name: formData.item_name,
+                      priority: formData.priority,
+                      duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
+                      colors_required: formData.colors_required || null,
+                      required_tags: tags,
+                      notes: formData.notes || null,
+                    })
+                  }
+                }}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm"
+              >
+                Save Preset
+              </button>
+            )}
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">Create Job</button>
           </div>
         </form>
@@ -566,6 +608,26 @@ export default function Jobs() {
     queryFn: () => printersApi.list(),
   })
 
+  const { data: presetsData } = useQuery({
+    queryKey: ['presets'],
+    queryFn: () => presets.list(),
+  })
+
+  const schedulePreset = useMutation({
+    mutationFn: presets.schedule,
+    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+  })
+
+  const deletePreset = useMutation({
+    mutationFn: presets.delete,
+    onSuccess: () => queryClient.invalidateQueries(['presets']),
+  })
+
+  const createPreset = useMutation({
+    mutationFn: presets.create,
+    onSuccess: () => queryClient.invalidateQueries(['presets']),
+  })
+
   const updateJob = useMutation({
     mutationFn: ({ id, data }) => jobs.update(id, data),
     onSuccess: () => queryClient.invalidateQueries(['jobs']),
@@ -736,6 +798,32 @@ export default function Jobs() {
         ))}
       </div>
 
+      {/* Quick Schedule from Presets */}
+      {presetsData?.length > 0 && (
+        <div className="mb-4 bg-farm-900 border border-farm-800 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Zap size={14} className="text-amber-400" />
+            <span className="text-xs font-medium text-farm-400 uppercase">Quick Schedule</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {presetsData.map(p => (
+              <div key={p.id} className="flex items-center gap-1.5 bg-farm-800 rounded-lg px-3 py-1.5 border border-farm-700">
+                <button
+                  onClick={() => schedulePreset.mutate(p.id)}
+                  className="text-sm text-farm-200 hover:text-white transition-colors"
+                  title={`Schedule: ${p.item_name || p.name}`}
+                >
+                  {p.name}
+                </button>
+                {canDo('jobs.delete') && (
+                  <button onClick={() => deletePreset.mutate(p.id)} className="text-farm-600 hover:text-red-400 ml-1" title="Delete preset">&times;</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4 md:mb-6">
         <div className="relative flex-1 sm:max-w-md">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
@@ -824,6 +912,7 @@ export default function Jobs() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSubmit={(data) => createJob.mutate(data)}
+        onSavePreset={(data) => createPreset.mutate(data)}
         modelsData={modelsData}
       />
       <EditJobModal

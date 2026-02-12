@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette } from 'lucide-react'
+import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette, Droplets } from 'lucide-react'
 import clsx from 'clsx'
 import { canDo } from '../permissions'
 
@@ -116,7 +116,12 @@ const printersApi = {
 
 // ==================== Spool Components ====================
 
-function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers }) {
+const HYGROSCOPIC_TYPES = new Set([
+  'PA', 'NYLON_CF', 'NYLON_GF', 'PPS', 'PPS_CF',
+  'PETG', 'PETG_CF', 'PC', 'PC_ABS', 'PC_CF', 'TPU', 'PVA',
+])
+
+function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, printers }) {
   const percentRemaining = spool.percent_remaining || 0
   const isLow = percentRemaining < 20
   const isEmpty = spool.status === 'empty'
@@ -189,7 +194,15 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
       <div className="text-xs text-farm-500 mb-3 font-mono truncate">
         {spool.qr_code}
       </div>
-      
+
+      {/* Hygroscopic indicator */}
+      {HYGROSCOPIC_TYPES.has(spool.filament_material) && (
+        <div className="flex items-center gap-1.5 mb-3 text-xs text-amber-400">
+          <Droplets size={12} />
+          <span>Hygroscopic — dry before use</span>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex gap-1.5 md:gap-2 justify-evenly">
         {canDo('spools.edit') && spool.location_printer_id ? (
@@ -230,6 +243,13 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
           title="Record usage"
         >
           <Scale size={14} />
+        </button>}
+        {canDo('spools.edit') && <button
+          onClick={() => onDry(spool)}
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-amber-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-amber-400 flex items-center justify-center"
+          title="Log drying session"
+        >
+          <Droplets size={14} />
         </button>}
         {canDo('spools.delete') && spool.status !== 'archived' && (
           <button
@@ -550,6 +570,96 @@ function UseSpoolModal({ spool, onClose, onUse }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+function DryingModal({ spool, onClose, onSubmit }) {
+  const [form, setForm] = useState({ duration_hours: '', temp_c: '', method: 'dryer', notes: '' })
+  const [history, setHistory] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useState(() => {
+    if (spool) {
+      const token = localStorage.getItem('token')
+      const headers = { 'Authorization': `Bearer ${token}` }
+      if (API_KEY) headers['X-API-Key'] = API_KEY
+      fetch(`${API_BASE}/spools/${spool.id}/drying-history`, { headers })
+        .then(r => r.json())
+        .then(setHistory)
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    }
+  })
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onSubmit({ id: spool.id, ...form, duration_hours: parseFloat(form.duration_hours), temp_c: form.temp_c ? parseFloat(form.temp_c) : null })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg md:text-xl font-semibold text-farm-100">Log Drying Session</h2>
+          <button onClick={onClose} className="text-farm-400 hover:text-farm-200"><X size={20} /></button>
+        </div>
+
+        <div className="mb-4 p-3 bg-farm-800 rounded-lg">
+          <div className="flex items-center gap-3">
+            {spool.filament_color_hex && (
+              <div className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
+            )}
+            <span className="text-farm-200 truncate">{spool.filament_brand} {spool.filament_name}</span>
+            <span className="text-xs text-farm-500 ml-auto">{spool.filament_material}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Duration (hours) *</label>
+              <input type="number" step="0.5" required value={form.duration_hours} onChange={(e) => setForm({ ...form, duration_hours: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100" placeholder="4" />
+            </div>
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Temperature (°C)</label>
+              <input type="number" value={form.temp_c} onChange={(e) => setForm({ ...form, temp_c: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100" placeholder="55" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Method</label>
+            <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100">
+              <option value="dryer">Filament Dryer</option>
+              <option value="oven">Oven</option>
+              <option value="desiccant">Desiccant Box</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Notes</label>
+            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100" placeholder="Before printing nylon parts" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200">Cancel</button>
+            <button type="submit" className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-white">Log Drying</button>
+          </div>
+        </form>
+
+        {/* History */}
+        {history.length > 0 && (
+          <div className="mt-4 border-t border-farm-700 pt-4">
+            <h3 className="text-sm font-medium text-farm-300 mb-2">Drying History</h3>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {history.map(h => (
+                <div key={h.id} className="flex items-center justify-between text-xs text-farm-400">
+                  <span>{h.dried_at ? new Date(h.dried_at).toLocaleDateString() : '—'}</span>
+                  <span>{h.duration_hours}h @ {h.temp_c ? h.temp_c + '°C' : '—'}</span>
+                  <span className="capitalize">{h.method}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -991,6 +1101,7 @@ export default function Spools() {
   const [loadingSpool, setLoadingSpool] = useState(null)
   const [usingSpool, setUsingSpool] = useState(null)
   const [editingSpool, setEditingSpool] = useState(null)
+  const [dryingSpool, setDryingSpool] = useState(null)
   const [filter, setFilter] = useState('active')
   const [sortBy, setSortBy] = useState("printer")
   const [groupByPrinter, setGroupByPrinter] = useState(true)
@@ -1257,7 +1368,7 @@ export default function Spools() {
                   <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                     {groupSpools.map(spool => (
-                      <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} printers={printers} />
+                      <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
                     ))}
                   </div>
                 </div>
@@ -1267,7 +1378,7 @@ export default function Spools() {
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                 {sorted.map(spool => (
-                  <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} printers={printers} />
+                  <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
                 ))}
               </div>
             );
@@ -1305,6 +1416,23 @@ export default function Spools() {
           spool={editingSpool}
           onClose={() => setEditingSpool(null)}
           onSave={handleEditSpool}
+        />
+      )}
+      {dryingSpool && (
+        <DryingModal
+          spool={dryingSpool}
+          onClose={() => setDryingSpool(null)}
+          onSubmit={async (data) => {
+            const { id, ...rest } = data
+            const token = localStorage.getItem('token')
+            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+            if (API_KEY) headers['X-API-Key'] = API_KEY
+            const params = new URLSearchParams({ duration_hours: rest.duration_hours, method: rest.method })
+            if (rest.temp_c) params.set('temp_c', rest.temp_c)
+            if (rest.notes) params.set('notes', rest.notes)
+            await fetch(`${API_BASE}/spools/${id}/dry?${params}`, { method: 'POST', headers })
+            setDryingSpool(null)
+          }}
         />
       )}
     </div>

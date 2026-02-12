@@ -350,11 +350,17 @@ class Scheduler:
         Returns dict with assignment details or None if no fit found.
         """
         candidates = []
-        
+
         required_colors = job.colors_list or []
+        required_tags = job.required_tags or []
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
-        
+
         for printer_id, state in printer_states.items():
+            # Tag constraint: skip printers missing required tags
+            if required_tags:
+                printer_tags = state.printer.tags or []
+                if not all(t in printer_tags for t in required_tags):
+                    continue
             # Calculate color match score (0-100)
             color_score = self._calculate_color_score(state.colors, required_colors)
             requires_setup = self._requires_setup(state.colors, required_colors)

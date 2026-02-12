@@ -29,6 +29,8 @@ import {
   Moon,
   Package,
   Eye,
+  FileText,
+  Film,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -61,6 +63,8 @@ import Orders from './pages/Orders'
 import Alerts from './pages/Alerts'
 import Detections from './pages/Detections'
 import EducationReports from './pages/EducationReports'
+import AuditLogs from './pages/AuditLogs'
+import Timelapses from './pages/Timelapses'
 import { stats, printers } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
@@ -220,6 +224,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {canAccessPage('dashboard') && <NavItem collapsed={collapsed && !mobileOpen} to="/" icon={LayoutDashboard} onClick={handleNavClick}>Dashboard</NavItem>}
           {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>Printers</NavItem>}
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>Cameras</NavItem>}
+          {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
           {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
 
           {/* Work */}
@@ -259,6 +264,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {/* Settings */}
           <div className="mt-2" style={{ borderTop: '1px solid var(--brand-sidebar-border)', paddingTop: '0.5rem' }}>
             {canAccessPage('settings') && <NavItem collapsed={collapsed && !mobileOpen} to="/settings" icon={Settings} onClick={handleNavClick}>Settings</NavItem>}
+            {canAccessPage('audit') && <NavItem collapsed={collapsed && !mobileOpen} to="/audit" icon={FileText} onClick={handleNavClick}>Audit Log</NavItem>}
           </div>
         </nav>
 
@@ -475,6 +481,8 @@ export default function App() {
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/detections" element={<Detections />} />
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Education"><EducationReports /></ProGate>} />
+            <Route path="/timelapses" element={<Timelapses />} />
+            <Route path="/audit" element={<AuditLogs />} />
           </Routes>
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />

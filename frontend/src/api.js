@@ -38,7 +38,8 @@ export async function fetchAPI(endpoint, options = {}) {
 }
 
 export const printers = {
-  list: (activeOnly = false) => fetchAPI('/printers?active_only=' + activeOnly),
+  list: (activeOnly = false, tag = '') => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '')),
+  allTags: () => fetchAPI('/printers/tags'),
   get: (id) => fetchAPI('/printers/' + id),
   create: (data) => fetchAPI('/printers', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI('/printers/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -100,6 +101,8 @@ export const filaments = {
 
 export const analytics = {
   get: () => fetchAPI('/analytics'),
+  timeAccuracy: (days = 30) => fetchAPI(`/analytics/time-accuracy?days=${days}`),
+  failures: (days = 30) => fetchAPI(`/analytics/failures?days=${days}`),
 }
 
 export const educationReports = {
@@ -319,6 +322,13 @@ export const orders = {
   ship: (id, data) => fetchAPI(`/orders/${id}/ship`, { method: 'PATCH', body: JSON.stringify(data) }),
 }
 
+export const presets = {
+  list: () => fetchAPI('/presets'),
+  create: (data) => fetchAPI('/presets', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/presets/${id}`, { method: 'DELETE' }),
+  schedule: (id) => fetchAPI(`/presets/${id}/schedule`, { method: 'POST' }),
+}
+
 export const search = {
   query: (q) => fetchAPI('/search?q=' + encodeURIComponent(q)),
 }
@@ -331,6 +341,13 @@ export const spools = {
     method: 'POST',
     body: JSON.stringify({ qr_code: qrCode, printer_id: printerId, slot: slot }),
   }),
+  logDrying: (spoolId, data) => {
+    const params = new URLSearchParams({ duration_hours: data.duration_hours, method: data.method || 'dryer' })
+    if (data.temp_c) params.set('temp_c', data.temp_c)
+    if (data.notes) params.set('notes', data.notes)
+    return fetchAPI(`/spools/${spoolId}/dry?${params}`, { method: 'POST' })
+  },
+  dryingHistory: (spoolId) => fetchAPI(`/spools/${spoolId}/drying-history`),
 };
 
 
@@ -500,6 +517,39 @@ export const getLanguage = () => fetchAPI('/settings/language')
 export const setLanguage = (lang) => fetchAPI('/settings/language', { method: 'PUT', body: JSON.stringify({ language: lang }) })
 
 // ---- Vision AI ----
+// Audit Logs
+export const auditLogs = {
+  list: (params = {}) => {
+    const query = new URLSearchParams()
+    if (params.limit) query.set('limit', params.limit)
+    if (params.offset) query.set('offset', params.offset)
+    if (params.entity_type) query.set('entity_type', params.entity_type)
+    if (params.action) query.set('action', params.action)
+    if (params.date_from) query.set('date_from', params.date_from)
+    if (params.date_to) query.set('date_to', params.date_to)
+    const qs = query.toString()
+    return fetchAPI(`/audit-logs${qs ? '?' + qs : ''}`)
+  },
+}
+
+// ============== Timelapses ==============
+export const timelapses = {
+  list: (params = {}) => {
+    const query = new URLSearchParams()
+    if (params.printer_id) query.set('printer_id', params.printer_id)
+    if (params.status) query.set('status', params.status)
+    if (params.limit) query.set('limit', params.limit)
+    if (params.offset) query.set('offset', params.offset)
+    const qs = query.toString()
+    return fetchAPI(`/timelapses${qs ? '?' + qs : ''}`)
+  },
+  videoUrl: (id) => {
+    const token = localStorage.getItem('token')
+    return `/api/timelapses/${id}/video${token ? '?token=' + token : ''}`
+  },
+  delete: (id) => fetchAPI(`/timelapses/${id}`, { method: 'DELETE' }),
+}
+
 export const vision = {
   getDetections: (params) => fetchAPI('/vision/detections?' + new URLSearchParams(params)),
   getDetection: (id) => fetchAPI('/vision/detections/' + id),

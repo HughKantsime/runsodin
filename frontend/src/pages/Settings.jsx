@@ -89,110 +89,55 @@ function ApprovalToggle() {
   )
 }
 
-function AuditLogViewer() {
-  const [logs, setLogs] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [filter, setFilter] = useState({ entity_type: '', action: '' })
-  const [limit, setLimit] = useState(50)
+function InstallAppCard() {
+  const [deferredPrompt, setDeferredPrompt] = useState(null)
+  const [installed, setInstalled] = useState(false)
 
   useEffect(() => {
-    loadLogs()
-  }, [filter, limit])
+    const handler = (e) => { e.preventDefault(); setDeferredPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    window.addEventListener('appinstalled', () => setInstalled(true))
+    // Check if already installed (standalone mode)
+    if (window.matchMedia('(display-mode: standalone)').matches) setInstalled(true)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
 
-  const loadLogs = async () => {
-    setLoading(true)
-    try {
-      let url = `/api/audit-logs?limit=${limit}`
-      if (filter.entity_type) url += `&entity_type=${filter.entity_type}`
-      if (filter.action) url += `&action=${filter.action}`
-      const res = await fetch(url, { headers: { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
-      if (res.ok) setLogs(await res.json())
-    } catch (e) { console.error('Failed to load audit logs:', e) }
-    finally { setLoading(false) }
+  if (installed) {
+    return (
+      <div className="flex items-center gap-2 bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <Smartphone size={18} className="text-green-400" />
+        <span className="font-display font-semibold">App Installed</span>
+        <span className="text-farm-500 text-sm ml-auto">Running as standalone app</span>
+      </div>
+    )
   }
 
-  const actionColors = {
-    create: 'text-green-400',
-    update: 'text-blue-400',
-    delete: 'text-red-400',
-    login: 'text-amber-400',
-    schedule: 'text-purple-400',
-  }
+  if (!deferredPrompt) return null
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div className="flex items-center gap-2 md:gap-3">
-          <FileText size={18} className="text-print-400" />
-          <h2 className="text-lg md:text-xl font-display font-semibold">Audit Log</h2>
-        </div>
-        <div className="flex gap-2">
-          <select value={filter.entity_type} onChange={(e) => setFilter(prev => ({ ...prev, entity_type: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-xs">
-            <option value="">All Types</option>
-            <option value="job">Jobs</option>
-            <option value="printer">Printers</option>
-            <option value="spool">Spools</option>
-            <option value="model">Models</option>
-            <option value="order">Orders</option>
-            <option value="user">Users</option>
-            <option value="settings">Settings</option>
-          </select>
-          <select value={filter.action} onChange={(e) => setFilter(prev => ({ ...prev, action: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-xs">
-            <option value="">All Actions</option>
-            <option value="create">Create</option>
-            <option value="update">Update</option>
-            <option value="delete">Delete</option>
-            <option value="login">Login</option>
-            <option value="schedule">Schedule</option>
-          </select>
-          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-xs">
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-            <option value={200}>200</option>
-          </select>
-          <button
-            onClick={() => {
-              let url = `/api/export/audit-logs?`
-              if (filter.entity_type) url += `entity_type=${filter.entity_type}&`
-              if (filter.action) url += `action=${filter.action}&`
-              fetch(url, { headers: getApiHeaders() })
-                .then(r => r.blob())
-                .then(blob => {
-                  const u = URL.createObjectURL(blob)
-                  const link = document.createElement('a')
-                  link.href = u
-                  link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`
-                  link.click()
-                  URL.revokeObjectURL(u)
-                })
-            }}
-            className="flex items-center gap-1 bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded-lg px-2 py-1 text-xs text-farm-300 transition-colors"
-          >
-            <Download size={12} /> Export
-          </button>
-        </div>
+    <div className="flex items-center gap-2 bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Smartphone size={18} className="text-print-400" />
+      <div>
+        <span className="font-display font-semibold">Install App</span>
+        <p className="text-farm-500 text-sm">Add O.D.I.N. to your home screen for quick access</p>
       </div>
-      <div className="max-h-96 overflow-y-auto space-y-1">
-        {loading ? (
-          <div className="text-center py-4 text-farm-500 text-sm">Loading...</div>
-        ) : logs.length === 0 ? (
-          <div className="text-center py-4 text-farm-500 text-sm">No audit log entries</div>
-        ) : logs.map(log => (
-          <div key={log.id} className="flex items-start gap-3 py-2 border-b border-farm-800 last:border-0 text-xs">
-            <span className="text-farm-600 whitespace-nowrap min-w-[120px]">
-              {log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-            </span>
-            <span className={`font-medium min-w-[60px] ${actionColors[log.action] || 'text-farm-400'}`}>
-              {log.action || '—'}
-            </span>
-            <span className="text-farm-400 min-w-[60px]">{log.entity_type || '—'}</span>
-            <span className="text-farm-300 flex-1 truncate">{typeof log.details === 'object' ? JSON.stringify(log.details) : (log.details || '—')}</span>
-            {log.ip_address && <span className="text-farm-600">{log.ip_address}</span>}
-          </div>
-        ))}
-      </div>
+      <button
+        onClick={() => { deferredPrompt.prompt(); deferredPrompt.userChoice.then(() => setDeferredPrompt(null)) }}
+        className="ml-auto px-4 py-2 bg-print-600 hover:bg-print-500 text-white rounded-lg text-sm font-medium transition-colors"
+      >
+        Install
+      </button>
     </div>
+  )
+}
+
+function AuditLogLink() {
+  return (
+    <a href="/audit" className="flex items-center gap-2 bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6 hover:bg-farm-800/50 transition-colors">
+      <FileText size={18} className="text-print-400" />
+      <span className="font-display font-semibold">Audit Log</span>
+      <span className="text-farm-500 text-sm ml-auto">View full audit log &rarr;</span>
+    </a>
   )
 }
 
@@ -1623,7 +1568,8 @@ export default function Settings() {
           </a>
         </div>
       </div>
-      <AuditLogViewer />
+      <InstallAppCard />
+      <AuditLogLink />
 
       {/* License — merged into System tab */}
       <div className="border-t border-farm-700 pt-6 mt-6">

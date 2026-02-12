@@ -174,11 +174,17 @@ class Printer(Base):
     
     # Camera auto-discovery
     camera_discovered = Column(Boolean, default=False)
-    
+
+    # Tags for fleet organization
+    tags = Column(JSON, default=list)  # ["Room A", "PLA-only", "Production"]
+
+    # Timelapse
+    timelapse_enabled = Column(Boolean, default=False)
+
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
+
     # Relationships
     filament_slots = relationship("FilamentSlot", back_populates="printer", cascade="all, delete-orphan")
     jobs = relationship("Job", back_populates="printer")
@@ -301,6 +307,28 @@ class SpoolUsage(Base):
     spool = relationship("Spool", back_populates="usage_history")
     job = relationship("Job")
 
+
+
+class DryingLog(Base):
+    """Record of a filament drying session."""
+    __tablename__ = "drying_logs"
+
+    id = Column(Integer, primary_key=True)
+    spool_id = Column(Integer, ForeignKey("spools.id"), nullable=False)
+    dried_at = Column(DateTime, server_default=func.now())
+    duration_hours = Column(Float, nullable=False)
+    temp_c = Column(Float, nullable=True)
+    method = Column(String(50), default="dryer")  # dryer, oven, desiccant
+    notes = Column(Text, nullable=True)
+
+    spool = relationship("Spool", backref="drying_history")
+
+
+# Hygroscopic materials that benefit from drying
+HYGROSCOPIC_TYPES = {
+    "PA", "NYLON_CF", "NYLON_GF", "PPS", "PPS_CF",
+    "PETG", "PETG_CF", "PC", "PC_ABS", "PC_CF", "TPU", "PVA",
+}
 
 
 class Model(Base):
@@ -433,12 +461,14 @@ class Job(Base):
     
     # User preferences
     is_favorite = Column(Boolean, default=False)
-    
-    
+
+    # Scheduler constraints
+    required_tags = Column(JSON, default=list)  # Only schedule on printers with these tags
+
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
+
     # Relationships
     model = relationship("Model", back_populates="jobs")
     printer = relationship("Printer", back_populates="jobs")
@@ -484,6 +514,44 @@ class SchedulerRun(Base):
     
     # Debug info
     notes = Column(Text)
+
+
+class Timelapse(Base):
+    """A timelapse video generated from camera frames during a print."""
+    __tablename__ = "timelapses"
+
+    id = Column(Integer, primary_key=True)
+    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
+    print_job_id = Column(Integer, nullable=True)
+    filename = Column(String(255), nullable=False)  # Relative path under /data/timelapses/
+    frame_count = Column(Integer, default=0)
+    duration_seconds = Column(Float, nullable=True)
+    file_size_mb = Column(Float, nullable=True)
+    status = Column(String(20), default="capturing")  # capturing, encoding, ready, failed
+    created_at = Column(DateTime, server_default=func.now())
+    completed_at = Column(DateTime, nullable=True)
+
+    printer = relationship("Printer")
+
+
+class PrintPreset(Base):
+    """Reusable print job preset/template."""
+    __tablename__ = "print_presets"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), unique=True, nullable=False)
+    model_id = Column(Integer, ForeignKey("models.id"), nullable=True)
+    item_name = Column(String(200))
+    quantity = Column(Integer, default=1)
+    priority = Column(Integer, default=3)
+    duration_hours = Column(Float, nullable=True)
+    colors_required = Column(String(500), nullable=True)
+    filament_type = Column(SQLEnum(FilamentType), nullable=True)
+    required_tags = Column(JSON, default=list)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    model = relationship("Model")
 
 
 # Database initialization helper

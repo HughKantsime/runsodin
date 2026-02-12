@@ -234,7 +234,12 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           </div>
           <div className="min-w-0">
             <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
-            <p className="text-xs md:text-sm text-farm-500 truncate">{printer.model || 'Unknown model'}</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs md:text-sm text-farm-500 truncate">{printer.model || 'Unknown model'}</span>
+              {printer.tags?.map(tag => (
+                <span key={tag} className="px-1.5 py-0.5 bg-print-600/20 text-print-400 text-[10px] rounded-full border border-print-600/30">{tag}</span>
+              ))}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -420,9 +425,11 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         plug_topic: printer.plug_topic || '',
         plug_entity: printer.plug_entity || '',
         plug_token: printer.plug_token || '',
+        tags: printer.tags || [],
+        timelapse_enabled: printer.timelapse_enabled || false,
       })
     } else {
-      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '' })
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false })
     }
     setTestStatus(null)
     setTestMessage('')
@@ -483,6 +490,8 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
       model: formData.model,
       slot_count: formData.slot_count,
       camera_url: formData.camera_url || null,
+      tags: formData.tags || [],
+      timelapse_enabled: formData.timelapse_enabled || false,
     }
 
     if (formData.api_type) submitData.api_type = formData.api_type
@@ -666,6 +675,49 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
             )}
           </div>
 
+          {/* Tags */}
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="block text-sm text-farm-400 mb-1">Tags (optional)</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {(formData.tags || []).map(tag => (
+                <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-print-600/20 text-print-400 text-xs rounded-full border border-print-600/30">
+                  {tag}
+                  <button type="button" onClick={() => setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }))} className="hover:text-red-400">&times;</button>
+                </span>
+              ))}
+            </div>
+            <input
+              type="text"
+              placeholder="Type a tag and press Enter"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const val = e.target.value.trim()
+                  if (val && !(formData.tags || []).includes(val)) {
+                    setFormData(prev => ({ ...prev, tags: [...(prev.tags || []), val] }))
+                  }
+                  e.target.value = ''
+                }
+              }}
+            />
+            <p className="text-xs text-farm-500 mt-1">e.g., "Room A", "PLA-only", "Production"</p>
+          </div>
+
+          {/* Timelapse */}
+          <div className="border-t border-farm-700 pt-4 mt-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.timelapse_enabled || false}
+                onChange={(e) => setFormData(prev => ({ ...prev, timelapse_enabled: e.target.checked }))}
+                className="w-4 h-4 rounded border-farm-600 bg-farm-800 text-print-600 focus:ring-print-600"
+              />
+              <span className="text-sm text-farm-200">Enable timelapse recording</span>
+            </label>
+            <p className="text-xs text-farm-500 mt-1 ml-6">Capture frames every 30s during prints and stitch into MP4 videos.</p>
+          </div>
+
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
@@ -718,6 +770,7 @@ export default function Printers() {
   const [statusFilter, setStatusFilter] = useState(() => sessionStorage.getItem('printers_status') || 'all')
   const [typeFilter, setTypeFilter] = useState(() => sessionStorage.getItem('printers_type') || 'all')
   const [sortBy, setSortBy] = useState(() => sessionStorage.getItem('printers_sort') || 'manual')
+  const [tagFilter, setTagFilter] = useState('')
 
   const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
   const lic = useLicense()
@@ -757,7 +810,8 @@ export default function Printers() {
   // Derive unique api_types from printers
   const apiTypes = [...new Set((printersData || []).map(p => p.api_type).filter(Boolean))]
 
-  const isFiltered = searchTerm || statusFilter !== 'all' || typeFilter !== 'all' || sortBy !== 'manual'
+  const allTags = [...new Set((printersData || []).flatMap(p => p.tags || []))].sort()
+  const isFiltered = searchTerm || statusFilter !== 'all' || typeFilter !== 'all' || sortBy !== 'manual' || tagFilter
 
   const filteredPrinters = (() => {
     let list = [...(orderedPrinters || [])]
@@ -784,6 +838,9 @@ export default function Printers() {
     }
     if (typeFilter !== 'all') {
       list = list.filter(p => p.api_type === typeFilter)
+    }
+    if (tagFilter) {
+      list = list.filter(p => p.tags?.includes(tagFilter))
     }
     if (sortBy !== 'manual') {
       list.sort((a, b) => {
@@ -902,6 +959,12 @@ export default function Printers() {
               {apiTypes.map(t => (
                 <option key={t} value={t}>{t === 'bambu' ? 'Bambu' : t === 'moonraker' ? 'Moonraker' : t === 'prusalink' ? 'PrusaLink' : t === 'elegoo' ? 'Elegoo' : t}</option>
               ))}
+            </select>
+          )}
+          {allTags.length > 0 && (
+            <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+              <option value="">All Tags</option>
+              {allTags.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">

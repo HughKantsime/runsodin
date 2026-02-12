@@ -296,7 +296,43 @@ try:
 except Exception:
     pass  # Column already exists
 
+# Add tags column to printers if missing
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN tags TEXT DEFAULT '[]'")
+except Exception:
+    pass  # Column already exists
+
+# Add required_tags column to jobs if missing
+try:
+    conn.execute("ALTER TABLE jobs ADD COLUMN required_tags TEXT DEFAULT '[]'")
+except Exception:
+    pass  # Column already exists
+
 conn.commit()
+
+# Add timelapse_enabled column to printers if missing
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN timelapse_enabled INTEGER DEFAULT 0")
+except Exception:
+    pass  # Column already exists
+
+# Create timelapses table
+conn.execute("""CREATE TABLE IF NOT EXISTS timelapses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    printer_id INTEGER NOT NULL REFERENCES printers(id),
+    print_job_id INTEGER,
+    filename TEXT NOT NULL,
+    frame_count INTEGER DEFAULT 0,
+    duration_seconds REAL,
+    file_size_mb REAL,
+    status TEXT DEFAULT 'capturing',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_timelapses_printer ON timelapses(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_timelapses_status ON timelapses(status)")
+conn.commit()
+
 conn.close()
 print("  ✓ Telemetry expansion tables ready")
 TELEMETRYEOF

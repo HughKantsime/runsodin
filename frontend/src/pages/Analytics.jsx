@@ -281,10 +281,121 @@ function CostRevenueChart({ data }) {
   )
 }
 
+function FailureRateByPrinterChart({ data }) {
+  if (!data?.by_printer?.length) return null
+  const chartData = data.by_printer.map(p => ({
+    name: p.name,
+    completed: p.completed,
+    failed: p.failed,
+  }))
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Printer size={18} className="text-red-400" />
+          <h3 className="font-display font-semibold">Success / Failure by Printer</h3>
+        </div>
+        <span className="text-xs text-farm-500">{data.overall_success_rate}% fleet success</span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={chartData} barCategoryGap="20%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
+          <XAxis dataKey="name" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }} />
+          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+          <Bar dataKey="completed" stackId="a" fill="#22C55E" name="Completed" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="failed" stackId="a" fill="#EF4444" name="Failed" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function TopFailureReasons({ data }) {
+  if (!data?.top_failure_reasons?.length) return null
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center gap-2 mb-4">
+        <XCircle size={18} className="text-red-400" />
+        <h3 className="font-display font-semibold">Top Failure Reasons</h3>
+      </div>
+      <div className="space-y-2">
+        {data.top_failure_reasons.map((r, i) => {
+          const maxCount = data.top_failure_reasons[0]?.count || 1
+          return (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-sm text-farm-400 w-32 truncate capitalize">{r.reason.replace(/_/g, ' ')}</span>
+              <div className="flex-1 h-5 bg-farm-800 rounded-full overflow-hidden">
+                <div className="h-full bg-red-500/60 rounded-full" style={{ width: `${(r.count / maxCount) * 100}%` }} />
+              </div>
+              <span className="text-sm text-farm-500 w-8 text-right">{r.count}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TimeAccuracyChart({ data }) {
+  if (!data || data.by_printer?.length === 0) {
+    return (
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <Clock size={18} className="text-cyan-400" />
+          <h3 className="font-display font-semibold">Est vs Actual Print Time</h3>
+        </div>
+        <div className="text-center py-12 text-farm-500 text-sm">Not enough completed jobs with timing data</div>
+      </div>
+    )
+  }
+
+  const chartData = data.by_printer.map(p => ({
+    name: p.name,
+    estimated: p.estimated_hours,
+    actual: p.actual_hours,
+  }))
+
+  return (
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Clock size={18} className="text-cyan-400" />
+          <h3 className="font-display font-semibold">Est vs Actual Print Time</h3>
+        </div>
+        <span className="text-xs text-farm-500">{data.avg_accuracy_pct}% avg accuracy &middot; {data.total_jobs} jobs</span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={chartData} barCategoryGap="20%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
+          <XAxis dataKey="name" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
+          <Tooltip
+            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+            formatter={(value) => [`${value.toFixed(1)}h`, undefined]}
+          />
+          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+          <Bar dataKey="estimated" fill="#3B82F6" name="Estimated" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="actual" fill="#22C55E" name="Actual" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 export default function Analytics() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['analytics'],
     queryFn: analytics.get,
+  })
+  const { data: timeAccuracy } = useQuery({
+    queryKey: ['time-accuracy'],
+    queryFn: () => analytics.timeAccuracy(30),
+  })
+  const { data: failureData } = useQuery({
+    queryKey: ['failure-analytics'],
+    queryFn: () => analytics.failures(30),
   })
   const { data: energyJobs } = useQuery({
     queryKey: ['energy-jobs'],
@@ -409,9 +520,18 @@ export default function Analytics() {
       {/* Rankings */}
       <ModelRankings topData={top_by_hour} worstData={worst_performers} />
 
+      {/* Failure Analytics */}
+      {failureData && failureData.total_failed > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+          <FailureRateByPrinterChart data={failureData} />
+          <TopFailureReasons data={failureData} />
+        </div>
+      )}
+
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         <PrinterUtilization data={printer_stats} />
+        <TimeAccuracyChart data={timeAccuracy} />
         <EnergyWidget jobs={energyJobs || []} />
       </div>
     </div>

@@ -97,6 +97,10 @@ class PrinterBase(BaseModel):
     last_error_at: Optional[datetime] = None
     # Camera auto-discovery
     camera_discovered: Optional[bool] = None
+    # Tags
+    tags: List[str] = []
+    # Timelapse
+    timelapse_enabled: bool = False
 
 
 class PrinterCreate(PrinterBase):
@@ -113,17 +117,19 @@ class PrinterUpdate(BaseModel):
     api_host: Optional[str] = None
     api_key: Optional[str] = None
     camera_url: Optional[str] = None
-
     nickname: Optional[str] = None
+    tags: Optional[List[str]] = None
+    timelapse_enabled: Optional[bool] = None
 
 class PrinterResponse(PrinterBase):
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: int
     created_at: datetime
     updated_at: datetime
     filament_slots: List[FilamentSlotResponse] = []
     loaded_colors: List[str] = []
+    tags: List[str] = []
 
 
 class PrinterSummary(BaseModel):
@@ -231,6 +237,7 @@ class JobBase(BaseModel):
     notes: Optional[str] = None
     hold: bool = False
     due_date: Optional[datetime] = None
+    required_tags: List[str] = []
 
 
 class JobCreate(JobBase):

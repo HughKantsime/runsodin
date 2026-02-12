@@ -117,9 +117,34 @@ self.addEventListener('notificationclose', (event) => {
 });
 
 
-// PWA fetch handler — serve app shell from network, fallback gracefully
+// PWA fetch handler — cache app shell assets, network-first for API
 self.addEventListener('fetch', (event) => {
-  // Let all requests pass through to network (no offline cache for now)
-  // This satisfies PWA installability requirements
-  event.respondWith(fetch(event.request));
+  const url = new URL(event.request.url);
+
+  // API calls: always network, never cache
+  if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  // App shell assets: stale-while-revalidate
+  if (event.request.method === 'GET' && (
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.woff2') ||
+    url.pathname === '/'
+  )) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(cache =>
+        cache.match(event.request).then(cached => {
+          const fetchPromise = fetch(event.request).then(response => {
+            if (response.ok) cache.put(event.request, response.clone());
+            return response;
+          }).catch(() => cached);
+          return cached || fetchPromise;
+        })
+      )
+    );
+    return;
+  }
 });

@@ -19,6 +19,7 @@ const DEFAULT_PAGE_ACCESS = {
   settings:    ['admin'],
   admin:       ['admin'],
   branding:    ['admin'],
+  audit:              ['admin'],
   orders:             ['admin', 'operator', 'viewer'],
   products:            ['admin', 'operator', 'viewer'],
   alerts:              ['admin', 'operator', 'viewer'],

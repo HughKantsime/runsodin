@@ -39,7 +39,8 @@ from models import (Spool, SpoolUsage, SpoolStatus, AuditLog,
     Base, Printer, FilamentSlot, Model, Job, JobStatus,
     FilamentType, SchedulerRun, init_db, FilamentLibrary,
     Alert, AlertPreference, AlertType, AlertSeverity, PushSubscription,
-    MaintenanceTask, MaintenanceLog, SystemConfig, NozzleLifecycle
+    MaintenanceTask, MaintenanceLog, SystemConfig, NozzleLifecycle,
+    DryingLog, HYGROSCOPIC_TYPES, PrintPreset, Timelapse
 )
 
 # Bambu Lab Integration
@@ -343,13 +344,28 @@ async def health_check():
 @app.get("/api/printers", response_model=List[PrinterResponse], tags=["Printers"])
 def list_printers(
     active_only: bool = False,
-    db: Session = Depends(get_db)
+    tag: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
-    """List all printers."""
+    """List all printers, optionally filtered by tag."""
     query = db.query(Printer)
     if active_only:
         query = query.filter(Printer.is_active == True)
-    return query.order_by(Printer.display_order, Printer.id).all()
+    printers = query.order_by(Printer.display_order, Printer.id).all()
+    if tag:
+        printers = [p for p in printers if p.tags and tag in p.tags]
+    return printers
+
+
+@app.get("/api/printers/tags", tags=["Printers"])
+def list_all_tags(db: Session = Depends(get_db)):
+    """Get all unique tags across all printers."""
+    printers = db.query(Printer).filter(Printer.tags.isnot(None)).all()
+    tags = set()
+    for p in printers:
+        if p.tags:
+            tags.update(p.tags)
+    return sorted(tags)
 
 
 @app.post("/api/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
@@ -3130,6 +3146,198 @@ def get_analytics(db: Session = Depends(get_db)):
     }
 
 
+# ============== Failure Analytics ==============
+
+@app.get("/api/analytics/failures", tags=["Analytics"])
+def get_failure_analytics(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    # All completed + failed jobs in window
+    jobs = (
+        db.query(Job)
+        .filter(Job.status.in_(["completed", "failed"]), Job.created_at >= cutoff)
+        .all()
+    )
+
+    # --- By printer ---
+    by_printer = {}
+    for j in jobs:
+        if not j.printer_id:
+            continue
+        p = by_printer.setdefault(j.printer_id, {"name": j.printer.name if j.printer else str(j.printer_id), "completed": 0, "failed": 0, "fail_timestamps": []})
+        if j.status.value == "completed":
+            p["completed"] += 1
+        else:
+            p["failed"] += 1
+            if j.actual_end:
+                p["fail_timestamps"].append(j.actual_end)
+
+    printer_stats = []
+    for pid, p in by_printer.items():
+        total = p["completed"] + p["failed"]
+        success_rate = round(p["completed"] / total * 100, 1) if total else 0
+        # MTBF: average time between failures
+        mtbf_hours = None
+        if len(p["fail_timestamps"]) >= 2:
+            ts = sorted(p["fail_timestamps"])
+            gaps = [(ts[i+1] - ts[i]).total_seconds() / 3600 for i in range(len(ts)-1)]
+            mtbf_hours = round(sum(gaps) / len(gaps), 1)
+        printer_stats.append({
+            "name": p["name"],
+            "completed": p["completed"],
+            "failed": p["failed"],
+            "success_rate": success_rate,
+            "mtbf_hours": mtbf_hours,
+        })
+
+    # --- By model ---
+    by_model = {}
+    for j in jobs:
+        name = j.model.name if j.model else j.item_name
+        m = by_model.setdefault(name, {"completed": 0, "failed": 0})
+        if j.status.value == "completed":
+            m["completed"] += 1
+        else:
+            m["failed"] += 1
+
+    model_stats = [
+        {"name": k, "completed": v["completed"], "failed": v["failed"],
+         "success_rate": round(v["completed"] / (v["completed"] + v["failed"]) * 100, 1)}
+        for k, v in by_model.items() if v["completed"] + v["failed"] >= 2
+    ]
+    model_stats.sort(key=lambda x: x["success_rate"])
+
+    # --- By filament type ---
+    by_filament = {}
+    for j in jobs:
+        ft = j.filament_type.value if j.filament_type else "unknown"
+        f = by_filament.setdefault(ft, {"completed": 0, "failed": 0})
+        if j.status.value == "completed":
+            f["completed"] += 1
+        else:
+            f["failed"] += 1
+
+    filament_stats = [
+        {"type": k, "completed": v["completed"], "failed": v["failed"],
+         "failure_rate": round(v["failed"] / (v["completed"] + v["failed"]) * 100, 1)}
+        for k, v in by_filament.items() if v["completed"] + v["failed"] >= 1
+    ]
+
+    # --- Failure reasons ---
+    failed_jobs = [j for j in jobs if j.status.value == "failed"]
+    reason_counts = {}
+    for j in failed_jobs:
+        r = j.fail_reason or "unspecified"
+        reason_counts[r] = reason_counts.get(r, 0) + 1
+    top_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:10]
+
+    # --- HMS error frequency ---
+    hms_rows = db.execute(
+        text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code ORDER BY cnt DESC LIMIT 10"),
+        {"cutoff": cutoff.isoformat()},
+    ).fetchall()
+    hms_errors = [{"code": r[0], "message": r[1], "count": r[2]} for r in hms_rows]
+
+    total_completed = sum(1 for j in jobs if j.status.value == "completed")
+    total_failed = len(failed_jobs)
+
+    return {
+        "total_completed": total_completed,
+        "total_failed": total_failed,
+        "overall_success_rate": round(total_completed / (total_completed + total_failed) * 100, 1) if (total_completed + total_failed) else 0,
+        "by_printer": printer_stats,
+        "by_model": model_stats[:15],
+        "by_filament": filament_stats,
+        "top_failure_reasons": [{"reason": r, "count": c} for r, c in top_reasons],
+        "hms_errors": hms_errors,
+    }
+
+
+# ============== Time Accuracy Analytics ==============
+
+@app.get("/api/analytics/time-accuracy", tags=["Analytics"])
+def get_time_accuracy(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    """Estimated vs actual print time accuracy stats."""
+    from sqlalchemy import func as fn
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    completed = (
+        db.query(Job)
+        .filter(
+            Job.status == "completed",
+            Job.actual_start.isnot(None),
+            Job.actual_end.isnot(None),
+            Job.duration_hours.isnot(None),
+            Job.duration_hours > 0,
+            Job.actual_end >= cutoff,
+        )
+        .all()
+    )
+
+    per_printer = {}
+    per_model = {}
+    records = []
+
+    for job in completed:
+        actual_sec = (job.actual_end - job.actual_start).total_seconds()
+        if actual_sec <= 0:
+            continue
+        actual_h = actual_sec / 3600
+        est_h = float(job.duration_hours)
+        accuracy = min(est_h, actual_h) / max(est_h, actual_h) * 100
+
+        records.append({
+            "job_id": job.id,
+            "date": job.actual_end.strftime("%Y-%m-%d"),
+            "estimated_hours": round(est_h, 2),
+            "actual_hours": round(actual_h, 2),
+            "accuracy_pct": round(accuracy, 1),
+        })
+
+        # Aggregate by printer
+        if job.printer_id:
+            p = per_printer.setdefault(job.printer_id, {"name": job.printer.name if job.printer else str(job.printer_id), "est": 0, "act": 0, "count": 0})
+            p["est"] += est_h
+            p["act"] += actual_h
+            p["count"] += 1
+
+        # Aggregate by model
+        if job.model_id:
+            m = per_model.setdefault(job.model_id, {"name": job.model.name if job.model else str(job.model_id), "est": 0, "act": 0, "count": 0})
+            m["est"] += est_h
+            m["act"] += actual_h
+            m["count"] += 1
+
+    def summarize(agg):
+        return [
+            {
+                "name": v["name"],
+                "estimated_hours": round(v["est"], 1),
+                "actual_hours": round(v["act"], 1),
+                "count": v["count"],
+                "accuracy_pct": round(min(v["est"], v["act"]) / max(v["est"], v["act"]) * 100, 1) if max(v["est"], v["act"]) > 0 else 0,
+            }
+            for v in agg.values()
+        ]
+
+    avg_accuracy = round(sum(r["accuracy_pct"] for r in records) / len(records), 1) if records else 0
+
+    return {
+        "total_jobs": len(records),
+        "avg_accuracy_pct": avg_accuracy,
+        "by_printer": summarize(per_printer),
+        "by_model": summarize(per_model),
+        "recent": records[-50:],
+    }
+
+
 # ============== Education Usage Report ==============
 
 @app.get("/api/education/usage-report", tags=["Education"])
@@ -4511,37 +4719,118 @@ def generate_single_label(spool, width, height):
     return img
 
 
+# ============== Filament Drying Log ==============
+
+@app.post("/api/spools/{spool_id}/dry", tags=["Spools"])
+def log_drying_session(
+    spool_id: int,
+    duration_hours: float,
+    temp_c: Optional[float] = None,
+    method: str = "dryer",
+    notes: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("operator")),
+):
+    """Log a filament drying session for a spool."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+
+    log = DryingLog(
+        spool_id=spool_id,
+        duration_hours=duration_hours,
+        temp_c=temp_c,
+        method=method,
+        notes=notes,
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+
+    log_audit(db, "create", "drying_log", log.id, {"spool_id": spool_id, "duration_hours": duration_hours, "method": method})
+
+    return {
+        "id": log.id,
+        "spool_id": log.spool_id,
+        "dried_at": log.dried_at.isoformat() if log.dried_at else None,
+        "duration_hours": log.duration_hours,
+        "temp_c": log.temp_c,
+        "method": log.method,
+        "notes": log.notes,
+    }
+
+
+@app.get("/api/spools/{spool_id}/drying-history", tags=["Spools"])
+def get_drying_history(spool_id: int, db: Session = Depends(get_db)):
+    """Get drying session history for a spool."""
+    spool = db.query(Spool).filter(Spool.id == spool_id).first()
+    if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+
+    logs = (
+        db.query(DryingLog)
+        .filter(DryingLog.spool_id == spool_id)
+        .order_by(DryingLog.dried_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": l.id,
+            "dried_at": l.dried_at.isoformat() if l.dried_at else None,
+            "duration_hours": l.duration_hours,
+            "temp_c": l.temp_c,
+            "method": l.method,
+            "notes": l.notes,
+        }
+        for l in logs
+    ]
+
+
 # ============== Audit Log ==============
 
 @app.get("/api/audit-logs", tags=["Audit"])
 def list_audit_logs(
-    limit: int = 100,
+    limit: int = Query(default=50, le=500),
+    offset: int = 0,
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
-    db: Session = Depends(get_db)
-, current_user: dict = Depends(require_role("admin"))):
-    """List audit log entries."""
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("admin")),
+):
+    """List audit log entries with pagination and filters."""
     query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
-    
+
     if entity_type:
         query = query.filter(AuditLog.entity_type == entity_type)
     if action:
         query = query.filter(AuditLog.action == action)
-    
-    logs = query.limit(limit).all()
-    
-    return [
-        {
-            "id": log.id,
-            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
-            "action": log.action,
-            "entity_type": log.entity_type,
-            "entity_id": log.entity_id,
-            "details": log.details,
-            "ip_address": log.ip_address
-        }
-        for log in logs
-    ]
+    if date_from:
+        query = query.filter(AuditLog.timestamp >= date_from)
+    if date_to:
+        query = query.filter(AuditLog.timestamp <= date_to + "T23:59:59")
+
+    total = query.count()
+    logs = query.offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "logs": [
+            {
+                "id": log.id,
+                "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                "action": log.action,
+                "entity_type": log.entity_type,
+                "entity_id": log.entity_id,
+                "details": log.details,
+                "ip_address": log.ip_address,
+            }
+            for log in logs
+        ],
+    }
 
 # ============== MQTT Print Jobs / Live Status ==============
 
@@ -6351,6 +6640,198 @@ async def update_job_failure(
         db.commit()
     
     return {"success": True, "message": "Failure info updated"}
+
+# ============== Print Presets ==============
+
+@app.get("/api/presets", tags=["Presets"])
+def list_presets(db: Session = Depends(get_db)):
+    """List all print presets."""
+    presets = db.query(PrintPreset).order_by(PrintPreset.name).all()
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "model_id": p.model_id,
+            "model_name": p.model.name if p.model else None,
+            "item_name": p.item_name,
+            "quantity": p.quantity,
+            "priority": p.priority,
+            "duration_hours": p.duration_hours,
+            "colors_required": p.colors_required,
+            "filament_type": p.filament_type.value if p.filament_type else None,
+            "required_tags": p.required_tags or [],
+            "notes": p.notes,
+        }
+        for p in presets
+    ]
+
+
+@app.post("/api/presets", tags=["Presets"], status_code=status.HTTP_201_CREATED)
+def create_preset(
+    request_data: dict,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """Create a new print preset."""
+    preset = PrintPreset(
+        name=request_data["name"],
+        model_id=request_data.get("model_id"),
+        item_name=request_data.get("item_name"),
+        quantity=request_data.get("quantity", 1),
+        priority=request_data.get("priority", 3),
+        duration_hours=request_data.get("duration_hours"),
+        colors_required=request_data.get("colors_required"),
+        filament_type=request_data.get("filament_type"),
+        required_tags=request_data.get("required_tags", []),
+        notes=request_data.get("notes"),
+    )
+    db.add(preset)
+    db.commit()
+    db.refresh(preset)
+    return {"id": preset.id, "name": preset.name}
+
+
+@app.delete("/api/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Presets"])
+def delete_preset(
+    preset_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """Delete a print preset."""
+    preset = db.query(PrintPreset).filter(PrintPreset.id == preset_id).first()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    db.delete(preset)
+    db.commit()
+
+
+@app.post("/api/presets/{preset_id}/schedule", tags=["Presets"])
+def schedule_from_preset(
+    preset_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new job from a preset."""
+    preset = db.query(PrintPreset).filter(PrintPreset.id == preset_id).first()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    job = Job(
+        item_name=preset.item_name or preset.name,
+        model_id=preset.model_id,
+        quantity=preset.quantity or 1,
+        priority=preset.priority or 3,
+        duration_hours=preset.duration_hours,
+        colors_required=preset.colors_required,
+        filament_type=preset.filament_type,
+        required_tags=preset.required_tags or [],
+        notes=preset.notes,
+    )
+
+    # Cost calculation from model if available
+    if preset.model_id:
+        model = db.query(Model).filter(Model.id == preset.model_id).first()
+        if model:
+            if not job.duration_hours and model.build_time_hours:
+                job.duration_hours = model.build_time_hours
+            if model.estimated_cost:
+                job.estimated_cost = model.estimated_cost
+            if model.suggested_price:
+                job.suggested_price = model.suggested_price
+
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return {"id": job.id, "item_name": job.item_name, "status": job.status.value}
+
+
+# ─── Timelapse Endpoints ────────────────────────────────────────────
+
+@app.get("/api/timelapses", tags=["Timelapses"])
+def list_timelapses(
+    printer_id: Optional[int] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    limit: int = Query(default=50, le=200),
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """List timelapse recordings with optional filters."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    q = db.query(Timelapse).order_by(Timelapse.created_at.desc())
+    if printer_id:
+        q = q.filter(Timelapse.printer_id == printer_id)
+    if status_filter:
+        q = q.filter(Timelapse.status == status_filter)
+    total = q.count()
+    items = q.offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "timelapses": [
+            {
+                "id": t.id,
+                "printer_id": t.printer_id,
+                "printer_name": t.printer.name if t.printer else None,
+                "print_job_id": t.print_job_id,
+                "filename": t.filename,
+                "frame_count": t.frame_count,
+                "duration_seconds": t.duration_seconds,
+                "file_size_mb": t.file_size_mb,
+                "status": t.status,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            }
+            for t in items
+        ],
+    }
+
+
+@app.get("/api/timelapses/{timelapse_id}/video", tags=["Timelapses"])
+def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Serve the timelapse MP4 file. Accepts ?token= query param for <video> src auth."""
+    # <video> elements can't send Bearer headers, so accept token as query param
+    if not current_user and token:
+        token_data = decode_token(token)
+        if token_data:
+            user = db.execute(text("SELECT * FROM users WHERE username = :username"),
+                              {"username": token_data.username}).fetchone()
+            if user:
+                current_user = dict(user._mapping)
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    if t.status != "ready":
+        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
+    video_path = Path("/data/timelapses") / t.filename
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    from fastapi.responses import FileResponse
+    return FileResponse(str(video_path), media_type="video/mp4", filename=video_path.name)
+
+
+@app.delete("/api/timelapses/{timelapse_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Timelapses"])
+def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+    """Delete a timelapse recording and its video file."""
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    # Delete video file
+    video_path = Path("/data/timelapses") / t.filename
+    if video_path.exists():
+        video_path.unlink()
+    # Delete frame directory if still around
+    frame_dir = Path("/data/timelapses") / str(t.id)
+    if frame_dir.exists():
+        shutil.rmtree(str(frame_dir), ignore_errors=True)
+    db.delete(t)
+    db.commit()
+    log_audit(db, "delete", "timelapse", t.id, {"printer_id": t.printer_id})
+
 
 @app.get("/api/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db)):
