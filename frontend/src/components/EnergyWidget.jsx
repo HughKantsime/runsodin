@@ -63,7 +63,7 @@ export default function EnergyWidget({ jobs }) {
                 step="0.01"
                 value={tempRate}
                 onChange={(e) => setTempRate(e.target.value)}
-                className="w-20 bg-farm-800 border border-farm-700 rounded px-2 py-1 text-sm"
+                className="w-20 bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-sm"
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && saveRate()}
               />

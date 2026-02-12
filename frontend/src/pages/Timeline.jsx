@@ -355,7 +355,7 @@ export default function Timeline() {
                           className="absolute top-1 bottom-1 rounded-md bg-print-500/50 border-2 border-print-400 z-30 flex items-center justify-center"
                           style={{ left: dragUI.left, width: dragUI.width }}
                         >
-                          <span className="text-xs font-bold text-white bg-print-600 px-2 py-1 rounded">{dragUI.label}</span>
+                          <span className="text-xs font-bold text-white bg-print-600 px-2 py-1 rounded-lg">{dragUI.label}</span>
                         </div>
                       )}
                       
@@ -397,7 +397,7 @@ export default function Timeline() {
         <span className="text-xs md:text-sm text-farm-500">Status:</span>
         {Object.entries(statusColors).map(([status, color]) => (
           <div key={status} className="flex items-center gap-1.5">
-            <div className={clsx('w-2.5 h-2.5 md:w-3 md:h-3 rounded', color)} />
+            <div className={clsx('w-2.5 h-2.5 md:w-3 md:h-3 rounded-lg', color)} />
             <span className="text-xs md:text-sm text-farm-400 capitalize">{status}</span>
           </div>
         ))}

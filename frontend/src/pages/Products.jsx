@@ -192,7 +192,7 @@ export default function Products() {
           <p>No products yet. Create your first product to get started.</p>
         </div>
       ) : (
-        <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
+        <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
           {/* Mobile card view */}
           <div className="block md:hidden divide-y divide-farm-800">
             {productList.map(product => (
@@ -208,13 +208,13 @@ export default function Products() {
                   <div className="flex gap-1">
                     <button 
                       onClick={() => openEditModal(product)} 
-                      className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
                     >
                       <Pencil size={14} />
                     </button>
                     <button 
                       onClick={() => handleDelete(product.id)} 
-                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -235,7 +235,7 @@ export default function Products() {
                       <ul className="space-y-1">
                         {expandedProduct.components.map(comp => (
                           <li key={comp.id} className="flex items-center gap-2 text-sm text-farm-300">
-                            <span className="px-2 py-0.5 rounded bg-print-600/20 text-print-400">{comp.quantity_needed}x</span>
+                            <span className="px-2 py-0.5 rounded-lg bg-print-600/20 text-print-400">{comp.quantity_needed}x</span>
                             <span>{comp.model_name || `Model #${comp.model_id}`}</span>
                           </li>
                         ))}
@@ -250,18 +250,18 @@ export default function Products() {
                     )}
                     {(expandedProduct.consumables || []).map(c => (
                       <div key={c.id} className="flex items-center justify-between text-sm text-farm-300 py-1">
-                        <span><span className="px-2 py-0.5 rounded bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span> {c.consumable_name || `Consumable #${c.consumable_id}`}</span>
+                        <span><span className="px-2 py-0.5 rounded-lg bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span> {c.consumable_name || `Consumable #${c.consumable_id}`}</span>
                         <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400"><X size={12} /></button>
                       </div>
                     ))}
                     {addingConsumable === product.id && (
                       <div className="flex gap-2 items-center mt-2">
-                        <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100">
+                        <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded-lg px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100">
                           <option value="">Select consumable...</option>
                           {consumableList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
-                        <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-16 rounded px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100" />
-                        <button onClick={() => handleAddConsumable(product.id)} className="px-2 py-1 text-xs bg-print-600 hover:bg-print-500 rounded">Add</button>
+                        <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-16 rounded-lg px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100" />
+                        <button onClick={() => handleAddConsumable(product.id)} className="px-2 py-1 text-xs bg-print-600 hover:bg-print-500 rounded-lg">Add</button>
                       </div>
                     )}
                   </div>
@@ -298,7 +298,7 @@ export default function Products() {
                     <td className="px-4 py-3 text-farm-400">{product.sku || '-'}</td>
                     <td className="px-4 py-3 text-farm-200">{product.price ? `$${product.price.toFixed(2)}` : '-'}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 rounded text-sm bg-farm-800 text-farm-300">
+                      <span className="px-2 py-1 rounded-lg text-sm bg-farm-800 text-farm-300">
                         {product.component_count || 0} parts
                       </span>
                     </td>
@@ -308,14 +308,14 @@ export default function Products() {
                     <td className="px-4 py-3 text-right">
                       <button 
                         onClick={() => openEditModal(product)} 
-                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
                         title="Edit"
                       >
                         <Pencil size={14} />
                       </button>
                       <button 
                         onClick={() => handleDelete(product.id)} 
-                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors ml-1"
+                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors ml-1"
                         title="Delete"
                       >
                         <Trash2 size={14} />
@@ -333,7 +333,7 @@ export default function Products() {
                             <ul className="space-y-1">
                               {expandedProduct.components.map(comp => (
                                 <li key={comp.id} className="flex items-center gap-2 text-sm text-farm-300">
-                                  <span className="px-2 py-0.5 rounded bg-print-600/20 text-print-400">{comp.quantity_needed}x</span>
+                                  <span className="px-2 py-0.5 rounded-lg bg-print-600/20 text-print-400">{comp.quantity_needed}x</span>
                                   <span>{comp.model_name || `Model #${comp.model_id}`}</span>
                                 </li>
                               ))}
@@ -350,10 +350,10 @@ export default function Products() {
                             {(expandedProduct.consumables || []).map(c => (
                               <li key={c.id} className="flex items-center justify-between text-sm text-farm-300">
                                 <span className="flex items-center gap-2">
-                                  <span className="px-2 py-0.5 rounded bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span>
+                                  <span className="px-2 py-0.5 rounded-lg bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span>
                                   <span>{c.consumable_name || `Consumable #${c.consumable_id}`}</span>
                                 </span>
-                                <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"><Trash2 size={12} /></button>
+                                <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"><Trash2 size={12} /></button>
                               </li>
                             ))}
                           </ul>
@@ -381,12 +381,12 @@ export default function Products() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">
                 {editingProduct ? 'Edit Product' : 'New Product'}
               </h2>
-              <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded transition-colors">
+              <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -474,7 +474,7 @@ export default function Products() {
                           <button 
                             type="button" 
                             onClick={() => removeComponent(i)} 
-                            className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
+                            className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
                           >
                             <X size={14} />
                           </button>

@@ -145,7 +145,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
           </div>
         </div>
         <span className={clsx(
-          "px-2 py-1 rounded text-xs font-medium flex-shrink-0 ml-2",
+          "px-2 py-1 rounded-lg text-xs font-medium flex-shrink-0 ml-2",
           spool.status === 'active' ? "bg-green-500/20 text-green-400" :
           spool.status === 'empty' ? "bg-red-500/20 text-red-400" :
           "bg-gray-500/20 text-gray-400"
@@ -195,7 +195,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
         {canDo('spools.edit') && spool.location_printer_id ? (
           <button
             onClick={() => onUnload(spool)}
-            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
             title="Unload from printer"
           >
             <Package size={14} />
@@ -203,7 +203,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
         ) : canDo('spools.edit') ? (
           <button
             onClick={() => onLoad(spool)}
-            className="px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded text-xs md:text-sm text-white flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-xs md:text-sm text-white flex items-center justify-center"
             title="Load into printer"
           >
             <Printer size={14} />
@@ -213,20 +213,20 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
           href={`${API_BASE}/spools/${spool.id}/label`}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
         >
           <QrCode size={14} />
         </a>
         {canDo('spools.edit') && <button
           onClick={() => onEdit(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
           title="Edit spool"
         >
           <Pencil size={14} />
         </button>}
         {canDo('spools.edit') && <button
           onClick={() => onUse(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
           title="Record usage"
         >
           <Scale size={14} />
@@ -234,7 +234,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, printers
         {canDo('spools.delete') && spool.status !== 'archived' && (
           <button
             onClick={() => onArchive(spool)}
-            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded text-xs md:text-sm text-farm-200 hover:text-red-400 flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-red-400 flex items-center justify-center"
             title="Archive"
           >
             <Archive size={14} />
@@ -281,7 +281,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
               value={form.filament_id}
               onChange={(e) => setForm({ ...form, filament_id: e.target.value })}
               required
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             >
               <option value="">Select filament...</option>
               {filaments?.map(f => (
@@ -299,7 +299,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
                 type="number"
                 value={form.initial_weight_g}
                 onChange={(e) => setForm({ ...form, initial_weight_g: parseInt(e.target.value) })}
-                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
               />
             </div>
             <div>
@@ -308,7 +308,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
                 type="number"
                 value={form.spool_weight_g}
                 onChange={(e) => setForm({ ...form, spool_weight_g: parseInt(e.target.value) })}
-                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
               />
             </div>
           </div>
@@ -321,7 +321,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
                 value={form.vendor}
                 onChange={(e) => setForm({ ...form, vendor: e.target.value })}
                 placeholder="Amazon, MatterHackers..."
-                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
               />
             </div>
             <div>
@@ -332,7 +332,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
                 value={form.price}
                 onChange={(e) => setForm({ ...form, price: e.target.value })}
                 placeholder="24.99"
-                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
               />
             </div>
           </div>
@@ -344,7 +344,7 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
               value={form.storage_location}
               onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
               placeholder="Shelf A1, Dry Box 2..."
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
           
@@ -352,13 +352,13 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
             >
               Add Spool
             </button>
@@ -396,7 +396,7 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
           </button>
         </div>
         
-        <div className="mb-4 p-3 bg-farm-800 rounded flex items-center gap-3">
+        <div className="mb-4 p-3 bg-farm-800 rounded-lg flex items-center gap-3">
           {spool.filament_color_hex && (
             <div 
               className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
@@ -415,7 +415,7 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
               value={form.printer_id}
               onChange={(e) => setForm({ ...form, printer_id: e.target.value, slot_number: '' })}
               required
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             >
               <option value="">Select printer...</option>
               {printers?.map(p => (
@@ -431,7 +431,7 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
                 value={form.slot_number}
                 onChange={(e) => setForm({ ...form, slot_number: e.target.value })}
                 required
-                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
               >
                 <option value="">Select slot...</option>
                 {Array.from({ length: selectedPrinter.slot_count }, (_, i) => i + 1).map(n => {
@@ -450,13 +450,13 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
             >
               Load
             </button>
@@ -492,7 +492,7 @@ function UseSpoolModal({ spool, onClose, onUse }) {
           </button>
         </div>
         
-        <div className="mb-4 p-3 bg-farm-800 rounded">
+        <div className="mb-4 p-3 bg-farm-800 rounded-lg">
           <div className="flex items-center gap-3 mb-2">
             {spool.filament_color_hex && (
               <div 
@@ -519,7 +519,7 @@ function UseSpoolModal({ spool, onClose, onUse }) {
               onChange={(e) => setForm({ ...form, weight_used_g: e.target.value })}
               required
               placeholder="50"
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
           
@@ -530,7 +530,7 @@ function UseSpoolModal({ spool, onClose, onUse }) {
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="Print job, waste..."
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
           
@@ -538,13 +538,13 @@ function UseSpoolModal({ spool, onClose, onUse }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
             >
               Record Usage
             </button>
@@ -584,7 +584,7 @@ function EditSpoolModal({ spool, onClose, onSave }) {
           </button>
         </div>
         
-        <div className="mb-4 p-3 bg-farm-800 rounded">
+        <div className="mb-4 p-3 bg-farm-800 rounded-lg">
           <div className="flex items-center gap-3 mb-2">
             {spool.filament_color_hex && (
               <div 
@@ -611,7 +611,7 @@ function EditSpoolModal({ spool, onClose, onSave }) {
               value={form.remaining_weight_g}
               onChange={(e) => setForm({ ...form, remaining_weight_g: e.target.value })}
               required
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
             <div className="text-xs text-farm-500 mt-1">
               Initial: {spool.initial_weight_g}g
@@ -625,7 +625,7 @@ function EditSpoolModal({ spool, onClose, onSave }) {
               value={form.storage_location}
               onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
               placeholder="Shelf A, Drawer 2..."
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
           
@@ -636,7 +636,7 @@ function EditSpoolModal({ spool, onClose, onSave }) {
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="Any notes..."
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
           
@@ -644,13 +644,13 @@ function EditSpoolModal({ spool, onClose, onSave }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
             >
               Save
             </button>
@@ -698,7 +698,7 @@ function EditFilamentModal({ filament, onClose, onSave }) {
               onChange={(e) => setForm({ ...form, brand: e.target.value })}
               required
               placeholder="Bambu Lab, Polymaker, eSUN..."
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
 
@@ -710,7 +710,7 @@ function EditFilamentModal({ filament, onClose, onSave }) {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
               placeholder="Matte Black, Silk Gold..."
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
           </div>
 
@@ -720,7 +720,7 @@ function EditFilamentModal({ filament, onClose, onSave }) {
               <select
                 value={form.material}
                 onChange={(e) => setForm({ ...form, material: e.target.value })}
-                className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
               >
                 <option value="PLA">PLA</option>
                 <option value="PLA-S">PLA-S (Support)</option>
@@ -745,11 +745,11 @@ function EditFilamentModal({ filament, onClose, onSave }) {
                   onChange={(e) => setForm({ ...form, color_hex: e.target.value.replace('#', '') })}
                   placeholder="FF5733"
                   maxLength={6}
-                  className="flex-1 bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 font-mono"
+                  className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 font-mono"
                 />
                 {form.color_hex && form.color_hex.length >= 3 && (
                   <div
-                    className="w-10 h-10 rounded border border-farm-600 flex-shrink-0"
+                    className="w-10 h-10 rounded-lg border border-farm-600 flex-shrink-0"
                     style={{ backgroundColor: `#${form.color_hex}` }}
                   />
                 )}
@@ -766,7 +766,7 @@ function EditFilamentModal({ filament, onClose, onSave }) {
               value={form.cost_per_gram}
               onChange={(e) => setForm({ ...form, cost_per_gram: e.target.value })}
               placeholder="0.025 (leave blank for global default)"
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100"
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
             />
             <p className="text-xs text-farm-500 mt-1">Used for cost calculation. Leave blank to use system default.</p>
           </div>
@@ -775,13 +775,13 @@ function EditFilamentModal({ filament, onClose, onSave }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded text-farm-200"
+              className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded text-white"
+              className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
             >
               {filament ? 'Save Changes' : 'Add Filament'}
             </button>
@@ -853,7 +853,7 @@ function FilamentLibraryView() {
           <select
             value={materialFilter}
             onChange={(e) => setMaterialFilter(e.target.value)}
-            className="bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-sm text-farm-200"
+            className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm text-farm-200"
           >
             <option value="all">All Materials</option>
             {materials.map(m => (
@@ -907,11 +907,11 @@ function FilamentLibraryView() {
                   <div className="min-w-0">
                     <span className="text-sm text-farm-100 truncate block">{f.name}</span>
                   </div>
-                  <span className="px-2 py-0.5 bg-farm-800 rounded text-xs text-farm-400 flex-shrink-0">
+                  <span className="px-2 py-0.5 bg-farm-800 rounded-lg text-xs text-farm-400 flex-shrink-0">
                     {f.material}
                   </span>
                   {f.cost_per_gram && (
-                    <span className="px-2 py-0.5 bg-green-900/50 rounded text-xs text-green-400 flex-shrink-0">
+                    <span className="px-2 py-0.5 bg-green-900/50 rounded-lg text-xs text-green-400 flex-shrink-0">
                       ${f.cost_per_gram}/g
                     </span>
                   )}
@@ -921,7 +921,7 @@ function FilamentLibraryView() {
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
                       onClick={() => setEditingFilament(f)}
-                      className="p-1.5 bg-farm-800 hover:bg-farm-700 rounded text-farm-300 hover:text-farm-100 transition-colors"
+                      className="p-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-300 hover:text-farm-100 transition-colors"
                       title="Edit"
                     >
                       <Pencil size={14} />
@@ -931,13 +931,13 @@ function FilamentLibraryView() {
                         <button
                           onClick={() => deleteMutation.mutate(f.id)}
                           disabled={deleteMutation.isPending}
-                          className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded text-white text-xs font-medium"
+                          className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-white text-xs font-medium"
                         >
                           Delete
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded text-farm-200 text-xs"
+                          className="px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-200 text-xs"
                         >
                           No
                         </button>
@@ -945,7 +945,7 @@ function FilamentLibraryView() {
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(f.id)}
-                        className="p-1.5 bg-farm-800 hover:bg-red-900 rounded text-farm-300 hover:text-red-400 transition-colors"
+                        className="p-1.5 bg-farm-800 hover:bg-red-900 rounded-lg text-farm-300 hover:text-red-400 transition-colors"
                         title="Delete"
                       >
                         <Trash2 size={14} />
@@ -1091,7 +1091,7 @@ export default function Spools() {
             <button
               onClick={() => setView('spools')}
               className={clsx(
-                "px-3 py-1.5 rounded text-xs md:text-sm font-medium transition-colors",
+                "px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition-colors",
                 view === 'spools' ? "bg-print-600 text-white" : "text-farm-400 hover:text-farm-200"
               )}
             >
@@ -1100,7 +1100,7 @@ export default function Spools() {
             <button
               onClick={() => setView('library')}
               className={clsx(
-                "px-3 py-1.5 rounded text-xs md:text-sm font-medium transition-colors flex items-center gap-1.5",
+                "px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition-colors flex items-center gap-1.5",
                 view === 'library' ? "bg-print-600 text-white" : "text-farm-400 hover:text-farm-200"
               )}
             >
@@ -1182,7 +1182,7 @@ export default function Spools() {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="bg-farm-800 border border-farm-700 rounded px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-farm-200"
+                className="bg-farm-800 border border-farm-700 rounded-lg px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-farm-200"
               >
                 <option value="printer">Printer/Slot</option>
                 <option value="name">Name</option>
@@ -1194,7 +1194,7 @@ export default function Spools() {
                   type="checkbox"
                   checked={groupByPrinter}
                   onChange={(e) => setGroupByPrinter(e.target.checked)}
-                  className="rounded bg-farm-800 border-farm-700"
+                  className="rounded-lg bg-farm-800 border-farm-700"
                 />
                 <span className="hidden sm:inline">Group by printer</span>
                 <span className="sm:hidden">Group</span>

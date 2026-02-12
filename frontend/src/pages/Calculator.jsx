@@ -38,7 +38,7 @@ function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", 
 
 function CostSection({ title, icon: Icon, cost, children }) {
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 p-3 md:p-4">
       <div className="flex items-center justify-between mb-3 md:mb-4">
         <div className="flex items-center gap-2">
           {Icon && <Icon size={16} className="text-farm-400" />}
@@ -58,7 +58,7 @@ function PricingBreakdown({ costs, margin, quantity }) {
   const total = perUnit * quantity
 
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4 lg:sticky lg:top-4">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 p-3 md:p-4 lg:sticky lg:top-4">
       <h3 className="font-display font-semibold mb-4 text-sm md:text-base">Final Pricing</h3>
       <div className="space-y-2 text-sm">
         <div className="flex justify-between"><span className="text-farm-400">Material Cost:</span><span>${costs.material.toFixed(2)}</span></div>
@@ -303,7 +303,7 @@ export default function CalculatorPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <div className="lg:col-span-2 space-y-4">
           {/* Model selector */}
-          <div className="bg-farm-900 rounded border border-farm-800 p-3 md:p-4">
+          <div className="bg-farm-900 rounded-lg border border-farm-800 p-3 md:p-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
                 <label className="block text-xs md:text-sm text-farm-400 mb-1">Select Model (optional)</label>

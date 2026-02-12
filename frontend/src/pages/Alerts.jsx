@@ -137,7 +137,7 @@ export default function Alerts() {
   const unreadCount = alerts.filter(a => !a.is_read).length
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Bell size={24} style={{ color: 'var(--brand-accent)' }} />
@@ -179,7 +179,7 @@ export default function Alerts() {
         {loading && alerts.length === 0 ? (
           <div className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</div>
         ) : alerts.length === 0 ? (
-          <div className="text-center py-12 rounded border" style={{
+          <div className="text-center py-12 rounded-lg border" style={{
             backgroundColor: 'var(--brand-card-bg)',
             borderColor: 'var(--brand-sidebar-border)',
             color: 'var(--brand-text-muted)',
@@ -195,7 +195,7 @@ export default function Alerts() {
             return (
               <div
                 key={alert.id}
-                className={`rounded border border-l-4 ${sev.bg} transition-all ${!alert.is_read ? 'ring-1 ring-print-500/20' : ''}`}
+                className={`rounded-lg border border-l-4 ${sev.bg} transition-all ${!alert.is_read ? 'ring-1 ring-print-500/20' : ''}`}
                 style={{
                   backgroundColor: 'var(--brand-card-bg)',
                   borderColor: 'var(--brand-sidebar-border)',
@@ -220,7 +220,7 @@ export default function Alerts() {
                             {formatDate(alert.created_at)}
                           </span>
                           {alert.printer_name && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-lg" style={{
                               backgroundColor: 'var(--brand-sidebar-bg)',
                               color: 'var(--brand-text-muted)',
                             }}>
@@ -237,7 +237,7 @@ export default function Alerts() {
                           <button
                             onClick={() => handleApproveFromAlert(alert)}
                             disabled={actionLoading === alert.id}
-                            className="p-1.5 rounded transition-colors hover:bg-green-900/50 text-green-400"
+                            className="p-1.5 rounded-lg transition-colors hover:bg-green-900/50 text-green-400"
                             title="Approve Job"
                           >
                             <CheckCircle size={14} />
@@ -245,7 +245,7 @@ export default function Alerts() {
                           <button
                             onClick={() => setRejectingAlertJobId(rejectingAlertJobId === alert.id ? null : alert.id)}
                             disabled={actionLoading === alert.id}
-                            className="p-1.5 rounded transition-colors hover:bg-red-900/50 text-red-400"
+                            className="p-1.5 rounded-lg transition-colors hover:bg-red-900/50 text-red-400"
                             title="Reject Job"
                           >
                             <XCircle size={14} />
@@ -255,7 +255,7 @@ export default function Alerts() {
                       {action && alert.alert_type !== 'job_submitted' && (
                         <a
                           href={action.path}
-                          className="p-1.5 rounded transition-colors hover:bg-farm-800 text-farm-400"
+                          className="p-1.5 rounded-lg transition-colors hover:bg-farm-800 text-farm-400"
                           title={action.label}
                         >
                           <ExternalLink size={14} />
@@ -264,7 +264,7 @@ export default function Alerts() {
                       {!alert.is_read && (
                         <button
                           onClick={() => handleMarkRead(alert.id)}
-                          className="p-1.5 rounded transition-colors hover:bg-farm-800 text-farm-400"
+                          className="p-1.5 rounded-lg transition-colors hover:bg-farm-800 text-farm-400"
                           title="Mark read"
                         >
                           <Check size={14} />
@@ -272,7 +272,7 @@ export default function Alerts() {
                       )}
                       <button
                         onClick={() => handleDismiss(alert.id)}
-                        className="p-1.5 rounded transition-colors hover:bg-red-900/50 text-farm-500 hover:text-red-400"
+                        className="p-1.5 rounded-lg transition-colors hover:bg-red-900/50 text-farm-500 hover:text-red-400"
                         title="Dismiss"
                       >
                         <X size={14} />
@@ -289,20 +289,20 @@ export default function Alerts() {
                           value={rejectReason}
                           onChange={(e) => setRejectReason(e.target.value)}
                           placeholder="e.g., Too much filament — please re-slice with 10% infill"
-                          className="flex-1 bg-farm-800 border border-farm-700 rounded px-2 py-1.5 text-sm text-white"
+                          className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm text-white"
                           autoFocus
                           onKeyDown={(e) => e.key === 'Enter' && rejectReason.trim() && handleRejectFromAlert(alert)}
                         />
                         <button
                           onClick={() => handleRejectFromAlert(alert)}
                           disabled={!rejectReason.trim() || actionLoading === alert.id}
-                          className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:bg-farm-700 disabled:text-farm-500 rounded text-sm text-white transition-colors"
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:bg-farm-700 disabled:text-farm-500 rounded-lg text-sm text-white transition-colors"
                         >
                           Reject
                         </button>
                         <button
                           onClick={() => { setRejectingAlertJobId(null); setRejectReason('') }}
-                          className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded text-sm text-farm-300 transition-colors"
+                          className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm text-farm-300 transition-colors"
                         >
                           Cancel
                         </button>

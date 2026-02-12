@@ -72,8 +72,8 @@ function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
       onClick={onClick}
       className={({ isActive }) => clsx(
         'transition-colors border-l-3',
-        collapsed ? 'flex items-center justify-center py-2 rounded' 
-                  : 'flex items-center gap-3 px-4 py-2 rounded text-sm',
+        collapsed ? 'flex items-center justify-center py-2 rounded-lg' 
+                  : 'flex items-center gap-3 px-4 py-2 rounded-lg text-sm',
         isActive ? 'border-l-amber-500' : 'border-l-transparent',
       )}
       style={({ isActive }) => isActive
@@ -279,18 +279,28 @@ function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Footer */}
         <div className="flex-shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
-          <button
-            onClick={() => {
-              localStorage.removeItem("token");
-              localStorage.removeItem("user");
-              window.location.href = "/login";
-            }}
-            className="flex items-center gap-2 hover:text-red-400 text-sm mt-2 transition-colors"
-            style={{ color: 'var(--brand-sidebar-text)' }}
-          >
-            <LogOut size={14} />
-            {(!collapsed || mobileOpen) && "Logout"}
-          </button>
+          <div className="flex items-center justify-between">
+            {(!collapsed || mobileOpen) && (
+              <span className="text-[10px]" style={{ color: 'var(--brand-text-muted)' }}>v{__APP_VERSION__}</span>
+            )}
+            <button
+              onClick={() => {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user");
+                window.location.href = "/login";
+              }}
+              className="flex items-center gap-2 hover:text-red-400 text-sm transition-colors"
+              style={{ color: 'var(--brand-sidebar-text)' }}
+            >
+              <LogOut size={14} />
+              {(!collapsed || mobileOpen) && "Logout"}
+            </button>
+          </div>
+          {(!collapsed || mobileOpen) && (
+            <p className="text-[10px] text-center mt-1" style={{ color: 'var(--brand-text-muted)', opacity: 0.6 }}>
+              Powered by O.D.I.N.
+            </p>
+          )}
         </div>
       </aside>
     </>
@@ -460,6 +470,7 @@ export default function App() {
           </Routes>
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
+            <div className="text-center py-4 text-[10px] text-farm-600 select-none">Powered by O.D.I.N.</div>
           </main>
         </div>
       </div>

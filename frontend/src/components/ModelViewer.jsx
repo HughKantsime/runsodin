@@ -360,7 +360,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             {/* Wireframe toggle */}
             <button
               onClick={() => setWireframe(!wireframe)}
-              className={`px-2 py-1 text-xs rounded ${wireframe ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-farm-700 text-farm-300 border border-farm-600'}`}
+              className={`px-2 py-1 text-xs rounded-lg ${wireframe ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-farm-700 text-farm-300 border border-farm-600'}`}
               title="Toggle wireframe"
             >
               Wireframe
@@ -368,14 +368,14 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             {/* Zoom controls */}
             <button
               onClick={() => controlsRef.current?.zoomIn()}
-              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded text-farm-300"
+              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
               title="Zoom in"
             >
               <ZoomIn size={14} />
             </button>
             <button
               onClick={() => controlsRef.current?.zoomOut()}
-              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded text-farm-300"
+              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
               title="Zoom out"
             >
               <ZoomOut size={14} />
@@ -383,7 +383,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             {/* Reset view */}
             <button
               onClick={() => controlsRef.current?.reset()}
-              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded text-farm-300"
+              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
               title="Reset view"
             >
               <RotateCcw size={14} />
@@ -391,7 +391,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
             {/* Close */}
             <button
               onClick={onClose}
-              className="p-1.5 bg-farm-700 hover:bg-red-600 rounded text-farm-300"
+              className="p-1.5 bg-farm-700 hover:bg-red-600 rounded-lg text-farm-300"
               title="Close (Esc)"
             >
               <X size={14} />

@@ -101,13 +101,13 @@ export default function EducationReports() {
         <div className="flex items-center gap-2">
           {[7, 14, 30, 90].map(d => (
             <button key={d} onClick={() => setDays(d)}
-              className={clsx('px-3 py-1.5 rounded text-sm transition-colors',
+              className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors',
                 days === d ? 'bg-amber-500 text-farm-950 font-medium' : 'bg-farm-800 text-farm-300 hover:bg-farm-700'
               )}>
               {d}d
             </button>
           ))}
-          <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-300 transition-colors">
+          <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm text-farm-300 transition-colors">
             <Download size={14} /> Export CSV
           </button>
         </div>

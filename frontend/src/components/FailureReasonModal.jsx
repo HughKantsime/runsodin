@@ -51,7 +51,7 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
             <AlertTriangle size={18} className="text-red-400" />
             <h2 className="text-lg font-semibold text-farm-100">Print Failure</h2>
           </div>
-          <button onClick={onClose} className="p-1 text-farm-400 hover:text-farm-200 rounded">
+          <button onClick={onClose} className="p-1 text-farm-400 hover:text-farm-200 rounded-lg">
             <X size={18} />
           </button>
         </div>

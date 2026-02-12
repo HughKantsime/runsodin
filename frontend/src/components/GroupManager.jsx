@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../LicenseContext'
 import { groups, users as usersApi } from '../api'
-import { Plus, Edit2, Trash2, Users, X, FolderOpen } from 'lucide-react'
+import { Plus, Edit2, Trash2, Users, X, FolderOpen, RefreshCw } from 'lucide-react'
 
 function GroupModal({ group, operatorAdmins, onClose, onSave }) {
   const [formData, setFormData] = useState({
@@ -109,7 +109,7 @@ export default function GroupManager() {
         </button>
       </div>
 
-      <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[500px]">
             <thead className="bg-farm-800">
@@ -122,12 +122,12 @@ export default function GroupManager() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={4} className="py-8 text-center text-farm-500 text-sm">Loading...</td></tr>
+                <tr><td colSpan={4} className="py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
               ) : !groupsList?.length ? (
                 <tr><td colSpan={4} className="py-8 text-center text-farm-500 text-sm">No groups yet</td></tr>
               ) : (
                 groupsList.map(group => (
-                  <tr key={group.id} className="border-t border-farm-800">
+                  <tr key={group.id} className="border-t border-farm-800 hover:bg-farm-800/50 transition-colors">
                     <td className="py-3 px-3 md:px-4">
                       <p className="font-medium text-sm">{group.name}</p>
                       {group.description && <p className="text-xs text-farm-500">{group.description}</p>}
@@ -142,8 +142,8 @@ export default function GroupManager() {
                     </td>
                     <td className="py-3 px-3 md:px-4 text-right">
                       <div className="flex justify-end gap-1">
-                        <button onClick={() => handleEdit(group)} className="p-1.5 rounded hover:bg-farm-800 text-farm-400 hover:text-white transition-colors" title="Edit"><Edit2 size={14} /></button>
-                        <button onClick={() => handleDelete(group)} className="p-1.5 rounded hover:bg-red-900/50 text-farm-400 hover:text-red-400 transition-colors" title="Delete"><Trash2 size={14} /></button>
+                        <button onClick={() => handleEdit(group)} className="p-1.5 rounded-lg hover:bg-farm-800 text-farm-400 hover:text-white transition-colors" title="Edit"><Edit2 size={14} /></button>
+                        <button onClick={() => handleDelete(group)} className="p-1.5 rounded-lg hover:bg-red-900/50 text-farm-400 hover:text-red-400 transition-colors" title="Delete"><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>

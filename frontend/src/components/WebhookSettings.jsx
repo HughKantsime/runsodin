@@ -198,7 +198,7 @@ export default function WebhookSettings() {
                 <button
                   key={type.id}
                   onClick={() => toggleAlertType(type.id)}
-                  className={`px-3 py-1 rounded text-sm transition-colors ${
+                  className={`px-3 py-1 rounded-lg text-sm transition-colors ${
                     newWebhook.alert_types.includes(type.id)
                       ? 'bg-print-600 text-white'
                       : 'bg-farm-700 text-farm-300 hover:bg-farm-600'
@@ -258,14 +258,14 @@ export default function WebhookSettings() {
                 <button
                   onClick={() => testWebhook(webhook.id)}
                   disabled={testing === webhook.id}
-                  className="p-2 text-farm-400 hover:text-print-400 hover:bg-farm-700 rounded transition-colors"
+                  className="p-2 text-farm-400 hover:text-print-400 hover:bg-farm-700 rounded-lg transition-colors"
                   title="Test"
                 >
                   <TestTube size={16} className={testing === webhook.id ? 'animate-pulse' : ''} />
                 </button>
                 <button
                   onClick={() => toggleWebhook(webhook.id, webhook.is_enabled)}
-                  className={`px-3 py-1 rounded text-xs ${
+                  className={`px-3 py-1 rounded-lg text-xs ${
                     webhook.is_enabled ? 'bg-green-900/50 text-green-400' : 'bg-farm-700 text-farm-400'
                   }`}
                 >
@@ -273,7 +273,7 @@ export default function WebhookSettings() {
                 </button>
                 <button
                   onClick={() => deleteWebhook(webhook.id)}
-                  className="p-2 text-farm-400 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+                  className="p-2 text-farm-400 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -282,7 +282,7 @@ export default function WebhookSettings() {
             {webhook.alert_types?.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {webhook.alert_types.map(type => (
-                  <span key={type} className="px-2 py-0.5 bg-farm-700 rounded text-xs text-farm-300">
+                  <span key={type} className="px-2 py-0.5 bg-farm-700 rounded-lg text-xs text-farm-300">
                     {alertTypes.find(t => t.id === type)?.label || type}
                   </span>
                 ))}

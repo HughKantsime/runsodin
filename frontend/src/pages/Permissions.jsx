@@ -264,11 +264,11 @@ export default function Permissions() {
             </span>
           )}
           <button onClick={handleReset} disabled={saving}
-            className="bg-farm-800 hover:bg-farm-700 text-farm-300 px-3 py-2 rounded text-sm flex items-center gap-1.5 disabled:opacity-40">
+            className="bg-farm-800 hover:bg-farm-700 text-farm-300 px-3 py-2 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-40">
             <RotateCcw size={14} /> Reset Defaults
           </button>
           <button onClick={handleSave} disabled={!dirty || saving}
-            className="bg-print-500 hover:bg-print-600 text-white px-4 py-2 rounded text-sm flex items-center gap-1.5 disabled:opacity-40">
+            className="bg-print-500 hover:bg-print-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-40">
             <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>

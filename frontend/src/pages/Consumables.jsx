@@ -189,17 +189,17 @@ export default function Consumables() {
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => { setShowAdjustModal(item); setAdjustData({ quantity: '', type: 'restock', notes: '' }) }}
-                        className="p-1.5 text-farm-400 hover:bg-farm-700 rounded" title="Adjust Stock">
+                        className="p-1.5 text-farm-400 hover:bg-farm-700 rounded-lg" title="Adjust Stock">
                         <ArrowUpDown size={14} />
                       </button>
                       {canDo('models.update') && (
-                        <button onClick={() => handleEdit(item)} className="p-1.5 text-farm-400 hover:bg-farm-700 rounded" title="Edit">
+                        <button onClick={() => handleEdit(item)} className="p-1.5 text-farm-400 hover:bg-farm-700 rounded-lg" title="Edit">
                           <Pencil size={14} />
                         </button>
                       )}
                       {canDo('models.delete') && (
                         <button onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteMutation.mutate(item.id) }}
-                          className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded" title="Delete">
+                          className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg" title="Delete">
                           <Trash2 size={14} />
                         </button>
                       )}

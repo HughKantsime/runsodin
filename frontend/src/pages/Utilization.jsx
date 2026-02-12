@@ -94,12 +94,12 @@ export default function Utilization() {
         </div>
         <div className="flex items-center gap-2">
           <select value={timeRange} onChange={e => setTimeRange(e.target.value)}
-            className="bg-farm-900 border border-farm-700 rounded px-3 py-1.5 text-sm text-farm-300">
+            className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm text-farm-300">
             <option value="7">Last 7 days</option>
             <option value="14">Last 14 days</option>
             <option value="30">Last 30 days</option>
           </select>
-          <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded text-sm text-farm-300 transition-colors">
+          <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm text-farm-300 transition-colors">
             <Download size={14} /> Export CSV
           </button>
         </div>

@@ -94,7 +94,7 @@ function JobRow({ job, onAction, dragProps }) {
       </td>
       <td className="px-3 md:px-4 py-3">
         <span className={clsx(
-          'px-2 py-0.5 rounded text-xs font-medium',
+          'px-2 py-0.5 rounded-lg text-xs font-medium',
           job.priority <= 2 ? 'bg-red-900/50 text-red-400' : 
           job.priority >= 4 ? 'bg-farm-800 text-farm-400' : 
           'bg-amber-900/50 text-amber-400'
@@ -120,55 +120,55 @@ function JobRow({ job, onAction, dragProps }) {
         <div className="flex items-center gap-1">
           {job.status === 'submitted' && canDo('jobs.approve') && (
             <>
-              <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Approve">
+              <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" title="Approve">
                 <CheckCircle size={16} />
               </button>
-              <button onClick={() => onAction('reject', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Reject">
+              <button onClick={() => onAction('reject', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" title="Reject">
                 <XCircle size={16} />
               </button>
             </>
           )}
           {job.status === 'rejected' && job.submitted_by && canDo('jobs.resubmit') && (
-            <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded" title="Resubmit">
+            <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" title="Resubmit">
               <RefreshCw size={14} />
             </button>
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
-            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded" title="Start Print">
+            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg" title="Start Print">
               <Play size={16} />
             </button>
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (
             <>
-              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded" title="Complete">
+              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" title="Complete">
                 <CheckCircle size={16} />
               </button>
-              <button onClick={() => onAction('markFailed', job.id, job.item_name)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Mark Failed">
+              <button onClick={() => onAction('markFailed', job.id, job.item_name)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" title="Mark Failed">
                 <AlertTriangle size={16} />
               </button>
             </>
           )}
           {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
-            <button onClick={() => onAction('edit', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded" title="Edit Job">
+            <button onClick={() => onAction('edit', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" title="Edit Job">
               <Pencil size={14} />
             </button>
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
-            <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded" title="Cancel">
+            <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" title="Cancel">
               <XCircle size={16} />
             </button>
           )}
           {job.status === 'failed' && (
-            <button onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded" title={job.fail_reason ? 'Edit Failure Reason' : 'Add Failure Reason'}>
+            <button onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" title={job.fail_reason ? 'Edit Failure Reason' : 'Add Failure Reason'}>
               <AlertTriangle size={16} />
             </button>
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <>
-              <button onClick={() => onAction('repeat', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded" title="Print Again">
+              <button onClick={() => onAction('repeat', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" title="Print Again">
                 <RefreshCw size={14} />
               </button>
-              <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded" title="Delete">
+              <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg" title="Delete">
                 <Trash2 size={16} />
               </button>
             </>
@@ -456,7 +456,7 @@ function PriorityBadge({ priority }) {
   if (!priority || priority === 'normal') return null
   const cfg = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.normal
   return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs border ${cfg.color}`}>
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-xs border ${cfg.color}`}>
       {cfg.icon && <span className="text-[10px]">{cfg.icon}</span>}
       {cfg.label}
     </span>
@@ -692,7 +692,7 @@ export default function Jobs() {
   const adhocJobCount = (jobsData || []).filter(j => j.order_item_id == null).length
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-display font-bold">Jobs</h1>
@@ -757,7 +757,7 @@ export default function Jobs() {
         </div>
       </div>
 
-      <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
             <thead className="bg-farm-950 border-b border-farm-800">
@@ -786,7 +786,7 @@ export default function Jobs() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-farm-500 text-sm">Loading...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
               ) : filteredJobs.length === 0 ? (
                 <tr><td colSpan={8} className="px-4 py-8 text-center text-farm-500 text-sm">
                   {jobTypeFilter === 'order' ? 'No order jobs found' :

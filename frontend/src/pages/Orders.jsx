@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { orders, products } from '../api'
-import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil, RefreshCw } from 'lucide-react'
 import { canDo } from '../permissions'
 
 const STATUS_CLASSES = {
@@ -239,7 +239,7 @@ export default function Orders() {
     }, 0)
   }
 
-  if (loading) return <div className="p-6 text-farm-300">Loading...</div>
+  if (loading) return <div className="flex items-center justify-center py-12 text-farm-500 gap-2"><RefreshCw size={16} className="animate-spin" />Loading...</div>
 
   return (
     <div className="p-4 md:p-6">
@@ -297,7 +297,7 @@ export default function Orders() {
           <p>No orders yet. Create your first order to start tracking.</p>
         </div>
       ) : (
-        <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
+        <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
           {/* Mobile card view */}
           <div className="block md:hidden divide-y divide-farm-800">
             {orderList.map(order => (
@@ -309,7 +309,7 @@ export default function Orders() {
                   >
                     {order.order_number || `#${order.id}`}
                   </button>
-                  <span className={`px-2 py-1 rounded text-xs ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
+                  <span className={`px-2 py-1 rounded-lg text-xs ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
                     {order.status?.replace('_', ' ')}
                   </span>
                 </div>
@@ -322,7 +322,7 @@ export default function Orders() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => openDetailModal(order)}
-                    className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+                    className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                     title="View Details"
                   >
                     <Eye size={14} />
@@ -330,7 +330,7 @@ export default function Orders() {
                   {canDo('orders.edit') && (
                     <button
                       onClick={() => openEditModal(order)}
-                      className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
                       title="Edit Order"
                     >
                       <Pencil size={14} />
@@ -339,7 +339,7 @@ export default function Orders() {
                   {canDo('orders.edit') && order.status === 'pending' && (
                     <button
                       onClick={() => handleSchedule(order.id)}
-                      className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                       title="Schedule Jobs"
                     >
                       <Play size={14} />
@@ -348,7 +348,7 @@ export default function Orders() {
                   {canDo('orders.ship') && order.status === 'fulfilled' && (
                     <button
                       onClick={() => handleShip(order.id)}
-                      className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                       title="Mark Shipped"
                     >
                       <Truck size={14} />
@@ -357,7 +357,7 @@ export default function Orders() {
                   {canDo('orders.delete') && (
                     <button
                       onClick={() => handleDelete(order.id)}
-                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -395,7 +395,7 @@ export default function Orders() {
                   <td className="px-4 py-3 capitalize text-farm-300">{order.platform || '-'}</td>
                   <td className="px-4 py-3 text-farm-300">{order.customer_name || '-'}</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-sm ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
+                    <span className={`px-2 py-1 rounded-lg text-sm ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
                       {order.status?.replace('_', ' ')}
                     </span>
                   </td>
@@ -404,7 +404,7 @@ export default function Orders() {
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => openDetailModal(order)}
-                      className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+                      className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                       title="View Details"
                     >
                       <Eye size={14} />
@@ -412,7 +412,7 @@ export default function Orders() {
                     {canDo('orders.edit') && (
                       <button
                         onClick={() => openEditModal(order)}
-                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
                         title="Edit Order"
                       >
                         <Pencil size={14} />
@@ -421,7 +421,7 @@ export default function Orders() {
                     {canDo('orders.edit') && order.status === 'pending' && (
                       <button
                         onClick={() => handleSchedule(order.id)}
-                        className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+                        className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                         title="Schedule Jobs"
                       >
                         <Play size={14} />
@@ -430,7 +430,7 @@ export default function Orders() {
                     {canDo('orders.ship') && order.status === 'fulfilled' && (
                       <button
                         onClick={() => handleShip(order.id)}
-                        className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+                        className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                         title="Mark Shipped"
                       >
                         <Truck size={14} />
@@ -439,7 +439,7 @@ export default function Orders() {
                     {canDo('orders.delete') && (
                       <button
                         onClick={() => handleDelete(order.id)}
-                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
                         title="Delete"
                       >
                         <Trash2 size={14} />
@@ -456,10 +456,10 @@ export default function Orders() {
       {/* Create Order Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">New Order</h2>
-              <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded transition-colors">
+              <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -554,7 +554,7 @@ export default function Orders() {
                           <button 
                             type="button" 
                             onClick={() => removeItem(i)} 
-                            className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors"
+                            className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
                           >
                             <X size={14} />
                           </button>
@@ -616,19 +616,19 @@ export default function Orders() {
       {/* Order Detail Modal */}
       {showDetailModal && selectedOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">
                 Order {selectedOrder.order_number || `#${selectedOrder.id}`}
               </h2>
-              <button onClick={() => setShowDetailModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded transition-colors">
+              <button onClick={() => setShowDetailModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
                 <X size={18} />
               </button>
             </div>
             <div className="p-4 space-y-4">
               {/* Status & Actions */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                <span className={`px-3 py-1 rounded text-sm ${STATUS_CLASSES[selectedOrder.status] || 'bg-farm-700 text-farm-300'}`}>
+                <span className={`px-3 py-1 rounded-lg text-sm ${STATUS_CLASSES[selectedOrder.status] || 'bg-farm-700 text-farm-300'}`}>
                   {selectedOrder.status?.replace('_', ' ')}
                 </span>
                 <div className="flex gap-2">
@@ -690,9 +690,9 @@ export default function Orders() {
                 <h3 className="font-medium mb-2 text-farm-200">Jobs</h3>
                 <div className="text-sm text-farm-300">
                   {selectedOrder.jobs_complete} / {selectedOrder.jobs_total} complete
-                  <div className="w-full rounded h-2 mt-1 bg-farm-800">
+                  <div className="w-full rounded-lg h-2 mt-1 bg-farm-800">
                     <div
-                      className="h-2 rounded bg-print-500"
+                      className="h-2 rounded-lg bg-print-500"
                       style={{ width: `${selectedOrder.jobs_total ? (selectedOrder.jobs_complete / selectedOrder.jobs_total) * 100 : 0}%` }}
                     />
                   </div>
@@ -764,10 +764,10 @@ export default function Orders() {
       {/* Edit Order Modal */}
       {editingOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">Edit Order {editingOrder.order_number || `#${editingOrder.id}`}</h2>
-              <button onClick={() => setEditingOrder(null)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded transition-colors">
+              <button onClick={() => setEditingOrder(null)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
                 <X size={18} />
               </button>
             </div>

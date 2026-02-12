@@ -22,7 +22,7 @@ import { canDo } from '../permissions'
 
 function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D }) {
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
       <div className="h-28 md:h-32 bg-farm-950 flex items-center justify-center">
         {model.thumbnail_b64 ? (
           <img 
@@ -46,10 +46,10 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             <h3 className="font-medium text-sm md:text-base truncate">{model.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
               {model.default_filament_type && (
-                <span className="text-xs px-1.5 py-0.5 bg-farm-800 text-farm-400 rounded">{model.default_filament_type}</span>
+                <span className="text-xs px-1.5 py-0.5 bg-farm-800 text-farm-400 rounded-lg">{model.default_filament_type}</span>
               )}
               {model.variant_count > 1 && (
-                <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded">{model.variant_count} variants</span>
+                <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg">{model.variant_count} variants</span>
               )}
             </div>
           </div>
@@ -57,7 +57,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
           <div className="flex items-center gap-0.5 flex-shrink-0">
             <button
               onClick={() => onToggleFavorite(model)}
-              className={clsx("p-1 md:p-1.5 rounded transition-colors", model.is_favorite ? "text-yellow-400" : "text-farm-600 hover:text-yellow-400")}
+              className={clsx("p-1 md:p-1.5 rounded-lg transition-colors", model.is_favorite ? "text-yellow-400" : "text-farm-600 hover:text-yellow-400")}
               title={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
             >
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
@@ -65,20 +65,20 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             
             {canDo('models.create') && <button
               onClick={() => onSchedule(model)}
-              className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded transition-colors"
+              className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
               title="Schedule print job"
             >
               <CalendarPlus size={14} />
             </button>}
             {canDo('models.edit') && <button
               onClick={() => onEdit(model)}
-              className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded transition-colors"
+              className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
             >
               <Pencil size={14} />
             </button>}
             {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
-              className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded transition-colors"
+              className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
             >
               <Trash2 size={14} />
             </button>}
@@ -207,7 +207,7 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
               <div className="text-xs text-print-400 font-medium px-3 py-1 bg-farm-900 sticky top-0">From Spoolman</div>
               {spoolmanFilaments.slice(0, 15).map(f => (
                 <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-farm-700 cursor-pointer">
-                  <div className="w-4 h-4 rounded border border-farm-500 flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
+                  <div className="w-4 h-4 rounded-lg border border-farm-500 flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
                   <span className="text-sm truncate flex-1">{f.name}</span>
                   {f.remaining_weight && <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>}
                 </div>
@@ -219,7 +219,7 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
               <div className="text-xs text-farm-400 font-medium px-3 py-1 bg-farm-900 sticky top-0">From Library</div>
               {libraryFilaments.slice(0, 20).map(f => (
                 <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-farm-700 cursor-pointer">
-                  <div className="w-4 h-4 rounded border border-farm-500 flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
+                  <div className="w-4 h-4 rounded-lg border border-farm-500 flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
                   <span className="text-sm truncate">{f.display_name}</span>
                 </div>
               ))}
@@ -240,7 +240,7 @@ function ColorSlotInput({ index, color, grams, onChange, onRemove, filamentData 
       <div className="w-20 md:w-24">
         <input type="number" min="0" step="0.1" value={grams} onChange={(e) => onChange(index, 'grams', e.target.value)} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-2 md:px-3 py-2 text-sm" placeholder="g" />
       </div>
-      <button type="button" onClick={() => onRemove(index)} className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors">
+      <button type="button" onClick={() => onRemove(index)} className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors">
         <X size={16} />
       </button>
     </div>
@@ -401,7 +401,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
         {variants.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-3">
             {variants.map(v => (
-              <span key={v.id} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">{v.printer_model}</span>
+              <span key={v.id} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg text-xs">{v.printer_model}</span>
             ))}
           </div>
         )}
@@ -527,10 +527,10 @@ export default function Models() {
   const categories = [...new Set(modelsData?.map(m => m.category).filter(Boolean))]
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold">Models</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold">Models</h1>
           <p className="text-farm-500 text-sm mt-1">Print model library</p>
         </div>
         {canDo('models.create') && <button onClick={() => { setEditingModel(null); setShowModal(true) }} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
@@ -575,7 +575,7 @@ export default function Models() {
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading models...</div>
       ) : modelsData?.length === 0 ? (
-        <div className="bg-farm-900 rounded border border-farm-800 p-8 md:p-12 text-center">
+        <div className="bg-farm-900 rounded-lg border border-farm-800 p-8 md:p-12 text-center">
           <p className="text-farm-500 mb-4">No models defined yet.</p>
           <p className="text-sm text-farm-600 mb-4">Upload a .3mf file or add models manually to get started.</p>
           <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Model</button>

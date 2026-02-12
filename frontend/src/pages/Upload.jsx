@@ -27,7 +27,7 @@ function DropZone({ onFileSelect, isUploading }) {
   return (
     <div
       className={clsx(
-        'border-2 border-dashed rounded p-8 md:p-12 text-center transition-all',
+        'border-2 border-dashed rounded-lg p-8 md:p-12 text-center transition-all',
         isDragging ? 'border-print-500 bg-print-900/20' : 'border-farm-700 hover:border-farm-500',
         isUploading && 'opacity-50 pointer-events-none'
       )}
@@ -70,7 +70,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
   })
 
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
       <div className="flex flex-col md:flex-row">
         {/* Thumbnail */}
         <div className="w-full md:w-64 h-48 md:h-64 bg-farm-950 flex-shrink-0">
@@ -91,7 +91,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
                   {data?.is_new_model === false ? 'Added as variant to existing model' : 'Added to Model Library'}
                 </span>
                 {data?.printer_model && data.printer_model !== 'Unknown' && (
-                  <span className="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">
+                  <span className="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg text-xs">
                     {data.printer_model}
                   </span>
                 )}
@@ -149,7 +149,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
               </div>
               <div className="bg-farm-800/50 rounded-lg p-2 max-h-32 overflow-y-auto space-y-1">
                 {data.objects.map((obj, i) => (
-                  <label key={i} className="flex items-center gap-2 p-1.5 hover:bg-farm-700/50 rounded cursor-pointer">
+                  <label key={i} className="flex items-center gap-2 p-1.5 hover:bg-farm-700/50 rounded-lg cursor-pointer">
                     <input 
                       type="checkbox" 
                       checked={obj.checked}
@@ -158,7 +158,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
                         newObjects[i] = { ...newObjects[i], checked: !newObjects[i].checked }
                         onUpdateObjects?.(newObjects)
                       }}
-                      className="w-4 h-4 rounded border-farm-600 bg-farm-700 text-green-500 focus:ring-green-500"
+                      className="w-4 h-4 rounded-lg border-farm-600 bg-farm-700 text-green-500 focus:ring-green-500"
                     />
                     <span className={`text-sm truncate ${obj.is_wipe_tower ? 'text-farm-500 italic' : ''}`}>
                       {obj.name}
@@ -218,7 +218,7 @@ function RecentUploads() {
           <div key={f.id} className="bg-farm-900 rounded-lg p-3 md:p-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 md:gap-4 min-w-0">
               {f.thumbnail_b64 && (
-                <img src={`data:image/png;base64,${f.thumbnail_b64}`} alt={f.project_name} className="w-10 h-10 md:w-12 md:h-12 rounded object-contain bg-farm-950 flex-shrink-0" />
+                <img src={`data:image/png;base64,${f.thumbnail_b64}`} alt={f.project_name} className="w-10 h-10 md:w-12 md:h-12 rounded-lg object-contain bg-farm-950 flex-shrink-0" />
               )}
               <div className="min-w-0">
                 <p className="font-medium text-sm truncate">{f.project_name}</p>
@@ -227,9 +227,9 @@ function RecentUploads() {
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               {f.job_id ? (
-                <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded">Scheduled</span>
+                <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded-lg">Scheduled</span>
               ) : (
-                <span className="text-xs bg-print-900/50 text-print-400 px-2 py-1 rounded hidden sm:inline">In Library</span>
+                <span className="text-xs bg-print-900/50 text-print-400 px-2 py-1 rounded-lg hidden sm:inline">In Library</span>
               )}
               <button onClick={() => deleteMutation.mutate(f.id)} className="p-1 text-farm-500 hover:text-red-400 transition-colors" title="Delete"><Trash2 size={16} /></button>
             </div>
@@ -269,7 +269,7 @@ export default function Upload() {
   const handleFileSelect = (file) => uploadMutation.mutate(file)
   
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       <div className="mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-display font-bold">Upload Print File</h1>
         <p className="text-farm-500 text-sm mt-1">Upload .3mf files to add to your model library</p>

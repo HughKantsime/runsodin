@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../LicenseContext'
 import { groups as groupsApi } from '../api'
-import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X } from 'lucide-react'
+import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 
 const API_BASE = '/api'
@@ -77,7 +77,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
           )}
           {user && (
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="is_active" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="rounded" />
+              <input type="checkbox" id="is_active" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="rounded-lg" />
               <label htmlFor="is_active" className="text-sm text-farm-400">Active</label>
             </div>
           )}
@@ -137,10 +137,10 @@ export default function Admin() {
   const handleDelete = (user) => { if (confirm(`Delete user "${user.username}"? This cannot be undone.`)) deleteUser.mutate(user.id) }
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 md:mb-8">
         <div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold">Admin</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold">Admin</h1>
           <p className="text-farm-500 text-sm mt-1">Manage users and permissions</p>
         </div>
         {atUserLimit
@@ -153,7 +153,7 @@ export default function Admin() {
         }
       </div>
 
-      <div className="bg-farm-900 rounded border border-farm-800 overflow-hidden">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[550px]">
             <thead className="bg-farm-800">
@@ -168,14 +168,14 @@ export default function Admin() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">Loading...</td></tr>
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
               ) : users?.length === 0 ? (
                 <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">No users found</td></tr>
               ) : (
                 users?.map((user) => {
                   const RoleIcon = roleIcons[user.role] || Eye
                   return (
-                    <tr key={user.id} className="border-t border-farm-800">
+                    <tr key={user.id} className="border-t border-farm-800 hover:bg-farm-800/50 transition-colors">
                       <td className="py-3 px-3 md:px-4">
                         <div>
                           <p className="font-medium text-sm">{user.username}</p>
@@ -183,7 +183,7 @@ export default function Admin() {
                         </div>
                       </td>
                       <td className="py-3 px-3 md:px-4">
-                        <span className={clsx('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs', roleColors[user.role])}>
+                        <span className={clsx('inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs', roleColors[user.role])}>
                           <RoleIcon size={12} />
                           {user.role}
                         </span>

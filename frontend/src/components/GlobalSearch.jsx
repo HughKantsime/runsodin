@@ -158,7 +158,7 @@ export default function GlobalSearch() {
                     >
                       <ListTodo size={14} className="text-green-400" />
                       <span className="truncate flex-1"><Highlight text={item.name} query={query} /></span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      <span className={`text-xs px-1.5 py-0.5 rounded-lg ${
                         item.status === 'completed' ? 'bg-green-900/50 text-green-400' :
                         item.status === 'failed' ? 'bg-red-900/50 text-red-400' :
                         'bg-farm-700 text-farm-400'

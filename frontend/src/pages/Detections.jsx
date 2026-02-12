@@ -84,10 +84,10 @@ function FrameModal({ detection, onClose, onReview }) {
         <div className="p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${TYPE_META[detection.detection_type]?.bg} ${TYPE_META[detection.detection_type]?.color}`}>
+              <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${TYPE_META[detection.detection_type]?.bg} ${TYPE_META[detection.detection_type]?.color}`}>
                 {TYPE_META[detection.detection_type]?.label || detection.detection_type}
               </span>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_META[detection.status]?.bg} ${STATUS_META[detection.status]?.color}`}>
+              <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${STATUS_META[detection.status]?.bg} ${STATUS_META[detection.status]?.color}`}>
                 {STATUS_META[detection.status]?.label || detection.status}
               </span>
               <span className="text-sm font-mono text-farm-300">
@@ -306,7 +306,7 @@ export default function Detections() {
                     </div>
                   )}
                   {/* Confidence badge */}
-                  <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded text-xs font-mono">
+                  <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded-lg text-xs font-mono">
                     {(det.confidence * 100).toFixed(0)}%
                   </div>
                 </div>
@@ -317,7 +317,7 @@ export default function Detections() {
                     <span className={`text-xs font-medium ${TYPE_META[det.detection_type]?.color}`}>
                       {TYPE_META[det.detection_type]?.label || det.detection_type}
                     </span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
+                    <span className={`px-1.5 py-0.5 rounded-lg text-[10px] font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
                       {STATUS_META[det.status]?.label || det.status}
                     </span>
                   </div>
@@ -336,7 +336,7 @@ export default function Detections() {
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="px-3 py-1.5 bg-farm-800 rounded text-sm disabled:opacity-40 hover:bg-farm-700 transition-colors"
+                className="px-3 py-1.5 bg-farm-800 rounded-lg text-sm disabled:opacity-40 hover:bg-farm-700 transition-colors"
               >
                 Previous
               </button>
@@ -346,7 +346,7 @@ export default function Detections() {
               <button
                 onClick={() => setPage(p => p + 1)}
                 disabled={(page + 1) * LIMIT >= total}
-                className="px-3 py-1.5 bg-farm-800 rounded text-sm disabled:opacity-40 hover:bg-farm-700 transition-colors"
+                className="px-3 py-1.5 bg-farm-800 rounded-lg text-sm disabled:opacity-40 hover:bg-farm-700 transition-colors"
               >
                 Next
               </button>

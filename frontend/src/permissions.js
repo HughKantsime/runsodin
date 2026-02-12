@@ -50,7 +50,7 @@ const DEFAULT_ACTION_ACCESS = {
   'maintenance.tasks': ['admin'],
   'dashboard.actions': ['admin', 'operator'],
   'orders.create':      ['admin', 'operator'],
-  'orders.edit':        ['admin', 'operator'],
+  'orders.edit':        ['admin'],
   'orders.delete':      ['admin', 'operator'],
   'orders.ship':        ['admin', 'operator'],
   'products.create':    ['admin', 'operator'],

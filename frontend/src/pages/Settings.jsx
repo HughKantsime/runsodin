@@ -120,14 +120,14 @@ function AuditLogViewer() {
   }
 
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2 md:gap-3">
           <FileText size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Audit Log</h2>
         </div>
         <div className="flex gap-2">
-          <select value={filter.entity_type} onChange={(e) => setFilter(prev => ({ ...prev, entity_type: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs">
+          <select value={filter.entity_type} onChange={(e) => setFilter(prev => ({ ...prev, entity_type: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-xs">
             <option value="">All Types</option>
             <option value="job">Jobs</option>
             <option value="printer">Printers</option>
@@ -137,7 +137,7 @@ function AuditLogViewer() {
             <option value="user">Users</option>
             <option value="settings">Settings</option>
           </select>
-          <select value={filter.action} onChange={(e) => setFilter(prev => ({ ...prev, action: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs">
+          <select value={filter.action} onChange={(e) => setFilter(prev => ({ ...prev, action: e.target.value }))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-xs">
             <option value="">All Actions</option>
             <option value="create">Create</option>
             <option value="update">Update</option>
@@ -145,7 +145,7 @@ function AuditLogViewer() {
             <option value="login">Login</option>
             <option value="schedule">Schedule</option>
           </select>
-          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs">
+          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-xs">
             <option value={25}>25</option>
             <option value={50}>50</option>
             <option value={100}>100</option>
@@ -167,7 +167,7 @@ function AuditLogViewer() {
                   URL.revokeObjectURL(u)
                 })
             }}
-            className="flex items-center gap-1 bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded px-2 py-1 text-xs text-farm-300 transition-colors"
+            className="flex items-center gap-1 bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded-lg px-2 py-1 text-xs text-farm-300 transition-colors"
           >
             <Download size={12} /> Export
           </button>
@@ -250,7 +250,7 @@ function NetworkTab() {
   }
 
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
         <Wifi size={18} className="text-print-400" />
         <h2 className="text-lg md:text-xl font-display font-semibold">Network & Camera Streaming</h2>
@@ -267,12 +267,12 @@ function NetworkTab() {
               value={hostIp}
               onChange={e => { setHostIp(e.target.value); setSaved(false) }}
               placeholder="e.g. 192.168.1.100"
-              className="flex-1 px-3 py-2 rounded bg-farm-800 border border-farm-700 text-farm-100 placeholder-farm-600 focus:outline-none focus:ring-2 focus:ring-print-500/50 focus:border-print-500/50"
+              className="flex-1 px-3 py-2 rounded-lg bg-farm-800 border border-farm-700 text-farm-100 placeholder-farm-600 focus:outline-none focus:ring-2 focus:ring-print-500/50 focus:border-print-500/50"
             />
             <button
               onClick={handleSave}
               disabled={!hostIp || saving}
-              className="px-4 py-2 rounded bg-print-600 hover:bg-print-500 text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-4 py-2 rounded-lg bg-print-600 hover:bg-print-500 text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
               {saved ? 'Saved!' : 'Save'}
@@ -281,7 +281,7 @@ function NetworkTab() {
           {detectedIp && <p className="text-xs text-farm-600 mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
         </div>
         {error && (
-          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded text-sm text-red-300">
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300">
             {error}
           </div>
         )}
@@ -434,7 +434,7 @@ function LicenseTab() {
           </button>
         )}
         {message && (
-          <div className={`mt-3 text-sm px-3 py-2 rounded ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+          <div className={`mt-3 text-sm px-3 py-2 rounded-lg ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
             {message.text}
           </div>
         )}
@@ -505,7 +505,7 @@ function VisionSettingsTab() {
   return (
     <div className="max-w-4xl space-y-6">
       {/* Global Settings */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
         <div className="flex items-center gap-2 mb-4">
           <Eye size={18} className="text-purple-400" />
           <h2 className="text-lg font-display font-semibold">Vision AI</h2>
@@ -520,7 +520,7 @@ function VisionSettingsTab() {
               type="checkbox"
               checked={globalSettings.enabled}
               onChange={e => setGlobalSettings(s => ({ ...s, enabled: e.target.checked }))}
-              className="rounded"
+              className="rounded-lg"
             />
             <span className="text-sm">Enable Vision AI globally</span>
           </label>
@@ -547,7 +547,7 @@ function VisionSettingsTab() {
       </div>
 
       {/* Per-Printer Settings */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
         <h3 className="text-base font-semibold mb-3">Per-Printer Detection Settings</h3>
         {printerSettings.length === 0 && (
           <p className="text-sm text-farm-500">No printers with cameras configured</p>
@@ -637,7 +637,7 @@ function VisionSettingsTab() {
                         <select
                           value={vs.capture_interval_sec || 10}
                           onChange={e => savePrinterVision(p.id, { capture_interval_sec: parseInt(e.target.value) })}
-                          className="bg-farm-700 border border-farm-600 rounded px-1 py-0.5 text-xs"
+                          className="bg-farm-700 border border-farm-600 rounded-lg px-1 py-0.5 text-xs"
                         >
                           <option value={5}>5s</option>
                           <option value={10}>10s</option>
@@ -656,7 +656,7 @@ function VisionSettingsTab() {
       </div>
 
       {/* Model Management */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
         <h3 className="text-base font-semibold mb-3">ONNX Models</h3>
         {models.length === 0 && (
           <p className="text-sm text-farm-500">No models uploaded. Upload ONNX models to enable detection.</p>
@@ -678,7 +678,7 @@ function VisionSettingsTab() {
                 ) : (
                   <button
                     onClick={() => activateModel(m.id)}
-                    className="text-xs text-farm-400 hover:text-white px-2 py-1 bg-farm-700 rounded transition-colors"
+                    className="text-xs text-farm-400 hover:text-white px-2 py-1 bg-farm-700 rounded-lg transition-colors"
                   >
                     Activate
                   </button>
@@ -730,7 +730,7 @@ function ModelUpload({ headers, onUploaded }) {
       <button
         onClick={handleUpload}
         disabled={uploading}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded text-xs font-medium transition-colors disabled:opacity-50"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
       >
         <Upload size={12} />
         {uploading ? 'Uploading...' : 'Upload Model'}
@@ -972,7 +972,7 @@ export default function Settings() {
   const TABS = lic.isPro ? ALL_TABS : ALL_TABS.filter(t => !PRO_TABS.includes(t.id))
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       <div className="mb-4 md:mb-6">
         <h1 className="text-2xl md:text-3xl font-display font-bold">Settings</h1>
         <p className="text-farm-500 text-sm mt-1">Configure your print farm</p>
@@ -1051,7 +1051,7 @@ export default function Settings() {
 
 
       {/* Alert Preferences */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Bell size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Alert Preferences</h2>
@@ -1174,7 +1174,7 @@ export default function Settings() {
 
       {/* SMTP Email Configuration — merged into Notifications tab */}
       {lic.isPro && <>
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Mail size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Email Notifications (SMTP)</h2>
@@ -1311,16 +1311,16 @@ export default function Settings() {
       {/* ==================== GENERAL TAB ==================== */}
       {activeTab === 'general' && <div className="max-w-4xl">
       {/* Spoolman Integration */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4 flex-wrap">
           <Database size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Spoolman Integration</h2>
           {statsData?.spoolman_connected ? (
-            <span className="flex items-center gap-1 text-xs md:text-sm text-green-400 bg-green-900/30 px-2 py-0.5 rounded">
+            <span className="flex items-center gap-1 text-xs md:text-sm text-green-400 bg-green-900/30 px-2 py-0.5 rounded-lg">
               <CheckCircle size={14} /> Connected
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-xs md:text-sm text-farm-400 bg-farm-800 px-2 py-0.5 rounded">
+            <span className="flex items-center gap-1 text-xs md:text-sm text-farm-400 bg-farm-800 px-2 py-0.5 rounded-lg">
               <XCircle size={14} /> Not Connected
             </span>
           )}
@@ -1357,7 +1357,7 @@ export default function Settings() {
       </div>
 
       {/* Scheduler Settings */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Clock size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Scheduler Settings</h2>
@@ -1381,7 +1381,7 @@ export default function Settings() {
       </div>
 
       {/* Job Approval Workflow */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <CheckCircle size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Job Approval Workflow</h2>
@@ -1393,7 +1393,7 @@ export default function Settings() {
       </div>
 
       {/* Interface Mode */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <SettingsIcon size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Interface Mode</h2>
@@ -1450,7 +1450,7 @@ export default function Settings() {
       {/* ==================== SYSTEM TAB (Data + License) ==================== */}
       {activeTab === 'system' && <div className="max-w-4xl">
       {/* Database Info */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Database size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Database</h2>
@@ -1476,7 +1476,7 @@ export default function Settings() {
       </div>
 
       {/* Database Backups */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2 md:gap-3">
             <HardDrive size={18} className="text-print-400" />
@@ -1538,7 +1538,7 @@ export default function Settings() {
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     onClick={() => backupsApi.download(backup.filename)}
-                    className="p-2 bg-farm-700 hover:bg-farm-600 rounded text-farm-200 hover:text-white transition-colors"
+                    className="p-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-200 hover:text-white transition-colors"
                     title="Download backup"
                   >
                     <Download size={16} />
@@ -1548,13 +1548,13 @@ export default function Settings() {
                       <button
                         onClick={() => deleteBackup.mutate(backup.filename)}
                         disabled={deleteBackup.isPending}
-                        className="px-2 py-1.5 bg-red-600 hover:bg-red-500 rounded text-white text-xs font-medium"
+                        className="px-2 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-white text-xs font-medium"
                       >
                         Confirm
                       </button>
                       <button
                         onClick={() => setDeleteConfirm(null)}
-                        className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded text-farm-200 text-xs"
+                        className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-200 text-xs"
                       >
                         Cancel
                       </button>
@@ -1562,7 +1562,7 @@ export default function Settings() {
                   ) : (
                     <button
                       onClick={() => setDeleteConfirm(backup.filename)}
-                      className="p-2 bg-farm-700 hover:bg-red-900 rounded text-farm-200 hover:text-red-400 transition-colors"
+                      className="p-2 bg-farm-700 hover:bg-red-900 rounded-lg text-farm-200 hover:text-red-400 transition-colors"
                       title="Delete backup"
                     >
                       <Trash2 size={16} />
@@ -1580,7 +1580,7 @@ export default function Settings() {
       </div>
 
       {/* Data Export */}
-      <div className="bg-farm-900 rounded border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <FileSpreadsheet size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Data Export</h2>

@@ -34,7 +34,7 @@ export default function ProGate({ feature, children, inline = false, tier = 'Pro
         Upgrade to unlock unlimited printers, multi-user RBAC, orders tracking, analytics, and more.
       </p>
       <a href="https://runsodin.com/#pricing" target="_blank" rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded transition-colors">
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg transition-colors">
         View Pricing <ExternalLink size={14} />
       </a>
     </div>

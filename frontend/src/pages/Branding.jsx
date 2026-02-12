@@ -264,7 +264,7 @@ export default function Branding() {
         {/* Settings Column */}
         <div className="xl:col-span-2 space-y-6">
           {/* Tabs */}
-          <div className="flex gap-1 bg-farm-900 rounded p-1 border border-farm-800">
+          <div className="flex gap-1 bg-farm-900 rounded-lg p-1 border border-farm-800">
             {tabs.map(tab => (
               <button
                 key={tab.id}
@@ -429,7 +429,7 @@ export default function Branding() {
 
         {/* Live Preview Column */}
         <div className="space-y-6">
-          <div className="bg-farm-900 rounded border border-farm-800 p-6 sticky top-8">
+          <div className="bg-farm-900 rounded-lg border border-farm-800 p-6 sticky top-8">
             <h2 className="text-lg font-semibold text-farm-100 mb-4 flex items-center gap-2">
               <Eye size={18} style={{ color: 'var(--brand-accent)' }} />
               Live Preview
@@ -449,7 +449,7 @@ export default function Branding() {
                 {draft.logo_url ? (
                   <img src={draft.logo_url} alt="" className="h-6 object-contain" />
                 ) : (
-                  <div className="w-6 h-6 rounded" style={{ backgroundColor: draft.primary_color }} />
+                  <div className="w-6 h-6 rounded-lg" style={{ backgroundColor: draft.primary_color }} />
                 )}
                 <div>
                   <div className="text-sm font-bold" style={{ color: draft.text_primary }}>{draft.app_name}</div>
@@ -505,15 +505,15 @@ export default function Branding() {
                   </p>
                   <p className="text-[10px] mt-0.5" style={{ color: draft.text_secondary }}>3 of 5 online</p>
                   <div className="flex gap-2 mt-2">
-                    <div className="flex-1 h-6 rounded text-[10px] flex items-center justify-center font-medium text-white" style={{ backgroundColor: draft.primary_color }}>
+                    <div className="flex-1 h-6 rounded-lg text-[10px] flex items-center justify-center font-medium text-white" style={{ backgroundColor: draft.primary_color }}>
                       Start Job
                     </div>
-                    <div className="flex-1 h-6 rounded text-[10px] flex items-center justify-center" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_secondary }}>
+                    <div className="flex-1 h-6 rounded-lg text-[10px] flex items-center justify-center" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_secondary }}>
                       Settings
                     </div>
                   </div>
                 </div>
-                <div className="rounded px-3 py-2 text-[10px]" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_muted, fontFamily: `'${draft.font_mono}', monospace` }}>
+                <div className="rounded-lg px-3 py-2 text-[10px]" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_muted, fontFamily: `'${draft.font_mono}', monospace` }}>
                   printer.status = "idle"
                 </div>
               </div>
@@ -534,9 +534,9 @@ export default function Branding() {
                   <div className="text-[10px]" style={{ color: draft.text_muted }}>{draft.app_subtitle}</div>
                 </div>
                 <div className="space-y-2">
-                  <div className="h-7 rounded" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
-                  <div className="h-7 rounded" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
-                  <div className="h-7 rounded text-[10px] text-white font-medium flex items-center justify-center" style={{ backgroundColor: draft.primary_color }}>
+                  <div className="h-7 rounded-lg" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
+                  <div className="h-7 rounded-lg" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
+                  <div className="h-7 rounded-lg text-[10px] text-white font-medium flex items-center justify-center" style={{ backgroundColor: draft.primary_color }}>
                     Sign In
                   </div>
                 </div>
@@ -558,7 +558,7 @@ export default function Branding() {
                   { c: draft.text_muted, l: "Muted" },
                 ].map(({ c, l }) => (
                   <div key={l} className="text-center">
-                    <div className="h-6 rounded border border-farm-700" style={{ backgroundColor: c }} />
+                    <div className="h-6 rounded-lg border border-farm-700" style={{ backgroundColor: c }} />
                     <p className="text-[8px] text-farm-500 mt-0.5">{l}</p>
                   </div>
                 ))}
@@ -604,7 +604,7 @@ function applyLiveCSS(b) {
 
 function Section({ title, children }) {
   return (
-    <div className="bg-farm-900 rounded border border-farm-800 p-6">
+    <div className="bg-farm-900 rounded-lg border border-farm-800 p-6">
       <h2 className="text-lg font-semibold text-farm-100 mb-4">{title}</h2>
       {children}
     </div>
@@ -644,7 +644,7 @@ function ColorPicker({ label, desc, value, onChange }) {
         type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-20 bg-farm-900 border border-farm-700 rounded px-2 py-1 text-xs text-farm-300 font-mono text-center"
+        className="w-20 bg-farm-900 border border-farm-700 rounded-lg px-2 py-1 text-xs text-farm-300 font-mono text-center"
         maxLength={7}
       />
     </div>

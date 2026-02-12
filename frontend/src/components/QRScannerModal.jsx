@@ -203,14 +203,14 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
   
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-farm-900 rounded border border-farm-700 w-full max-w-md">
+      <div className="bg-farm-900 rounded-lg border border-farm-700 w-full max-w-md">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-farm-700">
           <div className="flex items-center gap-2">
             <QrCode className="w-5 h-5 text-print-500" />
             <h2 className="text-lg font-semibold">Scan Spool QR</h2>
           </div>
-          <button onClick={handleClose} className="p-1 hover:bg-farm-800 rounded">
+          <button onClick={handleClose} className="p-1 hover:bg-farm-800 rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>

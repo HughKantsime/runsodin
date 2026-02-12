@@ -40,7 +40,7 @@ export default function AmsEnvironmentChart({ printerId, onClose }) {
             <button
               key={h}
               onClick={() => setHours(h)}
-              className={`px-2 py-1 rounded text-xs transition-colors ${hours === h ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
+              className={`px-2 py-1 rounded-lg text-xs transition-colors ${hours === h ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
             >
               {h < 48 ? `${h}h` : `${h / 24}d`}
             </button>

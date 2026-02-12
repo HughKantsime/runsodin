@@ -43,7 +43,7 @@ export default function HmsHistoryPanel({ printerId, onClose }) {
             <button
               key={d}
               onClick={() => setDays(d)}
-              className={`px-2 py-1 rounded text-xs transition-colors ${days === d ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
+              className={`px-2 py-1 rounded-lg text-xs transition-colors ${days === d ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
             >
               {d}d
             </button>
@@ -84,7 +84,7 @@ export default function HmsHistoryPanel({ printerId, onClose }) {
             <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
               {data.entries.slice(0, 20).map(e => (
                 <div key={e.id} className="flex items-center gap-2 text-xs py-1 border-b border-farm-800">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] ${SEVERITY_COLORS[e.severity] || SEVERITY_COLORS.info}`}>
+                  <span className={`px-1.5 py-0.5 rounded-lg text-[10px] ${SEVERITY_COLORS[e.severity] || SEVERITY_COLORS.info}`}>
                     {e.severity}
                   </span>
                   <span className="text-farm-300 truncate flex-1">{e.message || e.code}</span>

@@ -301,7 +301,7 @@ export default function Analytics() {
     return (
       <div className="p-4 md:p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-farm-800 rounded w-48"></div>
+          <div className="h-8 bg-farm-800 rounded-lg w-48"></div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-28 bg-farm-800/50 rounded-xl"></div>

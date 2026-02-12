@@ -59,13 +59,13 @@ function PipPlayer({ camera, onClose }) {
         <div className="flex items-center gap-1">
           <button 
             onClick={() => setSize(s => s === 'small' ? 'medium' : 'small')}
-            className="p-0.5 hover:bg-white/20 rounded text-white/60 hover:text-white"
+            className="p-0.5 hover:bg-white/20 rounded-lg text-white/60 hover:text-white"
           >
             {size === 'small' ? <Maximize2 size={10} /> : <Minimize2 size={10} />}
           </button>
           <button 
             onClick={onClose}
-            className="p-0.5 hover:bg-red-500/50 rounded text-white/60 hover:text-white"
+            className="p-0.5 hover:bg-red-500/50 rounded-lg text-white/60 hover:text-white"
           >
             <X size={10} />
           </button>
@@ -103,7 +103,7 @@ function AiIndicator({ printerId }) {
   })
   if (!data || !data.enabled) return null
   return (
-    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded text-[10px] text-purple-300 font-medium" title="Vision AI active">
+    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded-lg text-[10px] text-purple-300 font-medium" title="Vision AI active">
       <Eye size={10} />
       <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
       AI
@@ -157,7 +157,7 @@ function CameraCard({ camera, onExpand, onPip }) {
   const dotColor = status === 'live' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
 
   return (
-    <div className="bg-farm-950 rounded border border-farm-800 overflow-hidden group">
+    <div className="bg-farm-950 rounded-lg border border-farm-800 overflow-hidden group">
       <div className="relative aspect-video bg-black">
         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
         {status === 'connecting' && (
@@ -329,13 +329,13 @@ export default function Cameras() {
             className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm w-36 md:w-40 placeholder-farm-600 focus:outline-none focus:border-farm-500"
           />
           <div className="flex items-center gap-1 bg-farm-900 rounded-lg p-1">
-            <button onClick={() => setColumns(1)} className={'p-1.5 rounded ' + (columns === 1 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
+            <button onClick={() => setColumns(1)} className={'p-1.5 rounded-lg ' + (columns === 1 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
               <Rows3 size={14} />
             </button>
-            <button onClick={() => setColumns(2)} className={'p-1.5 rounded ' + (columns === 2 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
+            <button onClick={() => setColumns(2)} className={'p-1.5 rounded-lg ' + (columns === 2 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
               <LayoutGrid size={14} />
             </button>
-            <button onClick={() => setColumns(3)} className={'p-1.5 rounded ' + (columns === 3 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
+            <button onClick={() => setColumns(3)} className={'p-1.5 rounded-lg ' + (columns === 3 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
               <Columns3 size={14} />
             </button>
           </div>
@@ -359,7 +359,7 @@ export default function Cameras() {
 
       {/* Camera Settings Panel */}
       {showSettings && (
-        <div className="mb-4 p-4 bg-farm-900 rounded border border-farm-800">
+        <div className="mb-4 p-4 bg-farm-900 rounded-lg border border-farm-800">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">Camera Settings</h3>
             <button onClick={() => setShowSettings(false)} className="text-farm-400 hover:text-white text-sm">
@@ -378,7 +378,7 @@ export default function Cameras() {
                 </div>
                 <button
                   onClick={() => toggleCamera(printer.id)}
-                  className={'flex items-center gap-2 px-3 py-1 rounded text-sm transition-colors ' + 
+                  className={'flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-colors ' + 
                     (printer.camera_enabled !== false
                       ? 'bg-green-900/50 text-green-400 hover:bg-green-900/70'
                       : 'bg-farm-700 text-farm-400 hover:bg-farm-600')}

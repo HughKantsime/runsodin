@@ -100,7 +100,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
         className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 text-center" 
         onClick={() => { if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
       >
-        <div className="w-full h-3 rounded mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
+        <div className="w-full h-3 rounded-lg mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
         <span className="text-xs text-farm-500 truncate block">{getShortName(slot)}</span>
       </div>
       
@@ -134,7 +134,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
                     >
                       <div 
-                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        className="w-5 h-5 rounded-lg border border-farm-500 flex-shrink-0" 
                         style={{ backgroundColor: s.filament_color_hex ? `#${s.filament_color_hex}` : "#666" }}
                       />
                       <span className="truncate flex-1">{s.filament_brand} {s.filament_name}</span>
@@ -153,7 +153,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
                     >
                       <div 
-                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        className="w-5 h-5 rounded-lg border border-farm-500 flex-shrink-0" 
                         style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
                       />
                       <span className="truncate flex-1">{f.name}</span>
@@ -174,7 +174,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
                       className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
                     >
                       <div 
-                        className="w-5 h-5 rounded border border-farm-500 flex-shrink-0" 
+                        className="w-5 h-5 rounded-lg border border-farm-500 flex-shrink-0" 
                         style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
                       />
                       <span className="truncate">{f.display_name}</span>
@@ -219,7 +219,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
   return (
     <div 
       className={clsx(
-        "bg-farm-900 rounded border overflow-hidden h-fit transition-all",
+        "bg-farm-900 rounded-lg border overflow-hidden h-fit transition-all",
         isDragging ? "border-print-500 opacity-50 scale-95" : "border-farm-800"
       )}
       draggable={!!onDragStart}
@@ -278,7 +278,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
             <button 
               onClick={handleSyncAms}
               disabled={syncing}
-              className="ml-auto text-xs px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded transition-colors disabled:opacity-50"
+              className="ml-auto text-xs px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded-lg transition-colors disabled:opacity-50"
               title="Sync filament state from printer"
             >
               {syncing ? '⟳ Syncing...' : '↻ Sync AMS'}
@@ -322,7 +322,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
                 {printer.lights_on != null && (
                   <button
                     onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
-                    className={`p-0.5 rounded transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
+                    className={`p-0.5 rounded-lg transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
                     title={printer.lights_on ? 'Lights on (click to toggle)' : 'Lights off (click to toggle)'}
                   >
                     <Lightbulb size={14} />
@@ -861,10 +861,10 @@ export default function Printers() {
   }
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold">Printers</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold">Printers</h1>
           <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
         </div>
         {canDo('printers.add') && (atLimit
@@ -922,7 +922,7 @@ export default function Printers() {
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading printers...</div>
       ) : printersData?.length === 0 ? (
-        <div className="bg-farm-900 rounded border border-farm-800 p-8 md:p-12 text-center">
+        <div className="bg-farm-900 rounded-lg border border-farm-800 p-8 md:p-12 text-center">
           <p className="text-farm-500 mb-4">No printers configured yet.</p>
           {canDo('printers.add') && !atLimit && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Printer</button>}
         </div>
@@ -951,7 +951,7 @@ export default function Printers() {
             />
           ))}
           {filteredPrinters.length === 0 && orderedPrinters.length > 0 && (
-            <div className="col-span-full bg-farm-900 rounded border border-farm-800 p-8 text-center">
+            <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800 p-8 text-center">
               <p className="text-farm-500 text-sm">No printers match your filters.</p>
             </div>
           )}

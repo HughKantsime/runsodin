@@ -58,7 +58,7 @@ export default function DetectionFeed({ printerId, limit = 5 }) {
         {items.map(det => (
           <div
             key={det.id}
-            className="flex items-center gap-2 py-1.5 px-2 rounded bg-farm-900 hover:bg-farm-800 cursor-pointer transition-colors"
+            className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-farm-900 hover:bg-farm-800 cursor-pointer transition-colors"
             onClick={() => navigate('/detections')}
           >
             <AlertTriangle size={12} className={TYPE_META[det.detection_type]?.color || 'text-farm-400'} />

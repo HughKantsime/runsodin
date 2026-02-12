@@ -72,37 +72,37 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
           {!task && (
             <div>
               <label className="block text-xs text-farm-400 mb-1">Task Name</label>
-              <input className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+              <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
                 value={form.task_name} onChange={e => set('task_name', e.target.value)} placeholder="e.g. Nozzle Change" />
             </div>
           )}
           <div>
             <label className="block text-xs text-farm-400 mb-1">Performed By</label>
-            <input className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+            <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
               value={form.performed_by} onChange={e => set('performed_by', e.target.value)} placeholder="Name" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-farm-400 mb-1">Cost ($)</label>
-              <input type="number" step="0.01" className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+              <input type="number" step="0.01" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
                 value={form.cost} onChange={e => set('cost', e.target.value)} placeholder="0.00" />
             </div>
             <div>
               <label className="block text-xs text-farm-400 mb-1">Downtime (min)</label>
-              <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+              <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
                 value={form.downtime_minutes} onChange={e => set('downtime_minutes', e.target.value)} placeholder="0" />
             </div>
           </div>
           <div>
             <label className="block text-xs text-farm-400 mb-1">Notes</label>
-            <textarea className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm" rows={3}
+            <textarea className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm" rows={3}
               value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any notes about this service..." />
           </div>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 bg-farm-800 text-farm-300 px-4 py-2 rounded text-sm hover:bg-farm-700">Cancel</button>
+          <button onClick={onClose} className="flex-1 bg-farm-800 text-farm-300 px-4 py-2 rounded-lg text-sm hover:bg-farm-700">Cancel</button>
           <button onClick={handleSubmit} disabled={!form.task_name || saving}
-            className="flex-1 bg-print-500 text-white px-4 py-2 rounded text-sm hover:bg-print-600 disabled:opacity-40">
+            className="flex-1 bg-print-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-print-600 disabled:opacity-40">
             {saving ? 'Saving...' : 'Log Service'}
           </button>
         </div>
@@ -142,40 +142,40 @@ function TaskForm({ task, onSave, onCancel, saving }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
           <label className="block text-xs text-farm-400 mb-1">Task Name *</label>
-          <input className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+          <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
             value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Nozzle Change" />
         </div>
         <div className="sm:col-span-2">
           <label className="block text-xs text-farm-400 mb-1">Description</label>
-          <input className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+          <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
             value={form.description} onChange={e => set('description', e.target.value)} placeholder="What this maintenance involves" />
         </div>
         <div>
           <label className="block text-xs text-farm-400 mb-1">Applies To</label>
-          <input className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+          <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
             value={form.printer_model_filter} onChange={e => set('printer_model_filter', e.target.value)}
             placeholder="Blank = all printers (e.g. X1, P1S, A1)" />
         </div>
         <div>
           <label className="block text-xs text-farm-400 mb-1">Interval (print hours)</label>
-          <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+          <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
             value={form.interval_print_hours} onChange={e => set('interval_print_hours', e.target.value)} placeholder="e.g. 500" />
         </div>
         <div>
           <label className="block text-xs text-farm-400 mb-1">Interval (calendar days)</label>
-          <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+          <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
             value={form.interval_days} onChange={e => set('interval_days', e.target.value)} placeholder="e.g. 90" />
         </div>
         <div>
           <label className="block text-xs text-farm-400 mb-1">Est. Cost ($)</label>
-          <input type="number" step="0.01" className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-farm-100 text-sm"
+          <input type="number" step="0.01" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
             value={form.estimated_cost} onChange={e => set('estimated_cost', e.target.value)} />
         </div>
       </div>
       <div className="flex gap-2 pt-1">
-        <button onClick={onCancel} className="bg-farm-800 text-farm-300 px-4 py-2 rounded text-sm hover:bg-farm-700">Cancel</button>
+        <button onClick={onCancel} className="bg-farm-800 text-farm-300 px-4 py-2 rounded-lg text-sm hover:bg-farm-700">Cancel</button>
         <button onClick={handleSubmit} disabled={!form.name || saving}
-          className="bg-print-500 text-white px-4 py-2 rounded text-sm hover:bg-print-600 disabled:opacity-40">
+          className="bg-print-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-print-600 disabled:opacity-40">
           {saving ? 'Saving...' : task ? 'Update Task' : 'Create Task'}
         </button>
       </div>
@@ -237,7 +237,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
                 </div>
               </div>
               <button onClick={e => { e.stopPropagation(); onLogMaintenance(printer, task) }}
-                className="ml-3 bg-farm-800 hover:bg-farm-700 text-farm-300 hover:text-farm-100 px-3 py-1.5 rounded text-xs flex items-center gap-1 flex-shrink-0">
+                className="ml-3 bg-farm-800 hover:bg-farm-700 text-farm-300 hover:text-farm-100 px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 flex-shrink-0">
                 <CheckCircle size={12} /> Log Service
               </button>
             </div>
@@ -356,7 +356,7 @@ export default function Maintenance() {
       <div className="flex gap-1 bg-farm-900 border border-farm-800 rounded-lg p-1">
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded text-sm transition-colors ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
               activeTab === tab.id ? 'bg-farm-800 text-farm-100' : 'text-farm-400 hover:text-farm-200 hover:bg-farm-800/50'
             }`}>
             <tab.icon size={14} /> {tab.label}
@@ -381,7 +381,7 @@ export default function Maintenance() {
             <div className="bg-farm-900 border border-farm-800 rounded-lg p-6 text-center">
               <p className="text-farm-400 mb-3">No maintenance tasks configured yet.</p>
               <button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}
-                className="bg-print-500 hover:bg-print-600 text-white px-6 py-2 rounded text-sm">
+                className="bg-print-500 hover:bg-print-600 text-white px-6 py-2 rounded-lg text-sm">
                 {seedMutation.isPending ? 'Seeding...' : 'Seed Default Tasks for Bambu Printers'}
               </button>
             </div>
@@ -401,11 +401,11 @@ export default function Maintenance() {
             <span className="text-sm text-farm-400">{tasks.length} task template{tasks.length !== 1 ? 's' : ''}</span>
             <div className="flex gap-2">
               <button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}
-                className="bg-farm-800 hover:bg-farm-700 text-farm-300 px-3 py-1.5 rounded text-sm">
+                className="bg-farm-800 hover:bg-farm-700 text-farm-300 px-3 py-1.5 rounded-lg text-sm">
                 {seedMutation.isPending ? 'Seeding...' : 'Seed Defaults'}
               </button>
               <button onClick={() => { setShowTaskForm(true); setEditingTask(null) }}
-                className="bg-print-500 hover:bg-print-600 text-white px-3 py-1.5 rounded text-sm flex items-center gap-1">
+                className="bg-print-500 hover:bg-print-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
                 <Plus size={14} /> Add Task
               </button>
             </div>
@@ -474,7 +474,7 @@ export default function Maintenance() {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
-              className="bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-farm-200 text-sm">
+              className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-farm-200 text-sm">
               <option value="">All Printers</option>
               {statusData.map(p => <option key={p.printer_id} value={p.printer_id}>{p.printer_name}</option>)}
             </select>

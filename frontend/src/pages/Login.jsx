@@ -76,7 +76,7 @@ const handleSubmit = async (e) => {
     <div className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="w-full max-w-md">
-        <div className="rounded p-8"
+        <div className="rounded-lg p-8"
           style={{ 
             backgroundColor: 'var(--brand-card-bg)',
             border: '1px solid var(--brand-card-border)',
@@ -157,9 +157,10 @@ const handleSubmit = async (e) => {
               <SSOButton />
         </div>
 
-        <p className="text-center text-sm mt-6" style={{ color: 'var(--brand-text-muted)' }}>
-          {branding.app_name} {branding.app_subtitle} v{__APP_VERSION__}
-        </p>
+        <div className="text-center mt-6" style={{ color: 'var(--brand-text-muted)' }}>
+          <p className="text-xs">v{__APP_VERSION__}</p>
+          <p className="text-[10px] mt-1" style={{ opacity: 0.6 }}>Powered by O.D.I.N.</p>
+        </div>
       </div>
     </div>
   )

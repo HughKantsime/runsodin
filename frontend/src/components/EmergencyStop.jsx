@@ -98,7 +98,7 @@ export default function EmergencyStop() {
 
       {/* Control Panel */}
       {showPanel && (
-        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded shadow-2xl overflow-hidden">
+        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded-lg shadow-2xl overflow-hidden">
           <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
             <AlertTriangle className="text-red-400" size={18} />
             <span className="font-medium text-red-200">Emergency Controls</span>
@@ -113,7 +113,7 @@ export default function EmergencyStop() {
                 <div key={printer.id} className="p-3 bg-farm-800 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-sm">{printer.nickname || printer.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded ${
+                    <span className={`text-xs px-2 py-0.5 rounded-lg ${
                       isPaused ? 'bg-yellow-900/50 text-yellow-400' : 'bg-green-900/50 text-green-400'
                     }`}>
                       {isPaused ? 'Paused' : 'Printing'}
@@ -125,7 +125,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => sendCommand(printer.id, 'resume')}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-lg text-sm transition-colors disabled:opacity-50"
                       >
                         <Play size={14} />
                         {isLoading === 'resume' ? 'Resuming...' : 'Resume'}
@@ -134,7 +134,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => sendCommand(printer.id, 'pause')}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded-lg text-sm transition-colors disabled:opacity-50"
                       >
                         <Pause size={14} />
                         {isLoading === 'pause' ? 'Pausing...' : 'Pause'}
@@ -145,7 +145,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => sendCommand(printer.id, 'stop')}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded text-sm transition-colors disabled:opacity-50 animate-pulse"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm transition-colors disabled:opacity-50 animate-pulse"
                       >
                         <StopCircle size={14} />
                         {isLoading === 'stop' ? 'Stopping...' : 'Confirm Stop'}
@@ -154,7 +154,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => setConfirmStop(printer.id)}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-lg text-sm transition-colors disabled:opacity-50"
                       >
                         <StopCircle size={14} />
                         Stop

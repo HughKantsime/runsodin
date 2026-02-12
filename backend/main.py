@@ -8047,7 +8047,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
 
 
 @app.patch("/api/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
-def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -8104,7 +8104,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
 
 
 @app.patch("/api/orders/{order_id}/items/{item_id}", response_model=OrderItemResponse, tags=["Orders"])
-def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an order line item."""
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,

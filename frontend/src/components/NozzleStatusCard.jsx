@@ -95,13 +95,13 @@ export default function NozzleStatusCard({ printerId, onClose }) {
             </div>
           </div>
           <div className="flex gap-2 pt-1">
-            <button onClick={handleRetire} className="px-3 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/30">
+            <button onClick={handleRetire} className="px-3 py-1 bg-red-600/20 text-red-400 rounded-lg text-xs hover:bg-red-600/30">
               Retire
             </button>
-            <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-print-600/20 text-print-400 rounded text-xs hover:bg-print-600/30">
+            <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-print-600/20 text-print-400 rounded-lg text-xs hover:bg-print-600/30">
               Replace
             </button>
-            <button onClick={loadHistory} className="px-3 py-1 bg-farm-700 text-farm-300 rounded text-xs hover:bg-farm-600">
+            <button onClick={loadHistory} className="px-3 py-1 bg-farm-700 text-farm-300 rounded-lg text-xs hover:bg-farm-600">
               History
             </button>
           </div>
@@ -109,7 +109,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
       ) : (
         <div className="text-center py-4">
           <p className="text-farm-500 text-sm mb-2">No nozzle tracked</p>
-          <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-print-600 text-white rounded text-xs hover:bg-print-500">
+          <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-print-600 text-white rounded-lg text-xs hover:bg-print-500">
             Track Nozzle
           </button>
         </div>
@@ -123,7 +123,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
               <div>
                 <label className="text-xs text-farm-500">Type</label>
                 <select value={installForm.nozzle_type} onChange={e => setInstallForm(f => ({ ...f, nozzle_type: e.target.value }))}
-                  className="w-full bg-farm-800 border border-farm-600 rounded px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }}>
+                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }}>
                   <option value="hardened_steel">Hardened Steel</option>
                   <option value="stainless_steel">Stainless Steel</option>
                   <option value="brass">Brass</option>
@@ -134,7 +134,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
               <div>
                 <label className="text-xs text-farm-500">Diameter (mm)</label>
                 <select value={installForm.nozzle_diameter} onChange={e => setInstallForm(f => ({ ...f, nozzle_diameter: parseFloat(e.target.value) }))}
-                  className="w-full bg-farm-800 border border-farm-600 rounded px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }}>
+                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }}>
                   <option value={0.2}>0.2</option>
                   <option value={0.4}>0.4</option>
                   <option value={0.6}>0.6</option>
@@ -144,10 +144,10 @@ export default function NozzleStatusCard({ printerId, onClose }) {
             </div>
             <input type="text" placeholder="Notes (optional)" value={installForm.notes}
               onChange={e => setInstallForm(f => ({ ...f, notes: e.target.value }))}
-              className="w-full bg-farm-800 border border-farm-600 rounded px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+              className="w-full bg-farm-800 border border-farm-600 rounded-lg px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
             <div className="flex gap-2">
-              <button type="submit" className="px-3 py-1 bg-print-600 text-white rounded text-xs hover:bg-print-500">Install</button>
-              <button type="button" onClick={() => setShowInstall(false)} className="px-3 py-1 bg-farm-700 text-farm-300 rounded text-xs hover:bg-farm-600">Cancel</button>
+              <button type="submit" className="px-3 py-1 bg-print-600 text-white rounded-lg text-xs hover:bg-print-500">Install</button>
+              <button type="button" onClick={() => setShowInstall(false)} className="px-3 py-1 bg-farm-700 text-farm-300 rounded-lg text-xs hover:bg-farm-600">Cancel</button>
             </div>
           </form>
         </div>
