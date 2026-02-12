@@ -893,8 +893,8 @@ def dispatch_alert(
         cur.execute("""
             SELECT DISTINCT ap.user_id
             FROM alert_preferences ap
-            WHERE ap.alert_type = ? AND ap.in_app = 1
-        """, (alert_type,))
+            WHERE UPPER(ap.alert_type) = ? AND ap.in_app = 1
+        """, (alert_type.upper(),))
         users = [row['user_id'] for row in cur.fetchall()]
         
         # If no preferences exist, alert all users (default on)
@@ -910,7 +910,7 @@ def dispatch_alert(
               AND title = ?
               AND created_at > datetime('now', '-5 minutes')
             LIMIT 1
-        """, (alert_type, printer_id, title))
+        """, (alert_type.upper(), printer_id, title))
         
         if cur.fetchone():
             conn.close()
@@ -922,9 +922,10 @@ def dispatch_alert(
         for user_id in users:
             cur.execute("""
                 INSERT INTO alerts (user_id, alert_type, severity, title, message,
-                                    printer_id, job_id, spool_id, metadata_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-            """, (user_id, alert_type, severity, title, message,
+                                    printer_id, job_id, spool_id, metadata_json,
+                                    is_read, is_dismissed, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))
+            """, (user_id, alert_type.upper(), severity.upper(), title, message,
                   printer_id, job_id, spool_id, metadata_json))
         
         conn.commit()
