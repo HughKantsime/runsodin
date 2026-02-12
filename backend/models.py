@@ -840,6 +840,7 @@ class AlertType(str, Enum):
     """Types of alerts the system can generate."""
     PRINT_COMPLETE = "print_complete"
     PRINT_FAILED = "print_failed"
+    PRINTER_ERROR = "printer_error"
     SPOOL_LOW = "spool_low"
     MAINTENANCE_OVERDUE = "maintenance_overdue"
     JOB_SUBMITTED = "job_submitted"

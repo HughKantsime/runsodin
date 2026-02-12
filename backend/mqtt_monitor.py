@@ -16,7 +16,7 @@ import json
 import time
 import signal
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import Thread, Lock
 from typing import Dict, Optional, Any
 
@@ -164,7 +164,7 @@ class PrinterMonitor:
                 """, (user_id, alert_type.upper(), severity.upper(), title, message,
                       self.printer_id, job_id, spool_id,
                       json.dumps(metadata) if metadata else None,
-                      datetime.now().isoformat()))
+                      datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
                 created += 1
             
             conn.commit()
@@ -502,7 +502,7 @@ class PrinterMonitor:
                  total_layers, bed_temp_target, nozzle_temp_target, scheduled_job_id)
                 VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
             """, (self.printer_id, str(mqtt_job_id), filename, job_name, 
-                  datetime.now().isoformat(), total_layers, bed_target, nozzle_target,
+                  datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), total_layers, bed_target, nozzle_target,
                   self._linked_job_id))
             self._current_job_id = cur.lastrowid
             
@@ -560,28 +560,44 @@ class PrinterMonitor:
                 UPDATE print_jobs 
                 SET ended_at = ?, status = ?, error_code = ?
                 WHERE id = ?
-            """, (datetime.now().isoformat(), status, error_code, self._current_job_id))
+            """, (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), status, error_code, self._current_job_id))
             
-            # Update linked scheduled job if exists
+            # Update or create linked scheduled job
+            now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            job_name = self._state.get('subtask_name', 'Unknown')
             if self._linked_job_id:
-                # Map MQTT status to jobs table status
                 job_status = 'COMPLETED' if status == 'completed' else 'FAILED'
-                cur.execute("UPDATE jobs SET status = ? WHERE id = ?", (job_status, self._linked_job_id))
+                cur.execute("UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
+                            (job_status, now_utc, self._linked_job_id))
                 log.info(f"[{self.name}] Updated linked job {self._linked_job_id} to '{job_status}'")
-            
+            else:
+                # Create a jobs record for metrics tracking
+                job_status = 'COMPLETED' if status == 'completed' else 'FAILED'
+                cur.execute("""
+                    INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (job_name, self.printer_id, job_status,
+                      cur.execute("SELECT started_at FROM print_jobs WHERE id = ?",
+                                  (self._current_job_id,)).fetchone()[0],
+                      now_utc))
+                self._linked_job_id = cur.lastrowid
+                # Link the print_jobs record to this new job
+                cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
+                            (self._linked_job_id, self._current_job_id))
+                log.info(f"[{self.name}] Created job {self._linked_job_id} for '{job_name}' ({job_status})")
+
             conn.commit()
             conn.close()
             log.info(f"[{self.name}] Job {status}: DB id {self._current_job_id}")
-            
-            # Dispatch alerts for job completion/failure
-            job_name = self._state.get('subtask_name', 'Unknown')
+
+            # Dispatch alerts (use linked_job_id which references the jobs table)
             if status == 'completed':
                 self._dispatch_alert(
                     alert_type='print_complete',
                     severity='info',
                     title=f"Print Complete: {job_name} ({self.name})",
                     message=f"Job finished successfully on {self.name}.",
-                    job_id=self._linked_job_id or self._current_job_id,
+                    job_id=self._linked_job_id,
                 )
             # Increment care counters on successful completion
             if status == 'completed':
@@ -592,9 +608,8 @@ class PrinterMonitor:
                     cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (self._current_job_id,))
                     row = cur2.fetchone()
                     if row and row[0] and row[1]:
-                        from datetime import datetime as dt
-                        started = dt.fromisoformat(row[0])
-                        ended = dt.fromisoformat(row[1])
+                        started = datetime.fromisoformat(row[0])
+                        ended = datetime.fromisoformat(row[1])
                         duration_sec = (ended - started).total_seconds()
                         printer_events.increment_care_counters(self.printer_id, duration_sec / 3600.0, 1)
                     conn2.close()
@@ -612,7 +627,7 @@ class PrinterMonitor:
                     severity='critical',
                     title=f"Print Failed: {job_name} ({self.name})",
                     message=msg,
-                    job_id=self._linked_job_id or self._current_job_id,
+                    job_id=self._linked_job_id,
                     metadata={"progress_percent": progress, "error_code": err}
                 )
                 # Record error in universal format
