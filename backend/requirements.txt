@@ -42,6 +42,7 @@ bcrypt==4.2.1
 # PDF generation (invoices)
 fpdf2==2.8.3
 
-# Vision AI (local inference)
+# Vigil AI (local print failure detection)
+numpy<2
 opencv-python-headless==4.9.0.80
 onnxruntime==1.17.1

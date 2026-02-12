@@ -593,7 +593,7 @@ conn.execute("""CREATE TABLE IF NOT EXISTS vision_models (
 
 conn.commit()
 conn.close()
-print("  ✓ Vision AI tables ready")
+print("  ✓ Vigil AI tables ready")
 VISIONEOF
 
 # ── Register default vision models if not already registered ──
@@ -615,7 +615,7 @@ if count == 0:
     else:
         print("  - No default vision models found")
 else:
-    print("  ✓ Vision models already registered")
+    print("  ✓ Vigil models already registered")
 conn.close()
 VISIONMODELSEOF
 

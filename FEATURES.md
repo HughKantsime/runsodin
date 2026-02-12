@@ -110,7 +110,7 @@
 
 ---
 
-## 3. Vision AI — Print Failure Detection
+## 3. Vigil AI — Print Failure Detection
 
 ### 3.1 Detection Engine
 - Supervised daemon (`vision_monitor.py`) managed by supervisord
@@ -127,7 +127,7 @@
 - Frame viewer showing captured image with detection overlay
 - Review workflow: confirm, dismiss, or label detections for training data
 
-### 3.3 Vision API (15 endpoints)
+### 3.3 Vigil API (15 endpoints)
 - `GET/PATCH /api/vision/detections` — list and review detections
 - `GET/PATCH /api/printers/{id}/vision` — per-printer vision settings (enable/disable, sensitivity)
 - `GET/PATCH /api/vision/settings` — global vision configuration
@@ -524,7 +524,7 @@
 ### 16.7 Settings Consolidation
 - 7 tabs (consolidated from 12 in v1.1.0)
 - Simple/Advanced view toggle
-- Sub-sections: General, Access, Notifications, Integrations, Branding, Vision, System
+- Sub-sections: General, Access, Notifications, Integrations, Branding, Vigil, System
 
 ---
 

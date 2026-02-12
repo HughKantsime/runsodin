@@ -52,7 +52,7 @@ DATASETS = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download Roboflow datasets for O.D.I.N. Vision AI")
+    parser = argparse.ArgumentParser(description="Download Roboflow datasets for O.D.I.N. Vigil AI")
     parser.add_argument("--api-key", required=True, help="Roboflow API key (free at app.roboflow.com/settings/api)")
     parser.add_argument("--dataset", required=True, choices=list(DATASETS.keys()),
                         help="Which dataset to download")
@@ -118,7 +118,7 @@ def main():
             trained.export(format="onnx", opset=17, imgsz=640)
             onnx_path = best.with_suffix(".onnx")
             print(f"\nONNX model ready: {onnx_path}")
-            print("Upload to O.D.I.N. via Settings > Vision AI > Upload Model")
+            print("Upload to O.D.I.N. via Settings > Vigil AI > Upload Model")
         else:
             print("Training failed — best.pt not found")
     else:

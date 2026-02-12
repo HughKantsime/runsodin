@@ -218,7 +218,7 @@ export default function Detections() {
         <div>
           <h2 className="text-xl md:text-2xl font-display font-bold flex items-center gap-2">
             <Eye size={24} />
-            Vision AI Detections
+            Vigil AI Detections
           </h2>
           <p className="text-xs md:text-sm text-farm-500 mt-1">
             AI-detected print failures from camera feeds

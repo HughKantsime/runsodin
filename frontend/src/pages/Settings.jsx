@@ -463,7 +463,7 @@ function VisionSettingsTab() {
       <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
         <div className="flex items-center gap-2 mb-4">
           <Eye size={18} className="text-purple-400" />
-          <h2 className="text-lg font-display font-semibold">Vision AI</h2>
+          <h2 className="text-lg font-display font-semibold">Vigil AI</h2>
         </div>
         <p className="text-sm text-farm-400 mb-4">
           AI-powered print failure detection using local ONNX inference. No cloud services — all processing runs on this server.
@@ -477,7 +477,7 @@ function VisionSettingsTab() {
               onChange={e => setGlobalSettings(s => ({ ...s, enabled: e.target.checked }))}
               className="rounded-lg"
             />
-            <span className="text-sm">Enable Vision AI globally</span>
+            <span className="text-sm">Enable Vigil AI globally</span>
           </label>
 
           <div className="flex items-center gap-3">
@@ -920,7 +920,7 @@ export default function Settings() {
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'access', label: 'Access', icon: Users },
     { id: 'integrations', label: 'Integrations', icon: Webhook },
-    ...(uiMode === 'advanced' ? [{ id: 'vision', label: 'Vision AI', icon: Eye }] : []),
+    ...(uiMode === 'advanced' ? [{ id: 'vision', label: 'Vigil AI', icon: Eye }] : []),
     { id: 'branding', label: 'Branding', icon: Palette },
     { id: 'system', label: 'System', icon: Database },
   ]

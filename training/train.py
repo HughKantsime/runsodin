@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-O.D.I.N. Vision AI — Training Script
+O.D.I.N. Vigil AI — Training Script
 
 Fine-tunes YOLOv8-nano on exported training data from the O.D.I.N. vision system.
 Runs OUTSIDE the Docker container on a machine with a GPU (or CPU, slower).
@@ -32,7 +32,7 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train YOLOv8-nano for O.D.I.N. Vision AI")
+    parser = argparse.ArgumentParser(description="Train YOLOv8-nano for O.D.I.N. Vigil AI")
     parser.add_argument("--data", required=True, help="Path to data.yaml from exported dataset")
     parser.add_argument("--base-model", default="yolov8n.pt", help="Base model (default: yolov8n.pt)")
     parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
@@ -93,7 +93,7 @@ def main():
         best_model.export(format="onnx", opset=17, imgsz=args.imgsz)
         onnx_path = best_weights.with_suffix(".onnx")
         print(f"\nONNX model saved to: {onnx_path}")
-        print(f"Upload to O.D.I.N. via Settings > Vision AI > Upload Model")
+        print(f"Upload to O.D.I.N. via Settings > Vigil AI > Upload Model")
     else:
         print("Warning: best.pt not found, skipping ONNX export")
 

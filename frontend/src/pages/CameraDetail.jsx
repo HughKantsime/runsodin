@@ -23,7 +23,7 @@ function AiIndicator({ printerId }) {
   })
   if (!data || !data.enabled) return null
   return (
-    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded-lg text-[10px] text-purple-300 font-medium" title="Vision AI active">
+    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded-lg text-[10px] text-purple-300 font-medium" title="Vigil AI active">
       <Eye size={10} />
       <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
       AI

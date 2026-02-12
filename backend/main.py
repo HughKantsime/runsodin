@@ -10800,9 +10800,9 @@ async def unsubscribe_push(
     return {"status": "ok", "message": "Push subscriptions removed"}
 
 
-# ============== Vision AI ==============
+# ============== Vigil AI ==============
 
-@app.get("/api/vision/detections", tags=["Vision AI"])
+@app.get("/api/vision/detections", tags=["Vigil AI"])
 async def list_vision_detections(
     printer_id: Optional[int] = None,
     detection_type: Optional[str] = None,
@@ -10851,7 +10851,7 @@ async def list_vision_detections(
     return {"items": rows, "total": total}
 
 
-@app.get("/api/vision/detections/{detection_id}", tags=["Vision AI"])
+@app.get("/api/vision/detections/{detection_id}", tags=["Vigil AI"])
 async def get_vision_detection(
     detection_id: int,
     current_user: dict = Depends(require_role("viewer")),
@@ -10875,7 +10875,7 @@ async def get_vision_detection(
     return dict(row)
 
 
-@app.patch("/api/vision/detections/{detection_id}", tags=["Vision AI"])
+@app.patch("/api/vision/detections/{detection_id}", tags=["Vigil AI"])
 async def review_vision_detection(
     detection_id: int,
     request: Request,
@@ -10906,7 +10906,7 @@ async def review_vision_detection(
     return {"id": detection_id, "status": new_status}
 
 
-@app.get("/api/printers/{printer_id}/vision", tags=["Vision AI"])
+@app.get("/api/printers/{printer_id}/vision", tags=["Vigil AI"])
 async def get_printer_vision_settings(
     printer_id: int,
     current_user: dict = Depends(require_role("viewer")),
@@ -10939,7 +10939,7 @@ async def get_printer_vision_settings(
     }
 
 
-@app.patch("/api/printers/{printer_id}/vision", tags=["Vision AI"])
+@app.patch("/api/printers/{printer_id}/vision", tags=["Vigil AI"])
 async def update_printer_vision_settings(
     printer_id: int,
     request: Request,
@@ -10983,7 +10983,7 @@ async def update_printer_vision_settings(
     return {"printer_id": printer_id, **updates}
 
 
-@app.get("/api/vision/settings", tags=["Vision AI"])
+@app.get("/api/vision/settings", tags=["Vigil AI"])
 async def get_global_vision_settings(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db),
@@ -10999,7 +10999,7 @@ async def get_global_vision_settings(
     return defaults
 
 
-@app.patch("/api/vision/settings", tags=["Vision AI"])
+@app.patch("/api/vision/settings", tags=["Vigil AI"])
 async def update_global_vision_settings(
     request: Request,
     current_user: dict = Depends(require_role("admin")),
@@ -11021,7 +11021,7 @@ async def update_global_vision_settings(
     return updates
 
 
-@app.get("/api/vision/frames/{printer_id}/{filename}", tags=["Vision AI"])
+@app.get("/api/vision/frames/{printer_id}/{filename}", tags=["Vigil AI"])
 async def serve_vision_frame(
     printer_id: int,
     filename: str,
@@ -11046,7 +11046,7 @@ async def serve_vision_frame(
     return FileResponse(real_path, media_type="image/jpeg")
 
 
-@app.get("/api/vision/models", tags=["Vision AI"])
+@app.get("/api/vision/models", tags=["Vigil AI"])
 async def list_vision_models(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db),
@@ -11062,7 +11062,7 @@ async def list_vision_models(
     return rows
 
 
-@app.post("/api/vision/models", tags=["Vision AI"])
+@app.post("/api/vision/models", tags=["Vigil AI"])
 async def upload_vision_model(
     file: UploadFile = File(...),
     name: str = Query(...),
@@ -11102,7 +11102,7 @@ async def upload_vision_model(
     return {"id": model_id, "name": name, "filename": safe_name}
 
 
-@app.patch("/api/vision/models/{model_id}/activate", tags=["Vision AI"])
+@app.patch("/api/vision/models/{model_id}/activate", tags=["Vigil AI"])
 async def activate_vision_model(
     model_id: int,
     current_user: dict = Depends(require_role("admin")),
@@ -11130,7 +11130,7 @@ async def activate_vision_model(
     return {"id": model_id, "detection_type": dt, "is_active": True}
 
 
-@app.get("/api/vision/stats", tags=["Vision AI"])
+@app.get("/api/vision/stats", tags=["Vigil AI"])
 async def get_vision_stats(
     days: int = Query(7, le=90),
     current_user: dict = Depends(require_role("viewer")),
@@ -11200,9 +11200,9 @@ async def get_vision_stats(
     }
 
 
-# ---- Vision AI: Training Data ----
+# ---- Vigil AI: Training Data ----
 
-@app.get("/api/vision/training-data", tags=["Vision AI"])
+@app.get("/api/vision/training-data", tags=["Vigil AI"])
 async def list_training_data(
     printer_id: Optional[int] = None,
     labeled: Optional[bool] = None,
@@ -11243,7 +11243,7 @@ async def list_training_data(
     return rows
 
 
-@app.post("/api/vision/training-data/{detection_id}/label", tags=["Vision AI"])
+@app.post("/api/vision/training-data/{detection_id}/label", tags=["Vigil AI"])
 async def label_training_data(
     detection_id: int,
     request: Request,
@@ -11275,7 +11275,7 @@ async def label_training_data(
     return {"id": detection_id, "labeled": True}
 
 
-@app.get("/api/vision/training-data/export", tags=["Vision AI"])
+@app.get("/api/vision/training-data/export", tags=["Vigil AI"])
 async def export_training_data(
     current_user: dict = Depends(require_role("admin")),
 ):

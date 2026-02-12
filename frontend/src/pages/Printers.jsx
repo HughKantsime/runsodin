@@ -667,11 +667,11 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
             <label className="block text-sm text-farm-400 mb-1">Camera URL (optional)</label>
             <input type="text" value={formData.camera_url} onChange={(e) => setFormData(prev => ({ ...prev, camera_url: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g. http://192.168.1.50:8080/?action=stream" />
             {formData.api_type === 'bambu' && /^(P1S|P1P|A1)/i.test(formData.model) ? (
-              <p className="text-xs text-farm-500 mt-1">P1S/A1 built-in cameras require LAN Live View which isn't available on these models. Use an external camera (USB webcam + MJPEG streamer, or IP camera) for Vision AI.</p>
+              <p className="text-xs text-farm-500 mt-1">P1S/A1 built-in cameras require LAN Live View which isn't available on these models. Use an external camera (USB webcam + MJPEG streamer, or IP camera) for Vigil AI.</p>
             ) : formData.api_type === 'bambu' && /^(X1|H2D)/i.test(formData.model) ? (
               <p className="text-xs text-farm-500 mt-1">Leave blank to auto-detect built-in camera.</p>
             ) : (
-              <p className="text-xs text-farm-500 mt-1">MJPEG, RTSP, or HTTP snapshot URL for Vision AI monitoring.</p>
+              <p className="text-xs text-farm-500 mt-1">MJPEG, RTSP, or HTTP snapshot URL for Vigil AI monitoring.</p>
             )}
           </div>
 

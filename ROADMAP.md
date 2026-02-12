@@ -198,7 +198,7 @@ Frontend: "Restore" button on backup list, file upload dialog, confirmation with
   - Audit logs: N days (default: 365)
   - Timelapses: N days (default: 30)
   - Alert history: N days (default: 90)
-  - Vision detections: already exists (7-90 days)
+  - Vigil detections: already exists (7-90 days)
 - Background cleanup task (daily cron via existing scheduler)
 - `GET /api/config/retention`, `PUT /api/config/retention`
 

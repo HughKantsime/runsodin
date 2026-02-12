@@ -117,7 +117,7 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 3. Frontend receives real-time updates via WebSocket, falls back to HTTP polling
 4. Scheduler assigns pending jobs to printers by color-match score and availability
 
-### Vision AI (`backend/vision_monitor.py`)
+### Vigil AI (`backend/vision_monitor.py`)
 
 - DB tables: `vision_detections`, `vision_settings`, `vision_models` (created in `entrypoint.sh`, not SQLAlchemy)
 - Frames stored at `/data/vision_frames/{printer_id}/`, served via `/api/vision/frames/`
