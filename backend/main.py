@@ -7435,6 +7435,21 @@ RBAC_DEFAULT_PAGE_ACCESS = {
     "education_reports": [
         "admin",
         "operator"
+    ],
+    "orders": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "products": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "alerts": [
+        "admin",
+        "operator",
+        "viewer"
     ]
 }
 
@@ -7525,6 +7540,54 @@ RBAC_DEFAULT_ACTION_ACCESS = {
     "dashboard.actions": [
         "admin",
         "operator"
+    ],
+    "orders.create": [
+        "admin",
+        "operator"
+    ],
+    "orders.edit": [
+        "admin"
+    ],
+    "orders.delete": [
+        "admin",
+        "operator"
+    ],
+    "orders.ship": [
+        "admin",
+        "operator"
+    ],
+    "products.create": [
+        "admin",
+        "operator"
+    ],
+    "products.edit": [
+        "admin",
+        "operator"
+    ],
+    "products.delete": [
+        "admin"
+    ],
+    "jobs.approve": [
+        "admin",
+        "operator"
+    ],
+    "jobs.reject": [
+        "admin",
+        "operator"
+    ],
+    "jobs.resubmit": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "alerts.read": [
+        "admin",
+        "operator",
+        "viewer"
+    ],
+    "printers.plug": [
+        "admin",
+        "operator"
     ]
 }
 
@@ -7533,10 +7596,10 @@ def _get_rbac(db: Session):
     row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
     if row and row.value:
         data = row.value
-        return {
-            "page_access": data.get("page_access", RBAC_DEFAULT_PAGE_ACCESS),
-            "action_access": data.get("action_access", RBAC_DEFAULT_ACTION_ACCESS),
-        }
+        # Merge: defaults first, then DB overrides — ensures new keys always appear
+        page = {**RBAC_DEFAULT_PAGE_ACCESS, **data.get("page_access", {})}
+        action = {**RBAC_DEFAULT_ACTION_ACCESS, **data.get("action_access", {})}
+        return {"page_access": page, "action_access": action}
     return {
         "page_access": RBAC_DEFAULT_PAGE_ACCESS,
         "action_access": RBAC_DEFAULT_ACTION_ACCESS,
