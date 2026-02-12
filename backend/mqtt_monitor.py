@@ -439,33 +439,59 @@ class PrinterMonitor:
         total_layers = self._state.get('total_layer_num')
         bed_target = self._state.get('bed_target_temper')
         nozzle_target = self._state.get('nozzle_target_temper')
-        
+
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            
+
+            # ---- Stale schedule cleanup (runs every _job_started, regardless of match) ----
+            cur.execute("""
+                SELECT id, item_name FROM jobs
+                WHERE printer_id = ? AND status = 'SCHEDULED'
+                  AND scheduled_start < datetime('now', '-2 hours')
+            """, (self.printer_id,))
+            stale_rows = cur.fetchall()
+            if stale_rows:
+                stale_ids = [r[0] for r in stale_rows]
+                stale_names = [r[1] or f"job #{r[0]}" for r in stale_rows]
+                cur.execute(
+                    "UPDATE jobs SET status = 'PENDING', printer_id = NULL,"
+                    " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
+                    " WHERE id IN ({})".format(','.join('?' * len(stale_ids))),
+                    stale_ids)
+                log.info(f"[{self.name}] Swept {len(stale_ids)} stale scheduled job(s): {', '.join(stale_names)}")
+                self._dispatch_alert(
+                    alert_type='schedule_bump',
+                    severity='info',
+                    title=f"Stale schedule swept on {self.name}",
+                    message=f"Jobs reset to pending (past 2hr window): {', '.join(stale_names)}",
+                    metadata={"bumped_job_ids": stale_ids, "reason": "stale_schedule"}
+                )
+
             # Try to find a matching scheduled job
             # Strategy 1: Match by job_name to filename/model name
             # Strategy 2: Match by layer count (unique fingerprint)
+            # Strategy 3: Sole scheduled candidate within ±2hr window
             self._linked_job_id = None
             total_layers = self._state.get('total_layer_num', 0)
-            
+
             cur.execute("""
-                SELECT DISTINCT j.id, pf.filename, j.item_name, m.name as model_name, pf.layer_count
+                SELECT DISTINCT j.id, pf.filename, j.item_name, m.name as model_name,
+                       pf.layer_count, j.status, j.scheduled_start
                 FROM jobs j
-                LEFT JOIN models m ON j.model_id = m.id 
+                LEFT JOIN models m ON j.model_id = m.id
                 LEFT JOIN print_files pf ON m.id = pf.model_id
-                WHERE j.printer_id = ? 
-                AND j.status IN ('scheduled', 'pending', 'SCHEDULED', 'PENDING')
+                WHERE j.printer_id = ?
+                AND j.status IN ('SCHEDULED', 'PENDING')
                 ORDER BY j.scheduled_start ASC
                 LIMIT 10
             """, (self.printer_id,))
-            
+
             candidates = cur.fetchall()
             job_base = job_name.lower().replace('.3mf', '').replace('.gcode', '')
-            
+
             # Strategy 1: Try name matching first
-            for cand_id, cand_filename, cand_item_name, cand_model_name, cand_layers in candidates:
+            for cand_id, cand_filename, cand_item_name, cand_model_name, cand_layers, cand_status, cand_sched in candidates:
                 match_targets = []
                 if cand_filename:
                     match_targets.append(cand_filename.lower().replace('.3mf', '').replace('.gcode', ''))
@@ -473,16 +499,16 @@ class PrinterMonitor:
                     match_targets.append(cand_item_name.lower())
                 if cand_model_name:
                     match_targets.append(cand_model_name.lower())
-                
+
                 for target in match_targets:
                     if target in job_base or job_base in target:
                         self._linked_job_id = cand_id
                         log.info(f"[{self.name}] Linked to job {cand_id} by name ('{job_base}' ~ '{target}')")
                         break
-                
+
                 if self._linked_job_id:
                     break
-            
+
             # Strategy 2: If no name match, try layer count matching
             if not self._linked_job_id and total_layers > 0:
                 layer_matches = list({c[0]: (c[0], c[3], c[4]) for c in candidates if c[4] == total_layers}.values())
@@ -491,26 +517,88 @@ class PrinterMonitor:
                     log.info(f"[{self.name}] Linked to job {self._linked_job_id} by layer count ({total_layers} layers)")
                 elif len(layer_matches) > 1:
                     log.info(f"[{self.name}] {len(layer_matches)} jobs match {total_layers} layers - cannot auto-link")
-            
+
+            # Strategy 3: Sole scheduled candidate within ±2hr window
+            if not self._linked_job_id:
+                now_utc = datetime.now(timezone.utc)
+                window_candidates = []
+                for cand_id, cand_filename, cand_item_name, cand_model_name, cand_layers, cand_status, cand_sched in candidates:
+                    if cand_status != 'SCHEDULED' or not cand_sched:
+                        continue
+                    try:
+                        sched_dt = datetime.fromisoformat(cand_sched)
+                        if sched_dt.tzinfo is None:
+                            sched_dt = sched_dt.replace(tzinfo=timezone.utc)
+                        if abs((now_utc - sched_dt).total_seconds()) <= 7200:
+                            window_candidates.append(cand_id)
+                    except (ValueError, TypeError):
+                        continue
+                if len(window_candidates) == 1:
+                    self._linked_job_id = window_candidates[0]
+                    log.info(f"[{self.name}] Linked to job {self._linked_job_id} by sole scheduled candidate (±2hr window)")
+                elif len(window_candidates) > 1:
+                    log.info(f"[{self.name}] {len(window_candidates)} scheduled jobs in ±2hr window - cannot auto-link")
+
+            # ---- Ad-hoc print: bump displaced scheduled jobs ----
             if not self._linked_job_id and candidates:
-                log.info(f"[{self.name}] No auto-match for '{job_base}' ({total_layers} layers) - link manually via API")
-            
+                log.info(f"[{self.name}] No auto-match for '{job_base}' ({total_layers} layers) - ad-hoc print")
+                cur.execute("""
+                    SELECT id, item_name FROM jobs
+                    WHERE printer_id = ? AND status = 'SCHEDULED'
+                """, (self.printer_id,))
+                displaced = cur.fetchall()
+                if displaced:
+                    displaced_ids = [r[0] for r in displaced]
+                    displaced_names = [r[1] or f"job #{r[0]}" for r in displaced]
+                    cur.execute(
+                        "UPDATE jobs SET status = 'PENDING', printer_id = NULL,"
+                        " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
+                        " WHERE id IN ({})".format(','.join('?' * len(displaced_ids))),
+                        displaced_ids)
+                    log.info(f"[{self.name}] Bumped {len(displaced_ids)} scheduled job(s) for ad-hoc print: {', '.join(displaced_names)}")
+                    self._dispatch_alert(
+                        alert_type='schedule_bump',
+                        severity='info',
+                        title=f"Scheduled jobs bumped on {self.name}",
+                        message=f"Ad-hoc print displaced: {', '.join(displaced_names)}. Jobs reset to pending.",
+                        metadata={"bumped_job_ids": displaced_ids, "reason": "ad_hoc_print", "ad_hoc_file": job_name}
+                    )
+            elif not self._linked_job_id:
+                log.info(f"[{self.name}] No auto-match for '{job_base}' ({total_layers} layers) - no candidates to bump")
+
             # Insert print_jobs record
             cur.execute("""
-                INSERT INTO print_jobs 
-                (printer_id, job_id, filename, job_name, started_at, status, 
+                INSERT INTO print_jobs
+                (printer_id, job_id, filename, job_name, started_at, status,
                  total_layers, bed_temp_target, nozzle_temp_target, scheduled_job_id)
                 VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
-            """, (self.printer_id, str(mqtt_job_id), filename, job_name, 
+            """, (self.printer_id, str(mqtt_job_id), filename, job_name,
                   datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), total_layers, bed_target, nozzle_target,
                   self._linked_job_id))
             self._current_job_id = cur.lastrowid
-            
+
+            # Snapshot spool weights at job start for filament usage calculation
+            self._start_spool_weights = {}
+            try:
+                spool_rows = cur.execute("""
+                    SELECT fs.slot_number, s.id, s.remaining_weight_g
+                    FROM filament_slots fs
+                    JOIN spools s ON fs.assigned_spool_id = s.id
+                    WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
+                """, (self.printer_id,)).fetchall()
+                for slot, spool_id, weight in spool_rows:
+                    if weight is not None:
+                        self._start_spool_weights[spool_id] = weight
+            except Exception:
+                pass
+
             # Update linked job status to 'printing'
             if self._linked_job_id:
+                cur.execute("UPDATE jobs SET status = 'PRINTING', actual_start = ? WHERE id = ? AND actual_start IS NULL",
+                            (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), self._linked_job_id))
                 cur.execute("UPDATE jobs SET status = 'PRINTING' WHERE id = ?", (self._linked_job_id,))
                 log.info(f"[{self.name}] Updated job {self._linked_job_id} status to 'printing'")
-            
+
             conn.commit()
             conn.close()
             log.info(f"[{self.name}] Job started: {job_name} (DB id: {self._current_job_id})")
@@ -550,42 +638,81 @@ class PrinterMonitor:
             return
         
         error_code = self._state.get('print_error') if status == 'failed' else None
-        
+
         try:
             conn = sqlite3.connect(DB_PATH)
             cur = conn.cursor()
-            
-            # Update print_jobs record
-            cur.execute("""
-                UPDATE print_jobs 
-                SET ended_at = ?, status = ?, error_code = ?
-                WHERE id = ?
-            """, (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), status, error_code, self._current_job_id))
-            
-            # Update or create linked scheduled job
+
             now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+            # Calculate duration and filament usage
+            pj_row = cur.execute("SELECT started_at FROM print_jobs WHERE id = ?",
+                                 (self._current_job_id,)).fetchone()
+            duration_hours = None
+            duration_seconds = None
+            if pj_row and pj_row[0]:
+                try:
+                    started = datetime.fromisoformat(pj_row[0])
+                    ended = datetime.fromisoformat(now_utc)
+                    duration_seconds = (ended - started).total_seconds()
+                    duration_hours = round(duration_seconds / 3600, 4)
+                except Exception:
+                    pass
+
+            # Calculate filament used by comparing spool weights (start vs now)
+            filament_used_g = None
+            start_weights = getattr(self, '_start_spool_weights', {})
+            if start_weights:
+                try:
+                    total_used = 0.0
+                    spool_rows = cur.execute("""
+                        SELECT s.id, s.remaining_weight_g FROM filament_slots fs
+                        JOIN spools s ON fs.assigned_spool_id = s.id
+                        WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
+                    """, (self.printer_id,)).fetchall()
+                    for spool_id, current_weight in spool_rows:
+                        if spool_id in start_weights and current_weight is not None:
+                            delta = start_weights[spool_id] - current_weight
+                            if delta > 0:
+                                total_used += delta
+                    if total_used > 0:
+                        filament_used_g = round(total_used, 2)
+                except Exception as e:
+                    log.debug(f"[{self.name}] Filament delta calc: {e}")
+
+            # Update print_jobs record with telemetry
+            cur.execute("""
+                UPDATE print_jobs
+                SET ended_at = ?, status = ?, error_code = ?,
+                    print_duration_seconds = ?, filament_used_g = ?
+                WHERE id = ?
+            """, (now_utc, status, error_code,
+                  int(duration_seconds) if duration_seconds else None,
+                  filament_used_g, self._current_job_id))
+
+            # Update or create linked scheduled job
             job_name = self._state.get('subtask_name', 'Unknown')
+
+            # SQLAlchemy Enum stores member NAMES (uppercase) for JobStatus
+            status_map = {'completed': 'COMPLETED', 'failed': 'FAILED', 'cancelled': 'CANCELLED'}
+            job_status = status_map.get(status, status.upper())
             if self._linked_job_id:
-                job_status = 'COMPLETED' if status == 'completed' else 'FAILED'
-                cur.execute("UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?",
-                            (job_status, now_utc, self._linked_job_id))
-                log.info(f"[{self.name}] Updated linked job {self._linked_job_id} to '{job_status}'")
+                cur.execute("UPDATE jobs SET status = ?, actual_end = ?, duration_hours = COALESCE(?, duration_hours) WHERE id = ?",
+                            (job_status, now_utc, duration_hours, self._linked_job_id))
+                log.info(f"[{self.name}] Updated linked job {self._linked_job_id} to '{job_status}' (duration={duration_hours}h)")
             else:
                 # Create a jobs record for metrics tracking
-                job_status = 'COMPLETED' if status == 'completed' else 'FAILED'
+                actual_start = pj_row[0] if pj_row else now_utc
                 cur.execute("""
                     INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end,
-                                     quantity, hold, is_locked, quantity_on_bed)
-                    VALUES (?, ?, ?, ?, ?, 1, 0, 0, 1)
-                """, (job_name, self.printer_id, job_status,
-                      cur.execute("SELECT started_at FROM print_jobs WHERE id = ?",
-                                  (self._current_job_id,)).fetchone()[0],
-                      now_utc))
+                                     duration_hours, quantity, hold, is_locked, quantity_on_bed)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, 1)
+                """, (job_name, self.printer_id, job_status, actual_start, now_utc, duration_hours))
                 self._linked_job_id = cur.lastrowid
                 # Link the print_jobs record to this new job
                 cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
                             (self._linked_job_id, self._current_job_id))
-                log.info(f"[{self.name}] Created job {self._linked_job_id} for '{job_name}' ({job_status})")
+                log.info(f"[{self.name}] Created job {self._linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
             conn.commit()
             conn.close()
