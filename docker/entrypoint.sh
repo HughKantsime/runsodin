@@ -315,6 +315,27 @@ conn.execute("""CREATE TABLE IF NOT EXISTS print_jobs (
 conn.execute("CREATE INDEX IF NOT EXISTS idx_print_jobs_printer ON print_jobs(printer_id)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_print_jobs_started ON print_jobs(started_at)")
+
+# Migrate older schemas that may be missing columns
+existing = {r[1] for r in conn.execute("PRAGMA table_info(print_jobs)")}
+migrations = [
+    ("job_id", "TEXT"),
+    ("filename", "TEXT"),
+    ("total_layers", "INTEGER"),
+    ("current_layer", "INTEGER"),
+    ("remaining_minutes", "REAL"),
+    ("bed_temp_target", "REAL"),
+    ("nozzle_temp_target", "REAL"),
+    ("filament_slots", "TEXT"),
+    ("error_code", "TEXT"),
+    ("scheduled_job_id", "INTEGER"),
+    ("created_at", "DATETIME DEFAULT (datetime('now'))"),
+]
+for col, col_type in migrations:
+    if col not in existing:
+        conn.execute(f"ALTER TABLE print_jobs ADD COLUMN {col} {col_type}")
+        print(f"  ✓ Migrated print_jobs: added {col}")
+
 conn.commit()
 conn.close()
 print("  ✓ Print jobs table ready")
