@@ -574,8 +574,9 @@ class PrinterMonitor:
                 # Create a jobs record for metrics tracking
                 job_status = 'COMPLETED' if status == 'completed' else 'FAILED'
                 cur.execute("""
-                    INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end,
+                                     quantity, hold, is_locked, quantity_on_bed)
+                    VALUES (?, ?, ?, ?, ?, 1, 0, 0, 1)
                 """, (job_name, self.printer_id, job_status,
                       cur.execute("SELECT started_at FROM print_jobs WHERE id = ?",
                                   (self._current_job_id,)).fetchone()[0],
