@@ -72,7 +72,7 @@ Sandbox compose: `/opt/printfarm-scheduler/docker-compose.yml`. Production compo
 
 ### Backend (`backend/`)
 
-- **main.py** — Monolithic FastAPI app (~9000 lines, 230+ routes under `/api/`). All API routes, middleware, and core logic live here.
+- **main.py** — Monolithic FastAPI app (~11400 lines, 300+ routes under `/api/`). All API routes, middleware, and core logic live here.
 - **models.py** — SQLAlchemy ORM: Printer, Job, Model, Spool, FilamentSlot, etc.
 - **schemas.py** — Pydantic request/response models
 - **auth.py** — JWT (HS256, 24h expiry) + bcrypt password hashing
@@ -129,7 +129,7 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 
 - **Auth model**: Three tiers — no headers (blocked), API key only (perimeter), JWT+API key (full RBAC with viewer/operator/admin roles)
 - **API prefix**: All routes under `/api/`. Swagger at `/api/docs`, ReDoc at `/api/redoc`
-- **Database**: SQLite at `/data/odin.db`. Several tables created via raw SQL in `entrypoint.sh` (not in SQLAlchemy `models.py`): `users`, `print_jobs`, `print_files`, `oidc_config`, `webhooks`, `vision_detections`, `vision_settings`, `vision_models`
+- **Database**: SQLite at `/data/odin.db`. Several tables created via raw SQL in `entrypoint.sh` (not in SQLAlchemy `models.py`): `users`, `print_jobs`, `print_files`, `oidc_config`, `webhooks`, `vision_detections`, `vision_settings`, `vision_models`, `api_tokens`, `active_sessions`, `token_blacklist`, `quota_usage`, `model_revisions`, `report_schedules`, `timelapses`
 - **Secrets**: Auto-generated on first run, persisted in `/data/`. `ENCRYPTION_KEY` (Fernet), `JWT_SECRET_KEY`, `API_KEY`
 - **Pre-commit**: gitleaks for secret scanning
 - **Git LFS**: Required for binary assets >100 MB (ONNX models). `*.onnx` tracked in `.gitattributes`

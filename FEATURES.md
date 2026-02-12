@@ -1,6 +1,6 @@
 # O.D.I.N. — Complete Feature Set
 
-> **Version:** v1.3.0 | **Last updated:** 2026-02-12
+> **Version:** v1.3.4 | **Last updated:** 2026-02-12
 > **This document catalogs every feature in O.D.I.N. with implementation details and version introduced.**
 
 ---
@@ -655,4 +655,5 @@
 | v1.1.3 | 2026-02-11 | Camera Detail View, TV Dashboard |
 | v1.1.4 | 2026-02-11 | Elegoo + PrusaLink telemetry parity (fan, snapshots, pruning, offline detection) |
 | v1.2.0 | 2026-02-12 | Timelapse management, audit log, PWA install, per-job time tracking, failure analytics, printer tags, filament drying log, quick-schedule presets |
-| v1.3.0 | 2026-02-12 | TOTP MFA, scoped API tokens, session management, IP allowlist, organizations, print quotas, cost chargebacks, GDPR, data retention, scheduled reports (definitions), bulk operations, backup restore UI, model versioning, WCAG 2.1, vision AI failure detection |
+| v1.3.0 | 2026-02-12 | TOTP MFA, scoped API tokens, session management, IP allowlist, organizations, print quotas, cost chargebacks, GDPR, data retention, scheduled reports (definitions), bulk operations, backup restore UI, model versioning, WCAG 2.1, Vigil AI failure detection |
+| v1.3.1–1.3.4 | 2026-02-12 | Bugfixes: vision_monitor crash-loop prevention, numpy<2 pin for ONNX compatibility, SQLAlchemy connection pool leak in middleware, "Vision AI" → "Vigil AI" rename |
