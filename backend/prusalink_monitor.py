@@ -67,6 +67,8 @@ class PrusaLinkMonitorThread(threading.Thread):
         self._last_state = None
         self._last_filename = None
         self._last_progress = 0.0
+        self._last_telemetry_insert = 0
+        self._marked_offline = False
 
     def stop(self):
         self._running = False
@@ -83,11 +85,22 @@ class PrusaLinkMonitorThread(threading.Thread):
                     log.info(f"[{self.name}] Connection recovered, re-discovering camera...")
                     self._discover_and_save_camera()
                 self._consecutive_failures = 0
+                self._marked_offline = False
                 self._process_status(status)
             except Exception as e:
                 self._consecutive_failures += 1
                 if self._consecutive_failures == MAX_CONSECUTIVE_FAILURES:
                     log.warning(f"[{self.name}] {MAX_CONSECUTIVE_FAILURES} consecutive failures, treating as disconnect")
+                    # Mark printer offline in DB (same as Bambu/Moonraker pattern)
+                    if not self._marked_offline:
+                        self._marked_offline = True
+                        try:
+                            conn = sqlite3.connect(DB_PATH)
+                            conn.execute("UPDATE printers SET gcode_state='OFFLINE' WHERE id=?", (self.printer_id,))
+                            conn.commit()
+                            conn.close()
+                        except Exception:
+                            pass
                 log.warning(f"[{self.name}] Poll error ({self._consecutive_failures}): {e}")
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] PrusaLink monitor stopped")
@@ -145,12 +158,30 @@ class PrusaLinkMonitorThread(threading.Thread):
                     None,  # filament_used_g — not provided
                 )
             elif odin_state == "FAILED":
-                # Print failed
+                # Print failed — try to extract error detail from raw data
+                error_msg = "Printer reported error state"
+                raw = getattr(status, 'raw_data', {}) or {}
+                printer_info = raw.get('printer', {})
+                if isinstance(printer_info, dict):
+                    status_printer = printer_info.get('status_printer', {})
+                    if isinstance(status_printer, dict) and status_printer.get('message'):
+                        error_msg = status_printer['message']
                 printer_events.on_print_failed(
                     self.printer_id,
                     current_file or self._last_filename or "Unknown",
-                    "Printer reported error state",
+                    error_msg,
                 )
+                # Record error in hms_error_history for tracking
+                try:
+                    printer_events.record_error(
+                        self.printer_id,
+                        error_code=f"PRUSALINK_{current_state}",
+                        error_message=error_msg,
+                        source="prusalink",
+                        severity="error",
+                    )
+                except Exception:
+                    pass
             elif odin_state == "PAUSE":
                 printer_events.on_print_paused(self.printer_id)
 
@@ -191,6 +222,8 @@ class PrusaLinkMonitorThread(threading.Thread):
                 remaining_min = status.time_remaining // 60 if status.time_remaining else None
                 current_layer = status.current_layer
                 total_layers = status.total_layers
+                # PrusaLink reports fan RPM — fan_print is the part cooling fan
+                fan_speed_val = status.fan_print if status.fan_print else None
 
                 # Determine stage
                 if status.state == PrusaLinkState.PRINTING:
@@ -210,8 +243,9 @@ class PrusaLinkMonitorThread(threading.Thread):
                     "UPDATE printers SET last_seen=datetime('now'),"
                     " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
                     " nozzle_temp=COALESCE(?,nozzle_temp),nozzle_target_temp=COALESCE(?,nozzle_target_temp),"
-                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage) WHERE id=?",
-                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, self.printer_id)
+                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage),"
+                    " fan_speed=COALESCE(?,fan_speed) WHERE id=?",
+                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, fan_speed_val, self.printer_id)
                 )
                 conn.commit()
 
@@ -227,6 +261,7 @@ class PrusaLinkMonitorThread(threading.Thread):
                     'remaining_min': remaining_min,
                     'current_layer': current_layer,
                     'total_layers': total_layers,
+                    'fan_speed': fan_speed_val,
                 })
 
                 # MQTT republish to external broker
@@ -240,9 +275,24 @@ class PrusaLinkMonitorThread(threading.Thread):
                             "remaining_min": remaining_min,
                             "current_layer": current_layer,
                             "total_layers": total_layers,
+                            "fan_speed": fan_speed_val,
                         })
                     except Exception:
                         pass
+
+                # ---- Timeseries Telemetry Capture ----
+                # Record temps + fan speed every 60s during active prints
+                if gstate in ('PRINTING', 'PAUSED', 'ATTENTION') and time.time() - self._last_telemetry_insert >= 60:
+                    self._last_telemetry_insert = time.time()
+                    try:
+                        conn.execute(
+                            "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
+                            (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
+                        )
+                        conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                        conn.commit()
+                    except Exception as e:
+                        log.debug(f"[{self.name}] Telemetry insert: {e}")
 
                 conn.close()
                 self._last_heartbeat = time.time()

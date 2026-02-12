@@ -66,6 +66,9 @@ class ElegooMonitorThread(threading.Thread):
         self._last_state = None
         self._last_filename = None
         self._last_progress = 0.0
+        self._last_telemetry_insert = 0
+        self._last_ams_env = 0
+        self._marked_offline = False
 
         # Register status callback on the adapter
         self.client.on_status(self._on_status_update)
@@ -98,6 +101,16 @@ class ElegooMonitorThread(threading.Thread):
             # Heartbeat: if no status update for 60s, try reconnecting
             if self._last_heartbeat > 0 and time.time() - self._last_heartbeat > 60:
                 log.warning(f"[{self.name}] No status update for 60s, reconnecting...")
+                # Mark printer offline in DB (same as Bambu/Moonraker pattern)
+                if not self._marked_offline:
+                    self._marked_offline = True
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.execute("UPDATE printers SET gcode_state='OFFLINE' WHERE id=?", (self.printer_id,))
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        pass
                 camera_discovered = False  # Re-discover camera on reconnect
                 self.client.disconnect()
                 time.sleep(2)
@@ -163,6 +176,13 @@ class ElegooMonitorThread(threading.Thread):
                     status.current_ticks,
                     None,  # filament_used_g
                 )
+            elif odin_state == "IDLE" and self._last_state in ("PRINTING", "HEATING", "HOMING", "LEVELING"):
+                # Went from active print to idle without FINISH — print failed
+                printer_events.on_print_failed(
+                    self.printer_id,
+                    status.filename or self._last_filename or "Unknown",
+                    "Print stopped unexpectedly",
+                )
             elif current_state == "PAUSED" and self._last_state != "PAUSED":
                 printer_events.on_print_paused(self.printer_id)
 
@@ -191,6 +211,7 @@ class ElegooMonitorThread(threading.Thread):
         # 3. Telemetry + heartbeat (throttled to every 10 seconds)
         # ----------------------------------------------------------
         if time.time() - self._last_heartbeat >= 10:
+            self._marked_offline = False  # Got a status update, clear offline flag
             try:
                 conn = sqlite3.connect(DB_PATH)
 
@@ -203,6 +224,7 @@ class ElegooMonitorThread(threading.Thread):
                 remaining_min = status.time_remaining // 60 if status.time_remaining else None
                 current_layer = status.current_layer
                 total_layers = status.total_layers
+                fan_speed_val = status.model_fan  # Primary fan speed (0-100)
 
                 # Stage determination
                 if current_state == "PRINTING":
@@ -222,8 +244,9 @@ class ElegooMonitorThread(threading.Thread):
                     "UPDATE printers SET last_seen=datetime('now'),"
                     " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
                     " nozzle_temp=COALESCE(?,nozzle_temp),nozzle_target_temp=COALESCE(?,nozzle_target_temp),"
-                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage) WHERE id=?",
-                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, self.printer_id)
+                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage),"
+                    " fan_speed=COALESCE(?,fan_speed) WHERE id=?",
+                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, fan_speed_val, self.printer_id)
                 )
                 conn.commit()
 
@@ -239,6 +262,7 @@ class ElegooMonitorThread(threading.Thread):
                     'remaining_min': remaining_min,
                     'current_layer': current_layer,
                     'total_layers': total_layers,
+                    'fan_speed': fan_speed_val,
                 })
 
                 # MQTT republish to external broker
@@ -252,9 +276,40 @@ class ElegooMonitorThread(threading.Thread):
                             "remaining_min": remaining_min,
                             "current_layer": current_layer,
                             "total_layers": total_layers,
+                            "fan_speed": fan_speed_val,
                         })
                     except Exception:
                         pass
+
+                # ---- Timeseries Telemetry Capture ----
+                # Record temps + fan speed every 60s during active prints
+                if gstate in ('PRINTING', 'HEATING', 'PAUSED') and time.time() - self._last_telemetry_insert >= 60:
+                    self._last_telemetry_insert = time.time()
+                    try:
+                        conn.execute(
+                            "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
+                            (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
+                        )
+                        conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                        conn.commit()
+                    except Exception as e:
+                        log.debug(f"[{self.name}] Telemetry insert: {e}")
+
+                # ---- Enclosure Environmental Data Capture ----
+                # Record box/enclosure temp every 5 minutes (same table as AMS env data)
+                if time.time() - self._last_ams_env >= 300:
+                    self._last_ams_env = time.time()
+                    try:
+                        box_temp = status.box_temp
+                        if box_temp and box_temp > 0:
+                            conn.execute(
+                                "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
+                                (self.printer_id, 0, None, box_temp)
+                            )
+                            conn.execute("DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                            conn.commit()
+                    except Exception as e:
+                        log.debug(f"[{self.name}] Enclosure env capture: {e}")
 
                 conn.close()
                 self._last_heartbeat = time.time()
