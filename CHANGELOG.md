@@ -27,6 +27,21 @@ All notable changes to O.D.I.N. are documented here.
 
 ---
 
+## [1.3.19] - 2026-02-13
+
+### Added
+- **Model versioning revert** — `POST /api/models/{id}/revisions/{rev}/revert` restores a previous revision; jobs now track `model_revision_id`; revision picker in job creation form
+- **Bulk operations on Printers and Spools pages** — multi-select UI with bulk update endpoint for spools (matching existing Jobs bulk ops pattern)
+- **Report runner daemon** (`report_runner.py`) — background process for scheduled report execution and quiet hours digest emails; supervisord entry added
+- **Organization resource scoping** — `org_id` filtering on printers, models, jobs, and spools list endpoints; shared printer flag; `OrgContext` provider; org switcher in sidebar for superadmins
+
+### Fixed
+- **Hardcoded credentials removed** — `tests/.env.test` removed from tracking; `ADMIN_PASSWORD` required via env var across all test files (no silent defaults)
+- Placeholder values for IPs and access codes in `go2rtc.yaml.example`, `adapters.py`, `bambu_adapter.py`
+- Report type name mismatch between frontend and backend
+
+---
+
 ## [1.3.18] - 2026-02-13
 
 ### Added

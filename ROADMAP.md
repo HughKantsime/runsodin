@@ -50,48 +50,29 @@ Updated 2026-02-13 at v1.3.23.
 - ~~Login page 401 redirect loop fix~~
 - ~~License feature gating: tier definition fallback for post-issuance features~~
 - ~~Console error cleanup (dead /api/settings fetch, orgId type guard, alert enum mismatch)~~
+- ~~Model versioning revert, job-level revision tracking, revision picker in job form~~
+- ~~Bulk operations on Printers and Spools pages~~
+- ~~Report runner daemon (scheduled report execution + quiet hours digest)~~
+- ~~Org resource scoping (org_id filtering on list endpoints, shared printer flag, org switcher)~~
+- ~~Hardcoded credentials removed, test env sanitized for public repo~~
 
 ---
 
 ## Backlog — Deepen Existing Implementations
 
-### 1. Organizations — Full Resource Scoping
-**Effort: High** — Org CRUD and member/printer assignment exist. Resource isolation does not.
+### 1. Organizations — Remaining Gaps
+**Effort: Medium** — Resource scoping (org_id filtering, shared printers, org switcher) shipped in v1.3.19. Remaining:
 
-- `org_id` filtering on all list endpoints (printers, jobs, spools, models)
-- Org members only see their org's resources
-- Shared printers: flag to make a printer visible across orgs
+- Org members only see their org's resources by default (implicit scoping, not just filtering)
 - Org-level settings: default filament, notification preferences, branding
-- Org switcher in header (superadmin)
-- This is the largest structural change — touches nearly every query
 
 ---
 
-### 2. Scheduled Report Execution
-**Effort: Medium** — CRUD for report_schedules exists. No background runner.
+### 2. Scheduled Reports — Remaining Gaps
+**Effort: Low** — Report runner daemon shipped in v1.3.19. Remaining:
 
-- Background task checks `next_run_at` and generates reports
 - Render as HTML email with inline charts (or PDF attachment)
-- Send via existing email infrastructure
-- Update `next_run_at` after each run
-
----
-
-### 3. Model Versioning — Revert & Job Reference
-**Effort: Low** — Revision list and upload exist. No revert or job-level tracking.
-
-- `POST /api/models/{id}/revisions/{rev}/revert` — restore a previous revision as current
-- Jobs reference `model_revision_id` so you know exactly which version was printed
-- Revision selector on job scheduling form
-
----
-
-### 4. Quiet Hours Digest Delivery
-**Effort: Low** — Suppression and digest formatting exist. No automated send.
-
-- Background task fires at end of quiet hours window
-- Batches suppressed alerts into single digest notification
-- Sends via configured channels (email, push, webhooks)
+- Send via existing email infrastructure (currently generates but doesn't email)
 
 ---
 
