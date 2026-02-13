@@ -31,7 +31,10 @@ def _create_tables(conn):
             item_name TEXT,
             printer_id INTEGER,
             status TEXT DEFAULT 'PENDING',
-            scheduled_start TEXT
+            scheduled_start TEXT,
+            actual_start TEXT,
+            scheduled_end TEXT,
+            match_score REAL
         );
 
         CREATE TABLE IF NOT EXISTS models (

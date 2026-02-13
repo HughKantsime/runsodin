@@ -19,7 +19,7 @@ import pytest
 import os
 import requests as _requests
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8000")
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "OdinAdmin1")
@@ -307,17 +307,22 @@ class TestW5KeyboardShortcuts:
             ("j", "/jobs", "Jobs"),
             ("p", "/printers", "Printers"),
         ]
+        worked = 0
         for key, expected_path, name in shortcuts:
             admin_page.goto(f"{FRONTEND_URL}/settings", wait_until="networkidle", timeout=15000)
             admin_page.keyboard.press("g")
             admin_page.wait_for_timeout(200)
             admin_page.keyboard.press(key)
             admin_page.wait_for_timeout(1000)
-            if expected_path not in admin_page.url and admin_page.url.rstrip("/") != FRONTEND_URL.rstrip("/"):
-                # G+key didn't navigate — may not be implemented
-                continue
-            # If we got here without error, shortcut worked
-        # At least auditing that the shortcuts don't crash anything
+            current = admin_page.url.rstrip("/")
+            base = FRONTEND_URL.rstrip("/")
+            if expected_path == "/":
+                if current == base or current == f"{base}/":
+                    worked += 1
+            elif expected_path in admin_page.url:
+                worked += 1
+        assert worked >= 1, \
+            "W5: No G+key navigation shortcuts worked (tested G+D, G+J, G+P)"
 
     def test_w5_escape_closes_modal(self, admin_page):
         """W5.4: Escape key closes open modals."""
@@ -344,20 +349,8 @@ class TestW6ThemeToggle:
     def test_w6_theme_toggle_exists(self, admin_page):
         """W6.1: Theme toggle is present on the page."""
         admin_page.goto(f"{FRONTEND_URL}/", wait_until="networkidle", timeout=15000)
-        toggle = admin_page.locator(
-            'button[aria-label*="theme" i], '
-            'button[aria-label*="dark" i], '
-            'button[aria-label*="light" i], '
-            'button[aria-label*="mode" i], '
-            '[class*="theme-toggle"], '
-            '[class*="ThemeToggle"], '
-            '[class*="dark-mode"], '
-            '[data-testid*="theme"], '
-            'button:has(svg[class*="moon"]), '
-            'button:has(svg[class*="sun"])'
-        )
-        if toggle.count() == 0:
-            pytest.xfail("W6: Theme toggle not found")
+        toggle = admin_page.locator('button[aria-label*="Switch to"]')
+        assert toggle.count() > 0, "W6: Theme toggle not found"
 
     def test_w6_theme_switch(self, admin_page):
         """W6.2: Clicking theme toggle changes the theme."""
@@ -365,35 +358,24 @@ class TestW6ThemeToggle:
 
         # Get current theme state
         html_class_before = admin_page.locator("html").get_attribute("class") or ""
-        body_class_before = admin_page.locator("body").get_attribute("class") or ""
-        data_theme_before = admin_page.locator("html").get_attribute("data-theme") or ""
 
-        # Find and click toggle
+        # Find a VISIBLE theme toggle — aria-label is "Switch to light mode" or "Switch to dark mode"
         toggle = admin_page.locator(
-            'button[aria-label*="theme" i], '
-            'button[aria-label*="dark" i], '
-            'button[aria-label*="light" i], '
-            'button[aria-label*="mode" i], '
-            '[class*="theme-toggle"], '
-            '[data-testid*="theme"]'
+            'button[aria-label*="Switch to"]:visible'
         )
         if toggle.count() == 0:
-            pytest.skip("No theme toggle found")
+            pytest.skip("No visible theme toggle found")
         toggle.first.click()
         admin_page.wait_for_timeout(500)
 
-        # Check if something changed
+        # Check if html class changed (toggles "light" class on <html>)
         html_class_after = admin_page.locator("html").get_attribute("class") or ""
-        body_class_after = admin_page.locator("body").get_attribute("class") or ""
-        data_theme_after = admin_page.locator("html").get_attribute("data-theme") or ""
-
-        changed = (
-            html_class_before != html_class_after or
-            body_class_before != body_class_after or
-            data_theme_before != data_theme_after
-        )
+        changed = html_class_before != html_class_after
         if not changed:
-            pytest.xfail("W6: Theme toggle click didn't change html/body classes or data-theme")
+            # Check localStorage as fallback — theme stored as 'odin-theme'
+            theme_ls = admin_page.evaluate("localStorage.getItem('odin-theme')")
+            assert theme_ls is not None, \
+                "W6: Theme toggle click didn't change html class or localStorage"
 
     def test_w6_theme_persists(self, browser_instance):
         """W6.3: Theme persists after page reload (localStorage)."""
@@ -440,28 +422,16 @@ class TestW7MobileResponsive:
                 localStorage.setItem('access_token', '{token}');
                 localStorage.setItem('token', '{token}');
             }}""")
-            pg.reload(wait_until="networkidle", timeout=15000)
+            pg.goto(FRONTEND_URL, wait_until="networkidle", timeout=15000)
 
-            # Check for hamburger menu
-            hamburger = pg.locator(
-                'button[aria-label*="menu" i], '
-                'button[class*="hamburger"], '
-                'button[class*="menu-toggle"], '
-                '[class*="mobile-menu"], '
-                'button:has(svg[class*="menu"]), '
-                '[data-testid="menu-button"]'
-            )
-            sidebar_visible = pg.locator(
-                'nav[class*="sidebar"]:visible, '
-                'aside[class*="sidebar"]:visible'
-            ).count()
+            # Check for hamburger menu (aria-label="Open menu")
+            hamburger = pg.locator('button[aria-label="Open menu"]')
+            sidebar_visible = pg.locator('aside:visible').count()
 
-            if hamburger.count() > 0:
-                pass  # Good — hamburger menu exists
-            elif sidebar_visible == 0:
-                pass  # Sidebar hidden — some mobile-first UX
-            else:
-                pytest.xfail("W7: Full sidebar visible at 375px — no hamburger menu")
+            has_hamburger = hamburger.count() > 0
+            sidebar_hidden = sidebar_visible == 0
+            assert has_hamburger or sidebar_hidden, \
+                "W7: Full sidebar visible at 375px — no hamburger menu"
 
         finally:
             pg.close()
@@ -488,14 +458,14 @@ class TestW7MobileResponsive:
                 localStorage.setItem('access_token', '{token}');
                 localStorage.setItem('token', '{token}');
             }}""")
-            pg.reload(wait_until="networkidle", timeout=15000)
+            pg.goto(FRONTEND_URL, wait_until="networkidle", timeout=15000)
 
             # Check for horizontal overflow
             has_overflow = pg.evaluate("""() => {
                 return document.documentElement.scrollWidth > document.documentElement.clientWidth;
             }""")
-            if has_overflow:
-                pytest.xfail("W7: Horizontal scrollbar detected at 375px width")
+            assert not has_overflow, \
+                "W7: Horizontal scrollbar detected at 375px width"
         finally:
             pg.close()
             ctx.close()
@@ -521,22 +491,19 @@ class TestW7MobileResponsive:
                 localStorage.setItem('access_token', '{token}');
                 localStorage.setItem('token', '{token}');
             }}""")
-            pg.reload(wait_until="networkidle", timeout=15000)
+            # Navigate to root (not reload — reload stays on /login)
+            pg.goto(FRONTEND_URL, wait_until="networkidle", timeout=15000)
 
-            # Try opening hamburger
-            hamburger = pg.locator(
-                'button[aria-label*="menu" i], '
-                'button[class*="hamburger"], '
-                'button[class*="menu-toggle"]'
-            )
+            # Open hamburger menu to reveal sidebar nav
+            hamburger = pg.locator('button[aria-label="Open menu"]')
             if hamburger.count() > 0:
                 hamburger.first.click()
-                pg.wait_for_timeout(500)
+                pg.wait_for_timeout(1000)
 
-            # Check for nav links
+            # Check for nav links (in sidebar or page)
             nav_links = pg.locator("a[href]")
             link_count = nav_links.count()
-            assert link_count >= 3, f"W7: Only {link_count} nav links visible on mobile"
+            assert link_count >= 3, f"W7: Only {link_count} nav links visible on mobile after opening menu"
         finally:
             pg.close()
             ctx.close()

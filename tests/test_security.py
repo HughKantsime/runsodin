@@ -766,7 +766,6 @@ class TestUnmatchedSlotsBug:
     The fix requires a service restart after patching main.py.
     """
 
-    @pytest.mark.xfail(reason="Known bug — requires service restart after patch + possible code fix", strict=False)
     def test_unmatched_slots_no_auth(self):
         """The handler should not 500 when current_user is None."""
         r = requests.get(

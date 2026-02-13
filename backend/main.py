@@ -1763,8 +1763,13 @@ def create_model(model: ModelCreate, current_user: dict = Depends(require_role("
         color_requirements=color_req,
         category=model.category,
         thumbnail_url=model.thumbnail_url,
+        thumbnail_b64=model.thumbnail_b64,
         notes=model.notes,
-        cost_per_item=model.cost_per_item
+        cost_per_item=model.cost_per_item,
+        units_per_bed=model.units_per_bed,
+        quantity_per_bed=model.quantity_per_bed,
+        markup_percent=model.markup_percent,
+        is_favorite=model.is_favorite,
     )
     db.add(db_model)
     db.commit()

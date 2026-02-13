@@ -13,7 +13,7 @@ Run: ADMIN_PASSWORD=OdinAdmin1 pytest tests/test_e2e/test_conditional_ui.py -v -
 import pytest
 import os
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8000")
 PAGES = [
     ("Dashboard", "/"),
     ("Jobs", "/jobs"),
@@ -173,27 +173,24 @@ class TestRoleVisibility:
     """C12-C20: Elements that show/hide based on user role."""
 
     def test_c12_admin_nav_items_visible_to_admin(self, admin_page):
-        """C12: Admin should see Users/Permissions nav items."""
+        """C12: Admin should see Settings and Audit Log nav items (admin-only sidebar entries)."""
         admin_page.goto(f"{FRONTEND_URL}/", wait_until="networkidle", timeout=15000)
-        page_text = admin_page.content()
-        # Look for admin-only nav items in sidebar
+        # Settings and Audit Log are the admin-only sidebar nav items
         admin_indicators = admin_page.locator(
-            'a:has-text("Users"), '
-            'a[href*="/users"], '
-            ':text("User Management"), '
-            'a[href*="/permissions"], '
-            ':text("Permissions")'
+            'a[href="/settings"], '
+            'a[href="/audit"], '
+            ':text("Settings"), '
+            ':text("Audit Log")'
         )
         assert admin_indicators.count() > 0, \
-            "Admin nav items (Users/Permissions) not visible to admin — C12 bug"
+            "Admin nav items (Settings/Audit Log) not visible to admin — C12 bug"
 
     def test_c12_admin_nav_items_hidden_from_viewer(self, viewer_page):
-        """C12: Viewer should NOT see Users/Permissions nav items."""
+        """C12: Viewer should NOT see Settings/Audit Log nav items."""
         viewer_page.goto(f"{FRONTEND_URL}/", wait_until="networkidle", timeout=15000)
         admin_nav = viewer_page.locator(
-            'a:has-text("Users"), '
-            'a[href*="/users"], '
-            'a[href*="/permissions"]'
+            'a[href="/settings"], '
+            'a[href="/audit"]'
         )
         visible_count = 0
         for i in range(admin_nav.count()):
@@ -203,12 +200,11 @@ class TestRoleVisibility:
             f"Admin nav items visible to viewer ({visible_count} items) — C12 security bug"
 
     def test_c12_admin_nav_items_hidden_from_operator(self, operator_page):
-        """C12: Operator should NOT see Users/Permissions nav items."""
+        """C12: Operator should NOT see Settings/Audit Log nav items."""
         operator_page.goto(f"{FRONTEND_URL}/", wait_until="networkidle", timeout=15000)
         admin_nav = operator_page.locator(
-            'a:has-text("Users"), '
-            'a[href*="/users"], '
-            'a[href*="/permissions"]'
+            'a[href="/settings"], '
+            'a[href="/audit"]'
         )
         visible_count = 0
         for i in range(admin_nav.count()):
@@ -230,17 +226,21 @@ class TestRoleVisibility:
             f"Admin sees only {admin_settings} settings tabs — expected more admin-only tabs"
 
     def test_c17_settings_tabs_viewer(self, viewer_page):
-        """C17: Viewer should NOT see admin-only Settings tabs."""
+        """C17: Viewer should NOT be able to access Settings page (admin-only)."""
         viewer_page.goto(f"{FRONTEND_URL}/settings", wait_until="networkidle", timeout=15000)
-        page_text = viewer_page.inner_text("body")
-        admin_keywords_found = []
-        for keyword in ["SMTP", "SSO", "OIDC", "Webhook", "Advanced", "Branding"]:
-            if keyword.lower() in page_text.lower():
-                admin_keywords_found.append(keyword)
-        if admin_keywords_found:
-            pytest.xfail(
-                f"Viewer can see admin settings tabs: {admin_keywords_found} — C17 finding"
-            )
+        # Settings is admin-only — viewer should be redirected or see no settings content
+        url = viewer_page.url
+        page_text = viewer_page.inner_text("body").lower()
+        # Check if viewer was redirected away from settings
+        redirected = "/settings" not in url
+        # Or if the page shows access denied / no settings form controls
+        has_settings_tabs = viewer_page.locator(
+            'button:has-text("General"), '
+            'button:has-text("Notifications"), '
+            'button:has-text("System")'
+        ).count() >= 2
+        if not redirected and has_settings_tabs:
+            pytest.fail("Viewer can access Settings page with functional tabs — C17 security bug")
 
     def test_c18_delete_buttons_admin(self, admin_page, seed_data):
         """C18: Admin should see delete buttons on resource pages."""
@@ -300,8 +300,8 @@ class TestRoleVisibility:
         for i in range(viewer_branding.count()):
             if viewer_branding.nth(i).is_visible():
                 viewer_visible += 1
-        if viewer_visible > 0:
-            pytest.xfail("Viewer can see Branding nav link — C19 finding")
+        assert viewer_visible == 0, \
+            "Viewer can see Branding nav link — C19 security bug"
 
     def test_c20_license_tab_admin_only(self, admin_page, viewer_page):
         """C20: License tab in Settings visible only to admin."""
@@ -322,9 +322,9 @@ class TestRoleVisibility:
                 viewer_visible += 1
 
         if admin_has_license and viewer_visible > 0:
-            pytest.xfail("Viewer can see License tab — C20 finding")
+            pytest.fail("Viewer can see License tab — C20 security bug")
         elif not admin_has_license:
-            pytest.xfail("Admin doesn't see License tab — C20 finding (expected to exist)")
+            pytest.xfail("Admin doesn't see License tab — C20 UI finding (expected to exist)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -450,10 +450,16 @@ class TestDataDependentElements:
         """C34: Empty state message when no printers (or printers list when they exist)."""
         admin_page.goto(f"{FRONTEND_URL}/printers", wait_until="networkidle", timeout=15000)
         page_text = admin_page.inner_text("body").lower()
-        has_empty = "no printer" in page_text or "add a printer" in page_text or "get started" in page_text
+        has_empty = (
+            "no printers configured" in page_text or
+            "no printer" in page_text or
+            "add a printer" in page_text or
+            "get started" in page_text
+        )
+        # Printer cards use bg-farm-900 with rounded-lg border classes
         has_printers = admin_page.locator(
-            '[class*="printer-card"], [class*="printerCard"], '
-            'tr[class*="printer"], [class*="printer-row"]'
+            '.bg-farm-900.rounded-lg.border, '
+            '[class*="printer-card"], [class*="printerCard"]'
         ).count() > 0
         # One or the other should be true
         assert has_empty or has_printers, \

@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright
 # Configuration
 # ---------------------------------------------------------------------------
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8000")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "OdinAdmin1")
 

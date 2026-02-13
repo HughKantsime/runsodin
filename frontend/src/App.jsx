@@ -397,6 +397,13 @@ function ProtectedRoute({ children }) {
   return children
 }
 
+function RoleGate({ page, children }) {
+  if (!canAccessPage(page)) {
+    return <Navigate to="/" replace />
+  }
+  return children
+}
+
 
 export default function App() {
 
@@ -480,7 +487,7 @@ export default function App() {
             <Route path="/upload" element={<Upload />} />
             <Route path="/spools" element={<Spools />} />
             <Route path="/consumables" element={<ProGate feature="products"><Consumables /></ProGate>} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<RoleGate page="settings"><SettingsPage /></RoleGate>} />
             <Route path="/admin" element={<Navigate to="/settings" replace />} />
             <Route path="/permissions" element={<ProGate feature="permissions"><Navigate to="/settings" replace /></ProGate>} />
             <Route path="/maintenance" element={<ProGate feature="maintenance"><Maintenance /></ProGate>} />
@@ -493,7 +500,7 @@ export default function App() {
             <Route path="/detections" element={<Detections />} />
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
-            <Route path="/audit" element={<AuditLogs />} />
+            <Route path="/audit" element={<RoleGate page="audit"><AuditLogs /></RoleGate>} />
           </Routes>
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
