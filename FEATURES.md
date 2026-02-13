@@ -1,6 +1,6 @@
 # O.D.I.N. — Complete Feature Set
 
-> **Version:** v1.3.17 | **Last updated:** 2026-02-13
+> **Version:** v1.3.18 | **Last updated:** 2026-02-13
 > **This document catalogs every feature in O.D.I.N. with implementation details and version introduced.**
 
 ---
@@ -153,7 +153,7 @@
 ### 4.2 Scheduling
 - Smart scheduler with color-match scoring to minimize filament swaps
 - Time-window job matching strategy — evaluates printer availability windows, not single-point checks (v1.3.13)
-- Stale schedule cleanup — removes orphaned schedule entries that outlived their window (v1.3.13)
+- Stale schedule cleanup — reactive per-printer cleanup on print start (v1.3.13), proactive fleet-wide cleanup on every scheduler run (v1.3.18)
 - Auto-create jobs on print completion for reprint tracking (v1.3.10)
 - Upload → Model Library → Schedule → Jobs workflow pipeline
 - Quick Print button on upload success screen — creates pending job immediately (v1.0.26)
@@ -400,6 +400,7 @@
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
 - Login attempt audit trail with IP addresses
 - Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
+- Settings and Audit routes guarded by `RoleGate` — direct URL access blocked for non-admins (v1.3.18)
 
 ### 12.2 IP Allowlisting (v1.3.0)
 - CIDR-based middleware enforcement
@@ -675,3 +676,4 @@
 | v1.3.15 | 2026-02-13 | Sandbox test config |
 | v1.3.16 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (59 tests), setup endpoint hardening, usage reports added to Pro tier, PRINTER_ERROR alert type, uppercase status enum consistency |
 | v1.3.17 | 2026-02-13 | Rate limiter fix (only count failed logins), RBAC test alignment, test suite hardening |
+| v1.3.18 | 2026-02-13 | Proactive stale schedule cleanup, Settings/Audit RBAC route guard, create_model field fix, 13 test failures resolved, test cheating eliminated (1022 passing) |

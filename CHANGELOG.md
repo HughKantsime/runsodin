@@ -2,6 +2,26 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.18] - 2026-02-13
+
+### Added
+- **Proactive stale schedule cleanup** — scheduler resets SCHEDULED jobs >2hrs past their window back to PENDING on every run (complements reactive per-printer cleanup in mqtt_monitor)
+- `RoleGate` frontend component for route-level RBAC enforcement
+
+### Fixed
+- **Settings/Audit RBAC bypass** — viewers could navigate directly to `/settings` or `/audit` URLs; now redirected to dashboard
+- **`create_model` dropping fields** — `quantity_per_bed`, `units_per_bed`, `markup_percent`, `is_favorite`, `thumbnail_b64` silently dropped on model creation (broke order math batching)
+- `install/install.sh` version synced to current release; `bump-version.sh` now updates it automatically
+- 13 test failures resolved: license gating imports, MQTT fixture schema, E2E selectors, mobile token injection
+- Test integrity: security-relevant `xfail` markers converted to hard assertions, phantom test fixed, stale `xfail` removed
+- E2E test `FRONTEND_URL` default corrected from `:3000` to `:8000`
+- Doc inaccuracies: version attribution, test counts, wording fixes across CHANGELOG/FEATURES/ROADMAP
+
+### Changed
+- Test suite: 1022 passing (was 1007 with 13 failures), 0 xpassed (was 1)
+
+---
+
 ## [1.3.17] - 2026-02-13
 
 ### Fixed

@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-13 at v1.3.17.
+Updated 2026-02-13 at v1.3.18.
 
 ## Shipped in v1.2.0
 
@@ -40,6 +40,10 @@ Updated 2026-02-13 at v1.3.17.
 - ~~Rate limiter fix: only count failed logins toward IP limit~~
 - ~~RBAC test expectations aligned with backend (printer create → operator, order update → admin)~~
 - ~~Rate limit test isolation (throwaway usernames + backend restart between sessions)~~
+- ~~Proactive stale schedule cleanup (fleet-wide, every scheduler run)~~
+- ~~Settings/Audit frontend route RBAC guard~~
+- ~~create_model field persistence fix (quantity_per_bed, units_per_bed, etc.)~~
+- ~~Test suite: 13 failures resolved, test cheating eliminated (1022 passing, 0 xpassed)~~
 
 ---
 
