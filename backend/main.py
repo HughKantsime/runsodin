@@ -1487,6 +1487,11 @@ def _setup_is_complete(db: Session) -> bool:
     return False
 
 
+def _setup_is_locked(db: Session) -> bool:
+    """Setup is locked once users exist OR setup is explicitly marked complete."""
+    return _setup_users_exist(db) or _setup_is_complete(db)
+
+
 @app.get("/api/setup/status", tags=["Setup"])
 def setup_status(db: Session = Depends(get_db)):
     """Check if initial setup is needed. No auth required."""
@@ -1533,7 +1538,7 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
 @app.post("/api/setup/test-printer", tags=["Setup"])
 def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(get_db)):
     """Test printer connection during setup. Wraps existing test logic."""
-    if _setup_is_complete(db):
+    if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     if request.api_type.lower() == "bambu":
         if not request.serial or not request.access_code:
@@ -1589,7 +1594,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
 @app.post("/api/setup/printer", tags=["Setup"])
 def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get_db)):
     """Create a printer during setup. Requires JWT from admin creation step."""
-    if _setup_is_complete(db):
+    if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     # Encrypt api_key if provided
     encrypted_api_key = None
@@ -1625,7 +1630,7 @@ def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get
 @app.post("/api/setup/complete", tags=["Setup"])
 def setup_mark_complete(db: Session = Depends(get_db)):
     """Mark setup as complete. Prevents wizard from showing again."""
-    if _setup_is_complete(db):
+    if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     existing = db.execute(text(
         "SELECT key FROM system_config WHERE key = 'setup_complete'"
