@@ -18,8 +18,17 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [1.3.16] - 2026-02-13
 
+### Added
+- **Curl-pipe-bash installer** (`install.sh`) — preflight checks, interactive config, image pull, health wait, non-TTY mode for automation
+- **Self-updating updater** (`update.sh`) — version diffing, `--force` flag, rollback instructions, self-update before run
+- Installer test suite (59 unit + integration tests) via `tests/test_installer.sh`
+
+### Fixed
+- Setup/complete endpoint 500 error when completing first-run wizard
+- Security hardening: eval removal, `.env` file permissions (0600), SIGINT traps in installer scripts
+
 ### Changed
-- `usage_reports` feature moved from Education-only to Pro license tier
+- `usage_reports` feature added to Pro license tier
 - `PRINTER_ERROR` alert type added to AlertTypeEnum
 - Maintenance log and moonraker monitor job status strings uppercased to match enum convention
 
@@ -27,20 +36,8 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [1.3.15] - 2026-02-13
 
-### Added
-- **Curl-pipe-bash installer** (`install.sh`) — preflight checks, interactive config, image pull, health wait, non-TTY mode for automation
-- **Self-updating updater** (`update.sh`) — version diffing, `--force` flag, rollback instructions, self-update before run
-- Installer test suite (42 unit + integration tests) via `tests/test_installer.sh`
-
-### Fixed
-- Setup/complete endpoint 500 error when completing first-run wizard
-- Security hardening: eval removal, `.env` file permissions (0600), SIGINT traps in installer scripts
-
 ### Changed
 - Sandbox test config added (`tests/.env.test`)
-- `usage_reports` feature moved from Education-only to Pro tier
-- `PRINTER_ERROR` alert type added to AlertTypeEnum
-- Maintenance log and moonraker monitor job status strings uppercased to match enum convention
 
 ---
 

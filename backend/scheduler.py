@@ -196,26 +196,46 @@ class Scheduler:
         
         return None
     
+    def _cleanup_stale_schedules(self, db: Session) -> int:
+        """Reset SCHEDULED jobs whose time window has passed (>2hrs past scheduled_start)."""
+        cutoff = datetime.now() - timedelta(hours=2)
+        stale = db.query(Job).filter(
+            Job.status == JobStatus.SCHEDULED,
+            Job.scheduled_start < cutoff
+        ).all()
+        for job in stale:
+            job.status = JobStatus.PENDING
+            job.printer_id = None
+            job.scheduled_start = None
+            job.scheduled_end = None
+            job.match_score = None
+        if stale:
+            db.flush()
+        return len(stale)
+
     def run(self, db: Session, start_date: Optional[datetime] = None) -> SchedulerResult:
         """
         Run the scheduler on all pending jobs.
-        
+
         Args:
             db: Database session
             start_date: Scheduling horizon start (defaults to now)
-            
+
         Returns:
             SchedulerResult with assignments and metrics
         """
         result = SchedulerResult(success=True)
-        
+
         # Default start to now, rounded up to next slot
         if start_date is None:
             start_date = self._round_up_to_next_slot(datetime.now())
-        
+
+        # Proactive stale schedule cleanup — reset SCHEDULED jobs past their window
+        self._cleanup_stale_schedules(db)
+
         # Calculate total slots in horizon
         total_slots = self.config.horizon_days * 24 * (60 // self.slot_minutes)
-        
+
         # Load printers
         printers = db.query(Printer).filter(Printer.is_active == True).all()
         if not printers:

@@ -109,10 +109,14 @@ sed -i "s|image: ${GHCR_IMAGE}:.*|image: ${GHCR_IMAGE}:v${VERSION}|" \
     "$REPO_ROOT/docker-compose.yml"
 ok "docker-compose.yml → v$VERSION"
 
+sed -i "s/ODIN_VERSION=\"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/ODIN_VERSION=\"$VERSION\"/" \
+    "$REPO_ROOT/install/install.sh"
+ok "install/install.sh → $VERSION"
+
 # --- Step 2: Commit ---
 step "Creating version bump commit"
 
-git add VERSION frontend/package.json backend/main.py docker-compose.yml
+git add VERSION frontend/package.json backend/main.py docker-compose.yml install/install.sh
 git commit -m "release: bump version to $VERSION"
 ok "Committed: release: bump version to $VERSION"
 

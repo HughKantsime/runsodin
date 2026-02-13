@@ -31,11 +31,11 @@ Updated 2026-02-13 at v1.3.17.
 - ~~Scheduled Reports~~ *(CRUD definitions only — no automated execution yet)*
 - ~~Curl-pipe-bash installer with preflight checks~~
 - ~~Self-updating updater with version diffing and rollback~~
-- ~~Installer test suite (42 unit + integration tests)~~
+- ~~Installer test suite (59 unit + integration tests)~~
 - ~~Job matching improvements (time-window strategy, stale cleanup, deadlock/race fixes)~~
 - ~~Auto-create jobs on print completion~~
 - ~~Setup endpoint hardening (500 error fix)~~
-- ~~Usage reports moved from Education to Pro tier~~
+- ~~Usage reports added to Pro tier~~
 - ~~PRINTER_ERROR alert type~~
 - ~~Rate limiter fix: only count failed logins toward IP limit~~
 - ~~RBAC test expectations aligned with backend (printer create → operator, order update → admin)~~

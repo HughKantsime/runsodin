@@ -334,7 +334,7 @@
 - Per-user job metrics: job count, hours, cost, accuracy
 - Configurable time window (7–90 days)
 - Aggregates stats by printer and model
-- Gated by Pro license tier (moved from Education-only in v1.3.15)
+- Gated by Pro license tier (added in v1.3.16)
 
 ### 10.9 Report Schedule Definitions (v1.3.0)
 - CRUD for report schedule records: name, type, frequency (daily/weekly/monthly), recipients
@@ -570,7 +570,7 @@
 ### 20.1 License Tiers
 - Community (free, 5 printers, 1 user)
 - Pro (unlimited printers/users, all production features + usage reports)
-- Education (Pro + job approval + quotas)
+- Education (Pro + job approval + user groups + quotas)
 - Enterprise (Pro + MFA + IP allowlist + organizations + GDPR + compliance)
 
 ### 20.2 License Enforcement
@@ -632,12 +632,12 @@
 - Version-tagged (e.g., `v1.3.0`)
 - CI/CD via GitHub Actions — triggered on git tags only
 
-### 22.4 Installer & Updater (v1.3.15)
+### 22.4 Installer & Updater (v1.3.16)
 - `install.sh` — curl-pipe-bash first-time installer with preflight checks (Docker, compose, ports), interactive config, image pull, health wait
 - `update.sh` — self-updating updater with version diffing, `--force` flag, rollback instructions
 - Non-TTY mode for automated/scripted installs (detects pipe, skips interactive prompts)
 - Security hardening: no `eval`, `.env` permissions locked to 0600, SIGINT traps for clean abort
-- Test suite (`tests/test_installer.sh`) — 42 unit + integration tests validating installer behavior
+- Test suite (`tests/test_installer.sh`) — 59 unit + integration tests validating installer behavior
 
 ### 22.3 Database Migrations
 - Idempotent column additions via `entrypoint.sh`
@@ -672,6 +672,6 @@
 | v1.3.5–1.3.9 | 2026-02-12 | Printer controls routing, unique MQTT client_id, camera auto-discovery revert, Bambu pause/resume, print_jobs schema migration |
 | v1.3.10–1.3.12 | 2026-02-12 | Alert dispatch fixes, auto-create jobs on completion, timezone fixes, auto-job field defaults |
 | v1.3.13–1.3.14 | 2026-02-12 | Time-window job matching, stale schedule cleanup, deadlock/race condition/timezone fixes |
-| v1.3.15 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (42 tests), setup endpoint hardening |
-| v1.3.16 | 2026-02-13 | Usage reports moved to Pro tier, PRINTER_ERROR alert type, uppercase status enum consistency |
+| v1.3.15 | 2026-02-13 | Sandbox test config |
+| v1.3.16 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (59 tests), setup endpoint hardening, usage reports added to Pro tier, PRINTER_ERROR alert type, uppercase status enum consistency |
 | v1.3.17 | 2026-02-13 | Rate limiter fix (only count failed logins), RBAC test alignment, test suite hardening |
