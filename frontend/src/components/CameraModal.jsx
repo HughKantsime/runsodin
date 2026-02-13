@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Maximize2, Minimize2, Monitor } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { X, Maximize2, Minimize2, Monitor, Thermometer } from 'lucide-react'
+import { printers as printersApi } from '../api'
+import { PrinterInfoPanel, ActiveJobPanel, FilamentSlotsPanel } from './PrinterPanels'
 
 export default function CameraModal({ printer, onClose }) {
   const videoRef = useRef(null)
@@ -7,6 +10,17 @@ export default function CameraModal({ printer, onClose }) {
   const [status, setStatus] = useState('connecting')
   const [error, setError] = useState(null)
   const [size, setSize] = useState('small') // small, large, fullscreen
+
+  // Fetch fresh telemetry so the prop doesn't go stale
+  const { data: freshPrinter } = useQuery({
+    queryKey: ['printers'],
+    queryFn: () => printersApi.list(true),
+    refetchInterval: 15000,
+    enabled: !!printer,
+    select: (list) => list?.find(p => p.id === printer?.id),
+  })
+
+  const p = freshPrinter || printer
 
   useEffect(() => {
     if (!printer) return
@@ -90,6 +104,10 @@ export default function CameraModal({ printer, onClose }) {
       ? 'bg-yellow-500 animate-pulse'
       : 'bg-red-500'
 
+  const isPrinting = p.gcode_state === 'RUNNING' || p.gcode_state === 'PAUSE'
+  const nozTemp = p.nozzle_temp != null ? Math.round(p.nozzle_temp) : null
+  const bedTemp = p.bed_temp != null ? Math.round(p.bed_temp) : null
+
   const sizeClasses = size === 'fullscreen'
     ? 'fixed inset-0 z-[60] bg-black'
     : size === 'large'
@@ -97,89 +115,123 @@ export default function CameraModal({ printer, onClose }) {
       : 'fixed bottom-4 right-4 z-50'
 
   const containerClasses = size === 'fullscreen'
-    ? 'w-full h-full flex flex-col'
+    ? 'w-full h-full flex flex-row'
     : size === 'large'
       ? 'bg-farm-950 rounded-lg border border-farm-800 w-full max-w-5xl flex flex-col'
       : 'bg-farm-950 rounded-lg border border-farm-800 shadow-2xl w-96 flex flex-col'
 
   return (
-    <div className={sizeClasses} role="dialog" aria-modal={size !== 'small' ? 'true' : undefined} aria-label={`Camera feed for ${printer.name}`} onClick={size !== 'small' ? onClose : undefined}>
+    <div className={sizeClasses} role="dialog" aria-modal={size !== 'small' ? 'true' : undefined} aria-label={`Camera feed for ${p.name}`} onClick={size !== 'small' ? onClose : undefined}>
       <div className={containerClasses} onClick={e => e.stopPropagation()}>
-        {/* Video */}
-        <div className={size === 'fullscreen' ? 'flex-1 relative bg-black' : 'relative aspect-video bg-black rounded-t-xl overflow-hidden'}>
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            aria-label={`Live camera feed for ${printer.name}`}
-            className="w-full h-full object-contain"
-          />
-          {status === 'connecting' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-farm-400 text-sm animate-pulse">Connecting...</div>
-            </div>
-          )}
-          {status === 'error' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-red-400 text-sm">{error || 'Connection failed'}</div>
-            </div>
-          )}
-          {/* Controls overlay - top right */}
-          <div className="absolute top-2 right-2 flex items-center gap-1">
-            {size === 'small' && (
-              <button
-                onClick={() => setSize('large')}
-                className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                aria-label="Expand camera view"
-              >
-                <Maximize2 size={14} />
-              </button>
+        {/* Video section */}
+        <div className={size === 'fullscreen' ? 'flex-1 flex flex-col min-w-0' : 'flex flex-col'}>
+          <div className={size === 'fullscreen' ? 'flex-1 relative bg-black' : 'relative aspect-video bg-black rounded-t-xl overflow-hidden'}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              aria-label={`Live camera feed for ${p.name}`}
+              className="w-full h-full object-contain"
+            />
+            {status === 'connecting' && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-farm-400 text-sm animate-pulse">Connecting...</div>
+              </div>
             )}
-            {size === 'large' && (
-              <>
+            {status === 'error' && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-red-400 text-sm">{error || 'Connection failed'}</div>
+              </div>
+            )}
+            {/* Controls overlay - top right */}
+            <div className="absolute top-2 right-2 flex items-center gap-1">
+              {size === 'small' && (
                 <button
-                  onClick={() => setSize('small')}
+                  onClick={() => setSize('large')}
                   className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                  aria-label="Minimize camera view"
+                  aria-label="Expand camera view"
+                >
+                  <Maximize2 size={14} />
+                </button>
+              )}
+              {size === 'large' && (
+                <>
+                  <button
+                    onClick={() => setSize('small')}
+                    className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                    aria-label="Minimize camera view"
+                  >
+                    <Minimize2 size={14} />
+                  </button>
+                  <button
+                    onClick={() => setSize('fullscreen')}
+                    className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                    aria-label="Enter fullscreen"
+                  >
+                    <Monitor size={14} />
+                  </button>
+                </>
+              )}
+              {size === 'fullscreen' && (
+                <button
+                  onClick={() => setSize('large')}
+                  className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
+                  aria-label="Exit fullscreen"
                 >
                   <Minimize2 size={14} />
                 </button>
-                <button
-                  onClick={() => setSize('fullscreen')}
-                  className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                  aria-label="Enter fullscreen"
-                >
-                  <Monitor size={14} />
-                </button>
-              </>
-            )}
-            {size === 'fullscreen' && (
+              )}
               <button
-                onClick={() => setSize('large')}
+                onClick={onClose}
                 className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-                aria-label="Exit fullscreen"
+                aria-label="Close camera"
               >
-                <Minimize2 size={14} />
+                <X size={14} />
               </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors"
-              aria-label="Close camera"
-            >
-              <X size={14} />
-            </button>
+            </div>
           </div>
-        </div>
-        {/* Status bar */}
-        <div className={'flex items-center justify-between px-3 py-2 ' + (size === 'fullscreen' ? 'bg-black/90' : 'border-t border-farm-800')}>
-          <div className="flex items-center gap-2">
-            <div className={'w-2 h-2 rounded-full ' + dotColor} />
-            <span className="font-medium text-sm">{printer.name}</span>
+          {/* Status bar */}
+          <div className={'flex items-center justify-between px-3 py-2 ' + (size === 'fullscreen' ? 'bg-black/90' : 'border-t border-farm-800')}>
+            <div className="flex items-center gap-2">
+              <div className={'w-2 h-2 rounded-full ' + dotColor} />
+              <span className="font-medium text-sm">{p.name}</span>
+            </div>
+            <span className="text-xs text-farm-500 capitalize">{status}</span>
           </div>
-          <span className="text-xs text-farm-500 capitalize">{status}</span>
+          {/* Large mode: compact info bar */}
+          {size === 'large' && (
+            <div className="flex items-center gap-4 px-3 py-2 border-t border-farm-800 text-xs text-farm-400 overflow-x-auto">
+              {isPrinting && (
+                <>
+                  <span className="text-farm-300 font-medium truncate max-w-[200px]">{p.gcode_file || 'Printing'}</span>
+                  <span className="text-green-400 font-bold">{p.mc_percent || 0}%</span>
+                </>
+              )}
+              {nozTemp != null && (
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  <Thermometer size={11} /> {nozTemp}°C
+                </span>
+              )}
+              {bedTemp != null && (
+                <span className="flex items-center gap-1 whitespace-nowrap">
+                  Bed {bedTemp}°C
+                </span>
+              )}
+              {isPrinting && p.layer_num && p.total_layer_num && (
+                <span className="whitespace-nowrap">L{p.layer_num}/{p.total_layer_num}</span>
+              )}
+            </div>
+          )}
         </div>
+        {/* Fullscreen mode: right sidebar */}
+        {size === 'fullscreen' && (
+          <div className="w-80 bg-farm-950 border-l border-farm-800 p-3 overflow-y-auto space-y-3">
+            <PrinterInfoPanel printer={p} />
+            <ActiveJobPanel printer={p} />
+            <FilamentSlotsPanel printer={p} />
+          </div>
+        )}
       </div>
     </div>
   )

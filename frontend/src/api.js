@@ -125,6 +125,7 @@ export const printJobs = {
     const query = new URLSearchParams(params).toString()
     return fetchAPI('/print-jobs' + (query ? '?' + query : ''))
   },
+  get: (id) => fetchAPI(`/print-jobs/${id}`),
   stats: () => fetchAPI('/print-jobs/stats'),
 }
 

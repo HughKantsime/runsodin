@@ -390,6 +390,7 @@ class TimelineSlot(BaseModel):
     job_id: Optional[int] = None
     item_name: Optional[str] = None
     status: Optional[JobStatus] = None
+    mqtt_job_id: Optional[int] = None
     is_setup: bool = False  # True for color change blocks
     colors: List[str] = []
 

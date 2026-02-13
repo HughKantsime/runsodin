@@ -2628,6 +2628,7 @@ def get_timeline(
             printer_id=row["printer_id"],
             printer_name=printer.name,
             job_id=None,
+            mqtt_job_id=row["id"],
             item_name=row["job_name"] or "MQTT Print",
             status=job_status,
             is_setup=False,
