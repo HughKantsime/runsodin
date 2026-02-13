@@ -8,21 +8,26 @@ O.D.I.N. (Orchestrated Dispatch & Inventory Network) is a self-hosted 3D print f
 
 ## Build & Run Commands
 
+Prefer `make` targets over raw commands. Run `make help` for the full list.
+
 ```bash
-# Development (builds from source)
-docker compose up -d --build
+make build                  # docker compose up -d --build
+make test                   # Phase 0 + pytest (skip build)
+make deploy                 # full pipeline: build + Phase 0 + pytest
+make bump VERSION=X.Y.Z    # bump + commit + tag (no push)
+make release VERSION=X.Y.Z # bump + commit + tag + push
+make logs                   # tail container logs
+make shell                  # bash into container
+```
 
-# Production (pre-built image)
-docker compose pull && docker compose up -d
+The full pipeline runs locally on Mac via Docker Desktop — no sandbox SSH required.
 
+```bash
 # Frontend dev server (port 5173, proxies API to localhost:8000)
 cd frontend && npm install && npm run dev
 
 # Backend standalone
 cd backend && pip install -r requirements.txt && uvicorn main:app --reload
-
-# Frontend production build
-cd frontend && npm run build
 ```
 
 ## Testing
@@ -31,31 +36,39 @@ Tests run against a live API instance (no mocking). The container must be runnin
 
 ```bash
 pip install -r tests/requirements-test.txt
-pytest tests/ -v --tb=short                    # all tests
+make test                                      # full pipeline (recommended)
+pytest tests/ -v --tb=short                    # all tests (manual)
 pytest tests/test_rbac.py -v                   # RBAC enforcement (~500 tests)
 pytest tests/test_security.py -v               # security regression tests
 pytest tests/test_rbac.py::test_name -v        # single test
 pytest tests/ -v --html=test_report.html       # with HTML report
 ```
 
+RBAC tests must run separately from other tests (collection conflicts). `make test` and `deploy_local.sh` handle this automatically.
+
 Test config via `tests/.env.test` (copy from `.env.test.example`) or environment variables: `BASE_URL`, `API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`. `ADMIN_PASSWORD` is required — tests will fail if not set.
 
 ## Version Bumping
 
 ```bash
-./ops/bump-version.sh 1.0.XX          # bump + commit + tag (no push)
-./ops/bump-version.sh 1.0.XX --push   # bump + commit + tag + push
+make bump VERSION=1.0.XX          # bump + commit + tag (no push)
+make release VERSION=1.0.XX       # bump + commit + tag + push
 ```
 
-Updates: `VERSION`, `frontend/package.json`, `backend/main.py` (`__version__`), `docker-compose.yml` image tag. GHCR workflow triggers on tag push.
+Updates: `VERSION`, `frontend/package.json`, `backend/main.py` (`__version__`), `docker-compose.yml` image tag, `install/install.sh`. GHCR workflow triggers on tag push. Works on both macOS and Linux.
 
 ## Deployment
 
 ```bash
-# Sandbox (.200) — builds from source + Phase 0 + pytest
+# Local (Mac) — builds from source + Phase 0 + pytest
+make deploy                      # full pipeline (recommended)
+./ops/deploy_local.sh            # full pipeline
+./ops/deploy_local.sh --skip-build  # retest only
+./ops/deploy_local.sh --skip-tests  # Phase 0 only
+
+# Sandbox (.200) — optional, for hardware staging
 ./ops/deploy_sandbox.sh              # full pipeline
 ./ops/deploy_sandbox.sh --skip-build # retest only
-./ops/deploy_sandbox.sh --skip-tests # Phase 0 only
 
 # Production (.211) — pulls from GHCR, never builds
 ./ops/deploy_prod.sh                 # deploy :latest
@@ -63,10 +76,11 @@ Updates: `VERSION`, `frontend/package.json`, `backend/main.py` (`__version__`), 
 ./ops/deploy_prod.sh --check-only    # Phase 0 health check only
 
 # Health verification (runs automatically in deploy scripts)
-./ops/phase0_verify.sh               # container + API + auth + DB write probe
+./ops/phase0_verify.sh               # auto-detect environment
+./ops/phase0_verify.sh local         # force local mode
 ```
 
-Sandbox compose: `/opt/printfarm-scheduler/docker-compose.yml`. Production compose: `/opt/odin/runsodin/runsodin/docker-compose.yml`. Production deploys are logged to `/opt/odin/deploy.log`.
+Production compose: `/opt/odin/runsodin/runsodin/docker-compose.yml`. Production deploys are logged to `/opt/odin/deploy.log`.
 
 ## Architecture
 
@@ -141,17 +155,20 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 
 ## Server Topology
 
-This project runs across multiple servers — never assume single-server architecture:
-
-- **Sandbox**: `.200` — development/staging instance
-- **Production**: `.211` — live instance
+- **Local (Mac)**: Primary dev/test/release environment (Docker Desktop)
+- **Sandbox**: `.200` — optional hardware staging instance
+- **Production**: `.211` — live instance (pulls from GHCR)
 - **License Manager**: `.6` — issues and verifies Ed25519 licenses (`/opt/odin-license-manager/`)
 
 When debugging cross-server issues, always confirm which server a request originates from and which it targets. Trace the full request path before suggesting fixes.
 
 ## Release Workflow
 
-When deploying or completing a feature, ALWAYS bump the version and create a git tag. Never suggest skipping version bumps — if code is going live, it gets a new version. Use `./ops/bump-version.sh`.
+Release pipeline runs locally on Mac: `make deploy` (build → Phase 0 → pytest) → `make release VERSION=X.Y.Z` (bump → push → GHCR build). Prod (.211) pulls released images manually.
+
+The sandbox (.200) is no longer required for releases but remains available for hardware staging (e.g., testing with physical printers).
+
+When deploying or completing a feature, ALWAYS bump the version and create a git tag. Never suggest skipping version bumps — if code is going live, it gets a new version.
 
 ## Seed Data & Demo Scripts
 

@@ -6,12 +6,13 @@
 #   ./ops/phase0_verify.sh              # auto-detect environment
 #   ./ops/phase0_verify.sh sandbox      # force sandbox mode
 #   ./ops/phase0_verify.sh prod         # force production mode
+#   ./ops/phase0_verify.sh local        # local dev (same as sandbox)
 #
 # Exit codes:
 #   0 = all checks passed
 #   1 = one or more checks failed
 #
-# Designed to run on both SANDBOX (.70.200) and PROD (.71.211)
+# Designed to run on LOCAL (Mac), SANDBOX (.70.200), and PROD (.71.211)
 # ============================================================
 
 set -euo pipefail
@@ -62,7 +63,9 @@ detect_environment() {
         # Auto-detect based on hostname or IP
         local hostname
         hostname=$(hostname)
-        if [[ "$hostname" == *"sandbox"* ]] || ip addr show 2>/dev/null | grep -q "70\.200"; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            ENV_MODE="local"
+        elif [[ "$hostname" == *"sandbox"* ]] || ip addr show 2>/dev/null | grep -q "70\.200"; then
             ENV_MODE="sandbox"
         elif [[ "$hostname" == *"odin"* ]] || ip addr show 2>/dev/null | grep -q "71\.211"; then
             ENV_MODE="prod"
@@ -116,7 +119,7 @@ phase_0a() {
             fail "PRODUCTION compose has active 'build:' — this MUST be image-only"
             info "Offending line: ${uncommented_build}"
         else
-            pass "Sandbox compose uses 'build:' (expected for dev)"
+            pass "Dev compose uses 'build:' (expected for ${ENV_MODE})"
         fi
     else
         pass "No active 'build:' lines in compose"

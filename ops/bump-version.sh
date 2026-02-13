@@ -15,6 +15,13 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Cross-platform sed -i wrapper (GNU vs BSD)
+if [[ "$(uname)" == "Darwin" ]]; then
+    sedi() { sed -i '' "$@"; }
+else
+    sedi() { sed -i "$@"; }
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -99,17 +106,17 @@ else
 fi
 
 # backend/main.py fallback version
-sed -i "s/__version__ = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/__version__ = \"$VERSION\"/" \
+sedi "s/__version__ = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/__version__ = \"$VERSION\"/" \
     "$REPO_ROOT/backend/main.py"
 ok "backend/main.py fallback → $VERSION"
 
 # docker-compose.yml image tag
 GHCR_IMAGE="ghcr.io/hughkantsime/odin"
-sed -i "s|image: ${GHCR_IMAGE}:.*|image: ${GHCR_IMAGE}:v${VERSION}|" \
+sedi "s|image: ${GHCR_IMAGE}:.*|image: ${GHCR_IMAGE}:v${VERSION}|" \
     "$REPO_ROOT/docker-compose.yml"
 ok "docker-compose.yml → v$VERSION"
 
-sed -i "s/ODIN_VERSION=\"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/ODIN_VERSION=\"$VERSION\"/" \
+sedi "s/ODIN_VERSION=\"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/ODIN_VERSION=\"$VERSION\"/" \
     "$REPO_ROOT/install/install.sh"
 ok "install/install.sh → $VERSION"
 
