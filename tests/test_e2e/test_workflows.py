@@ -22,7 +22,7 @@ import requests as _requests
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8000")
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "OdinAdmin1")
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 PAGES = [
     ("Dashboard", "/"),
     ("Jobs", "/jobs"),

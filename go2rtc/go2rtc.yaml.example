@@ -3,7 +3,8 @@ api:
 webrtc:
   listen: 0.0.0.0:8555
   candidates:
-    - 192.168.1.100:8555
+    - YOUR_HOST_IP:8555    # Replace with your server's LAN IP
 streams:
-  printer_1: "rtsps://bblp:12345678@192.168.1.100:322/streaming/live/1"
-  printer_4: "rtsps://bblp:87654321@192.168.1.100:322/streaming/live/1"
+  # Replace with your actual printer IPs and access codes
+  printer_1: "rtsps://bblp:YOUR_ACCESS_CODE@YOUR_PRINTER_IP:322/streaming/live/1"
+  printer_2: "rtsps://bblp:YOUR_ACCESS_CODE@YOUR_PRINTER_IP:322/streaming/live/1"

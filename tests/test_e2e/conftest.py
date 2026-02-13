@@ -20,13 +20,13 @@ from playwright.sync_api import sync_playwright
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8000")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "OdinAdmin1")
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 # Test users — will be created via API if they don't exist
 TEST_USERS = {
-    "viewer": {"username": "e2e_viewer", "password": "ViewerE2EPass1!", "role": "viewer"},
-    "operator": {"username": "e2e_operator", "password": "OperatorE2EPass1!", "role": "operator"},
-    "admin": {"username": "e2e_admin", "password": "AdminE2EPass1!", "role": "admin"},
+    "viewer": {"username": "e2e_viewer", "password": os.environ.get("E2E_VIEWER_PASSWORD", "ViewerE2EPass1!"), "role": "viewer"},
+    "operator": {"username": "e2e_operator", "password": os.environ.get("E2E_OPERATOR_PASSWORD", "OperatorE2EPass1!"), "role": "operator"},
+    "admin": {"username": "e2e_admin", "password": os.environ.get("E2E_ADMIN_PASSWORD", "AdminE2EPass1!"), "role": "admin"},
 }
 
 

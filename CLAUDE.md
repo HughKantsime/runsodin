@@ -38,7 +38,7 @@ pytest tests/test_rbac.py::test_name -v        # single test
 pytest tests/ -v --html=test_report.html       # with HTML report
 ```
 
-Test config via `tests/.env.test` or environment variables: `BASE_URL`, `API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`. Defaults to `http://localhost:8000` with `admin/admin`.
+Test config via `tests/.env.test` (copy from `.env.test.example`) or environment variables: `BASE_URL`, `API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`. `ADMIN_PASSWORD` is required — tests will fail if not set.
 
 ## Version Bumping
 

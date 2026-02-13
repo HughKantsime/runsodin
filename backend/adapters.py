@@ -16,8 +16,8 @@ Usage:
     adapter = get_adapter(
         api_type="bambu",
         name="My X1C",
-        host="192.168.1.100",
-        api_key="12345678",
+        host="YOUR_PRINTER_IP",
+        api_key="YOUR_ACCESS_CODE",
         serial="00M00A000000000"  # Bambu-specific
     )
     

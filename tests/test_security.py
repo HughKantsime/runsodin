@@ -102,8 +102,8 @@ def _login(username, password):
 @pytest.fixture(scope="session")
 def admin_token():
     """Get admin JWT from conftest's admin credentials."""
-    username = os.getenv("ADMIN_USERNAME", "admin")
-    password = os.getenv("ADMIN_PASSWORD", "admin")
+    username = os.environ["ADMIN_USERNAME"]
+    password = os.environ["ADMIN_PASSWORD"]
     token = _login(username, password)
     assert token, f"Failed to login as admin ({username})"
     return token

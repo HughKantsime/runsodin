@@ -13,9 +13,9 @@ Usage:
     from bambu_adapter import BambuPrinter
     
     printer = BambuPrinter(
-        ip="192.168.1.100",
-        serial="00M00A000000000",  # Your printer serial
-        access_code="12345678"      # From printer screen
+        ip="YOUR_PRINTER_IP",
+        serial="YOUR_SERIAL_NUMBER",
+        access_code="YOUR_ACCESS_CODE"
     )
     
     printer.connect()
@@ -99,7 +99,7 @@ class BambuPrinter:
         Initialize Bambu printer connection.
 
         Args:
-            ip: Printer IP address (e.g., "192.168.1.100")
+            ip: Printer IP address
             serial: Printer serial number (e.g., "00M00A000000000")
             access_code: Access code from printer screen (e.g., "12345678")
             on_status_update: Optional callback for real-time status updates
@@ -434,9 +434,9 @@ def test_connection(ip: str, serial: str, access_code: str) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     # Test with your printer details
-    PRINTER_IP = "192.168.1.100"      # Replace with your printer IP
-    SERIAL = "00M00A000000000"        # Replace with your serial number
-    ACCESS_CODE = "12345678"          # Replace with your access code
+    PRINTER_IP = "YOUR_PRINTER_IP"
+    SERIAL = "YOUR_SERIAL_NUMBER"
+    ACCESS_CODE = "YOUR_ACCESS_CODE"
     
     print(f"Connecting to Bambu printer at {PRINTER_IP}...")
     

@@ -31,12 +31,12 @@ import io
 # ---------------------------------------------------------------------------
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "OdinAdmin1")
+ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 OPERATOR_USERNAME = os.getenv("OPERATOR_USERNAME", "Steve")
-OPERATOR_PASSWORD = os.getenv("OPERATOR_PASSWORD", "OdinAdmin1")
+OPERATOR_PASSWORD = os.environ["ADMIN_PASSWORD"]  # defaults to same as admin
 VIEWER_USERNAME = os.getenv("VIEWER_USERNAME", "Bob")
-VIEWER_PASSWORD = os.getenv("VIEWER_PASSWORD", "OdinAdmin1")
+VIEWER_PASSWORD = os.environ["ADMIN_PASSWORD"]  # defaults to same as admin
 
 _TEST_TAG = f"phase3_{uuid.uuid4().hex[:6]}"
 
