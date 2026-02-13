@@ -2,6 +2,22 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.24] - 2026-02-13
+
+### Added
+- **Timeline click-to-inspect** — clicking any timeline job block opens a slide-out detail drawer; scheduled jobs show colors, schedule, priority, filament type, pricing, match score, failure info, and notes; MQTT jobs show progress, layers, temps, duration, and error codes
+- **DetailDrawer component** — reusable right-side slide-out panel (420px, mobile full-width) with backdrop, Escape-to-close, used by Timeline
+- **CameraModal live print context** — `large` mode shows compact info bar (job name, progress %, nozzle/bed temps, layer info); `fullscreen` mode shows full sidebar with printer status, active job, and filament panels
+- **PrinterPanels shared component** — extracted `PrinterInfoPanel`, `FilamentSlotsPanel`, `ActiveJobPanel` from CameraDetail for reuse across CameraModal and future views
+- **`mqtt_job_id` on TimelineSlot** — backend schema and endpoint now expose MQTT print_jobs row ID, enabling frontend detail lookups for MQTT-tracked timeline items
+- **`printJobs.get(id)`** — new API client method for fetching individual MQTT print job details
+
+### Changed
+- CameraModal fetches fresh printer telemetry (15s refetch) instead of relying on potentially stale prop data
+- Timeline blocks for completed/failed/printing jobs now show `cursor-pointer` and are clickable; drag-to-reschedule still works for scheduled/pending blocks (< 5px movement = click, more = drag)
+
+---
+
 ## [1.3.23] - 2026-02-13
 
 ### Added
