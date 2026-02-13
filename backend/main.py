@@ -1596,7 +1596,7 @@ def setup_mark_complete(db: Session = Depends(get_db)):
     if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     existing = db.execute(text(
-        "SELECT id FROM system_config WHERE key = 'setup_complete'"
+        "SELECT key FROM system_config WHERE key = 'setup_complete'"
     )).fetchone()
 
     if existing:
