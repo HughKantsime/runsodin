@@ -256,7 +256,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
             {lic.isPro && canAccessPage('maintenance') && <NavItem collapsed={collapsed && !mobileOpen} to="/maintenance" icon={Wrench} onClick={handleNavClick}>Maintenance{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/analytics" icon={BarChart3} onClick={handleNavClick}>Analytics{!lic.isPro && <ProBadge />}</NavItem>}
             {lic.isPro && canAccessPage('analytics') && <NavItem collapsed={collapsed && !mobileOpen} to="/utilization" icon={Activity} onClick={handleNavClick}>Utilization{!lic.isPro && <ProBadge />}</NavItem>}
-            {lic.isEducation && canAccessPage('education_reports') && <NavItem collapsed={collapsed && !mobileOpen} to="/education-reports" icon={BarChart3} onClick={handleNavClick}>Usage Reports</NavItem>}
+            {lic.isPro && canAccessPage('education_reports') && <NavItem collapsed={collapsed && !mobileOpen} to="/education-reports" icon={BarChart3} onClick={handleNavClick}>Usage Reports</NavItem>}
           </>}
 
           {/* Tools */}
@@ -491,7 +491,7 @@ export default function App() {
             <Route path="/orders" element={<ProGate feature="orders"><Orders /></ProGate>} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/detections" element={<Detections />} />
-            <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Education"><EducationReports /></ProGate>} />
+            <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
             <Route path="/audit" element={<AuditLogs />} />
           </Routes>

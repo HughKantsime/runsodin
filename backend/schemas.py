@@ -638,6 +638,7 @@ class PaginatedResponse(BaseModel):
 class AlertTypeEnum(str, Enum):
     PRINT_COMPLETE = "print_complete"
     PRINT_FAILED = "print_failed"
+    PRINTER_ERROR = "printer_error"
     SPOOL_LOW = "spool_low"
     MAINTENANCE_OVERDUE = "maintenance_overdue"
     JOB_SUBMITTED = "job_submitted"

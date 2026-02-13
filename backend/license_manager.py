@@ -48,6 +48,7 @@ TIERS = {
             "orders", "products", "bom",
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
+            "usage_reports",
         ],
     },
     "education": {

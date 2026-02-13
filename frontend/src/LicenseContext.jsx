@@ -31,9 +31,10 @@ const TIER_FEATURES = {
     'prometheus', 'mqtt_republish',
     'quiet_hours', 'permissions',
     'smart_plug', 'energy_tracking', 'ams_environment', 'websocket', 'drag_drop_queue', 'ntfy', 'telegram', 'hms_decoder', 'failure_logging',
+    'usage_reports',
   ]),
   education: new Set([
-    'job_approval', 'usage_reports', 'print_quotas', 'class_sections',
+    'job_approval', 'print_quotas', 'class_sections',
   ]),
   enterprise: new Set([
     'opcua', 'mqtt_republish_enterprise', 'audit_export', 'sqlcipher',
