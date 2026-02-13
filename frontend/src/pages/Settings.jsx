@@ -174,15 +174,6 @@ function NetworkTab() {
     fetch('/api/admin/oidc', { headers }).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    const headers = { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    fetch('/api/settings', { headers })
-      .then(r => r.json())
-      .then(data => {
-        if (data.host_ip) setHostIp(data.host_ip)
-      })
-      .catch(() => {})
-  }, [])
 
   const handleSave = async () => {
     setError('')

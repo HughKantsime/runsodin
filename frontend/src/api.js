@@ -68,7 +68,7 @@ export const jobs = {
 export const models = {
   getVariants: (id) => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId, variantId) => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
-  list: (orgId = null) => fetchAPI('/models' + (orgId != null ? '?org_id=' + orgId : '')),
+  list: (orgId = null) => fetchAPI('/models' + (orgId != null && typeof orgId !== 'object' ? '?org_id=' + orgId : '')),
   listWithPricing: (category, orgId = null) => fetchAPI('/models-with-pricing' + (category ? '?category=' + category : '') + (orgId != null ? (category ? '&' : '?') + 'org_id=' + orgId : '')),
   get: (id) => fetchAPI('/models/' + id),
   create: (data) => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
