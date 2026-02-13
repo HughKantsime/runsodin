@@ -109,9 +109,26 @@ if [[ "$SKIP_TESTS" == false ]]; then
     if [[ -n "$TEST_DIR" ]]; then
         cd "$COMPOSE_DIR"
 
+        # Ensure test venv exists with deps
+        VENV_DIR="${COMPOSE_DIR}/.venv-test"
+        if [[ ! -f "${VENV_DIR}/bin/pytest" ]]; then
+            step "Creating test virtualenv"
+            python3 -m venv "$VENV_DIR"
+            "${VENV_DIR}/bin/pip" install -q -r "${TEST_DIR}/requirements-test.txt"
+            ok "Test venv ready at ${VENV_DIR}"
+        fi
+        PYTEST="${VENV_DIR}/bin/pytest"
+
         # Run main tests (excluding RBAC — collection conflicts)
+        # Use glob to avoid descending into test_e2e/ (conftest imports playwright)
+        # Build file list excluding test_rbac.py (glob expands before --ignore)
+        MAIN_TESTS=()
+        for f in "${TEST_DIR}"/test_*.py; do
+            [[ "$(basename "$f")" == "test_rbac.py" ]] && continue
+            MAIN_TESTS+=("$f")
+        done
         step "Running main test suite (excluding RBAC)"
-        python3 -m pytest "$TEST_DIR" -v --tb=short --ignore="${TEST_DIR}/test_rbac.py" 2>&1 | tail -30
+        "$PYTEST" "${MAIN_TESTS[@]}" -v --tb=short 2>&1 | tail -30
         PYTEST_EXIT=${PIPESTATUS[0]}
         if [[ $PYTEST_EXIT -ne 0 ]]; then
             die "Main pytest suite failed with exit code ${PYTEST_EXIT}"
@@ -121,7 +138,7 @@ if [[ "$SKIP_TESTS" == false ]]; then
         # Run RBAC tests separately (collection conflicts when run together)
         if [[ -f "${TEST_DIR}/test_rbac.py" ]]; then
             step "Running RBAC tests (separate collection)"
-            python3 -m pytest "${TEST_DIR}/test_rbac.py" -v --tb=short 2>&1 | tail -30
+            "$PYTEST" "${TEST_DIR}/test_rbac.py" -v --tb=short 2>&1 | tail -30
             RBAC_EXIT=${PIPESTATUS[0]}
             if [[ $RBAC_EXIT -ne 0 ]]; then
                 die "RBAC tests failed with exit code ${RBAC_EXIT}"

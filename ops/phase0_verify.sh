@@ -74,7 +74,9 @@ detect_environment() {
         fi
     fi
 
-    echo -e "${BOLD}Environment: ${CYAN}${ENV_MODE^^}${NC}"
+    local env_upper
+    env_upper=$(echo "$ENV_MODE" | tr '[:lower:]' '[:upper:]')
+    echo -e "${BOLD}Environment: ${CYAN}${env_upper}${NC}"
 }
 
 # --- Locate compose file ---
@@ -269,21 +271,33 @@ phase_0c() {
 phase_0d() {
     header "Phase 0D — Configuration Sanity"
 
-    # Check required env vars inside container
-    # Note: using 'env | grep' instead of 'printenv' to avoid subshell quoting issues
-    local required_vars=("ENCRYPTION_KEY" "JWT_SECRET_KEY" "DATABASE_URL")
-    local container_env
-    container_env=$(docker exec "${CONTAINER_NAME}" env 2>/dev/null || echo "")
-
-    for var in "${required_vars[@]}"; do
-        local val
-        val=$(echo "$container_env" | sed -n "s/^${var}=//p")
-        if [[ -n "$val" ]]; then
-            pass "Env var ${var} is set"
+    # Check secrets exist (entrypoint.sh stores these as dotfiles, exports into supervisor env)
+    local secret_files=("/data/.encryption_key:ENCRYPTION_KEY" "/data/.jwt_secret:JWT_SECRET_KEY")
+    for entry in "${secret_files[@]}"; do
+        local file="${entry%%:*}"
+        local label="${entry##*:}"
+        local content
+        content=$(docker exec "${CONTAINER_NAME}" cat "$file" 2>/dev/null || echo "")
+        if [[ -n "$content" ]]; then
+            pass "${label} present (${file})"
         else
-            fail "Env var ${var} is MISSING or empty"
+            fail "${label} missing or empty (${file})"
         fi
     done
+
+    # Check DATABASE_URL in container env or supervisor config
+    local db_url
+    db_url=$(docker exec "${CONTAINER_NAME}" env 2>/dev/null | sed -n 's/^DATABASE_URL=//p')
+    if [[ -n "$db_url" ]]; then
+        pass "DATABASE_URL is set"
+    else
+        # Fallback: check if sqlite DB file exists (entrypoint defaults to /data/odin.db)
+        if docker exec "${CONTAINER_NAME}" test -f /data/odin.db 2>/dev/null; then
+            pass "DATABASE_URL not in env but /data/odin.db exists"
+        else
+            fail "DATABASE_URL not set and /data/odin.db not found"
+        fi
+    fi
 
     # Check DB connectivity (can the app read the DB?)
     local db_check
@@ -380,7 +394,7 @@ phase_0f() {
         -d "username=${admin_user}&password=${admin_pass}" 2>/dev/null || echo -e "\n000")
 
     local login_body
-    login_body=$(echo "$login_response" | head -n -1)
+    login_body=$(echo "$login_response" | sed '$d')
     local login_code
     login_code=$(echo "$login_response" | tail -1)
 
