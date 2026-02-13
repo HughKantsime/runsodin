@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-12 at v1.3.4.
+Updated 2026-02-13 at v1.3.15.
 
 ## Shipped in v1.2.0
 
@@ -29,6 +29,12 @@ Updated 2026-02-12 at v1.3.4.
 - ~~Backup Restore via UI~~
 - ~~Broadened Data Retention Policies~~
 - ~~Scheduled Reports~~ *(CRUD definitions only — no automated execution yet)*
+- ~~Curl-pipe-bash installer with preflight checks~~
+- ~~Self-updating updater with version diffing and rollback~~
+- ~~Installer test suite (42 unit + integration tests)~~
+- ~~Job matching improvements (time-window strategy, stale cleanup, deadlock/race fixes)~~
+- ~~Auto-create jobs on print completion~~
+- ~~Setup endpoint hardening (500 error fix)~~
 
 ---
 
@@ -89,6 +95,21 @@ Updated 2026-02-12 at v1.3.4.
 
 - Update `Setup.jsx` to match backend validation rules
 - Single line change
+
+---
+
+### 7. Fix RBAC Policy for Operator Printer Creation
+**Effort: Trivial** — `POST /api/printers` allows operators but RBAC test expects admin-only. Decide policy and align test or endpoint.
+
+---
+
+### 8. Fix RBAC Policy for Operator Order Updates
+**Effort: Trivial** — `PATCH /api/orders/{id}` denies operators but test expects allow. Decide policy and align.
+
+---
+
+### 9. Rate Limit Test Isolation
+**Effort: Low** — Security rate-limit tests lock the IP for all subsequent test suites. Need per-suite backend restart or test-scoped rate limit bypass.
 
 ---
 

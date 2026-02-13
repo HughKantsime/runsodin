@@ -1,6 +1,6 @@
 # O.D.I.N. — Complete Feature Set
 
-> **Version:** v1.3.4 | **Last updated:** 2026-02-12
+> **Version:** v1.3.15 | **Last updated:** 2026-02-13
 > **This document catalogs every feature in O.D.I.N. with implementation details and version introduced.**
 
 ---
@@ -152,6 +152,9 @@
 
 ### 4.2 Scheduling
 - Smart scheduler with color-match scoring to minimize filament swaps
+- Time-window job matching strategy — evaluates printer availability windows, not single-point checks (v1.3.13)
+- Stale schedule cleanup — removes orphaned schedule entries that outlived their window (v1.3.13)
+- Auto-create jobs on print completion for reprint tracking (v1.3.10)
 - Upload → Model Library → Schedule → Jobs workflow pipeline
 - Quick Print button on upload success screen — creates pending job immediately (v1.0.26)
 - Quick-schedule presets for common configurations (v1.2.0)
@@ -327,11 +330,11 @@
 - Chargeback report with date filters and per-user breakdown (jobs, hours, grams, cost)
 - Report UI in Settings → System tab
 
-### 10.8 Education Usage Reports
+### 10.8 Usage Reports
 - Per-user job metrics: job count, hours, cost, accuracy
 - Configurable time window (7–90 days)
 - Aggregates stats by printer and model
-- API endpoint gated by Education license tier
+- Gated by Pro license tier (moved from Education-only in v1.3.15)
 
 ### 10.9 Report Schedule Definitions (v1.3.0)
 - CRUD for report schedule records: name, type, frequency (daily/weekly/monthly), recipients
@@ -396,6 +399,7 @@
 - Account lockout: 5 failed attempts → 15-minute lock (in-memory, resets on restart)
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
 - Login attempt audit trail with IP addresses
+- Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
 
 ### 12.2 IP Allowlisting (v1.3.0)
 - CIDR-based middleware enforcement
@@ -450,6 +454,7 @@
 
 ### 13.3 In-App Alerts
 - Alert bell icon with unread count in header
+- Alert types: print_complete, print_failed, printer_error (v1.3.15), spool_low, maintenance_overdue, job_submitted, job_approved, job_rejected
 - Filterable Alerts page
 - Mark individual alerts as read
 - Delete alerts (operator/admin)
@@ -564,8 +569,8 @@
 
 ### 20.1 License Tiers
 - Community (free, 5 printers, 1 user)
-- Pro (unlimited printers/users, all production features)
-- Education (Pro + job approval + usage reports + quotas)
+- Pro (unlimited printers/users, all production features + usage reports)
+- Education (Pro + job approval + quotas)
 - Enterprise (Pro + MFA + IP allowlist + organizations + GDPR + compliance)
 
 ### 20.2 License Enforcement
@@ -627,6 +632,13 @@
 - Version-tagged (e.g., `v1.3.0`)
 - CI/CD via GitHub Actions — triggered on git tags only
 
+### 22.4 Installer & Updater (v1.3.15)
+- `install.sh` — curl-pipe-bash first-time installer with preflight checks (Docker, compose, ports), interactive config, image pull, health wait
+- `update.sh` — self-updating updater with version diffing, `--force` flag, rollback instructions
+- Non-TTY mode for automated/scripted installs (detects pipe, skips interactive prompts)
+- Security hardening: no `eval`, `.env` permissions locked to 0600, SIGINT traps for clean abort
+- Test suite (`tests/test_installer.sh`) — 42 unit + integration tests validating installer behavior
+
 ### 22.3 Database Migrations
 - Idempotent column additions via `entrypoint.sh`
 - Tables: api_tokens, active_sessions, token_blacklist, quota_usage, model_revisions, report_schedules, timelapses (v1.2.0–v1.3.0)
@@ -657,3 +669,7 @@
 | v1.2.0 | 2026-02-12 | Timelapse management, audit log, PWA install, per-job time tracking, failure analytics, printer tags, filament drying log, quick-schedule presets |
 | v1.3.0 | 2026-02-12 | TOTP MFA, scoped API tokens, session management, IP allowlist, organizations, print quotas, cost chargebacks, GDPR, data retention, scheduled reports (definitions), bulk operations, backup restore UI, model versioning, WCAG 2.1, Vigil AI failure detection |
 | v1.3.1–1.3.4 | 2026-02-12 | Bugfixes: vision_monitor crash-loop prevention, numpy<2 pin for ONNX compatibility, SQLAlchemy connection pool leak in middleware, "Vision AI" → "Vigil AI" rename |
+| v1.3.5–1.3.9 | 2026-02-12 | Printer controls routing, unique MQTT client_id, camera auto-discovery revert, Bambu pause/resume, print_jobs schema migration |
+| v1.3.10–1.3.12 | 2026-02-12 | Alert dispatch fixes, auto-create jobs on completion, timezone fixes, auto-job field defaults |
+| v1.3.13–1.3.14 | 2026-02-12 | Time-window job matching, stale schedule cleanup, deadlock/race condition/timezone fixes |
+| v1.3.15 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (42 tests), setup endpoint hardening |

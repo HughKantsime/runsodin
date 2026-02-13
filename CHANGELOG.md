@@ -2,6 +2,105 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.15] - 2026-02-13
+
+### Added
+- **Curl-pipe-bash installer** (`install.sh`) — preflight checks, interactive config, image pull, health wait, non-TTY mode for automation
+- **Self-updating updater** (`update.sh`) — version diffing, `--force` flag, rollback instructions, self-update before run
+- Installer test suite (42 unit + integration tests) via `tests/test_installer.sh`
+
+### Fixed
+- Setup/complete endpoint 500 error when completing first-run wizard
+- Security hardening: eval removal, `.env` file permissions (0600), SIGINT traps in installer scripts
+
+### Changed
+- Sandbox test config added (`tests/.env.test`)
+- `usage_reports` feature moved from Education-only to Pro tier
+- `PRINTER_ERROR` alert type added to AlertTypeEnum
+- Maintenance log and moonraker monitor job status strings uppercased to match enum convention
+
+---
+
+## [1.3.14] - 2026-02-12
+
+### Fixed
+- Deadlock in job matching when multiple monitors trigger scheduling simultaneously
+- Race condition in concurrent schedule writes
+- Timezone bugs in job matching (UTC vs local offset in time-window comparisons)
+
+---
+
+## [1.3.13] - 2026-02-12
+
+### Added
+- Time-window job matching strategy — scheduler evaluates availability windows instead of single-point checks
+- Stale schedule cleanup — removes orphaned schedule entries that outlived their time window
+
+---
+
+## [1.3.12] - 2026-02-12
+
+### Fixed
+- Auto-created jobs missing required field defaults (priority, color, material)
+
+---
+
+## [1.3.11] - 2026-02-12
+
+### Fixed
+- Alert dispatch consistency: status types uppercased to match enum, `is_read` defaults to `False`
+
+---
+
+## [1.3.10] - 2026-02-12
+
+### Added
+- Auto-create jobs on print completion for reprint tracking
+
+### Fixed
+- Alert timezone handling (UTC storage, local display)
+- Various alert dispatch edge cases
+
+---
+
+## [1.3.9] - 2026-02-12
+
+### Fixed
+- `print_jobs` table migration for upgrades from older schemas (adds missing columns idempotently)
+
+---
+
+## [1.3.8] - 2026-02-12
+
+### Fixed
+- Bambu pause/resume MQTT commands (correct topic and payload format)
+- Job tracking state machine on pause/resume transitions
+
+---
+
+## [1.3.7] - 2026-02-12
+
+### Reverted
+- Camera auto-discovery for A1/P1S (caused RTSP connection loops on printers without camera support)
+
+---
+
+## [1.3.6] - 2026-02-12
+
+### Fixed
+- Unique MQTT `client_id` per connection to prevent broker reconnect loops when multiple monitors connect
+
+---
+
+## [1.3.5] - 2026-02-12
+
+### Fixed
+- Printer controls (pause/resume/stop) routing for multi-protocol setups
+- Camera progress overlay alignment
+- Multi-protocol command dispatch (correct adapter selection by printer type)
+
+---
+
 ## [1.0.8] - 2026-02-10
 
 ### Fixed
