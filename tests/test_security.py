@@ -566,18 +566,17 @@ class TestRateLimiting:
 
     def test_s26_rate_limit_on_failed_logins(self):
         """S26: 11+ failed login attempts in 5 minutes → 429 eventually.
-        Must use a real username (admin) so the server tracks auth failures,
-        not validation errors (422). Rate limiting typically tracks by IP + username.
+        Uses a throwaway username to avoid locking out real accounts.
+        Rate limiting tracks by IP, so this tests the IP-based limit.
         """
-        # Use the real admin username with wrong passwords
-        admin_user = os.getenv("ADMIN_USERNAME", "admin")
+        # Use a throwaway username — avoids locking out admin or test users
+        throwaway_user = f"ratelimit_test_{uuid.uuid4().hex[:8]}"
         statuses = []
 
         for i in range(12):
-            # Try both JSON and form-data (match whatever the server expects)
             r = requests.post(
                 f"{BASE_URL}/api/auth/login",
-                data={"username": admin_user, "password": f"WrongPass_{i}!"},
+                data={"username": throwaway_user, "password": f"WrongPass_{i}!"},
                 timeout=10,
             )
             statuses.append(r.status_code)
@@ -609,16 +608,15 @@ class TestRateLimiting:
 
     def test_s27_account_lockout_after_failures(self):
         """S27: 5+ failed logins → lockout.
-        Uses a dedicated test user if available, or the admin username.
+        Uses a throwaway username to avoid locking out real test users.
         """
-        # Prefer a test user to avoid locking out admin
-        test_user = os.getenv("TEST_VIEWER_USERNAME", "test_viewer_rbac")
+        throwaway_user = f"lockout_test_{uuid.uuid4().hex[:8]}"
         statuses = []
 
         for i in range(7):
             r = requests.post(
                 f"{BASE_URL}/api/auth/login",
-                data={"username": test_user, "password": f"BadPass_{i}!"},
+                data={"username": throwaway_user, "password": f"BadPass_{i}!"},
                 timeout=10,
             )
             statuses.append(r.status_code)

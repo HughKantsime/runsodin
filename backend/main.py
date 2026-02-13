@@ -296,9 +296,10 @@ def _check_rate_limit(ip: str) -> bool:
 def _record_login_attempt(ip: str, username: str, success: bool, db=None):
     """Record attempt for rate limiting and audit"""
     now = _time.time()
-    _login_attempts[ip].append(now)
-    
+
     if not success:
+        # Only count failed attempts toward rate limit
+        _login_attempts[ip].append(now)
         # Check for lockout
         recent_failures = [t for t in _login_attempts[ip] if now - t < _LOGIN_RATE_WINDOW]
         if len(recent_failures) >= _LOCKOUT_THRESHOLD:

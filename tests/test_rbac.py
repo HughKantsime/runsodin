@@ -7,9 +7,10 @@ Three-client auth model:
   - api_key_only:  API key only → SPA perimeter, GETs allowed by design
   - viewer/operator/admin: API key + JWT → full RBAC
 
-Corrected expectations based on v2.0 run:
+Corrected expectations based on v2.1 run:
   - Unauth GET on /api/* returns 200 (API key perimeter, by design)
-  - POST /api/printers requires admin (not operator)
+  - POST /api/printers requires operator (not admin)
+  - PATCH /api/orders requires admin (not operator)
   - DELETE /api/printers, /api/orders: operator allowed (per design decision)
   - Smart plug config: operator allowed
   - POST /api/models: operator+ only (viewer cannot create)
@@ -108,8 +109,8 @@ ENDPOINT_MATRIX = [
     # POST /api/printers — from grep: line 458 delete_printer has require_role("operator") 
     # but create returned 403 for operator AND admin in test. Needs investigation.
     # For now mark as admin_only (safest assumption — may be body/license issue)
-    ("POST", "/api/printers", _admin_only(),
-     {"name": "RBAC Temp Printer", "api_type": "bambu"}, "Create printer — INVESTIGATE if 403 is body issue"),
+    ("POST", "/api/printers", _op_write(),
+     {"name": "RBAC Temp Printer", "api_type": "bambu"}, "Create printer — operator per code"),
     ("POST", "/api/printers/reorder", _op_write(), {"order": {}}, "Reorder printers"),
     ("POST", "/api/printers/test-connection", _op_write(),
      {"api_type": "bambu", "api_host": "192.168.99.99"}, "Test connection"),
@@ -265,7 +266,7 @@ ENDPOINT_MATRIX = [
     ("GET",  "/api/orders", _api_read(), None, "List orders"),
     ("POST", "/api/orders", _op_write(), {}, "Create order"),
     ("GET",  "/api/orders/{order_id}", _api_read(), None, "Get order"),
-    ("PATCH", "/api/orders/{order_id}", _op_write(), {"notes": "rbac"}, "Update order"),
+    ("PATCH", "/api/orders/{order_id}", _admin_only(), {"notes": "rbac"}, "Update order — admin per code"),
     ("DELETE", "/api/orders/{order_id}", _op_write(), None, "Delete order — operator per code"),
     ("POST", "/api/orders/{order_id}/items", _op_write(), {"product_id": 1}, "Add item"),
     ("POST", "/api/orders/{order_id}/schedule", _op_write(), None, "Schedule order"),

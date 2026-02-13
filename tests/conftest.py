@@ -92,6 +92,28 @@ def make_request(method, path, auth_mode, token=None, body=None):
 # ---------------------------------------------------------------------------
 
 
+def _restart_backend():
+    """Restart backend process to clear in-memory rate limits and lockouts."""
+    import subprocess, time
+    try:
+        subprocess.run(
+            ["docker", "exec", "odin", "supervisorctl", "restart", "backend"],
+            capture_output=True, timeout=15,
+        )
+        time.sleep(3)  # Wait for backend to come back up
+    except Exception:
+        pass  # Best-effort; may fail if not running in Docker
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _clear_rate_limits():
+    """Restart backend before and after tests to clear in-memory rate limits and lockouts.
+    Prevents stale lockouts from prior runs from causing fixture failures.
+    """
+    _restart_backend()
+    yield
+    _restart_backend()
+
 
 @pytest.fixture(scope="session")
 def api_key_enabled():
@@ -137,6 +159,20 @@ def test_users(admin_token):
                 created_ids.append(uid)
 
         token = _login(username, password)
+
+        # If login fails, user may exist with stale password — reset it
+        if not token:
+            # Find user ID and update password
+            users_resp = make_request("GET", "/api/users", "jwt", admin_token)
+            if users_resp.status_code == 200:
+                for u in users_resp.json():
+                    if u.get("username") == username:
+                        make_request("PATCH", f"/api/users/{u['id']}", "jwt", admin_token, {
+                            "password": password,
+                        })
+                        token = _login(username, password)
+                        break
+
         assert token, f"Failed to login as {role} ({username})"
         users[role] = token
 
