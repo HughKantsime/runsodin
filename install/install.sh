@@ -94,15 +94,19 @@ draw_box() {
 }
 
 cleanup() {
+    local exit_code=$?
     spin_stop
     if [ "${INSTALL_FAILED:-}" = "1" ]; then
         printf "\n${RED}Installation failed.${RESET}\n"
         dim "If the problem persists, open an issue at:"
         dim "https://github.com/HughKantsime/runsodin/issues"
+    elif [ $exit_code -ne 0 ] && [ "${INSTALL_FAILED:-}" != "1" ]; then
+        printf "\n${YELLOW}Interrupted.${RESET}\n"
     fi
 }
 
 trap cleanup EXIT
+trap 'INSTALL_FAILED=0; exit 130' INT
 
 die() {
     spin_stop
@@ -115,15 +119,15 @@ die() {
 
 prompt() {
     local msg="$1" default="$2" var="$3"
+    local answer=""
     if [ "$IS_TTY" = true ]; then
         printf "  ${CYAN}▸${RESET} %s ${DIM}[%s]${RESET}: " "$msg" "$default"
-        local answer
         read -r answer </dev/tty || answer=""
         answer="${answer:-$default}"
     else
-        local answer="$default"
+        answer="$default"
     fi
-    eval "$var=\"\$answer\""
+    printf -v "$var" '%s' "$answer"
 }
 
 # ─── Banner ────────────────────────────────────────────────────────────────────
@@ -188,11 +192,14 @@ detect_timezone() {
 check_port() {
     local port="$1"
     if command -v ss &>/dev/null; then
-        ss -tlnp 2>/dev/null | grep -q ":${port} " && return 1
+        ss -tlnp 2>/dev/null | grep -qE ":${port}\b" && return 1
     elif command -v lsof &>/dev/null; then
         lsof -iTCP:"$port" -sTCP:LISTEN &>/dev/null && return 1
     elif command -v netstat &>/dev/null; then
-        netstat -tlnp 2>/dev/null | grep -q ":${port} " && return 1
+        netstat -tlnp 2>/dev/null | grep -qE ":${port}\b" && return 1
+    else
+        warn "Cannot check port ${port} — no ss, lsof, or netstat found"
+        return 0
     fi
     return 0
 }
@@ -373,6 +380,7 @@ TZ=${TIMEZONE}
 CORS_ORIGINS=http://${HOST_IP}:8000,http://localhost:8000,http://localhost:3000
 EOF
 
+chmod 600 "${INSTALL_DIR}/.env"
 ok ".env written"
 
 # ── Phase 6: Pull image ───────────────────────────────────────────────────────
@@ -396,10 +404,11 @@ ok "Pulled ${ODIN_IMAGE} (${image_mb} MB)"
 
 phase 7 $TOTAL "Starting O.D.I.N."
 
-if ! docker compose -f "${INSTALL_DIR}/docker-compose.yml" --env-file "${INSTALL_DIR}/.env" up -d 2>/dev/null; then
+compose_output=$(docker compose -f "${INSTALL_DIR}/docker-compose.yml" --env-file "${INSTALL_DIR}/.env" up -d 2>&1) || {
     die "Failed to start container" \
+        "$compose_output" \
         "Check: docker compose -f ${INSTALL_DIR}/docker-compose.yml logs"
-fi
+}
 ok "Container started"
 
 # ── Phase 8: Health check ─────────────────────────────────────────────────────

@@ -97,15 +97,19 @@ draw_box() {
 }
 
 cleanup() {
+    local exit_code=$?
     spin_stop
     if [ "${UPDATE_FAILED:-}" = "1" ]; then
         printf "\n${RED}Update failed.${RESET}\n"
         dim "If the problem persists, open an issue at:"
         dim "https://github.com/HughKantsime/runsodin/issues"
+    elif [ $exit_code -ne 0 ] && [ "${UPDATE_FAILED:-}" != "1" ]; then
+        printf "\n${YELLOW}Interrupted.${RESET}\n"
     fi
 }
 
 trap cleanup EXIT
+trap 'UPDATE_FAILED=0; exit 130' INT
 
 die() {
     spin_stop
@@ -254,14 +258,15 @@ ok "Pulled (${image_mb} MB)"
 
 phase 4 $TOTAL "Restarting O.D.I.N."
 
-ENV_ARGS=""
-[ -f .env ] && ENV_ARGS="--env-file .env"
+compose_cmd=(docker compose)
+[ -f .env ] && compose_cmd+=(--env-file .env)
+compose_cmd+=(up -d)
 
-if ! docker compose $ENV_ARGS up -d 2>/dev/null; then
+compose_output=$("${compose_cmd[@]}" 2>&1) || {
     die "Failed to restart container" \
-        "Check: docker compose logs" \
+        "$compose_output" \
         "Rollback: docker pull ghcr.io/hughkantsime/odin:v${CURRENT_VERSION} && docker compose up -d"
-fi
+}
 ok "Container restarted"
 
 # ── Phase 5: Health check ────────────────────────────────────────────────────
