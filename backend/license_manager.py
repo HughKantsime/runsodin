@@ -102,10 +102,13 @@ class LicenseInfo:
         self.expired = False
 
     def has_feature(self, feature: str) -> bool:
-        """Check if the current license includes a feature."""
+        """Check if the current license includes a feature.
+        Checks both the license payload and the tier definition,
+        so features added to a tier after license issuance are available."""
         if not self.valid:
             return feature in TIERS["community"]["features"]
-        return feature in self.features
+        tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
+        return feature in self.features or feature in tier_features
 
     def to_dict(self) -> Dict[str, Any]:
         tier_def = TIERS.get(self.tier, TIERS["community"])
