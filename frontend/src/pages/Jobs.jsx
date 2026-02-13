@@ -12,8 +12,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
-import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps } from '../api'
+import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps, modelRevisions } from '../api'
 import { canDo } from '../permissions'
+import { useOrg } from '../contexts/OrgContext'
 import FailureReasonModal from '../components/FailureReasonModal'
 import { updateJobFailure } from '../api'
 
@@ -201,6 +202,7 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
   const [formData, setFormData] = useState({
     item_name: '',
     model_id: '',
+    model_revision_id: '',
     priority: 3,
     duration_hours: '',
     colors_required: '',
@@ -209,17 +211,24 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
     required_tags: '',
   })
 
+  const { data: revisions } = useQuery({
+    queryKey: ['model-revisions', formData.model_id],
+    queryFn: () => modelRevisions.list(Number(formData.model_id)),
+    enabled: !!formData.model_id,
+  })
+
   const handleSubmit = (e) => {
     e.preventDefault()
     const tags = formData.required_tags ? formData.required_tags.split(',').map(t => t.trim()).filter(Boolean) : []
     onSubmit({
       ...formData,
       model_id: formData.model_id ? Number(formData.model_id) : null,
+      model_revision_id: formData.model_revision_id ? Number(formData.model_revision_id) : null,
       duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
       due_date: formData.due_date || null,
       required_tags: tags,
     })
-    setFormData({ item_name: '', model_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '' })
+    setFormData({ item_name: '', model_id: '', model_revision_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '' })
     onClose()
   }
 
@@ -228,6 +237,7 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
     setFormData(prev => ({
       ...prev,
       model_id: modelId,
+      model_revision_id: '',
       item_name: model?.name || prev.item_name,
       duration_hours: model?.build_time_hours || prev.duration_hours,
       colors_required: model?.required_colors?.join(', ') || prev.colors_required,
@@ -250,6 +260,17 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
               ))}
             </select>
           </div>
+          {formData.model_id && revisions?.length > 0 && (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Revision</label>
+              <select value={formData.model_revision_id} onChange={(e) => setFormData(prev => ({ ...prev, model_revision_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                <option value="">Latest</option>
+                {revisions.map(rev => (
+                  <option key={rev.id} value={rev.id}>v{rev.revision_number}{rev.changelog ? ` — ${rev.changelog}` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-sm text-farm-400 mb-1">Item Name *</label>
             <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
@@ -534,6 +555,7 @@ function DueDateBadge({ dueDate }) {
 }
 
 export default function Jobs() {
+  const org = useOrg()
   const queryClient = useQueryClient()
   const runScheduler = useMutation({
     mutationFn: scheduler.run,
@@ -610,13 +632,13 @@ export default function Jobs() {
   })
 
   const { data: jobsData, isLoading } = useQuery({
-    queryKey: ['jobs', statusFilter],
-    queryFn: () => jobs.list(statusFilter || null),
+    queryKey: ['jobs', statusFilter, org.orgId],
+    queryFn: () => jobs.list(statusFilter || null, org.orgId),
   })
 
   const { data: modelsData } = useQuery({
-    queryKey: ['models'],
-    queryFn: () => models.list(),
+    queryKey: ['models', org.orgId],
+    queryFn: () => models.list(org.orgId),
   })
 
   const { data: printersData } = useQuery({

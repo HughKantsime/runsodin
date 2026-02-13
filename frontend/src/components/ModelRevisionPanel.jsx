@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { History, Upload, X } from 'lucide-react'
+import { History, Upload, X, RotateCcw } from 'lucide-react'
 import { modelRevisions } from '../api'
 import { canDo } from '../permissions'
 
@@ -24,6 +24,11 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }) {
       setChangelog('')
       setFile(null)
     },
+  })
+
+  const revertRevision = useMutation({
+    mutationFn: (revNumber) => modelRevisions.revert(modelId, revNumber),
+    onSuccess: () => queryClient.invalidateQueries(['model-revisions', modelId]),
   })
 
   return (
@@ -76,11 +81,23 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }) {
           <p className="text-sm text-farm-500 py-4">No revisions recorded yet.</p>
         )}
 
-        {revisions?.map(rev => (
+        {revisions?.map((rev, idx) => (
           <div key={rev.id} className="p-3 bg-farm-800 rounded-lg mb-2 border border-farm-700">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-farm-100">v{rev.revision_number}</span>
-              <span className="text-xs text-farm-500">{rev.created_at ? new Date(rev.created_at).toLocaleDateString() : ''}</span>
+              <div className="flex items-center gap-2">
+                {idx > 0 && canDo('models.edit') && (
+                  <button
+                    onClick={() => revertRevision.mutate(rev.revision_number)}
+                    disabled={revertRevision.isPending}
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-amber-400 hover:bg-amber-900/30 rounded"
+                    title={`Revert to v${rev.revision_number}`}
+                  >
+                    <RotateCcw size={12} /> Revert
+                  </button>
+                )}
+                <span className="text-xs text-farm-500">{rev.created_at ? new Date(rev.created_at).toLocaleDateString() : ''}</span>
+              </div>
             </div>
             {rev.changelog && <p className="text-xs text-farm-400">{rev.changelog}</p>}
             {rev.uploaded_by_name && <p className="text-xs text-farm-600 mt-1">by {rev.uploaded_by_name}</p>}

@@ -181,6 +181,10 @@ class Printer(Base):
     # Timelapse
     timelapse_enabled = Column(Boolean, default=False)
 
+    # Organization scoping
+    org_id = Column(Integer, nullable=True)
+    shared = Column(Boolean, default=False)
+
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -262,6 +266,9 @@ class Spool(Base):
     location_slot = Column(Integer, nullable=True)
     storage_location = Column(String(100))
     notes = Column(Text)
+
+    # Organization scoping
+    org_id = Column(Integer, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
@@ -365,12 +372,14 @@ class Model(Base):
     
     # User preferences
     is_favorite = Column(Boolean, default=False)
-    
-    
+
+    # Organization scoping
+    org_id = Column(Integer, nullable=True)
+
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
+
     # Relationships
     jobs = relationship("Job", back_populates="model")
     
@@ -404,6 +413,7 @@ class Job(Base):
     
     # What to print
     model_id = Column(Integer, ForeignKey("models.id"))
+    model_revision_id = Column(Integer, nullable=True)
     item_name = Column(String(200), nullable=False)  # Can override model name
     quantity = Column(Integer, default=1)
     

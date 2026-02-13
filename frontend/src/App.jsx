@@ -35,6 +35,7 @@ import {
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
 import { useLicense } from './LicenseContext'
+import { useOrg } from './contexts/OrgContext'
 import ProGate from './components/ProGate'
 import ProBadge from './components/ProBadge'
 import AlertBell from './components/AlertBell'
@@ -133,6 +134,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
   }, [])
   const adv = uiMode === 'advanced'
   const lic = useLicense()
+  const org = useOrg()
   const toggle = (key) => setSections(s => ({ ...s, [key]: !s[key] }))
   const branding = useBranding()
 
@@ -142,8 +144,8 @@ function Sidebar({ mobileOpen, onMobileClose }) {
     refetchInterval: 30000,
   })
   const { data: printersData } = useQuery({
-    queryKey: ['sidebar-printers'],
-    queryFn: () => printers.list(),
+    queryKey: ['sidebar-printers', org.orgId],
+    queryFn: () => printers.list(false, '', org.orgId),
     refetchInterval: 15000,
   })
 
@@ -221,6 +223,23 @@ function Sidebar({ mobileOpen, onMobileClose }) {
             <X size={20} />
           </button>
         </div>
+
+        {/* Org Switcher (superadmin only) */}
+        {org.isAdmin && org.orgs.length > 0 && (!collapsed || mobileOpen) && (
+          <div className="px-4 py-2" style={{ borderBottom: '1px solid var(--brand-sidebar-border)' }}>
+            <select
+              value={org.orgId || ''}
+              onChange={(e) => org.switchOrg(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-xs"
+              style={{ color: 'var(--brand-sidebar-text)' }}
+            >
+              <option value="">All Organizations</option>
+              {org.orgs.map(o => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-4 space-y-1 min-h-0">

@@ -3,13 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Calendar, X, Pause, Play } from 'lucide-react'
 import { reportSchedules } from '../api'
 
-const REPORT_TYPES = ['jobs_summary', 'printer_utilization', 'filament_usage', 'failure_analysis', 'chargeback']
+const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary']
 const FREQUENCIES = ['daily', 'weekly', 'monthly']
 
 export default function ReportScheduleManager() {
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ name: '', report_type: 'jobs_summary', frequency: 'weekly', recipients: '' })
+  const [form, setForm] = useState({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' })
 
   const { data: schedules, isLoading } = useQuery({
     queryKey: ['report-schedules'],
@@ -18,7 +18,7 @@ export default function ReportScheduleManager() {
 
   const createSchedule = useMutation({
     mutationFn: (data) => reportSchedules.create(data),
-    onSuccess: () => { queryClient.invalidateQueries(['report-schedules']); setShowCreate(false); setForm({ name: '', report_type: 'jobs_summary', frequency: 'weekly', recipients: '' }) },
+    onSuccess: () => { queryClient.invalidateQueries(['report-schedules']); setShowCreate(false); setForm({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' }) },
   })
 
   const deleteSchedule = useMutation({

@@ -201,6 +201,25 @@ def require_role(required_role: str):
     return role_checker
 
 
+def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[int]:
+    """Determine the effective org_id for filtering resources.
+
+    - Superadmin (admin + no group_id): None (sees all) unless request_org_id is set
+    - Admin with request_org_id override: uses override
+    - Anyone with group_id: their group_id (auto-filter)
+    """
+    group_id = current_user.get("group_id") if current_user else None
+    role = current_user.get("role", "viewer") if current_user else "viewer"
+
+    if role == "admin" and not group_id:
+        # Superadmin — can optionally filter by org
+        return request_org_id  # None means "see all"
+    if role == "admin" and request_org_id is not None:
+        # Admin overriding their own group scope
+        return request_org_id
+    return group_id  # Regular user or org-scoped admin
+
+
 def log_audit(db: Session, action: str, entity_type: str = None, entity_id: int = None, details: dict = None, ip: str = None):
     """Log an action to the audit log."""
     entry = AuditLog(
@@ -422,12 +441,22 @@ async def health_check():
 def list_printers(
     active_only: bool = False,
     tag: Optional[str] = None,
+    org_id: Optional[int] = None,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all printers, optionally filtered by tag."""
+    """List all printers, optionally filtered by tag and org."""
     query = db.query(Printer)
     if active_only:
         query = query.filter(Printer.is_active == True)
+
+    # Org scoping: show org's printers + shared + unassigned
+    effective_org = _get_org_filter(current_user, org_id)
+    if effective_org is not None:
+        query = query.filter(
+            (Printer.org_id == effective_org) | (Printer.org_id == None) | (Printer.shared == True)
+        )
+
     printers = query.order_by(Printer.display_order, Printer.id).all()
     if tag:
         printers = [p for p in printers if p.tags and tag in p.tags]
@@ -472,7 +501,9 @@ def create_printer(
         is_active=printer.is_active,
         api_type=printer.api_type,
         api_host=printer.api_host,
-        api_key=encrypted_api_key
+        api_key=encrypted_api_key,
+        shared=getattr(printer, 'shared', False),
+        org_id=current_user.get("group_id") if current_user else None,
     )
     db.add(db_printer)
     db.flush()
@@ -1655,24 +1686,36 @@ async def setup_save_network(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/models", response_model=List[ModelResponse], tags=["Models"])
 def list_models(
     category: Optional[str] = None,
+    org_id: Optional[int] = None,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List all print models."""
     query = db.query(Model)
     if category:
         query = query.filter(Model.category == category)
+
+    effective_org = _get_org_filter(current_user, org_id)
+    if effective_org is not None:
+        query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
+
     return query.order_by(Model.name).all()
 
 
 @app.get("/api/models-with-pricing", tags=["Models"])
 def list_models_with_pricing(
     category: Optional[str] = None,
-    db: Session = Depends(get_db)
+    org_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """List all print models with calculated cost and suggested price."""
     query = db.query(Model)
     if category:
         query = query.filter(Model.category == category)
+    effective_org = _get_org_filter(current_user, org_id)
+    if effective_org is not None:
+        query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
     models = query.order_by(Model.name).all()
     
     # Get pricing config once
@@ -1770,6 +1813,7 @@ def create_model(model: ModelCreate, current_user: dict = Depends(require_role("
         quantity_per_bed=model.quantity_per_bed,
         markup_percent=model.markup_percent,
         is_favorite=model.is_favorite,
+        org_id=current_user.get("group_id") if current_user else None,
     )
     db.add(db_model)
     db.commit()
@@ -1874,18 +1918,24 @@ def schedule_from_model(
 def list_jobs(
     status: Optional[JobStatus] = None,
     printer_id: Optional[int] = None,
+    org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List jobs with optional filters."""
     query = db.query(Job)
-    
+
     if status:
         query = query.filter(Job.status == status)
     if printer_id:
         query = query.filter(Job.printer_id == printer_id)
-    
+
+    effective_org = _get_org_filter(current_user, org_id)
+    if effective_org is not None:
+        query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
+
     return query.order_by(Job.priority, Job.created_at).offset(offset).limit(limit).all()
 
 
@@ -1924,9 +1974,19 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         initial_status = "submitted"
         submitted_by = current_user.get("id")
     
+    # Resolve model_revision_id: use provided value, or default to latest revision
+    model_revision_id = getattr(job, 'model_revision_id', None)
+    if model_revision_id is None and job.model_id:
+        latest_rev = db.execute(text(
+            "SELECT id FROM model_revisions WHERE model_id = :mid ORDER BY revision_number DESC LIMIT 1"),
+            {"mid": job.model_id}).fetchone()
+        if latest_rev:
+            model_revision_id = latest_rev.id
+
     db_job = Job(
         item_name=job.item_name,
         model_id=job.model_id,
+        model_revision_id=model_revision_id,
         quantity=job.quantity,
         priority=job.priority,
         duration_hours=job.duration_hours,
@@ -1940,6 +2000,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         submitted_by=submitted_by,
         due_date=job.due_date,
         charged_to_user_id=current_user["id"] if current_user else None,
+        charged_to_org_id=current_user.get("group_id") if current_user else None,
     )
     db.add(db_job)
     db.commit()
@@ -4153,17 +4214,23 @@ def list_spools(
     status: Optional[str] = None,
     filament_id: Optional[int] = None,
     printer_id: Optional[int] = None,
+    org_id: Optional[int] = None,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List all spools with optional filters."""
     query = db.query(Spool)
-    
+
     if status:
         query = query.filter(Spool.status == status)
     if filament_id:
         query = query.filter(Spool.filament_id == filament_id)
     if printer_id:
         query = query.filter(Spool.location_printer_id == printer_id)
+
+    effective_org = _get_org_filter(current_user, org_id)
+    if effective_org is not None:
+        query = query.filter((Spool.org_id == effective_org) | (Spool.org_id == None))
     
     spools = query.all()
     
@@ -4264,12 +4331,13 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
         lot_number=spool.lot_number,
         storage_location=spool.storage_location,
         notes=spool.notes,
-        status=SpoolStatus.ACTIVE
+        status=SpoolStatus.ACTIVE,
+        org_id=current_user.get("group_id") if current_user else None,
     )
     db.add(db_spool)
     db.commit()
     db.refresh(db_spool)
-    
+
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
     return {
         "id": db_spool.id,
@@ -6285,6 +6353,49 @@ async def create_model_revision(
     return {"revision_number": next_rev, "file_path": file_path}
 
 
+@app.post("/api/models/{model_id}/revisions/{rev_number}/revert", tags=["Models"])
+async def revert_model_revision(
+    model_id: int, rev_number: int,
+    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+):
+    """Revert a model to a previous revision by creating a new revision from it."""
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Find the target revision
+    target = db.execute(text(
+        "SELECT * FROM model_revisions WHERE model_id = :mid AND revision_number = :rev"),
+        {"mid": model_id, "rev": rev_number}).fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Revision v{rev_number} not found")
+
+    # Get next revision number
+    max_rev = db.execute(text(
+        "SELECT MAX(revision_number) FROM model_revisions WHERE model_id = :mid"),
+        {"mid": model_id}).scalar() or 0
+    next_rev = max_rev + 1
+
+    # Copy revision file if it exists
+    new_file_path = None
+    if target.file_path and os.path.exists(target.file_path):
+        rev_dir = f"/data/model_revisions/{model_id}"
+        os.makedirs(rev_dir, exist_ok=True)
+        ext = os.path.splitext(target.file_path)[1]
+        new_file_path = f"{rev_dir}/v{next_rev}_reverted{ext}"
+        import shutil
+        shutil.copy2(target.file_path, new_file_path)
+
+    db.execute(text("""INSERT INTO model_revisions (model_id, revision_number, file_path, changelog, uploaded_by)
+                       VALUES (:mid, :rev, :fp, :cl, :uid)"""),
+               {"mid": model_id, "rev": next_rev, "fp": new_file_path,
+                "cl": f"Reverted to v{rev_number}", "uid": current_user["id"]})
+    db.commit()
+
+    log_audit(db, "model_revision_reverted", "model", model_id, f"Reverted to v{rev_number} as v{next_rev}")
+    return {"revision_number": next_rev, "reverted_from": rev_number}
+
+
 # =============================================================================
 # Bulk Operations
 # =============================================================================
@@ -6367,6 +6478,41 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
     db.commit()
+    return {"status": "ok", "affected": count}
+
+
+@app.post("/api/spools/bulk-update", tags=["Spools"])
+async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Bulk update spool fields for multiple spools."""
+    spool_ids = body.get("spool_ids", [])
+    if not spool_ids or not isinstance(spool_ids, list):
+        raise HTTPException(status_code=400, detail="spool_ids list is required")
+    if len(spool_ids) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 spools per batch")
+
+    action = body.get("action", "")
+    count = 0
+
+    if action == "archive":
+        for sid in spool_ids:
+            db.execute(text("UPDATE spools SET status = 'archived' WHERE id = :id AND status != 'archived'"),
+                       {"id": sid})
+            count += 1
+    elif action == "activate":
+        for sid in spool_ids:
+            db.execute(text("UPDATE spools SET status = 'active' WHERE id = :id"),
+                       {"id": sid})
+            count += 1
+    elif action == "delete":
+        for sid in spool_ids:
+            db.execute(text("DELETE FROM spools WHERE id = :id AND status IN ('archived', 'empty')"),
+                       {"id": sid})
+            count += 1
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+    db.commit()
+    log_audit(db, f"bulk_{action}", "spools", details=f"{count} spools")
     return {"status": "ok", "affected": count}
 
 

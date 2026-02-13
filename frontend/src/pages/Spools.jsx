@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette, Droplets } from 'lucide-react'
+import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette, Droplets, CheckSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { canDo } from '../permissions'
+import { useOrg } from '../contexts/OrgContext'
+import { bulkOps } from '../api'
 
 const API_KEY = import.meta.env.VITE_API_KEY
 const API_BASE = '/api'
@@ -18,6 +20,7 @@ const spoolsApi = {
     const params = new URLSearchParams()
     if (filters.status) params.append('status', filters.status)
     if (filters.printer_id) params.append('printer_id', filters.printer_id)
+    if (filters.org_id != null) params.append('org_id', filters.org_id)
     const res = await fetch(`${API_BASE}/spools?${params}`, { headers: apiHeaders })
     return res.json()
   },
@@ -1095,6 +1098,7 @@ function FilamentLibraryView() {
 // ==================== Main Page ====================
 
 export default function Spools() {
+  const org = useOrg()
   const queryClient = useQueryClient()
   const [view, setView] = useState('spools') // 'spools' | 'library'
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -1107,8 +1111,8 @@ export default function Spools() {
   const [groupByPrinter, setGroupByPrinter] = useState(true)
   
   const { data: spools, isLoading } = useQuery({
-    queryKey: ['spools', filter],
-    queryFn: () => spoolsApi.list({ status: filter === 'all' ? undefined : filter })
+    queryKey: ['spools', filter, org.orgId],
+    queryFn: () => spoolsApi.list({ status: filter === 'all' ? undefined : filter, org_id: org.orgId })
   })
   
   const { data: filaments } = useQuery({
@@ -1160,7 +1164,22 @@ export default function Spools() {
       queryClient.invalidateQueries(['spools'])
     }
   })
-  
+
+  // Bulk selection
+  const [selectedSpools, setSelectedSpools] = useState(new Set())
+  const toggleSpoolSelect = (id) => setSelectedSpools(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+  const toggleSelectAllSpools = (ids) => {
+    setSelectedSpools(prev => prev.size === ids.length ? new Set() : new Set(ids))
+  }
+  const bulkSpoolAction = useMutation({
+    mutationFn: ({ action }) => bulkOps.spools([...selectedSpools], action),
+    onSuccess: () => { queryClient.invalidateQueries(['spools']); setSelectedSpools(new Set()) },
+  })
+
   const handleUnload = (spool) => {
     if (confirm(`Unload ${spool.filament_brand} ${spool.filament_name} from printer?`)) {
       unloadMutation.mutate({ id: spool.id })
@@ -1335,6 +1354,24 @@ export default function Spools() {
             </div>
           )}
 
+          {selectedSpools.size > 0 && canDo('spools.edit') && (
+            <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
+              <span className="text-sm text-farm-300">{selectedSpools.size} selected</span>
+              <button onClick={() => bulkSpoolAction.mutate({ action: 'archive' })} className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs">Archive</button>
+              <button onClick={() => bulkSpoolAction.mutate({ action: 'activate' })} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs">Activate</button>
+              <button onClick={() => { if (confirm('Delete selected spools?')) bulkSpoolAction.mutate({ action: 'delete' }) }} className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-xs">Delete</button>
+              <button onClick={() => setSelectedSpools(new Set())} className="px-3 py-1 bg-farm-700 hover:bg-farm-600 rounded text-xs">Clear</button>
+            </div>
+          )}
+          {canDo('spools.edit') && spools?.length > 0 && (
+            <div className="flex items-center gap-2 mb-3">
+              <label className="flex items-center gap-1.5 text-xs text-farm-400 cursor-pointer">
+                <input type="checkbox" checked={selectedSpools.size === spools.length && spools.length > 0} onChange={() => toggleSelectAllSpools(spools.map(s => s.id))} className="rounded border-farm-600" />
+                Select all
+              </label>
+            </div>
+          )}
+
           {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
           {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
           {!isLoading && spools?.length > 0 && (
@@ -1368,7 +1405,12 @@ export default function Spools() {
                   <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                     {groupSpools.map(spool => (
-                      <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
+                      <div key={spool.id} className="relative">
+                        {canDo('spools.edit') && (
+                          <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => toggleSpoolSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-farm-600" />
+                        )}
+                        <SpoolCard spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1378,7 +1420,12 @@ export default function Spools() {
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                 {sorted.map(spool => (
-                  <SpoolCard key={spool.id} spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
+                  <div key={spool.id} className="relative">
+                    {canDo('spools.edit') && (
+                      <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => toggleSpoolSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-farm-600" />
+                    )}
+                    <SpoolCard spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
+                  </div>
                 ))}
               </div>
             );

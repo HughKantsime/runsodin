@@ -9,10 +9,11 @@ import PrinterTelemetryChart from '../components/PrinterTelemetryChart'
 import NozzleStatusCard from '../components/NozzleStatusCard'
 import HmsHistoryPanel from '../components/HmsHistoryPanel'
 import { getPlugState, plugPowerOn, plugPowerOff } from '../api'
-import { printers, filaments } from '../api'
+import { printers, filaments, bulkOps } from '../api'
 import { Video, QrCode, Thermometer, Plug } from 'lucide-react'
 import { canDo } from '../permissions'
 import { useLicense } from '../LicenseContext'
+import { useOrg } from '../contexts/OrgContext'
 import CameraModal from '../components/CameraModal'
 
 const API_KEY = import.meta.env.VITE_API_KEY
@@ -427,9 +428,10 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         plug_token: printer.plug_token || '',
         tags: printer.tags || [],
         timelapse_enabled: printer.timelapse_enabled || false,
+        shared: printer.shared || false,
       })
     } else {
-      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false })
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false, shared: false })
     }
     setTestStatus(null)
     setTestMessage('')
@@ -492,6 +494,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
       camera_url: formData.camera_url || null,
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,
+      shared: formData.shared || false,
     }
 
     if (formData.api_type) submitData.api_type = formData.api_type
@@ -718,6 +721,22 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
             <p className="text-xs text-farm-500 mt-1 ml-6">Capture frames every 30s during prints and stitch into MP4 videos.</p>
           </div>
 
+          {/* Shared across orgs (admin only) */}
+          {canDo('settings.edit') && (
+            <div className="border-t border-farm-700 pt-4 mt-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.shared || false}
+                  onChange={(e) => setFormData(prev => ({ ...prev, shared: e.target.checked }))}
+                  className="w-4 h-4 rounded border-farm-600 bg-farm-800 text-print-600 focus:ring-print-600"
+                />
+                <span className="text-sm text-farm-200">Shared across organizations</span>
+              </label>
+              <p className="text-xs text-farm-500 mt-1 ml-6">Visible to all organizations regardless of assignment.</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
@@ -772,7 +791,8 @@ export default function Printers() {
   const [sortBy, setSortBy] = useState(() => sessionStorage.getItem('printers_sort') || 'manual')
   const [tagFilter, setTagFilter] = useState('')
 
-  const { data: printersData, isLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list() })
+  const org = useOrg()
+  const { data: printersData, isLoading } = useQuery({ queryKey: ['printers', org.orgId], queryFn: () => printers.list(false, '', org.orgId) })
   const lic = useLicense()
   const atLimit = !lic.isPro && (printersData?.length || 0) >= 5
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
@@ -786,6 +806,21 @@ export default function Printers() {
   const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries(['printers']) })
   const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries(['printers']) })
   const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries(['printers']) })
+
+  // Bulk selection
+  const [selectedPrinters, setSelectedPrinters] = useState(new Set())
+  const togglePrinterSelect = (id) => setSelectedPrinters(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+  const toggleSelectAllPrinters = (ids) => {
+    setSelectedPrinters(prev => prev.size === ids.length ? new Set() : new Set(ids))
+  }
+  const bulkPrinterAction = useMutation({
+    mutationFn: ({ action, extra }) => bulkOps.printers([...selectedPrinters], action, extra),
+    onSuccess: () => { queryClient.invalidateQueries(['printers']); setSelectedPrinters(new Set()) },
+  })
 
   useEffect(() => {
     if (printersData) setOrderedPrinters(printersData)
@@ -990,28 +1025,54 @@ export default function Printers() {
           {canDo('printers.add') && !atLimit && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Printer</button>}
         </div>
       ) : (
+        <>
+        {selectedPrinters.size > 0 && canDo('printers.edit') && (
+          <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
+            <span className="text-sm text-farm-300">{selectedPrinters.size} selected</span>
+            <button onClick={() => bulkPrinterAction.mutate({ action: 'enable' })} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs">Enable</button>
+            <button onClick={() => bulkPrinterAction.mutate({ action: 'disable' })} className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs">Disable</button>
+            <button onClick={() => setSelectedPrinters(new Set())} className="px-3 py-1 bg-farm-700 hover:bg-farm-600 rounded text-xs">Clear</button>
+          </div>
+        )}
+        {canDo('printers.edit') && filteredPrinters.length > 0 && (
+          <div className="flex items-center gap-2 mb-3">
+            <label className="flex items-center gap-1.5 text-xs text-farm-400 cursor-pointer">
+              <input type="checkbox" checked={selectedPrinters.size === filteredPrinters.length && filteredPrinters.length > 0} onChange={() => toggleSelectAllPrinters(filteredPrinters.map(p => p.id))} className="rounded border-farm-600" />
+              Select all
+            </label>
+          </div>
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">
           {filteredPrinters.map((printer) => (
-            <PrinterCard
-              key={printer.id}
-              printer={printer}
-              allFilaments={filamentsData}
-              spools={spoolsData}
-              onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }}
-              onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })}
-              onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })}
-              onEdit={handleEdit}
-              onSyncAms={handleSyncAms}
-              hasCamera={cameraIds.has(printer.id)}
-              onCameraClick={setCameraTarget}
-              isDragging={draggedId === printer.id}
-              onDragStart={isFiltered ? undefined : (e) => handleDragStart(e, printer.id)}
-              onDragOver={isFiltered ? undefined : (e) => handleDragOver(e, printer.id)}
-              onDragEnd={isFiltered ? undefined : handleDragEnd}
-              onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
-              onPlugToggle={handlePlugToggle}
-              plugStates={plugStates}
-            />
+            <div key={printer.id} className="relative">
+              {canDo('printers.edit') && (
+                <input
+                  type="checkbox"
+                  checked={selectedPrinters.has(printer.id)}
+                  onChange={() => togglePrinterSelect(printer.id)}
+                  className="absolute top-3 left-3 z-10 rounded border-farm-600"
+                />
+              )}
+              <PrinterCard
+                printer={printer}
+                allFilaments={filamentsData}
+                spools={spoolsData}
+                onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }}
+                onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })}
+                onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })}
+                onEdit={handleEdit}
+                onSyncAms={handleSyncAms}
+                hasCamera={cameraIds.has(printer.id)}
+                onCameraClick={setCameraTarget}
+                isDragging={draggedId === printer.id}
+                onDragStart={isFiltered ? undefined : (e) => handleDragStart(e, printer.id)}
+                onDragOver={isFiltered ? undefined : (e) => handleDragOver(e, printer.id)}
+                onDragEnd={isFiltered ? undefined : handleDragEnd}
+                onScanSpool={() => { setScannerPrinterId(printer.id); setShowScanner(true); }}
+                onPlugToggle={handlePlugToggle}
+                plugStates={plugStates}
+              />
+            </div>
           ))}
           {filteredPrinters.length === 0 && orderedPrinters.length > 0 && (
             <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800 p-8 text-center">
@@ -1019,6 +1080,7 @@ export default function Printers() {
             </div>
           )}
         </div>
+        </>
       )}
       <PrinterModal isOpen={showModal} onClose={handleCloseModal} onSubmit={handleSubmit} printer={editingPrinter} />
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}

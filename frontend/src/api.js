@@ -38,7 +38,7 @@ export async function fetchAPI(endpoint, options = {}) {
 }
 
 export const printers = {
-  list: (activeOnly = false, tag = '') => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '')),
+  list: (activeOnly = false, tag = '', orgId = null) => fetchAPI('/printers?active_only=' + activeOnly + (tag ? '&tag=' + encodeURIComponent(tag) : '') + (orgId != null ? '&org_id=' + orgId : '')),
   allTags: () => fetchAPI('/printers/tags'),
   get: (id) => fetchAPI('/printers/' + id),
   create: (data) => fetchAPI('/printers', { method: 'POST', body: JSON.stringify(data) }),
@@ -51,7 +51,7 @@ export const printers = {
 }
 
 export const jobs = {
-  list: (status) => fetchAPI('/jobs' + (status ? '?status=' + status : '')),
+  list: (status, orgId = null) => fetchAPI('/jobs' + (status ? '?status=' + status : '') + (orgId != null ? (status ? '&' : '?') + 'org_id=' + orgId : '')),
   get: (id) => fetchAPI('/jobs/' + id),
   create: (data) => fetchAPI('/jobs', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI('/jobs/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -66,8 +66,8 @@ export const jobs = {
 export const models = {
   getVariants: (id) => fetchAPI(`/models/${id}/variants`),
   deleteVariant: (modelId, variantId) => fetchAPI(`/models/${modelId}/variants/${variantId}`, { method: 'DELETE' }),
-  list: () => fetchAPI('/models'),
-  listWithPricing: (category) => fetchAPI('/models-with-pricing' + (category ? '?category=' + category : '')),
+  list: (orgId = null) => fetchAPI('/models' + (orgId != null ? '?org_id=' + orgId : '')),
+  listWithPricing: (category, orgId = null) => fetchAPI('/models-with-pricing' + (category ? '?category=' + category : '') + (orgId != null ? (category ? '&' : '?') + 'org_id=' + orgId : '')),
   get: (id) => fetchAPI('/models/' + id),
   create: (data) => fetchAPI('/models', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI('/models/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -302,6 +302,7 @@ export const modelRevisions = {
     if (!res.ok) throw new Error('Failed to create revision')
     return res.json()
   },
+  revert: (modelId, revNumber) => fetchAPI(`/models/${modelId}/revisions/${revNumber}/revert`, { method: 'POST' }),
 }
 
 // Bulk Operations
@@ -311,6 +312,9 @@ export const bulkOps = {
   }),
   printers: (printerIds, action, extra = {}) => fetchAPI('/printers/bulk-update', {
     method: 'POST', body: JSON.stringify({ printer_ids: printerIds, action, ...extra })
+  }),
+  spools: (spoolIds, action, extra = {}) => fetchAPI('/spools/bulk-update', {
+    method: 'POST', body: JSON.stringify({ spool_ids: spoolIds, action, ...extra })
   }),
 }
 

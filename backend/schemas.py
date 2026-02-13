@@ -106,6 +106,7 @@ class PrinterBase(BaseModel):
 class PrinterCreate(PrinterBase):
     # Initial filament configuration
     initial_slots: Optional[List[FilamentSlotCreate]] = None
+    shared: bool = False
 
 
 class PrinterUpdate(BaseModel):
@@ -120,6 +121,7 @@ class PrinterUpdate(BaseModel):
     nickname: Optional[str] = None
     tags: Optional[List[str]] = None
     timelapse_enabled: Optional[bool] = None
+    shared: Optional[bool] = None
 
 class PrinterResponse(PrinterBase):
     model_config = ConfigDict(from_attributes=True)
@@ -130,6 +132,8 @@ class PrinterResponse(PrinterBase):
     filament_slots: List[FilamentSlotResponse] = []
     loaded_colors: List[str] = []
     tags: List[str] = []
+    shared: bool = False
+    org_id: Optional[int] = None
 
 
 class PrinterSummary(BaseModel):
@@ -241,7 +245,7 @@ class JobBase(BaseModel):
 
 
 class JobCreate(JobBase):
-    pass
+    model_revision_id: Optional[int] = None
 
 
 class JobUpdate(BaseModel):
@@ -296,11 +300,14 @@ class JobResponse(JobBase):
     # Cost tracking
     estimated_cost: Optional[float] = None
     suggested_price: Optional[float] = None
-    
+
+    # Model versioning
+    model_revision_id: Optional[int] = None
+
     # Order fulfillment
     order_item_id: Optional[int] = None
     quantity_on_bed: int = 1
-    
+
     # Expanded relations (optional)
     printer: Optional[PrinterSummary] = None
     model: Optional[ModelResponse] = None

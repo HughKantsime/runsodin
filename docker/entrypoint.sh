@@ -208,10 +208,11 @@ conn.execute("""CREATE TABLE IF NOT EXISTS model_revisions (
 )""")
 conn.commit()
 
-# Add chargeback columns to jobs if missing
+# Add model_revision_id + chargeback columns to jobs if missing
 for col, coldef in [
     ("charged_to_user_id", "INTEGER"),
     ("charged_to_org_id", "INTEGER"),
+    ("model_revision_id", "INTEGER"),
 ]:
     try:
         conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {coldef}")
@@ -260,6 +261,12 @@ for tbl in ["printers", "models", "spools"]:
         conn.execute(f"ALTER TABLE {tbl} ADD COLUMN org_id INTEGER REFERENCES groups(id)")
     except Exception:
         pass
+
+# Add shared column to printers for cross-org visibility
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN shared BOOLEAN DEFAULT 0")
+except Exception:
+    pass
 
 conn.commit()
 conn.close()
@@ -330,6 +337,7 @@ migrations = [
     ("error_code", "TEXT"),
     ("scheduled_job_id", "INTEGER"),
     ("created_at", "DATETIME DEFAULT (datetime('now'))"),
+    ("model_revision_id", "INTEGER"),
 ]
 for col, col_type in migrations:
     if col not in existing:

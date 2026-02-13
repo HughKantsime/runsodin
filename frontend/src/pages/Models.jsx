@@ -20,6 +20,7 @@ import clsx from 'clsx'
 
 import { models, filaments, printers } from '../api'
 import { canDo } from '../permissions'
+import { useOrg } from '../contexts/OrgContext'
 
 function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions }) {
   return (
@@ -486,6 +487,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
 }
 
 export default function Models() {
+  const org = useOrg()
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [editingModel, setEditingModel] = useState(null)
@@ -498,7 +500,7 @@ export default function Models() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
   const [revisionModel, setRevisionModel] = useState(null)
 
-  const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter], queryFn: () => models.listWithPricing(categoryFilter || null) })
+  const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
   
   // Auto-open schedule modal if ?schedule=modelId is present
   useEffect(() => {
