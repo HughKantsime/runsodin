@@ -2,6 +2,29 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.17] - 2026-02-13
+
+### Fixed
+- **Rate limiter bug** — successful logins no longer count toward the 10/5min IP rate limit (only failed attempts count)
+- RBAC test expectations aligned with backend: `POST /api/printers` → operator, `PATCH /api/orders` → admin
+- Security rate-limit tests use throwaway usernames to avoid locking out real accounts
+- Test fixture handles stale test users by resetting passwords if login fails
+- Test session restarts backend before/after to clear in-memory lockouts
+
+### Changed
+- `docker-compose.yml` uses `build:` for sandbox (source builds, not GHCR pull)
+
+---
+
+## [1.3.16] - 2026-02-13
+
+### Changed
+- `usage_reports` feature moved from Education-only to Pro license tier
+- `PRINTER_ERROR` alert type added to AlertTypeEnum
+- Maintenance log and moonraker monitor job status strings uppercased to match enum convention
+
+---
+
 ## [1.3.15] - 2026-02-13
 
 ### Added

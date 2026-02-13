@@ -1,6 +1,6 @@
 # O.D.I.N. — Complete Feature Set
 
-> **Version:** v1.3.15 | **Last updated:** 2026-02-13
+> **Version:** v1.3.17 | **Last updated:** 2026-02-13
 > **This document catalogs every feature in O.D.I.N. with implementation details and version introduced.**
 
 ---
@@ -395,7 +395,7 @@
 ## 12. Security
 
 ### 12.1 Authentication Security
-- Rate limiting: 10 login attempts per 5-minute window per IP
+- Rate limiting: 10 failed login attempts per 5-minute window per IP (successful logins don't count — fixed in v1.3.17)
 - Account lockout: 5 failed attempts → 15-minute lock (in-memory, resets on restart)
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
 - Login attempt audit trail with IP addresses
@@ -673,3 +673,5 @@
 | v1.3.10–1.3.12 | 2026-02-12 | Alert dispatch fixes, auto-create jobs on completion, timezone fixes, auto-job field defaults |
 | v1.3.13–1.3.14 | 2026-02-12 | Time-window job matching, stale schedule cleanup, deadlock/race condition/timezone fixes |
 | v1.3.15 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (42 tests), setup endpoint hardening |
+| v1.3.16 | 2026-02-13 | Usage reports moved to Pro tier, PRINTER_ERROR alert type, uppercase status enum consistency |
+| v1.3.17 | 2026-02-13 | Rate limiter fix (only count failed logins), RBAC test alignment, test suite hardening |

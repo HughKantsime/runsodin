@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-13 at v1.3.15.
+Updated 2026-02-13 at v1.3.17.
 
 ## Shipped in v1.2.0
 
@@ -35,6 +35,11 @@ Updated 2026-02-13 at v1.3.15.
 - ~~Job matching improvements (time-window strategy, stale cleanup, deadlock/race fixes)~~
 - ~~Auto-create jobs on print completion~~
 - ~~Setup endpoint hardening (500 error fix)~~
+- ~~Usage reports moved from Education to Pro tier~~
+- ~~PRINTER_ERROR alert type~~
+- ~~Rate limiter fix: only count failed logins toward IP limit~~
+- ~~RBAC test expectations aligned with backend (printer create → operator, order update → admin)~~
+- ~~Rate limit test isolation (throwaway usernames + backend restart between sessions)~~
 
 ---
 
@@ -97,19 +102,6 @@ Updated 2026-02-13 at v1.3.15.
 - Single line change
 
 ---
-
-### 7. Fix RBAC Policy for Operator Printer Creation
-**Effort: Trivial** — `POST /api/printers` allows operators but RBAC test expects admin-only. Decide policy and align test or endpoint.
-
----
-
-### 8. Fix RBAC Policy for Operator Order Updates
-**Effort: Trivial** — `PATCH /api/orders/{id}` denies operators but test expects allow. Decide policy and align.
-
----
-
-### 9. Rate Limit Test Isolation
-**Effort: Low** — Security rate-limit tests lock the IP for all subsequent test suites. Need per-suite backend restart or test-scoped rate limit bypass.
 
 ---
 
