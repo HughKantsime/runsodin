@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-13 at v1.3.18.
+Updated 2026-02-13 at v1.3.23.
 
 ## Shipped in v1.2.0
 
@@ -44,6 +44,12 @@ Updated 2026-02-13 at v1.3.18.
 - ~~Settings/Audit frontend route RBAC guard~~
 - ~~create_model field persistence fix (quantity_per_bed, units_per_bed, etc.)~~
 - ~~Test suite: 13 failures resolved, test cheating eliminated (1022 passing, 0 xpassed)~~
+- ~~Local dev/test/release pipeline (Makefile, deploy_local.sh, no sandbox required)~~
+- ~~Cross-platform bump-version.sh (macOS BSD sed compatibility)~~
+- ~~Setup endpoint locking after admin creation (SB-3 SSRF fix)~~
+- ~~Login page 401 redirect loop fix~~
+- ~~License feature gating: tier definition fallback for post-issuance features~~
+- ~~Console error cleanup (dead /api/settings fetch, orgId type guard, alert enum mismatch)~~
 
 ---
 
