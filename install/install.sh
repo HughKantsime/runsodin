@@ -2,7 +2,7 @@
 # O.D.I.N. Installer — curl -sfL https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.sh | bash
 set -euo pipefail
 
-ODIN_VERSION="1.3.19"
+ODIN_VERSION="1.3.20"
 ODIN_IMAGE="ghcr.io/hughkantsime/odin:latest"
 ODIN_REPO="https://raw.githubusercontent.com/HughKantsime/runsodin/master"
 INSTALL_DIR="./odin"
