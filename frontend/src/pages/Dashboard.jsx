@@ -1,26 +1,29 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { 
-  Play, 
-  Clock, 
-  CheckCircle, 
+import {
+  Play,
+  Clock,
+  CheckCircle,
   AlertCircle,
-  Zap,
   XCircle,
   Activity,
   Video,
   AlertTriangle,
   Lightbulb,
   Wrench,
+  Monitor,
+  Loader2,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 import CameraModal from '../components/CameraModal'
 
-import { stats, jobs, scheduler, printers, printJobs, alerts as alertsApi, maintenance } from '../api'
+import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../api'
 import { canDo } from '../permissions'
+import { ONLINE_THRESHOLD_MS, getShortName } from '../utils/shared'
 
-function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
+function StatCard({ label, value, icon: Icon, color = 'farm', trend, onClick }) {
   const colorClasses = {
     farm: 'bg-farm-900 text-farm-100',
     print: 'bg-print-900/30 text-print-400',
@@ -31,7 +34,11 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   }
 
   return (
-    <div className={clsx('rounded-lg p-3 md:p-4', colorClasses[color])}>
+    <div
+      className={clsx('rounded-lg p-3 md:p-4', colorClasses[color], onClick && 'cursor-pointer hover:bg-farm-800 transition-colors')}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs md:text-sm text-farm-400 mb-1">{label}</p>
@@ -46,29 +53,14 @@ function StatCard({ label, value, icon: Icon, color = 'farm', trend }) {
   )
 }
 
-function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
-  const getShortName = (slot) => {
-    const color = slot?.color
-    if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return slot?.filament_type || 'Empty'
-    const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
-    let short = color
-    for (const brand of brands) {
-      if (color.startsWith(brand + ' ')) {
-        short = color.slice(brand.length + 1)
-        break
-      }
-    }
-    if (short.length > 12) return short.slice(0, 10) + '...'
-    return short
-  }
-
+function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) {
   const slots = printer.filament_slots || []
   const LOW_SPOOL_THRESHOLD = 100
   const lowSpools = slots.filter(s => s.remaining_weight && s.remaining_weight < LOW_SPOOL_THRESHOLD)
   const hasLowSpool = lowSpools.length > 0
-  
+
   // Live telemetry
-  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < ONLINE_THRESHOLD_MS
   const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
   const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
   const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
@@ -76,12 +68,23 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
   const isHeating = (bedTarget && bedTarget > 0) || (nozTarget && nozTarget > 0)
   const stage = printer.print_stage && printer.print_stage !== 'Idle' ? printer.print_stage : null
   
+  const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
+  const hasError = printer.hms_errors && printer.hms_errors.length > 0
+  const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-green-500' : online ? 'bg-yellow-500' : 'bg-farm-600'
+  const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
+
   return (
-    <div className={clsx("bg-farm-900 rounded-lg border overflow-hidden h-fit", hasLowSpool ? "border-amber-600/50" : "border-farm-800")}>
+    <div
+      className={clsx("bg-farm-900 rounded-lg border overflow-hidden h-fit cursor-pointer hover:border-farm-600 transition-colors", hasLowSpool ? "border-amber-600/50" : "border-farm-800")}
+      onClick={onClick}
+    >
       <div className="p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <span className={clsx('px-2 py-0.5 rounded text-[10px] md:text-xs font-medium text-white', statusColor)}>
+              {statusLabel}
+            </span>
             {hasCamera && (
               <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-farm-700 rounded-lg transition-colors" aria-label="View camera">
                 <Video size={14} className="text-farm-400" />
@@ -142,12 +145,17 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob }) {
         <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${online ? "bg-green-500" : "bg-farm-600"}`}></div>
-            <span className={online ? "text-green-400" : "text-farm-500"}>{online ? "Online" : "Offline"}</span>
+            <div className={`w-2 h-2 rounded-full ${statusColor}`}></div>
+            <span className={online ? "text-green-400" : "text-farm-500"}>{statusLabel}</span>
           </div>
           {printer.lights_on != null && (
             <button
-              onClick={(e) => { e.stopPropagation(); printers.toggleLights(printer.id) }}
+              onClick={(e) => {
+                e.stopPropagation()
+                printers.toggleLights(printer.id)
+                  .then(() => toast.success(printer.lights_on ? 'Lights off' : 'Lights on'))
+                  .catch(() => toast.error('Failed to toggle lights'))
+              }}
               className={`p-0.5 rounded-lg transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
               aria-label={printer.lights_on ? 'Turn lights off' : 'Turn lights on'}
             >
@@ -308,9 +316,9 @@ function AlertsWidget() {
   if (!summary || summary.total === 0) return null
 
   const items = [
-    { key: 'print_failed', count: summary.print_failed, icon: '\u{1F534}', label: 'failed print', plural: 'failed prints', filter: 'critical' },
-    { key: 'spool_low', count: summary.spool_low, icon: '\u{1F7E1}', label: 'low spool', plural: 'low spools', filter: 'warning' },
-    { key: 'maintenance_overdue', count: summary.maintenance_overdue, icon: '\u{1F7E1}', label: 'maintenance overdue', plural: 'maintenance overdue', filter: 'warning' },
+    { key: 'print_failed', count: summary.print_failed, icon: <XCircle size={14} className="text-red-400" />, label: 'failed print', plural: 'failed prints', filter: 'critical' },
+    { key: 'spool_low', count: summary.spool_low, icon: <AlertCircle size={14} className="text-amber-400" />, label: 'low spool', plural: 'low spools', filter: 'warning' },
+    { key: 'maintenance_overdue', count: summary.maintenance_overdue, icon: <Wrench size={14} className="text-amber-400" />, label: 'maintenance overdue', plural: 'maintenance overdue', filter: 'warning' },
   ].filter(i => i.count > 0)
 
   return (
@@ -334,7 +342,7 @@ function AlertsWidget() {
             onClick={() => navigate(`/alerts?filter=${item.filter}`)}
             className="flex items-center gap-2 w-full text-left hover:bg-amber-900/20 rounded-lg px-2 py-1.5 transition-colors"
           >
-            <span className="text-sm">{item.icon}</span>
+            <span className="flex-shrink-0">{item.icon}</span>
             <span className="text-sm text-amber-200">
               {item.count} {item.count === 1 ? item.label : item.plural}
             </span>
@@ -347,6 +355,7 @@ function AlertsWidget() {
 
 
 function MaintenanceWidget() {
+  const navigate = useNavigate()
   const { data: maintData } = useQuery({
     queryKey: ['maintenance-status'],
     queryFn: maintenance.getStatus,
@@ -386,7 +395,7 @@ function MaintenanceWidget() {
           const isOverdue = item.status === 'overdue'
           const barColor = isOverdue ? 'bg-red-500' : item.progress >= 90 ? 'bg-yellow-500' : 'bg-purple-500'
           return (
-            <div key={i} className={`bg-farm-900 rounded-lg border p-3 ${isOverdue ? 'border-red-800' : 'border-farm-800'}`}>
+            <div key={i} className={`bg-farm-900 rounded-lg border p-3 cursor-pointer hover:border-farm-600 transition-colors ${isOverdue ? 'border-red-800' : 'border-farm-800'}`} onClick={() => navigate('/maintenance')}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium truncate">{item.printerName}</span>
                 {isOverdue && <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded-lg font-medium">OVERDUE</span>}
@@ -410,6 +419,7 @@ function MaintenanceWidget() {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [cameraTarget, setCameraTarget] = useState(null)
@@ -426,20 +436,15 @@ export default function Dashboard() {
   })
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
 
-  const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: stats.get })
+  const { data: statsData, isLoading: statsLoading } = useQuery({ queryKey: ['stats'], queryFn: stats.get })
   const { data: dashAlertSummary } = useQuery({ queryKey: ['dash-alert-summary'], queryFn: alertsApi.summary, refetchInterval: 60000 })
-  const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 30000 })
-  const { data: activeJobs } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
+  const { data: printersData, isLoading: printersLoading } = useQuery({ queryKey: ['printers'], queryFn: () => printers.list(true), refetchInterval: 30000 })
+  const { data: activeJobs, isLoading: jobsLoading } = useQuery({ queryKey: ['jobs', 'active'], queryFn: () => jobs.list() })
   const { data: allPrintJobs } = useQuery({ queryKey: ['print-jobs'], queryFn: () => printJobs.list({ limit: 20 }), refetchInterval: 30000 })
 
   // Split MQTT jobs into running vs completed
   const runningMqttJobs = allPrintJobs?.filter(j => j.status === 'running') || []
   const completedMqttJobs = allPrintJobs?.filter(j => j.status !== 'running') || []
-
-  const runScheduler = useMutation({
-    mutationFn: scheduler.run,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
-  })
 
   const startJob = useMutation({
     mutationFn: jobs.start,
@@ -459,6 +464,16 @@ export default function Dashboard() {
   // Calculate currently printing count (scheduled jobs + MQTT running)
   const currentlyPrinting = statsData?.jobs?.printing || 0
 
+  const isLoading = statsLoading || printersLoading || jobsLoading
+
+  if (isLoading) {
+    return (
+      <div className="p-4 md:p-6 flex items-center justify-center min-h-[50vh]">
+        <Loader2 size={24} className="animate-spin text-farm-500" />
+      </div>
+    )
+  }
+
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 gap-4">
@@ -466,18 +481,24 @@ export default function Dashboard() {
           <h1 className="text-xl md:text-2xl font-display font-bold">Dashboard</h1>
           <p className="text-farm-500 mt-1 text-sm md:text-base">Print farm overview</p>
         </div>
-
+        <button
+          onClick={() => navigate('/tv')}
+          className="flex items-center gap-2 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm text-farm-300 transition-colors"
+        >
+          <Monitor size={16} />
+          TV Mode
+        </button>
       </div>
 
       <AlertsWidget />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 mb-6 md:mb-8">
-        <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="print" />
-        <StatCard label="Scheduled" value={statsData?.jobs?.scheduled || 0} icon={Clock} color="scheduled" />
-        <StatCard label="Pending" value={statsData?.jobs?.pending || 0} icon={AlertCircle} color="pending" />
+        <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="print" onClick={() => navigate('/jobs?status=printing')} />
+        <StatCard label="Scheduled" value={statsData?.jobs?.scheduled || 0} icon={Clock} color="scheduled" onClick={() => navigate('/timeline')} />
+        <StatCard label="Pending" value={statsData?.jobs?.pending || 0} icon={AlertCircle} color="pending" onClick={() => navigate('/jobs?status=pending')} />
         <StatCard label="Completed Today" value={statsData?.jobs?.completed_today || 0} icon={CheckCircle} color="farm" />
-        <StatCard label="Active Alerts" value={dashAlertSummary?.total || 0} icon={AlertTriangle} color="alert" />
-        <StatCard label="Maintenance Due" value={dashAlertSummary?.maintenance_overdue || 0} icon={Activity} color="maintenance" />
+        <StatCard label="Active Alerts" value={dashAlertSummary?.total || 0} icon={AlertTriangle} color="alert" onClick={() => navigate('/alerts')} />
+        <StatCard label="Maintenance Due" value={dashAlertSummary?.maintenance_overdue || 0} icon={Activity} color="maintenance" onClick={() => navigate('/maintenance')} />
       </div>
 
       <div className="space-y-6 md:space-y-8">
@@ -492,6 +513,7 @@ export default function Dashboard() {
                 hasCamera={cameraIds.has(printer.id)}
                 onCameraClick={setCameraTarget}
                 activeJob={runningMqttJobs.find(j => j.printer_id === printer.id)}
+                onClick={() => navigate('/printers')}
               />
             ))}
             {(!printersData || printersData.length === 0) && (

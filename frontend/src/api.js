@@ -33,7 +33,8 @@ export async function fetchAPI(endpoint, options = {}) {
     return
   }
   if (!response.ok) {
-    throw new Error('API error: ' + response.status)
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || err.message || 'API error: ' + response.status)
   }
   if (response.status === 204) return null
   return response.json()
@@ -327,43 +328,10 @@ export const bulkOps = {
 
 // Users (admin only)
 export const users = {
-  list: async () => {
-    const token = localStorage.getItem('token')
-    const response = await fetch(`${API_BASE}/users`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Failed to fetch users')
-    return response.json()
-  },
-  create: async (data) => {
-    const token = localStorage.getItem('token')
-    const response = await fetch(`${API_BASE}/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(data)
-    })
-    if (!response.ok) throw new Error('Failed to create user')
-    return response.json()
-  },
-  update: async (id, data) => {
-    const token = localStorage.getItem('token')
-    const response = await fetch(`${API_BASE}/users/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify(data)
-    })
-    if (!response.ok) throw new Error('Failed to update user')
-    return response.json()
-  },
-  delete: async (id) => {
-    const token = localStorage.getItem('token')
-    const response = await fetch(`${API_BASE}/users/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Failed to delete user')
-    return response.json()
-  }
+  list: () => fetchAPI('/users'),
+  create: (data) => fetchAPI('/users', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/users/${id}`, { method: 'DELETE' }),
 }
 
 

@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../LicenseContext'
 import { groups as groupsApi } from '../api'
-import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw } from 'lucide-react'
+import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search } from 'lucide-react'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
+import ConfirmModal from '../components/ConfirmModal'
 
 const API_BASE = '/api'
 
@@ -54,7 +56,8 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
           </div>
           <div>
             <label className="block text-sm text-farm-400 mb-1">{user ? 'New Password (leave blank to keep)' : 'Password'}</label>
-            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user} />
+            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user} placeholder={user ? '' : 'Min 8 characters'} />
+            {!user && <p className="text-xs text-farm-500 mt-1">Min 8 characters with uppercase, lowercase, and a number</p>}
           </div>
           <div>
             <label className="block text-sm text-farm-400 mb-1">Role</label>
@@ -95,6 +98,9 @@ export default function Admin() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [editingUser, setEditingUser] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const { data: users, isLoading } = useQuery({ queryKey: ['users'], queryFn: fetchUsers })
   const lic = useLicense()
@@ -107,20 +113,28 @@ export default function Admin() {
     mutationFn: async (userData) => {
       const token = localStorage.getItem('token')
       const response = await fetch(`${API_BASE}/users`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY }, body: JSON.stringify(userData) })
-      if (!response.ok) throw new Error('Failed to create user')
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to create user')
+      }
       return response.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries(['users']); setShowModal(false) }
+    onSuccess: () => { queryClient.invalidateQueries(['users']); setShowModal(false) },
+    onError: (err) => toast.error(err.message),
   })
 
   const updateUser = useMutation({
     mutationFn: async ({ id, ...userData }) => {
       const token = localStorage.getItem('token')
       const response = await fetch(`${API_BASE}/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY }, body: JSON.stringify(userData) })
-      if (!response.ok) throw new Error('Failed to update user')
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to update user')
+      }
       return response.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries(['users']); setShowModal(false); setEditingUser(null) }
+    onSuccess: () => { queryClient.invalidateQueries(['users']); setShowModal(false); setEditingUser(null) },
+    onError: (err) => toast.error(err.message),
   })
 
   const deleteUser = useMutation({
@@ -134,7 +148,17 @@ export default function Admin() {
 
   const handleSave = (formData) => { if (editingUser) { updateUser.mutate({ id: editingUser.id, ...formData }) } else { createUser.mutate(formData) } }
   const handleEdit = (user) => { setEditingUser(user); setShowModal(true) }
-  const handleDelete = (user) => { if (confirm(`Delete user "${user.username}"? This cannot be undone.`)) deleteUser.mutate(user.id) }
+  const handleDelete = (user) => { setDeleteTarget(user) }
+
+  // Filter users by search and role
+  const filteredUsers = (users || []).filter(u => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      if (!u.username.toLowerCase().includes(q) && !u.email?.toLowerCase().includes(q)) return false
+    }
+    if (roleFilter && u.role !== roleFilter) return false
+    return true
+  })
 
   return (
     <div className="p-4 md:p-6">
@@ -153,6 +177,30 @@ export default function Admin() {
         }
       </div>
 
+      {/* Search and Filter */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name or email..."
+            className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-print-500"
+          />
+        </div>
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500"
+        >
+          <option value="">All Roles</option>
+          <option value="admin">Admin</option>
+          <option value="operator">Operator</option>
+          <option value="viewer">Viewer</option>
+        </select>
+      </div>
+
       <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[550px]">
@@ -169,10 +217,10 @@ export default function Admin() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
-              ) : users?.length === 0 ? (
-                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">No users found</td></tr>
+              ) : filteredUsers.length === 0 ? (
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">{(searchQuery || roleFilter) ? 'No users match your filters' : 'No users found'}</td></tr>
               ) : (
-                users?.map((user) => {
+                filteredUsers.map((user) => {
                   const RoleIcon = roleIcons[user.role] || Eye
                   return (
                     <tr key={user.id} className="border-t border-farm-800 hover:bg-farm-800/50 transition-colors">
@@ -215,6 +263,15 @@ export default function Admin() {
       {showModal && (
         <UserModal user={editingUser} groupsList={groupsList} hasGroups={hasGroups} onClose={() => { setShowModal(false); setEditingUser(null) }} onSave={handleSave} />
       )}
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onConfirm={() => { deleteUser.mutate(deleteTarget.id); setDeleteTarget(null) }}
+        onCancel={() => setDeleteTarget(null)}
+        title="Delete User"
+        message={deleteTarget ? `Delete user "${deleteTarget.username}"? This cannot be undone.` : ''}
+        confirmText="Delete"
+      />
     </div>
   )
 }

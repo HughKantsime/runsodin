@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette, Droplets, CheckSquare } from 'lucide-react'
+import { Plus, Package, Printer, QrCode, Scale, Archive, AlertTriangle, X, Pencil, Trash2, Beaker, Palette, Droplets, CheckSquare, Search } from 'lucide-react'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 import { canDo } from '../permissions'
 import { useOrg } from '../contexts/OrgContext'
 import { bulkOps } from '../api'
+import ConfirmModal from '../components/ConfirmModal'
 
 const API_KEY = import.meta.env.VITE_API_KEY
 const API_BASE = '/api'
@@ -15,64 +17,65 @@ const apiHeaders = {
 }
 
 // API functions
+async function checkedFetch(url, options) {
+  const res = await fetch(url, options)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Request failed (${res.status})`)
+  }
+  return res.json()
+}
+
 const spoolsApi = {
   list: async (filters = {}) => {
     const params = new URLSearchParams()
     if (filters.status) params.append('status', filters.status)
     if (filters.printer_id) params.append('printer_id', filters.printer_id)
     if (filters.org_id != null) params.append('org_id', filters.org_id)
-    const res = await fetch(`${API_BASE}/spools?${params}`, { headers: apiHeaders })
-    return res.json()
+    return checkedFetch(`${API_BASE}/spools?${params}`, { headers: apiHeaders })
   },
   get: async (id) => {
-    const res = await fetch(`${API_BASE}/spools/${id}`, { headers: apiHeaders })
-    return res.json()
+    return checkedFetch(`${API_BASE}/spools/${id}`, { headers: apiHeaders })
   },
   create: async (data) => {
-    const res = await fetch(`${API_BASE}/spools`, {
+    return checkedFetch(`${API_BASE}/spools`, {
       method: 'POST',
       headers: apiHeaders,
       body: JSON.stringify(data)
     })
-    return res.json()
   },
   update: async ({ id, ...data }) => {
-    const res = await fetch(`${API_BASE}/spools/${id}`, {
+    return checkedFetch(`${API_BASE}/spools/${id}`, {
       method: 'PATCH',
       headers: apiHeaders,
       body: JSON.stringify(data)
     })
-    return res.json()
   },
   load: async ({ id, printer_id, slot_number }) => {
-    const res = await fetch(`${API_BASE}/spools/${id}/load`, {
+    return checkedFetch(`${API_BASE}/spools/${id}/load`, {
       method: 'POST',
       headers: apiHeaders,
       body: JSON.stringify({ printer_id, slot_number })
     })
-    return res.json()
   },
   unload: async ({ id, storage_location }) => {
-    const res = await fetch(`${API_BASE}/spools/${id}/unload?storage_location=${storage_location || ''}`, {
+    return checkedFetch(`${API_BASE}/spools/${id}/unload?storage_location=${storage_location || ''}`, {
       method: 'POST',
       headers: apiHeaders
     })
-    return res.json()
   },
   use: async ({ id, weight_used_g, notes }) => {
-    const res = await fetch(`${API_BASE}/spools/${id}/use`, {
+    return checkedFetch(`${API_BASE}/spools/${id}/use`, {
       method: 'POST',
       headers: apiHeaders,
       body: JSON.stringify({ weight_used_g, notes })
     })
-    return res.json()
   },
   archive: async (id) => {
-    const res = await fetch(`${API_BASE}/spools/${id}`, {
+    return checkedFetch(`${API_BASE}/spools/${id}`, {
       method: 'DELETE',
       headers: apiHeaders
     })
-    return res.json()
   }
 }
 
@@ -207,60 +210,67 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, p
       )}
 
       {/* Actions */}
-      <div className="flex gap-1.5 md:gap-2 justify-evenly">
+      <div className="flex gap-1.5 md:gap-2 flex-wrap">
         {canDo('spools.edit') && spool.location_printer_id ? (
           <button
             onClick={() => onUnload(spool)}
-            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
             title="Unload from printer"
           >
             <Package size={14} />
+            <span className="hidden lg:inline">Unload</span>
           </button>
         ) : canDo('spools.edit') ? (
           <button
             onClick={() => onLoad(spool)}
-            className="px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-xs md:text-sm text-white flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-xs md:text-sm text-white flex items-center justify-center gap-1"
             title="Load into printer"
           >
             <Printer size={14} />
+            <span className="hidden lg:inline">Load</span>
           </button>
         ) : null}
         <a
           href={`${API_BASE}/spools/${spool.id}/label`}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
         >
           <QrCode size={14} />
+          <span className="hidden lg:inline">Label</span>
         </a>
         {canDo('spools.edit') && <button
           onClick={() => onEdit(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
           title="Edit spool"
         >
           <Pencil size={14} />
+          <span className="hidden lg:inline">Edit</span>
         </button>}
         {canDo('spools.edit') && <button
           onClick={() => onUse(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
           title="Record usage"
         >
           <Scale size={14} />
+          <span className="hidden lg:inline">Use</span>
         </button>}
         {canDo('spools.edit') && <button
           onClick={() => onDry(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-amber-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-amber-400 flex items-center justify-center"
+          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-amber-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-amber-400 flex items-center justify-center gap-1"
           title="Log drying session"
         >
           <Droplets size={14} />
+          <span className="hidden lg:inline">Dry</span>
         </button>}
         {canDo('spools.delete') && spool.status !== 'archived' && (
           <button
             onClick={() => onArchive(spool)}
-            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-red-400 flex items-center justify-center"
+            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-red-400 flex items-center justify-center gap-1"
             title="Archive"
           >
             <Archive size={14} />
+            <span className="hidden lg:inline">Archive</span>
           </button>
         )}
       </div>
@@ -277,7 +287,13 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
     price: '',
     storage_location: ''
   })
-  
+
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     onCreate({
@@ -286,10 +302,10 @@ function CreateSpoolModal({ filaments, onClose, onCreate }) {
       price: form.price ? parseFloat(form.price) : null
     })
   }
-  
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="add-spool-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="add-spool-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="add-spool-title" className="text-lg md:text-xl font-semibold text-farm-100">Add New Spool</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
@@ -397,9 +413,15 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
     printer_id: '',
     slot_number: ''
   })
-  
+
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   const selectedPrinter = printers?.find(p => p.id === parseInt(form.printer_id))
-  
+
   const handleSubmit = (e) => {
     e.preventDefault()
     onLoad({
@@ -408,10 +430,10 @@ function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
       slot_number: parseInt(form.slot_number)
     })
   }
-  
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="load-spool-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="load-spool-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="load-spool-title" className="text-lg md:text-xl font-semibold text-farm-100">Load Spool</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
@@ -495,7 +517,13 @@ function UseSpoolModal({ spool, onClose, onUse }) {
     weight_used_g: '',
     notes: ''
   })
-  
+
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     onUse({
@@ -504,10 +532,10 @@ function UseSpoolModal({ spool, onClose, onUse }) {
       notes: form.notes
     })
   }
-  
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="record-usage-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="record-usage-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="record-usage-title" className="text-lg md:text-xl font-semibold text-farm-100">Record Usage</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
@@ -583,7 +611,7 @@ function DryingModal({ spool, onClose, onSubmit }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useState(() => {
+  useEffect(() => {
     if (spool) {
       const token = localStorage.getItem('token')
       const headers = { 'Authorization': `Bearer ${token}` }
@@ -594,7 +622,13 @@ function DryingModal({ spool, onClose, onSubmit }) {
         .catch(() => {})
         .finally(() => setLoading(false))
     }
-  })
+  }, [spool])
+
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -602,8 +636,8 @@ function DryingModal({ spool, onClose, onSubmit }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="drying-session-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="drying-session-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="drying-session-title" className="text-lg md:text-xl font-semibold text-farm-100">Log Drying Session</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close"><X size={20} /></button>
@@ -674,7 +708,13 @@ function EditSpoolModal({ spool, onClose, onSave }) {
     notes: spool?.notes || '',
     storage_location: spool?.storage_location || '',
   });
-  
+
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   const handleSubmit = (e) => {
     e.preventDefault();
     onSave({
@@ -684,12 +724,12 @@ function EditSpoolModal({ spool, onClose, onSave }) {
       storage_location: form.storage_location || null,
     });
   };
-  
+
   if (!spool) return null;
-  
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-spool-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-spool-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="edit-spool-title" className="text-lg md:text-xl font-semibold text-farm-100">Edit Spool</h2>
           <button onClick={onClose} className="text-farm-400 hover:text-farm-200" aria-label="Close">
@@ -785,14 +825,20 @@ function EditFilamentModal({ filament, onClose, onSave }) {
     cost_per_gram: filament?.cost_per_gram || ''
   })
 
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     onSave({ id: filament.id, ...form })
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="filament-modal-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="filament-modal-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded-lg p-5 md:p-6 w-full sm:max-w-md border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="filament-modal-title" className="text-lg md:text-xl font-semibold text-farm-100">
             {filament ? 'Edit Filament' : 'Add Filament'}
@@ -839,12 +885,18 @@ function EditFilamentModal({ filament, onClose, onSave }) {
                 <option value="PLA-S">PLA-S (Support)</option>
                 <option value="PLA-CF">PLA-CF</option>
                 <option value="PETG">PETG</option>
+                <option value="PETG_CF">PETG-CF</option>
                 <option value="ABS">ABS</option>
                 <option value="ASA">ASA</option>
                 <option value="TPU">TPU</option>
                 <option value="PA">Nylon (PA)</option>
-                <option value="PA-CF">PA-CF</option>
+                <option value="NYLON_CF">Nylon-CF</option>
+                <option value="NYLON_GF">Nylon-GF</option>
                 <option value="PC">Polycarbonate</option>
+                <option value="PC_ABS">PC-ABS</option>
+                <option value="PC_CF">PC-CF</option>
+                <option value="PPS">PPS</option>
+                <option value="PPS_CF">PPS-CF</option>
                 <option value="PVA">PVA (Support)</option>
                 <option value="HIPS">HIPS</option>
               </select>
@@ -1109,6 +1161,7 @@ export default function Spools() {
   const [filter, setFilter] = useState('active')
   const [sortBy, setSortBy] = useState("printer")
   const [groupByPrinter, setGroupByPrinter] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
   
   const { data: spools, isLoading } = useQuery({
     queryKey: ['spools', filter, org.orgId],
@@ -1130,39 +1183,49 @@ export default function Spools() {
     onSuccess: () => {
       queryClient.invalidateQueries(['spools'])
       setShowCreateModal(false)
-    }
+      toast.success('Spool created')
+    },
+    onError: (err) => toast.error(err.message || 'Failed to create spool')
   })
-  
+
   const loadMutation = useMutation({
     mutationFn: spoolsApi.load,
     onSuccess: () => {
       queryClient.invalidateQueries(['spools'])
       queryClient.invalidateQueries(['printers'])
       setLoadingSpool(null)
-    }
+      toast.success('Spool loaded')
+    },
+    onError: (err) => toast.error(err.message || 'Failed to load spool')
   })
-  
+
   const unloadMutation = useMutation({
     mutationFn: spoolsApi.unload,
     onSuccess: () => {
       queryClient.invalidateQueries(['spools'])
       queryClient.invalidateQueries(['printers'])
-    }
+      toast.success('Spool unloaded')
+    },
+    onError: (err) => toast.error(err.message || 'Failed to unload spool')
   })
-  
+
   const useMutation2 = useMutation({
     mutationFn: spoolsApi.use,
     onSuccess: () => {
       queryClient.invalidateQueries(['spools'])
       setUsingSpool(null)
-    }
+      toast.success('Usage recorded')
+    },
+    onError: (err) => toast.error(err.message || 'Failed to record usage')
   })
-  
+
   const archiveMutation = useMutation({
     mutationFn: spoolsApi.archive,
     onSuccess: () => {
       queryClient.invalidateQueries(['spools'])
-    }
+      toast.success('Spool archived')
+    },
+    onError: (err) => toast.error(err.message || 'Failed to archive spool')
   })
 
   // Bulk selection
@@ -1180,26 +1243,33 @@ export default function Spools() {
     onSuccess: () => { queryClient.invalidateQueries(['spools']); setSelectedSpools(new Set()) },
   })
 
+  const [confirmAction, setConfirmAction] = useState(null)
+
   const handleUnload = (spool) => {
-    if (confirm(`Unload ${spool.filament_brand} ${spool.filament_name} from printer?`)) {
-      unloadMutation.mutate({ id: spool.id })
-    }
+    setConfirmAction({
+      title: 'Unload Spool',
+      message: `Unload ${spool.filament_brand} ${spool.filament_name} from printer?`,
+      onConfirm: () => { unloadMutation.mutate({ id: spool.id }); setConfirmAction(null) }
+    })
   }
-  
+
   const handleEditSpool = async (data) => {
     try {
       await spoolsApi.update(data);
       queryClient.invalidateQueries(["spools"]);
       setEditingSpool(null);
+      toast.success('Spool updated')
     } catch (err) {
-      console.error("Failed to update spool:", err);
+      toast.error(err.message || 'Failed to update spool')
     }
   };
 
   const handleArchive = (spool) => {
-    if (confirm(`Archive ${spool.filament_brand} ${spool.filament_name}? This will mark it as no longer in use.`)) {
-      archiveMutation.mutate(spool.id)
-    }
+    setConfirmAction({
+      title: 'Archive Spool',
+      message: `Archive ${spool.filament_brand} ${spool.filament_name}? This will mark it as no longer in use.`,
+      onConfirm: () => { archiveMutation.mutate(spool.id); setConfirmAction(null) }
+    })
   }
   
   // Summary stats
@@ -1280,14 +1350,31 @@ export default function Spools() {
           
           {/* Low warning */}
           {lowSpools.length > 0 && (
-            <div className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3">
+            <button
+              onClick={() => { setFilter('active'); setSortBy('remaining') }}
+              className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3 w-full text-left hover:bg-yellow-500/20 transition-colors"
+            >
               <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
               <span className="text-yellow-200 text-sm md:text-base">
                 {lowSpools.length} spool{lowSpools.length > 1 ? 's' : ''} running low on filament
               </span>
-            </div>
+            </button>
           )}
           
+          {/* Search */}
+          <div className="mb-4 md:mb-6">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by brand, name, or material..."
+                className="w-full bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-3 py-2 text-sm text-farm-100 placeholder-farm-500"
+              />
+            </div>
+          </div>
+
           {/* Filter tabs + Sort controls */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4 md:mb-6">
             <div className="flex gap-1.5 md:gap-2 justify-evenly">
@@ -1332,34 +1419,12 @@ export default function Spools() {
             </div>
           </div>
           
-          {/* Spool Inventory Summary */}
-          {!isLoading && spools?.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
-              <div className="bg-blue-400/10 rounded-lg p-3 text-center border border-farm-800">
-                <div className="text-lg md:text-xl font-bold tabular-nums text-blue-400">{spools.length}</div>
-                <div className="text-xs text-farm-500 uppercase tracking-wide">Spools</div>
-              </div>
-              <div className="bg-emerald-400/10 rounded-lg p-3 text-center border border-farm-800">
-                <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{Math.round(spools.reduce((s, sp) => s + (sp.remaining_weight_g || 0), 0))}g</div>
-                <div className="text-xs text-farm-500 uppercase tracking-wide">Total Stock</div>
-              </div>
-              <div className="bg-amber-400/10 rounded-lg p-3 text-center border border-farm-800">
-                <div className="text-lg md:text-xl font-bold tabular-nums text-amber-400">{spools.filter(sp => sp.remaining_weight_g && sp.remaining_weight_g < 100).length}</div>
-                <div className="text-xs text-farm-500 uppercase tracking-wide">Low Stock</div>
-              </div>
-              <div className="bg-purple-400/10 rounded-lg p-3 text-center border border-farm-800">
-                <div className="text-lg md:text-xl font-bold tabular-nums text-purple-400">{[...new Set(spools.map(sp => sp.filament_type).filter(Boolean))].length}</div>
-                <div className="text-xs text-farm-500 uppercase tracking-wide">Materials</div>
-              </div>
-            </div>
-          )}
-
           {selectedSpools.size > 0 && canDo('spools.edit') && (
             <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
               <span className="text-sm text-farm-300">{selectedSpools.size} selected</span>
               <button onClick={() => bulkSpoolAction.mutate({ action: 'archive' })} className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs">Archive</button>
               <button onClick={() => bulkSpoolAction.mutate({ action: 'activate' })} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs">Activate</button>
-              <button onClick={() => { if (confirm('Delete selected spools?')) bulkSpoolAction.mutate({ action: 'delete' }) }} className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-xs">Delete</button>
+              <button onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })} className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-xs">Delete</button>
               <button onClick={() => setSelectedSpools(new Set())} className="px-3 py-1 bg-farm-700 hover:bg-farm-600 rounded text-xs">Clear</button>
             </div>
           )}
@@ -1378,6 +1443,16 @@ export default function Spools() {
           (() => {
             if (!spools) return null;
             let sorted = [...spools];
+
+            // Apply text search
+            if (searchQuery.trim()) {
+              const q = searchQuery.toLowerCase()
+              sorted = sorted.filter(s =>
+                (s.filament_brand || '').toLowerCase().includes(q) ||
+                (s.filament_name || '').toLowerCase().includes(q) ||
+                (s.filament_material || '').toLowerCase().includes(q)
+              )
+            }
             
             if (sortBy === "printer") {
               sorted.sort((a, b) => {
@@ -1409,7 +1484,9 @@ export default function Spools() {
                         {canDo('spools.edit') && (
                           <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => toggleSpoolSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-farm-600" />
                         )}
+                        <div className={canDo('spools.edit') ? 'pl-7' : ''}>
                         <SpoolCard spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1470,18 +1547,33 @@ export default function Spools() {
           spool={dryingSpool}
           onClose={() => setDryingSpool(null)}
           onSubmit={async (data) => {
-            const { id, ...rest } = data
-            const token = localStorage.getItem('token')
-            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-            if (API_KEY) headers['X-API-Key'] = API_KEY
-            const params = new URLSearchParams({ duration_hours: rest.duration_hours, method: rest.method })
-            if (rest.temp_c) params.set('temp_c', rest.temp_c)
-            if (rest.notes) params.set('notes', rest.notes)
-            await fetch(`${API_BASE}/spools/${id}/dry?${params}`, { method: 'POST', headers })
-            setDryingSpool(null)
+            try {
+              const { id, ...rest } = data
+              const token = localStorage.getItem('token')
+              const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+              if (API_KEY) headers['X-API-Key'] = API_KEY
+              const res = await fetch(`${API_BASE}/spools/${id}/dry`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(rest)
+              })
+              if (!res.ok) throw new Error('Failed to log drying session')
+              toast.success('Drying session logged')
+              setDryingSpool(null)
+            } catch (err) {
+              toast.error(err.message || 'Failed to log drying session')
+            }
           }}
         />
       )}
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title || ''}
+        message={confirmAction?.message || ''}
+        confirmText={confirmAction?.title?.includes('Delete') ? 'Delete' : 'Confirm'}
+        onConfirm={() => confirmAction?.onConfirm()}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   )
 }

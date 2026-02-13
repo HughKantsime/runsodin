@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bell, Check, X, ExternalLink } from 'lucide-react'
+import { Bell, Check, X, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { alerts as alertsApi, approveJob, rejectJob } from '../api'
-import { CheckCircle, XCircle } from 'lucide-react'
 
 const SEVERITY_STYLES = {
   critical: { bg: 'border-l-red-500', icon: '\u{1F534}', label: 'Critical' },
@@ -79,21 +79,27 @@ export default function Alerts() {
     try {
       await alertsApi.markRead(alertId)
       setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, is_read: true } : a))
-    } catch (err) {}
+    } catch (err) {
+      toast.error('Failed to mark alert as read')
+    }
   }
 
   const handleDismiss = async (alertId) => {
     try {
       await alertsApi.dismiss(alertId)
       setAlerts(prev => prev.filter(a => a.id !== alertId))
-    } catch (err) {}
+    } catch (err) {
+      toast.error('Failed to dismiss alert')
+    }
   }
 
   const handleMarkAllRead = async () => {
     try {
       await alertsApi.markAllRead()
       setAlerts(prev => prev.map(a => ({ ...a, is_read: true })))
-    } catch (err) {}
+    } catch (err) {
+      toast.error('Failed to mark all alerts as read')
+    }
   }
 
   const getActionLink = (alert) => {

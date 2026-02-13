@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { products, models, consumables as consumablesApi } from '../api'
 import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
+import { canDo } from '../permissions'
+import toast from 'react-hot-toast'
+import ConfirmModal from '../components/ConfirmModal'
 
 export default function Products() {
   const [productList, setProductList] = useState([])
@@ -14,10 +17,19 @@ export default function Products() {
   const [consumableList, setConsumableList] = useState([])
   const [addingConsumable, setAddingConsumable] = useState(null) // product id
   const [newConsumable, setNewConsumable] = useState({ consumable_id: '', quantity_per_product: 1 })
+  const [confirmAction, setConfirmAction] = useState(null)
 
   useEffect(() => {
     loadData()
   }, [])
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape' && showModal) setShowModal(false)
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [showModal])
 
   const loadData = async () => {
     try {
@@ -68,6 +80,20 @@ export default function Products() {
 
       if (editingProduct) {
         await products.update(editingProduct.id, data)
+        // Sync components: remove old, add current
+        const full = await products.get(editingProduct.id)
+        for (const existing of full.components || []) {
+          await products.removeComponent(editingProduct.id, existing.id)
+        }
+        for (const comp of components) {
+          if (comp.model_id) {
+            await products.addComponent(editingProduct.id, {
+              model_id: parseInt(comp.model_id),
+              quantity_needed: parseInt(comp.quantity_needed) || 1,
+              notes: comp.notes || null
+            })
+          }
+        }
       } else {
         data.components = components.map(c => ({
           model_id: c.model_id,
@@ -80,18 +106,25 @@ export default function Products() {
       loadData()
     } catch (err) {
       console.error('Failed to save product:', err)
-      alert('Failed to save product')
+      toast.error('Failed to save product')
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this product?')) return
-    try {
-      await products.delete(id)
-      loadData()
-    } catch (err) {
-      console.error('Failed to delete:', err)
-    }
+  const handleDelete = (id) => {
+    setConfirmAction({
+      title: 'Delete Product',
+      message: 'Delete this product? This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await products.delete(id)
+          toast.success('Product deleted')
+          loadData()
+        } catch (err) {
+          toast.error('Failed to delete product')
+        }
+        setConfirmAction(null)
+      }
+    })
   }
 
   const addComponent = () => {
@@ -131,7 +164,7 @@ export default function Products() {
       loadData()
     } catch (err) {
       console.error('Failed to add consumable:', err)
-      alert('Failed to add consumable')
+      toast.error('Failed to add consumable')
     }
   }
 
@@ -155,12 +188,14 @@ export default function Products() {
           <Package className="w-5 h-5 md:w-6 md:h-6" />
           Products
         </h1>
-        <button
-          onClick={openCreateModal}
-          className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center gap-2"
-        >
-          <Plus size={16} /> New Product
-        </button>
+        {canDo('products.create') && (
+          <button
+            onClick={openCreateModal}
+            className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center gap-2"
+          >
+            <Plus size={16} /> New Product
+          </button>
+        )}
       </div>
 
 
@@ -206,18 +241,22 @@ export default function Products() {
                     {product.name}
                   </button>
                   <div className="flex gap-1">
-                    <button 
-                      onClick={() => openEditModal(product)} 
-                      className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(product.id)} 
-                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {canDo('products.edit') && (
+                      <button
+                        onClick={() => openEditModal(product)}
+                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    {canDo('products.delete') && (
+                      <button
+                        onClick={() => handleDelete(product.id)}
+                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="text-sm space-y-1 text-farm-400">
@@ -284,8 +323,8 @@ export default function Products() {
             </thead>
             <tbody className="divide-y divide-farm-800">
               {productList.map(product => (
-                <>
-                  <tr key={product.id} className="hover:bg-farm-800/50 transition-colors">
+                <Fragment key={product.id}>
+                  <tr className="hover:bg-farm-800/50 transition-colors">
                     <td className="px-4 py-3">
                       <button
                         onClick={() => toggleExpand(product)}
@@ -306,20 +345,24 @@ export default function Products() {
                       {product.estimated_cogs ? `$${product.estimated_cogs.toFixed(2)}` : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button 
-                        onClick={() => openEditModal(product)} 
-                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
-                        title="Edit"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(product.id)} 
-                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors ml-1"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {canDo('products.edit') && (
+                        <button
+                          onClick={() => openEditModal(product)}
+                          className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                      {canDo('products.delete') && (
+                        <button
+                          onClick={() => handleDelete(product.id)}
+                          className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors ml-1"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                   {expandedProduct?.id === product.id && (
@@ -371,7 +414,7 @@ export default function Products() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -380,8 +423,8 @@ export default function Products() {
 
       {/* Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">
                 {editingProduct ? 'Edit Product' : 'New Product'}
@@ -434,56 +477,54 @@ export default function Products() {
                 />
               </div>
 
-              {!editingProduct && (
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-medium text-farm-200">Components (BOM)</label>
-                    <button
-                      type="button"
-                      onClick={addComponent}
-                      className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"
-                    >
-                      <Plus size={14} /> Add
-                    </button>
-                  </div>
-                  {components.length === 0 ? (
-                    <p className="text-sm text-farm-500">No components = simple single-print product</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {components.map((comp, i) => (
-                        <div key={i} className="flex gap-2 items-center">
-                          <select
-                            value={comp.model_id}
-                            onChange={(e) => updateComponent(i, 'model_id', e.target.value)}
-                            className="flex-1 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
-                            required
-                          >
-                            <option value="">Select model...</option>
-                            {modelList.map(m => (
-                              <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                          </select>
-                          <input
-                            type="number"
-                            min="1"
-                            value={comp.quantity_needed}
-                            onChange={(e) => updateComponent(i, 'quantity_needed', e.target.value)}
-                            className="w-16 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
-                            placeholder="Qty"
-                          />
-                          <button 
-                            type="button" 
-                            onClick={() => removeComponent(i)} 
-                            className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-farm-200">Components (BOM)</label>
+                  <button
+                    type="button"
+                    onClick={addComponent}
+                    className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"
+                  >
+                    <Plus size={14} /> Add
+                  </button>
                 </div>
-              )}
+                {components.length === 0 ? (
+                  <p className="text-sm text-farm-500">No components = simple single-print product</p>
+                ) : (
+                  <div className="space-y-2">
+                    {components.map((comp, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <select
+                          value={comp.model_id}
+                          onChange={(e) => updateComponent(i, 'model_id', e.target.value)}
+                          className="flex-1 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                          required
+                        >
+                          <option value="">Select model...</option>
+                          {modelList.map(m => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          value={comp.quantity_needed}
+                          onChange={(e) => updateComponent(i, 'quantity_needed', e.target.value)}
+                          className="w-16 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                          placeholder="Qty"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeComponent(i)}
+                          className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-farm-800">
                 <button
@@ -504,6 +545,15 @@ export default function Products() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title || ''}
+        message={confirmAction?.message || ''}
+        confirmText="Delete"
+        onConfirm={() => confirmAction?.onConfirm()}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   )
 }

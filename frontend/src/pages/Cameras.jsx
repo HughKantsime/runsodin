@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye, Tv } from 'lucide-react'
+import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye, Tv, RefreshCw } from 'lucide-react'
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
@@ -23,17 +23,23 @@ function PipPlayer({ camera, onClose }) {
   useEffect(() => {
     if (!dragging) return
     const onMove = (e) => {
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY
       setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - width, e.clientX - dragOffset.x)),
-        y: Math.max(0, Math.min(window.innerHeight - height, e.clientY - dragOffset.y)),
+        x: Math.max(0, Math.min(window.innerWidth - width, clientX - dragOffset.x)),
+        y: Math.max(0, Math.min(window.innerHeight - height, clientY - dragOffset.y)),
       })
     }
     const onUp = () => setDragging(false)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchend', onUp)
     return () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend', onUp)
     }
   }, [dragging, dragOffset, width, height])
 
@@ -51,6 +57,11 @@ function PipPlayer({ camera, onClose }) {
           setDragging(true)
           setDragOffset({ x: e.clientX - position.x, y: e.clientY - position.y })
           e.preventDefault()
+        }}
+        onTouchStart={(e) => {
+          const touch = e.touches[0]
+          setDragging(true)
+          setDragOffset({ x: touch.clientX - position.x, y: touch.clientY - position.y })
         }}
       >
         <div className="flex items-center gap-1.5">
@@ -115,26 +126,28 @@ function AiIndicator({ printerId }) {
 function CameraCard({ camera, onExpand, onPip }) {
   const videoRef = useRef(null)
   const pcRef = useRef(null)
+  const retryRef = useRef(null)
+  const retryCountRef = useRef(0)
   const [status, setStatus] = useState('connecting')
 
-  useEffect(() => {
-    startWebRTC()
-    return () => {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
-    }
-  }, [camera.id])
-
-  const startWebRTC = async () => {
+  const startWebRTC = useCallback(async () => {
     try {
+      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
       setStatus('connecting')
       const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
       pcRef.current = pc
 
       pc.ontrack = (event) => {
-        if (videoRef.current) { videoRef.current.srcObject = event.streams[0]; setStatus('live') }
+        if (videoRef.current) { videoRef.current.srcObject = event.streams[0]; setStatus('live'); retryCountRef.current = 0 }
       }
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') setStatus('disconnected')
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          setStatus('disconnected')
+          // Auto-retry with exponential backoff (max ~30s)
+          const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
+          retryCountRef.current++
+          retryRef.current = setTimeout(startWebRTC, delay)
+        }
       }
       pc.addTransceiver('video', { direction: 'recvonly' })
 
@@ -152,7 +165,25 @@ function CameraCard({ camera, onExpand, onPip }) {
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))
     } catch (err) {
       setStatus('error')
+      // Auto-retry on error too
+      const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
+      retryCountRef.current++
+      retryRef.current = setTimeout(startWebRTC, delay)
     }
+  }, [camera.id])
+
+  useEffect(() => {
+    startWebRTC()
+    return () => {
+      clearTimeout(retryRef.current)
+      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
+    }
+  }, [startWebRTC])
+
+  const handleRetry = () => {
+    clearTimeout(retryRef.current)
+    retryCountRef.current = 0
+    startWebRTC()
   }
 
   const dotColor = status === 'live' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
@@ -166,14 +197,29 @@ function CameraCard({ camera, onExpand, onPip }) {
             <div className="text-farm-500 text-sm animate-pulse">Connecting...</div>
           </div>
         )}
-        {status === 'error' && (
-          <div className="absolute inset-0 flex items-center justify-center">
+        {(status === 'error' || status === 'disconnected') && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
             <VideoOff size={32} className="text-farm-600" />
+            <button
+              onClick={handleRetry}
+              className="flex items-center gap-1.5 px-3 py-1 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs text-farm-300 transition-colors"
+            >
+              <RefreshCw size={12} /> Retry
+            </button>
           </div>
         )}
-        <Link to={`/cameras/${camera.id}`} className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80">
-          <Maximize2 size={16} />
-        </Link>
+        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={() => onPip(camera)}
+            className="p-1.5 bg-black/50 rounded-lg hover:bg-black/80"
+            title="Picture-in-Picture"
+          >
+            <PictureInPicture2 size={16} />
+          </button>
+          <Link to={`/cameras/${camera.id}`} className="p-1.5 bg-black/50 rounded-lg hover:bg-black/80">
+            <Maximize2 size={16} />
+          </Link>
+        </div>
       </div>
       <div className="p-2 md:p-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -188,6 +234,7 @@ function CameraCard({ camera, onExpand, onPip }) {
 }
 
 export default function Cameras() {
+  const queryClient = useQueryClient()
   const [expandedCamera, setExpandedCamera] = useState(null)
   const [columns, setColumns] = useState(2)
   const [controlRoom, setControlRoom] = useState(false)
@@ -201,11 +248,10 @@ export default function Cameras() {
     return () => clearInterval(interval)
   }, [controlRoom])
 
-  // Keyboard shortcut: F for fullscreen control room
+  // Keyboard shortcut: Shift+F for fullscreen control room
   useEffect(() => {
     const handleKey = (e) => {
-      if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // Don't trigger if typing in input
+      if (e.key === 'F' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
         setControlRoom(prev => !prev)
       }
@@ -217,30 +263,14 @@ export default function Cameras() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [controlRoom])
 
-  // Hide sidebar and header in control room mode
+  // Hide sidebar and header in control room mode via CSS class on root element
   useEffect(() => {
     if (controlRoom) {
-      document.body.classList.add('control-room-mode')
-      // Try to hide sidebar
-      const sidebar = document.querySelector('[class*="sidebar"], [class*="Sidebar"], nav')
-      const header = document.querySelector('header, [class*="header"], [class*="Header"]')
-      if (sidebar) sidebar.style.display = 'none'
-      if (header) header.style.display = 'none'
+      document.documentElement.classList.add('control-room-mode')
     } else {
-      document.body.classList.remove('control-room-mode')
-      // Restore sidebar and header
-      const sidebar = document.querySelector('[class*="sidebar"], [class*="Sidebar"], nav')
-      const header = document.querySelector('header, [class*="header"], [class*="Header"]')
-      if (sidebar) sidebar.style.display = ''
-      if (header) header.style.display = ''
+      document.documentElement.classList.remove('control-room-mode')
     }
-    return () => {
-      document.body.classList.remove('control-room-mode')
-      const sidebar = document.querySelector('[class*="sidebar"], [class*="Sidebar"], nav')
-      const header = document.querySelector('header, [class*="header"], [class*="Header"]')
-      if (sidebar) sidebar.style.display = ''
-      if (header) header.style.display = ''
-    }
+    return () => document.documentElement.classList.remove('control-room-mode')
   }, [controlRoom])
 
   const [filter, setFilter] = useState('')
@@ -277,9 +307,10 @@ export default function Cameras() {
       })
       if (res.ok) {
         const data = await res.json()
-        setAllPrinters(prev => prev.map(p => 
+        setAllPrinters(prev => prev.map(p =>
           p.id === printerId ? { ...p, camera_enabled: data.camera_enabled } : p
         ))
+        queryClient.invalidateQueries({ queryKey: ['cameras'] })
       }
     } catch (err) {
       console.error('Failed to toggle camera:', err)
@@ -350,7 +381,7 @@ export default function Cameras() {
           <button
             onClick={() => setControlRoom(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-sm font-medium transition-colors"
-            title="Control Room Mode (F)"
+            title="Control Room Mode (Shift+F)"
           >
             <Monitor size={14} />
             <span className="hidden sm:inline">Control Room</span>
@@ -401,7 +432,7 @@ export default function Cameras() {
             ))}
           </div>
           <p className="text-xs text-farm-500 mt-3">
-            Disabled cameras won't appear in the grid or Control Room. Reload page after changes.
+            Disabled cameras won't appear in the grid or Control Room.
           </p>
         </div>
       )}
@@ -488,25 +519,26 @@ export default function Cameras() {
 function ControlRoomCamera({ camera }) {
   const videoRef = useRef(null)
   const pcRef = useRef(null)
+  const retryRef = useRef(null)
+  const retryCountRef = useRef(0)
   const [status, setStatus] = useState('connecting')
 
-  useEffect(() => {
-    startWebRTC()
-    return () => {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
-    }
-  }, [camera.id])
-
-  const startWebRTC = async () => {
+  const startWebRTC = useCallback(async () => {
     try {
+      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
       setStatus('connecting')
       const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
       pcRef.current = pc
       pc.ontrack = (event) => {
-        if (videoRef.current) { videoRef.current.srcObject = event.streams[0]; setStatus('live') }
+        if (videoRef.current) { videoRef.current.srcObject = event.streams[0]; setStatus('live'); retryCountRef.current = 0 }
       }
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') setStatus('disconnected')
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          setStatus('disconnected')
+          const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
+          retryCountRef.current++
+          retryRef.current = setTimeout(startWebRTC, delay)
+        }
       }
       pc.addTransceiver('video', { direction: 'recvonly' })
       const offer = await pc.createOffer()
@@ -520,8 +552,19 @@ function ControlRoomCamera({ camera }) {
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))
     } catch (err) {
       setStatus('error')
+      const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
+      retryCountRef.current++
+      retryRef.current = setTimeout(startWebRTC, delay)
     }
-  }
+  }, [camera.id])
+
+  useEffect(() => {
+    startWebRTC()
+    return () => {
+      clearTimeout(retryRef.current)
+      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
+    }
+  }, [startWebRTC])
 
   return (
     <>
@@ -531,9 +574,10 @@ function ControlRoomCamera({ camera }) {
           <div className="text-farm-500 text-sm animate-pulse">Connecting...</div>
         </div>
       )}
-      {status === 'error' && (
-        <div className="absolute inset-0 flex items-center justify-center">
+      {(status === 'error' || status === 'disconnected') && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <VideoOff size={32} className="text-farm-600" />
+          <span className="text-xs text-farm-500">Reconnecting...</span>
         </div>
       )}
       {status === 'live' && (

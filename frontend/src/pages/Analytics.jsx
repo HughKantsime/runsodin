@@ -384,20 +384,29 @@ function TimeAccuracyChart({ data }) {
   )
 }
 
+const DATE_RANGES = [
+  { label: '7d', value: 7 },
+  { label: '14d', value: 14 },
+  { label: '30d', value: 30 },
+  { label: '90d', value: 90 },
+]
+
 export default function Analytics() {
+  const [days, setDays] = useState(30)
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['analytics'],
-    queryFn: analytics.get,
+    queryKey: ['analytics', days],
+    queryFn: () => analytics.get(days),
   })
-  const { data: timeAccuracy } = useQuery({
-    queryKey: ['time-accuracy'],
-    queryFn: () => analytics.timeAccuracy(30),
+  const { data: timeAccuracy, isLoading: timeAccuracyLoading } = useQuery({
+    queryKey: ['time-accuracy', days],
+    queryFn: () => analytics.timeAccuracy(days),
   })
-  const { data: failureData } = useQuery({
-    queryKey: ['failure-analytics'],
-    queryFn: () => analytics.failures(30),
+  const { data: failureData, isLoading: failureLoading } = useQuery({
+    queryKey: ['failure-analytics', days],
+    queryFn: () => analytics.failures(days),
   })
-  const { data: energyJobs } = useQuery({
+  const { data: energyJobs, isLoading: energyLoading } = useQuery({
     queryKey: ['energy-jobs'],
     queryFn: async () => {
       const token = localStorage.getItem('token')
@@ -439,9 +448,26 @@ export default function Analytics() {
   return (
     <div className="p-4 md:p-6 space-y-5 md:space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl md:text-2xl font-display font-bold">Analytics</h1>
-        <p className="text-farm-500 text-sm mt-0.5">Revenue, profitability, and fleet performance</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl md:text-2xl font-display font-bold">Analytics</h1>
+          <p className="text-farm-500 text-sm mt-0.5">Revenue, profitability, and fleet performance</p>
+        </div>
+        <div className="flex items-center gap-1">
+          {DATE_RANGES.map(r => (
+            <button
+              key={r.value}
+              onClick={() => setDays(r.value)}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                days === r.value
+                  ? 'bg-print-600 text-white font-medium'
+                  : 'bg-farm-800 text-farm-400 hover:bg-farm-700'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Hero Stats */}
@@ -511,7 +537,7 @@ export default function Analytics() {
       )}
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <JobsOverTimeChart data={jobs_by_date} />
         <CostRevenueChart data={jobs_by_date} />
         <FleetOverview summary={summary} />
@@ -521,7 +547,12 @@ export default function Analytics() {
       <ModelRankings topData={top_by_hour} worstData={worst_performers} />
 
       {/* Failure Analytics */}
-      {failureData && failureData.total_failed > 0 && (
+      {failureLoading ? (
+        <div className="rounded-xl border border-farm-800 p-5 animate-pulse" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+          <div className="h-6 bg-farm-800 rounded w-48 mb-4"></div>
+          <div className="h-48 bg-farm-800/50 rounded"></div>
+        </div>
+      ) : failureData && failureData.total_failed > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
           <FailureRateByPrinterChart data={failureData} />
           <TopFailureReasons data={failureData} />
@@ -529,9 +560,16 @@ export default function Analytics() {
       )}
 
       {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <PrinterUtilization data={printer_stats} />
-        <TimeAccuracyChart data={timeAccuracy} />
+        {timeAccuracyLoading ? (
+          <div className="rounded-xl border border-farm-800 p-5 animate-pulse" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+            <div className="h-6 bg-farm-800 rounded w-48 mb-4"></div>
+            <div className="h-48 bg-farm-800/50 rounded"></div>
+          </div>
+        ) : (
+          <TimeAccuracyChart data={timeAccuracy} />
+        )}
         <EnergyWidget jobs={energyJobs || []} />
       </div>
     </div>

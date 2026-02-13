@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import SSOButton from '../components/SSOButton'
 import { useNavigate } from 'react-router-dom'
-import { Lock, User, AlertCircle, ShieldCheck } from 'lucide-react'
+import { Lock, User, AlertCircle, ShieldCheck, Loader2 } from 'lucide-react'
 import { useBranding } from '../BrandingContext'
 import { refreshPermissions } from '../permissions'
 
@@ -12,6 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [oidcLoading, setOidcLoading] = useState(false)
 
   // MFA state
   const [mfaRequired, setMfaRequired] = useState(false)
@@ -27,6 +28,7 @@ export default function Login() {
     const urlError = urlParams.get('error');
 
     if (urlToken) {
+      setOidcLoading(true)
       localStorage.setItem('token', urlToken);
       window.history.replaceState({}, '', '/');
       window.location.reload();
@@ -94,7 +96,7 @@ const handleSubmit = async (e) => {
   }
 
   const handleMfaSubmit = async (e) => {
-    e.preventDefault()
+    if (e) e.preventDefault()
     setError('')
     setIsLoading(true)
 
@@ -120,6 +122,28 @@ const handleSubmit = async (e) => {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Auto-submit MFA when 6 digits entered
+  const handleMfaCodeChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '')
+    setMfaCode(val)
+    if (val.length === 6) {
+      // Defer to next tick so state is updated
+      setTimeout(() => handleMfaSubmit(), 0)
+    }
+  }
+
+  if (oidcLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4"
+        style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+        <div className="text-center">
+          <Loader2 size={32} className="animate-spin mx-auto mb-4" style={{ color: 'var(--brand-accent)' }} />
+          <p style={{ color: 'var(--brand-text-secondary)' }}>Completing sign-in...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -172,7 +196,7 @@ const handleSubmit = async (e) => {
                     autoComplete="one-time-code"
                     maxLength={6}
                     value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                    onChange={handleMfaCodeChange}
                     className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none text-center text-2xl tracking-[0.5em] font-mono"
                     style={{
                       backgroundColor: 'var(--brand-input-bg)',
@@ -256,7 +280,15 @@ const handleSubmit = async (e) => {
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
               </form>
+              <div className="flex items-center gap-3 my-6">
+                <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
+                <span className="text-xs" style={{ color: 'var(--brand-text-muted)' }}>or</span>
+                <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
+              </div>
               <SSOButton />
+              <p className="text-center text-xs mt-6" style={{ color: 'var(--brand-text-muted)' }}>
+                Forgot your password? Contact your administrator.
+              </p>
             </>
           )}
         </div>

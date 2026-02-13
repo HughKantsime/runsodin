@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { alerts as alertsApi } from '../api'
 
 const SEVERITY_STYLES = {
@@ -35,7 +36,9 @@ export default function AlertBell() {
       try {
         const data = await alertsApi.unreadCount()
         setUnreadCount(data.unread_count)
-      } catch (err) {}
+      } catch (err) {
+        console.error('Failed to fetch alert count:', err)
+      }
     }
     fetchCount()
     const interval = setInterval(fetchCount, 10000)
@@ -47,7 +50,7 @@ export default function AlertBell() {
       setLoading(true)
       alertsApi.list({ limit: 10 })
         .then(data => setRecentAlerts(data))
-        .catch(() => {})
+        .catch(err => console.error('Failed to fetch alerts:', err))
         .finally(() => setLoading(false))
     }
   }, [isOpen])
@@ -69,7 +72,9 @@ export default function AlertBell() {
         setUnreadCount(prev => Math.max(0, prev - 1))
         setRecentAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, is_read: true } : a))
       }
-    } catch (err) {}
+    } catch (err) {
+      toast.error('Failed to mark alert as read')
+    }
     setIsOpen(false)
     if (alert.job_id) navigate('/jobs')
     else if (alert.spool_id) navigate('/spools')
@@ -82,7 +87,9 @@ export default function AlertBell() {
       await alertsApi.markAllRead()
       setUnreadCount(0)
       setRecentAlerts(prev => prev.map(a => ({ ...a, is_read: true })))
-    } catch (err) {}
+    } catch (err) {
+      toast.error('Failed to mark alerts as read')
+    }
   }
 
   return (

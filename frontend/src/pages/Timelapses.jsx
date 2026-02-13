@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { timelapses, printers } from '../api'
 import { Film, Trash2, Download, ChevronLeft, ChevronRight, Clock, HardDrive, Loader2 } from 'lucide-react'
+import ConfirmModal from '../components/ConfirmModal'
 
 const STATUS_COLORS = {
   ready: 'bg-green-500/20 text-green-400',
@@ -29,7 +31,10 @@ export default function Timelapses() {
   const [printerFilter, setPrinterFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [offset, setOffset] = useState(0)
-  const [playingId, setPlayingId] = useState(null)
+  const [playingTimelapse, setPlayingTimelapse] = useState(null)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const limit = 24
 
   const { data: printersData } = useQuery({
@@ -51,9 +56,30 @@ export default function Timelapses() {
     mutationFn: (id) => timelapses.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timelapses'] })
-      setPlayingId(null)
+      setPlayingTimelapse(null)
     },
   })
+
+  const handleBulkDelete = async () => {
+    try {
+      await Promise.all([...selectedIds].map(id => timelapses.delete(id)))
+      queryClient.invalidateQueries({ queryKey: ['timelapses'] })
+      toast.success(`${selectedIds.size} timelapse(s) deleted`)
+      setSelectedIds(new Set())
+    } catch (e) {
+      toast.error('Bulk delete failed')
+    }
+    setConfirmBulkDelete(false)
+  }
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const items = data?.timelapses || []
   const total = data?.total || 0
@@ -61,7 +87,7 @@ export default function Timelapses() {
   const currentPage = Math.floor(offset / limit) + 1
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Film className="text-amber-400" size={24} />
@@ -95,24 +121,54 @@ export default function Timelapses() {
         </select>
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 p-3 bg-farm-900 rounded-lg border border-farm-800">
+          <span className="text-sm text-farm-300">{selectedIds.size} selected</span>
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs font-medium transition-colors"
+          >
+            <Trash2 size={12} /> Delete Selected
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-farm-500 hover:text-farm-300 ml-auto"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Video Player Modal */}
-      {playingId && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPlayingId(null)}>
+      {playingTimelapse && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPlayingTimelapse(null)}>
           <div className="max-w-4xl w-full" onClick={e => e.stopPropagation()}>
-            <video
-              src={timelapses.videoUrl(playingId)}
-              controls
-              autoPlay
-              className="w-full rounded-lg"
-            />
-            <div className="flex justify-end mt-2">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-farm-200">{playingTimelapse.printer_name}</span>
+                {playingTimelapse.print_job_id && (
+                  <span className="text-xs text-farm-500">Job #{playingTimelapse.print_job_id}</span>
+                )}
+                {playingTimelapse.created_at && (
+                  <span className="text-xs text-farm-500">
+                    {new Date(playingTimelapse.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                )}
+              </div>
               <button
-                onClick={() => setPlayingId(null)}
+                onClick={() => setPlayingTimelapse(null)}
                 className="text-farm-400 hover:text-white text-sm"
               >
                 Close
               </button>
             </div>
+            <video
+              src={timelapses.videoUrl(playingTimelapse.id)}
+              controls
+              autoPlay
+              className="w-full rounded-lg"
+            />
           </div>
         </div>
       )}
@@ -131,12 +187,24 @@ export default function Timelapses() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.map(t => (
-            <div key={t.id} className="bg-farm-800 rounded-xl border border-farm-700 overflow-hidden group">
+            <div key={t.id} className={`bg-farm-800 rounded-xl border overflow-hidden group ${selectedIds.has(t.id) ? 'border-print-500 ring-1 ring-print-500/30' : 'border-farm-700'}`}>
               {/* Thumbnail / Play area */}
               <div
                 className="relative aspect-video bg-farm-900 flex items-center justify-center cursor-pointer hover:bg-farm-800 transition-colors"
-                onClick={() => t.status === 'ready' && setPlayingId(t.id)}
+                onClick={() => t.status === 'ready' && setPlayingTimelapse(t)}
               >
+                {/* Checkbox for bulk select */}
+                {t.status === 'ready' && (
+                  <div className="absolute top-2 left-2 z-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(t.id)}
+                      onChange={() => toggleSelect(t.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 rounded border-farm-600 bg-farm-900 text-print-500 focus:ring-print-500"
+                    />
+                  </div>
+                )}
                 {t.status === 'ready' ? (
                   <>
                     <Film size={40} className="text-farm-600 group-hover:text-amber-400 transition-colors" />
@@ -194,7 +262,7 @@ export default function Timelapses() {
                       <Download size={12} /> Download
                     </a>
                     <button
-                      onClick={() => { if (confirm('Delete this timelapse?')) deleteMutation.mutate(t.id) }}
+                      onClick={() => setConfirmDeleteId(t.id)}
                       className="flex items-center gap-1 text-xs text-farm-400 hover:text-red-400 transition-colors ml-auto"
                     >
                       <Trash2 size={12} /> Delete
@@ -227,6 +295,25 @@ export default function Timelapses() {
           </button>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmDeleteId}
+        title="Delete Timelapse"
+        message="Are you sure you want to delete this timelapse? This cannot be undone."
+        confirmText="Delete"
+        confirmVariant="danger"
+        onConfirm={() => { deleteMutation.mutate(confirmDeleteId); setConfirmDeleteId(null) }}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
+      <ConfirmModal
+        open={confirmBulkDelete}
+        title="Delete Timelapses"
+        message={`Are you sure you want to delete ${selectedIds.size} timelapse(s)? This cannot be undone.`}
+        confirmText="Delete All"
+        confirmVariant="danger"
+        onConfirm={handleBulkDelete}
+        onCancel={() => setConfirmBulkDelete(false)}
+      />
     </div>
   )
 }

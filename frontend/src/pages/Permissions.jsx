@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucide-react'
 import { refreshPermissions } from '../permissions'
+import ConfirmModal from '../components/ConfirmModal'
 
 const API_KEY = import.meta.env.VITE_API_KEY
 
@@ -174,6 +175,7 @@ export default function Permissions() {
   const [localActionAccess, setLocalActionAccess] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['permissions'],
@@ -238,9 +240,7 @@ export default function Permissions() {
   }
 
   const handleReset = () => {
-    if (confirm('Reset all permissions to factory defaults? This cannot be undone.')) {
-      resetMutation.mutate()
-    }
+    setShowResetConfirm(true)
   }
 
   if (isLoading || !localPageAccess) {
@@ -303,30 +303,43 @@ export default function Permissions() {
       )}
 
       {/* Page Access Matrix */}
-      <MatrixTable
-        title="Page Access"
-        groups={PAGE_GROUPS}
-        access={localPageAccess}
-        type="page"
-        onToggle={handleToggle}
-        saving={saving}
-      />
+      <div className="overflow-x-auto">
+        <MatrixTable
+          title="Page Access"
+          groups={PAGE_GROUPS}
+          access={localPageAccess}
+          type="page"
+          onToggle={handleToggle}
+          saving={saving}
+        />
+      </div>
 
       {/* Action Access Matrix */}
-      <MatrixTable
-        title="Action Permissions"
-        groups={ACTION_GROUPS}
-        access={localActionAccess}
-        type="action"
-        onToggle={handleToggle}
-        saving={saving}
-      />
+      <div className="overflow-x-auto">
+        <MatrixTable
+          title="Action Permissions"
+          groups={ACTION_GROUPS}
+          access={localActionAccess}
+          type="action"
+          onToggle={handleToggle}
+          saving={saving}
+        />
+      </div>
 
       {saveMutation.isError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
           Error: {saveMutation.error?.message || 'Failed to save permissions'}
         </div>
       )}
+
+      <ConfirmModal
+        open={showResetConfirm}
+        onConfirm={() => { setShowResetConfirm(false); resetMutation.mutate() }}
+        onCancel={() => setShowResetConfirm(false)}
+        title="Reset Permissions"
+        message="Reset all permissions to factory defaults? This cannot be undone."
+        confirmText="Reset to Defaults"
+      />
     </div>
   )
 }

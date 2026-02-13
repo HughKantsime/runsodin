@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { vision, printers } from '../api'
 import { canDo } from '../permissions'
 import DetectionFeed from '../components/DetectionFeed'
@@ -42,7 +44,7 @@ function StatBar({ stats }) {
           <span className="text-farm-500">{count}</span>
         </div>
       ))}
-      {stats.accuracy_pct != null && (
+      {stats.accuracy_pct != null && !isNaN(stats.accuracy_pct) && (
         <div className="ml-auto">
           <span className="text-farm-400">Accuracy:</span>{' '}
           <span className="font-medium">{stats.accuracy_pct}%</span>
@@ -91,7 +93,7 @@ function FrameModal({ detection, onClose, onReview }) {
                 {STATUS_META[detection.status]?.label || detection.status}
               </span>
               <span className="text-sm font-mono text-farm-300">
-                {(detection.confidence * 100).toFixed(0)}%
+                {detection.confidence != null ? (detection.confidence * 100).toFixed(0) + '%' : '-'}
               </span>
             </div>
             <button onClick={onClose} className="text-farm-400 hover:text-white">
@@ -201,6 +203,8 @@ export default function Detections() {
   const items = data?.items || []
   const total = data?.total || 0
 
+  const [selectedIds, setSelectedIds] = useState(new Set())
+
   const handleReview = async (id, status) => {
     try {
       await vision.reviewDetection(id, status)
@@ -208,8 +212,31 @@ export default function Detections() {
       queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
       setSelectedDetection(null)
     } catch (e) {
-      console.error('Review failed:', e)
+      toast.error('Review failed: ' + (e.message || 'Unknown error'))
     }
+  }
+
+  const handleBulkReview = async (status) => {
+    if (selectedIds.size === 0) return
+    try {
+      await Promise.all([...selectedIds].map(id => vision.reviewDetection(id, status)))
+      queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
+      queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
+      setSelectedIds(new Set())
+      toast.success(`${selectedIds.size} detection(s) ${status}`)
+    } catch (e) {
+      toast.error('Bulk review failed: ' + (e.message || 'Unknown error'))
+    }
+  }
+
+  const toggleSelect = (id, e) => {
+    e.stopPropagation()
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   return (
@@ -282,13 +309,38 @@ export default function Detections() {
         </div>
       )}
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && canDo('manage_printers') && (
+        <div className="flex items-center gap-3 mb-4 p-3 bg-farm-900 rounded-lg border border-farm-800">
+          <span className="text-sm text-farm-300">{selectedIds.size} selected</span>
+          <button
+            onClick={() => handleBulkReview('confirmed')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs font-medium transition-colors"
+          >
+            <AlertTriangle size={12} /> Confirm All
+          </button>
+          <button
+            onClick={() => handleBulkReview('dismissed')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors"
+          >
+            <X size={12} /> Dismiss All
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-farm-500 hover:text-farm-300 ml-auto"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {items.length > 0 && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {items.map(det => (
               <div
                 key={det.id}
-                className="bg-farm-950 rounded-lg border border-farm-800 overflow-hidden cursor-pointer hover:border-farm-600 transition-colors"
+                className={`bg-farm-950 rounded-lg border overflow-hidden cursor-pointer hover:border-farm-600 transition-colors ${selectedIds.has(det.id) ? 'border-print-500 ring-1 ring-print-500/30' : 'border-farm-800'}`}
                 onClick={() => setSelectedDetection(det)}
               >
                 {/* Thumbnail */}
@@ -307,8 +359,20 @@ export default function Detections() {
                   )}
                   {/* Confidence badge */}
                   <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded-lg text-xs font-mono">
-                    {(det.confidence * 100).toFixed(0)}%
+                    {det.confidence != null ? (det.confidence * 100).toFixed(0) + '%' : '-'}
                   </div>
+                  {/* Checkbox for bulk select */}
+                  {canDo('manage_printers') && (
+                    <div className="absolute top-2 left-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(det.id)}
+                        onChange={(e) => toggleSelect(det.id, e)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-farm-600 bg-farm-900 text-print-500 focus:ring-print-500"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Info */}
@@ -322,9 +386,32 @@ export default function Detections() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-farm-500">
-                    <span>{det.printer_nickname || det.printer_name}</span>
+                    <Link
+                      to={`/cameras/${det.printer_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:text-print-400 transition-colors"
+                    >
+                      {det.printer_nickname || det.printer_name}
+                    </Link>
                     <span>{formatDate(det.created_at)}</span>
                   </div>
+                  {/* Inline quick actions for pending items */}
+                  {det.status === 'pending' && canDo('manage_printers') && (
+                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-farm-800">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'confirmed') }}
+                        className="flex items-center gap-1 px-2 py-1 bg-red-900/40 hover:bg-red-900/60 rounded text-[10px] text-red-400 font-medium transition-colors"
+                      >
+                        <AlertTriangle size={10} /> Confirm
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'dismissed') }}
+                        className="flex items-center gap-1 px-2 py-1 bg-farm-800 hover:bg-farm-700 rounded text-[10px] text-farm-400 font-medium transition-colors"
+                      >
+                        <X size={10} /> Dismiss
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

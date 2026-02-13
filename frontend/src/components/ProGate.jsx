@@ -1,8 +1,10 @@
 import { useLicense } from '../LicenseContext'
-import { Lock, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Lock, ExternalLink, ArrowLeft } from 'lucide-react'
 
 export default function ProGate({ feature, children, inline = false, tier = 'Pro' }) {
   const { hasFeature, loading } = useLicense()
+  const navigate = useNavigate()
 
   if (loading) return null
   if (hasFeature(feature)) return children
@@ -33,10 +35,25 @@ export default function ProGate({ feature, children, inline = false, tier = 'Pro
         This feature requires an O.D.I.N. <span className="text-amber-400 font-medium">{tier}</span> license.
         Upgrade to unlock unlimited printers, multi-user RBAC, orders tracking, analytics, and more.
       </p>
-      <a href="https://runsodin.com/#pricing" target="_blank" rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg transition-colors">
-        View Pricing <ExternalLink size={14} />
-      </a>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-farm-800 hover:bg-farm-700 text-farm-200 rounded-lg transition-colors"
+        >
+          <ArrowLeft size={14} /> Back to Dashboard
+        </button>
+        <a href="https://runsodin.com/#pricing" target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg transition-colors"
+          onClick={(e) => {
+            if (!navigator.onLine) {
+              e.preventDefault()
+              alert('Pricing information is not available offline. Contact your administrator for license details.')
+            }
+          }}
+        >
+          View Pricing <ExternalLink size={14} />
+        </a>
+      </div>
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react"
 import { canAccessPage, canDo, getCurrentUser } from './permissions'
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { Toaster } from 'react-hot-toast'
 import {
   LayoutDashboard,
   Video,
@@ -41,6 +42,7 @@ import ProBadge from './components/ProBadge'
 import AlertBell from './components/AlertBell'
 import EmergencyStop from './components/EmergencyStop'
 import GlobalSearch from './components/GlobalSearch'
+import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
 import Jobs from './pages/Jobs'
@@ -423,6 +425,18 @@ function RoleGate({ page, children }) {
   return children
 }
 
+function NotFound() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[50vh] p-8 text-center">
+      <h2 className="text-4xl font-bold text-farm-100 mb-2">404</h2>
+      <p className="text-sm text-farm-400 mb-6">Page not found</p>
+      <Link to="/" className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm transition-colors">
+        Back to Dashboard
+      </Link>
+    </div>
+  )
+}
+
 
 export default function App() {
 
@@ -494,6 +508,7 @@ export default function App() {
             <AlertBell />
           </div>
           <main id="main-content" className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/timeline" element={<Timeline />} />
@@ -520,7 +535,10 @@ export default function App() {
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
             <Route path="/audit" element={<RoleGate page="audit"><AuditLogs /></RoleGate>} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
+          </ErrorBoundary>
+          <Toaster position="top-right" toastOptions={{ style: { background: '#1a1f2e', color: '#e2e8f0', border: '1px solid #2d3548' } }} />
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
             <div className="text-center py-4 text-[10px] text-farm-600 select-none">Powered by O.D.I.N.</div>

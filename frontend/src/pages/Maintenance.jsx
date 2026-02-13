@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Wrench, AlertTriangle, CheckCircle, Clock, Plus, X, Trash2,
   Edit2, ChevronDown, ChevronRight, History, Settings, Activity,
-  AlertCircle
+  AlertCircle, Calendar
 } from 'lucide-react'
 import { maintenance } from '../api'
+import ConfirmModal from '../components/ConfirmModal'
 
 const STATUS_COLORS = {
   ok: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-400' },
@@ -270,6 +271,10 @@ export default function Maintenance() {
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [editingTask, setEditingTask] = useState(null)
   const [historyFilter, setHistoryFilter] = useState('')
+  const [historyDateFrom, setHistoryDateFrom] = useState('')
+  const [historyDateTo, setHistoryDateTo] = useState('')
+  const [deleteTaskTarget, setDeleteTaskTarget] = useState(null)
+  const [deleteLogTarget, setDeleteLogTarget] = useState(null)
 
   // ---- Queries ----
   const { data: statusData = [], isLoading: statusLoading } = useQuery({
@@ -323,6 +328,13 @@ export default function Maintenance() {
   // ---- Stats ----
   const overdueCount = statusData.filter(p => p.overall_status === 'overdue').length
   const dueSoonCount = statusData.filter(p => p.overall_status === 'due_soon').length
+
+  // Filter logs by date range
+  const filteredLogs = logs.filter(log => {
+    if (historyDateFrom && log.performed_at && log.performed_at.split('T')[0] < historyDateFrom) return false
+    if (historyDateTo && log.performed_at && log.performed_at.split('T')[0] > historyDateTo) return false
+    return true
+  })
 
   const tabs = [
     { id: 'status', label: 'Fleet Status', icon: Activity },
@@ -382,7 +394,7 @@ export default function Maintenance() {
               <p className="text-farm-400 mb-3">No maintenance tasks configured yet.</p>
               <button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}
                 className="bg-print-500 hover:bg-print-600 text-white px-6 py-2 rounded-lg text-sm">
-                {seedMutation.isPending ? 'Seeding...' : 'Seed Default Tasks for Bambu Printers'}
+                {seedMutation.isPending ? 'Seeding...' : 'Seed Default Maintenance Tasks'}
               </button>
             </div>
           )}
@@ -453,7 +465,7 @@ export default function Maintenance() {
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => { setEditingTask(task); setShowTaskForm(false) }}
                             className="text-farm-500 hover:text-farm-200 p-1"><Edit2 size={14} /></button>
-                          <button onClick={() => { if (confirm(`Delete "${task.name}"?`)) deleteTaskMutation.mutate(task.id) }}
+                          <button onClick={() => setDeleteTaskTarget(task)}
                             className="text-farm-500 hover:text-red-400 p-1"><Trash2 size={14} /></button>
                         </div>
                       </td>
@@ -472,13 +484,23 @@ export default function Maintenance() {
       {/* ==================== History Tab ==================== */}
       {activeTab === 'history' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
-              className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-farm-200 text-sm">
-              <option value="">All Printers</option>
-              {statusData.map(p => <option key={p.printer_id} value={p.printer_id}>{p.printer_name}</option>)}
-            </select>
-            <span className="text-sm text-farm-400">{logs.length} record{logs.length !== 1 ? 's' : ''}</span>
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
+                className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-farm-200 text-sm">
+                <option value="">All Printers</option>
+                {statusData.map(p => <option key={p.printer_id} value={p.printer_id}>{p.printer_name}</option>)}
+              </select>
+              <div className="flex items-center gap-1.5">
+                <Calendar size={14} className="text-farm-500" />
+                <input type="date" value={historyDateFrom} onChange={e => setHistoryDateFrom(e.target.value)}
+                  className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-farm-200 text-sm" />
+                <span className="text-farm-500 text-xs">to</span>
+                <input type="date" value={historyDateTo} onChange={e => setHistoryDateTo(e.target.value)}
+                  className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-farm-200 text-sm" />
+              </div>
+            </div>
+            <span className="text-sm text-farm-400">{filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''}</span>
           </div>
 
           <div className="border border-farm-800 rounded-lg overflow-hidden">
@@ -496,7 +518,7 @@ export default function Maintenance() {
                 </tr>
               </thead>
               <tbody>
-                {logs.map(log => {
+                {filteredLogs.map(log => {
                   const pName = statusData.find(p => p.printer_id === log.printer_id)?.printer_name || `Printer #${log.printer_id}`
                   return (
                     <tr key={log.id} className="border-t border-farm-800/50 hover:bg-farm-800/30">
@@ -511,7 +533,7 @@ export default function Maintenance() {
                       <td className="px-4 py-3 text-right text-farm-300 hidden sm:table-cell">{log.downtime_minutes ? `${log.downtime_minutes}m` : '—'}</td>
                       <td className="px-4 py-3 text-right text-farm-400 font-mono text-xs">{log.print_hours_at_service}h</td>
                       <td className="px-4 py-2 text-right">
-                        <button onClick={() => { if (confirm('Delete this log entry?')) deleteLogMutation.mutate(log.id) }}
+                        <button onClick={() => setDeleteLogTarget(log)}
                           className="text-farm-600 hover:text-red-400 p-1"><Trash2 size={13} /></button>
                       </td>
                     </tr>
@@ -533,6 +555,24 @@ export default function Maintenance() {
           onSave={data => logMutation.mutate(data)}
           saving={logMutation.isPending} />
       )}
+
+      <ConfirmModal
+        open={!!deleteTaskTarget}
+        onConfirm={() => { deleteTaskMutation.mutate(deleteTaskTarget.id); setDeleteTaskTarget(null) }}
+        onCancel={() => setDeleteTaskTarget(null)}
+        title="Delete Task"
+        message={deleteTaskTarget ? `Delete "${deleteTaskTarget.name}"? This cannot be undone.` : ''}
+        confirmText="Delete"
+      />
+
+      <ConfirmModal
+        open={!!deleteLogTarget}
+        onConfirm={() => { deleteLogMutation.mutate(deleteLogTarget.id); setDeleteLogTarget(null) }}
+        onCancel={() => setDeleteLogTarget(null)}
+        title="Delete Log Entry"
+        message="Delete this maintenance log entry? This cannot be undone."
+        confirmText="Delete"
+      />
     </div>
   )
 }

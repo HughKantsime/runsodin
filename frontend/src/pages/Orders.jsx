@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { orders, products } from '../api'
-import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil, RefreshCw } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil, RefreshCw, Search, Ban } from 'lucide-react'
 import { canDo } from '../permissions'
+import toast from 'react-hot-toast'
+import ConfirmModal from '../components/ConfirmModal'
 
 const STATUS_CLASSES = {
   pending: 'bg-status-pending/20 text-status-pending',
@@ -37,19 +39,40 @@ export default function Orders() {
   const [items, setItems] = useState([])
   const [editingOrder, setEditingOrder] = useState(null)
   const [editFormData, setEditFormData] = useState({})
+  const [editItems, setEditItems] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [confirmAction, setConfirmAction] = useState(null)
+  const [shippingOrder, setShippingOrder] = useState(null)
+  const [shippingForm, setShippingForm] = useState({ tracking_number: '', carrier: '' })
+  const [allOrders, setAllOrders] = useState([])
 
   useEffect(() => {
     loadData()
   }, [statusFilter])
 
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape') {
+        if (shippingOrder) setShippingOrder(null)
+        else if (editingOrder) setEditingOrder(null)
+        else if (showDetailModal) setShowDetailModal(false)
+        else if (showModal) setShowModal(false)
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [shippingOrder, editingOrder, showDetailModal, showModal])
+
   const loadData = async () => {
     try {
-      const [ords, prods] = await Promise.all([
+      const [ords, prods, all] = await Promise.all([
         orders.list(statusFilter || null),
-        products.list()
+        products.list(),
+        statusFilter ? orders.list(null) : null
       ])
       setOrderList(ords)
       setProductList(prods)
+      setAllOrders(statusFilter ? all : ords)
     } catch (err) {
       console.error('Failed to load:', err)
     } finally {
@@ -106,14 +129,15 @@ export default function Orders() {
       }
       await orders.create(data)
       setShowModal(false)
+      toast.success('Order created')
       loadData()
     } catch (err) {
       console.error('Failed to create order:', err)
-      alert('Failed to create order')
+      toast.error('Failed to create order')
     }
   }
 
-  const openEditModal = (order) => {
+  const openEditModal = async (order) => {
     setEditFormData({
       customer_name: order.customer_name || '',
       customer_email: order.customer_email || '',
@@ -126,6 +150,17 @@ export default function Orders() {
       payment_fees: order.payment_fees || '',
       shipping_charged: order.shipping_charged || '',
     })
+    try {
+      const full = await orders.get(order.id)
+      setEditItems((full.items || []).map(i => ({
+        id: i.id,
+        product_id: String(i.product_id),
+        quantity: i.quantity,
+        unit_price: i.unit_price || ''
+      })))
+    } catch {
+      setEditItems([])
+    }
     setEditingOrder(order)
   }
 
@@ -144,28 +179,60 @@ export default function Orders() {
         payment_fees: editFormData.payment_fees ? parseFloat(editFormData.payment_fees) : null,
         shipping_charged: editFormData.shipping_charged ? parseFloat(editFormData.shipping_charged) : null,
       })
+      // Sync line items
+      const full = await orders.get(editingOrder.id)
+      const existingIds = new Set((full.items || []).map(i => i.id))
+      for (const item of editItems) {
+        if (item.id && existingIds.has(item.id)) {
+          await orders.updateItem(editingOrder.id, item.id, {
+            quantity: parseInt(item.quantity) || 1,
+            unit_price: item.unit_price ? parseFloat(item.unit_price) : null
+          })
+        } else if (!item.id && item.product_id) {
+          await orders.addItem(editingOrder.id, {
+            product_id: parseInt(item.product_id),
+            quantity: parseInt(item.quantity) || 1,
+            unit_price: item.unit_price ? parseFloat(item.unit_price) : null
+          })
+        }
+      }
+      // Remove deleted items
+      const editIds = new Set(editItems.filter(i => i.id).map(i => i.id))
+      for (const item of full.items || []) {
+        if (!editIds.has(item.id)) {
+          await orders.removeItem(editingOrder.id, item.id)
+        }
+      }
       setEditingOrder(null)
+      toast.success('Order updated')
       loadData()
     } catch (err) {
       console.error('Failed to update order:', err)
-      alert('Failed to update order')
+      toast.error('Failed to update order')
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this order?')) return
-    try {
-      await orders.delete(id)
-      loadData()
-    } catch (err) {
-      console.error('Failed to delete:', err)
-    }
+  const handleDelete = (id) => {
+    setConfirmAction({
+      title: 'Delete Order',
+      message: 'Delete this order? This cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await orders.delete(id)
+          toast.success('Order deleted')
+          loadData()
+        } catch (err) {
+          toast.error('Failed to delete order')
+        }
+        setConfirmAction(null)
+      }
+    })
   }
 
   const handleSchedule = async (id) => {
     try {
       const result = await orders.schedule(id)
-      alert(`Created ${result.jobs_created} jobs for this order`)
+      toast.success(`Created ${result.jobs_created} jobs for this order`)
       loadData()
       if (selectedOrder?.id === id) {
         const full = await orders.get(id)
@@ -173,30 +240,62 @@ export default function Orders() {
       }
     } catch (err) {
       console.error('Failed to schedule:', err)
-      alert('Failed to schedule order')
+      toast.error('Failed to schedule order')
     }
   }
 
-  const handleShip = async (id) => {
-    const tracking = prompt('Enter tracking number (optional):')
+  const handleShip = (order) => {
+    setShippingForm({ tracking_number: order.tracking_number || '', carrier: '' })
+    setShippingOrder(order)
+  }
+
+  const submitShipping = async () => {
     try {
-      await orders.ship(id, { tracking_number: tracking || null })
+      await orders.ship(shippingOrder.id, {
+        tracking_number: shippingForm.tracking_number || null
+      })
+      toast.success('Order marked as shipped')
       loadData()
-      if (selectedOrder?.id === id) {
-        const full = await orders.get(id)
+      if (selectedOrder?.id === shippingOrder.id) {
+        const full = await orders.get(shippingOrder.id)
         setSelectedOrder(full)
       }
+      setShippingOrder(null)
     } catch (err) {
       console.error('Failed to ship:', err)
+      toast.error('Failed to mark as shipped')
     }
+  }
+
+  const handleCancel = (order) => {
+    setConfirmAction({
+      title: 'Cancel Order',
+      message: `Cancel order ${order.order_number || '#' + order.id}? This will set the status to cancelled.`,
+      onConfirm: async () => {
+        try {
+          await orders.update(order.id, { status: 'cancelled' })
+          toast.success('Order cancelled')
+          loadData()
+          if (selectedOrder?.id === order.id) {
+            const full = await orders.get(order.id)
+            setSelectedOrder(full)
+          }
+        } catch (err) {
+          toast.error('Failed to cancel order')
+        }
+        setConfirmAction(null)
+      }
+    })
   }
 
   const handleDownloadInvoice = async (order) => {
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch(`/api/orders/${order.id}/invoice.pdf`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
+      const API_KEY = import.meta.env.VITE_API_KEY
+      const headers = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      if (API_KEY) headers['X-API-Key'] = API_KEY
+      const res = await fetch(`/api/orders/${order.id}/invoice.pdf`, { headers })
       if (!res.ok) throw new Error('Failed to generate invoice')
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
@@ -207,7 +306,7 @@ export default function Orders() {
       URL.revokeObjectURL(url)
     } catch (err) {
       console.error('Invoice download failed:', err)
-      alert('Failed to download invoice')
+      toast.error('Failed to download invoice')
     }
   }
 
@@ -239,6 +338,14 @@ export default function Orders() {
     }, 0)
   }
 
+  const filteredOrders = searchQuery.trim()
+    ? orderList.filter(o => {
+        const q = searchQuery.toLowerCase()
+        return (o.order_number || '').toLowerCase().includes(q) ||
+               (o.customer_name || '').toLowerCase().includes(q)
+      })
+    : orderList
+
   if (loading) return <div className="flex items-center justify-center py-12 text-farm-500 gap-2"><RefreshCw size={16} className="animate-spin" />Loading...</div>
 
   return (
@@ -260,6 +367,7 @@ export default function Orders() {
             <option value="partial">Partial</option>
             <option value="fulfilled">Fulfilled</option>
             <option value="shipped">Shipped</option>
+            <option value="cancelled">Cancelled</option>
           </select>
           {canDo('orders.create') && (
             <button
@@ -272,16 +380,29 @@ export default function Orders() {
         </div>
       </div>
 
+      {/* Search */}
+      <div className="mb-4">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by order number or customer..."
+            className="w-full bg-farm-950 border border-farm-700 rounded-lg pl-9 pr-3 py-2 text-sm text-farm-100 placeholder-farm-500"
+          />
+        </div>
+      </div>
 
       {/* Order Summary */}
-      {orderList.length > 0 && (
+      {(allOrders.length > 0 || orderList.length > 0) && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-6">
           {[
-            { label: 'Pending', count: orderList.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
-            { label: 'In Progress', count: orderList.filter(o => o.status === 'in_progress').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-            { label: 'Fulfilled', count: orderList.filter(o => o.status === 'fulfilled').length, color: 'text-green-400', bg: 'bg-green-400/10' },
-            { label: 'Shipped', count: orderList.filter(o => o.status === 'shipped').length, color: 'text-purple-400', bg: 'bg-purple-400/10' },
-            { label: 'Revenue', count: '$' + orderList.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0), color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+            { label: 'Pending', count: allOrders.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+            { label: 'In Progress', count: allOrders.filter(o => o.status === 'in_progress').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+            { label: 'Fulfilled', count: allOrders.filter(o => o.status === 'fulfilled').length, color: 'text-green-400', bg: 'bg-green-400/10' },
+            { label: 'Shipped', count: allOrders.filter(o => o.status === 'shipped').length, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+            { label: 'Revenue', count: '$' + allOrders.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0), color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
           ].map(({ label, count, color, bg }) => (
             <div key={label} className={`${bg} rounded-lg p-3 text-center border border-farm-800`}>
               <div className={`text-lg md:text-xl font-bold tabular-nums ${color}`}>{count}</div>
@@ -291,7 +412,7 @@ export default function Orders() {
         </div>
       )}
 
-      {orderList.length === 0 ? (
+      {filteredOrders.length === 0 ? (
         <div className="text-center py-12 text-farm-500">
           <ShoppingCart className="w-12 h-12 mx-auto mb-4 opacity-50" />
           <p>No orders yet. Create your first order to start tracking.</p>
@@ -300,7 +421,7 @@ export default function Orders() {
         <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
           {/* Mobile card view */}
           <div className="block md:hidden divide-y divide-farm-800">
-            {orderList.map(order => (
+            {filteredOrders.map(order => (
               <div key={order.id} className="p-4">
                 <div className="flex justify-between items-start mb-2">
                   <button
@@ -318,6 +439,7 @@ export default function Orders() {
                   <div>Customer: {order.customer_name || '-'}</div>
                   <div>Items: {order.item_count || 0}</div>
                   <div>Revenue: {order.revenue ? `$${order.revenue.toFixed(2)}` : '-'}</div>
+                  {order.created_at && <div>Date: {new Date(order.created_at).toLocaleDateString()}</div>}
                 </div>
                 <div className="flex gap-1">
                   <button
@@ -347,11 +469,20 @@ export default function Orders() {
                   )}
                   {canDo('orders.ship') && order.status === 'fulfilled' && (
                     <button
-                      onClick={() => handleShip(order.id)}
+                      onClick={() => handleShip(order)}
                       className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                       title="Mark Shipped"
                     >
                       <Truck size={14} />
+                    </button>
+                  )}
+                  {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
+                    <button
+                      onClick={() => handleCancel(order)}
+                      className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+                      title="Cancel Order"
+                    >
+                      <Ban size={14} />
                     </button>
                   )}
                   {canDo('orders.delete') && (
@@ -373,6 +504,7 @@ export default function Orders() {
             <thead className="bg-farm-950">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Order #</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Date</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Platform</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Customer</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Status</th>
@@ -382,7 +514,7 @@ export default function Orders() {
               </tr>
             </thead>
             <tbody className="divide-y divide-farm-800">
-              {orderList.map(order => (
+              {filteredOrders.map(order => (
                 <tr key={order.id} className="hover:bg-farm-800/50 transition-colors">
                   <td className="px-4 py-3">
                     <button
@@ -391,6 +523,9 @@ export default function Orders() {
                     >
                       {order.order_number || `#${order.id}`}
                     </button>
+                  </td>
+                  <td className="px-4 py-3 text-farm-400 text-sm">
+                    {order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}
                   </td>
                   <td className="px-4 py-3 capitalize text-farm-300">{order.platform || '-'}</td>
                   <td className="px-4 py-3 text-farm-300">{order.customer_name || '-'}</td>
@@ -429,11 +564,20 @@ export default function Orders() {
                     )}
                     {canDo('orders.ship') && order.status === 'fulfilled' && (
                       <button
-                        onClick={() => handleShip(order.id)}
+                        onClick={() => handleShip(order)}
                         className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
                         title="Mark Shipped"
                       >
                         <Truck size={14} />
+                      </button>
+                    )}
+                    {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
+                      <button
+                        onClick={() => handleCancel(order)}
+                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+                        title="Cancel Order"
+                      >
+                        <Ban size={14} />
                       </button>
                     )}
                     {canDo('orders.delete') && (
@@ -455,8 +599,8 @@ export default function Orders() {
 
       {/* Create Order Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)} onKeyDown={(e) => e.key === 'Escape' && setShowModal(false)}>
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">New Order</h2>
               <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
@@ -615,8 +759,8 @@ export default function Orders() {
 
       {/* Order Detail Modal */}
       {showDetailModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowDetailModal(false)}>
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">
                 Order {selectedOrder.order_number || `#${selectedOrder.id}`}
@@ -642,10 +786,18 @@ export default function Orders() {
                   )}
                   {canDo('orders.ship') && selectedOrder.status === 'fulfilled' && (
                     <button
-                      onClick={() => handleShip(selectedOrder.id)}
+                      onClick={() => handleShip(selectedOrder)}
                       className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm"
                     >
                       Mark Shipped
+                    </button>
+                  )}
+                  {canDo('orders.edit') && (selectedOrder.status === 'pending' || selectedOrder.status === 'in_progress') && (
+                    <button
+                      onClick={() => handleCancel(selectedOrder)}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg transition-colors text-sm flex items-center gap-2"
+                    >
+                      <Ban size={14} /> Cancel Order
                     </button>
                   )}
                   <button
@@ -761,10 +913,57 @@ export default function Orders() {
         </div>
       )}
 
+      {/* Shipping Modal */}
+      {shippingOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShippingOrder(null)}>
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-farm-800 flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-farm-100">Mark as Shipped</h2>
+              <button onClick={() => setShippingOrder(null)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-farm-200">Tracking Number</label>
+                <input
+                  type="text"
+                  value={shippingForm.tracking_number}
+                  onChange={(e) => setShippingForm(f => ({ ...f, tracking_number: e.target.value }))}
+                  className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm"
+                  placeholder="Enter tracking number (optional)"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-farm-200">Carrier</label>
+                <select
+                  value={shippingForm.carrier}
+                  onChange={(e) => setShippingForm(f => ({ ...f, carrier: e.target.value }))}
+                  className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm"
+                >
+                  <option value="">Select carrier (optional)</option>
+                  <option value="usps">USPS</option>
+                  <option value="ups">UPS</option>
+                  <option value="fedex">FedEx</option>
+                  <option value="dhl">DHL</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShippingOrder(null)} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
+                <button onClick={submitShipping} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center gap-2">
+                  <Truck size={14} /> Mark Shipped
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Order Modal */}
       {editingOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditingOrder(null)}>
+          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-farm-800 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-farm-100">Edit Order {editingOrder.order_number || `#${editingOrder.id}`}</h2>
               <button onClick={() => setEditingOrder(null)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
@@ -825,6 +1024,71 @@ export default function Orders() {
                 <label className="block text-sm font-medium mb-1 text-farm-200">Notes</label>
                 <textarea value={editFormData.notes} onChange={(e) => setEditFormData(d => ({ ...d, notes: e.target.value }))} className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm" rows={2} />
               </div>
+
+              {/* Line Items */}
+              <div className="border-t border-farm-800 pt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-farm-200">Line Items</label>
+                  <button type="button" onClick={() => setEditItems([...editItems, { product_id: '', quantity: 1, unit_price: '' }])} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1">
+                    <Plus size={14} /> Add Item
+                  </button>
+                </div>
+                {editItems.length === 0 ? (
+                  <p className="text-sm text-farm-500">No line items</p>
+                ) : (
+                  <div className="space-y-2">
+                    {editItems.map((item, i) => (
+                      <div key={item.id || `new-${i}`} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                        <select
+                          value={item.product_id}
+                          onChange={(e) => {
+                            const updated = [...editItems]
+                            updated[i].product_id = e.target.value
+                            if (e.target.value) {
+                              const product = productList.find(p => p.id === parseInt(e.target.value))
+                              if (product?.price) updated[i].unit_price = product.price
+                            }
+                            setEditItems(updated)
+                          }}
+                          className="flex-1 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                          disabled={!!item.id}
+                        >
+                          <option value="">Select product...</option>
+                          {productList.map(p => (
+                            <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>
+                          ))}
+                        </select>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => { const updated = [...editItems]; updated[i].quantity = e.target.value; setEditItems(updated) }}
+                            className="w-16 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                            placeholder="Qty"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={item.unit_price}
+                            onChange={(e) => { const updated = [...editItems]; updated[i].unit_price = e.target.value; setEditItems(updated) }}
+                            className="w-24 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                            placeholder="Price"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setEditItems(editItems.filter((_, j) => j !== i))}
+                            className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2 pt-4 border-t border-farm-800">
                 <button type="button" onClick={() => setEditingOrder(null)} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Save Changes</button>
@@ -833,6 +1097,15 @@ export default function Orders() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmAction}
+        title={confirmAction?.title || ''}
+        message={confirmAction?.message || ''}
+        confirmText={confirmAction?.title === 'Delete Order' ? 'Delete' : 'Confirm'}
+        onConfirm={() => confirmAction?.onConfirm()}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   )
 }

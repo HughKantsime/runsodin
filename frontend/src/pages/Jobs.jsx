@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps, modelRevisions } from '../api'
@@ -17,6 +17,8 @@ import { canDo } from '../permissions'
 import { useOrg } from '../contexts/OrgContext'
 import FailureReasonModal from '../components/FailureReasonModal'
 import { updateJobFailure } from '../api'
+import toast from 'react-hot-toast'
+import ConfirmModal from '../components/ConfirmModal'
 
 const statusOptions = [
   { value: '', label: 'All Status' },
@@ -66,7 +68,12 @@ function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect }) {
         )}
         {...(dragProps || {})}>
       <td className="px-2 py-3 w-10">
-        <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="rounded border-farm-600" aria-label={`Select job ${job.item_name}`} />
+        <div className="flex items-center gap-1">
+          {dragProps && (
+            <GripVertical size={14} className="text-farm-600 flex-shrink-0 cursor-grab" title="Drag to reorder" />
+          )}
+          <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="rounded border-farm-600" aria-label={`Select job ${job.item_name}`} />
+        </div>
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-2">
@@ -99,8 +106,8 @@ function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect }) {
       <td className="px-3 md:px-4 py-3">
         <span className={clsx(
           'px-2 py-0.5 rounded-lg text-xs font-medium',
-          job.priority <= 2 ? 'bg-red-900/50 text-red-400' : 
-          job.priority >= 4 ? 'bg-farm-800 text-farm-400' : 
+          job.priority <= 2 ? 'bg-red-900/50 text-red-400' :
+          job.priority >= 4 ? 'bg-farm-800 text-farm-400' :
           'bg-amber-900/50 text-amber-400'
         )}>
           P{job.priority}
@@ -198,24 +205,35 @@ function SortIcon({ field, sortField, sortDirection }) {
   return sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
 }
 
-function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData }) {
+function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData, printersData }) {
   const [formData, setFormData] = useState({
     item_name: '',
     model_id: '',
     model_revision_id: '',
     priority: 3,
+    quantity: 1,
     duration_hours: '',
     colors_required: '',
     notes: '',
     due_date: '',
     required_tags: '',
+    printer_id: '',
   })
+  const [presetName, setPresetName] = useState('')
+  const [showPresetInput, setShowPresetInput] = useState(false)
 
   const { data: revisions } = useQuery({
     queryKey: ['model-revisions', formData.model_id],
     queryFn: () => modelRevisions.list(Number(formData.model_id)),
     enabled: !!formData.model_id,
   })
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -225,10 +243,12 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
       model_id: formData.model_id ? Number(formData.model_id) : null,
       model_revision_id: formData.model_revision_id ? Number(formData.model_revision_id) : null,
       duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
+      quantity: formData.quantity ? Number(formData.quantity) : 1,
       due_date: formData.due_date || null,
       required_tags: tags,
+      printer_id: formData.printer_id ? Number(formData.printer_id) : null,
     })
-    setFormData({ item_name: '', model_id: '', model_revision_id: '', priority: 3, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '' })
+    setFormData({ item_name: '', model_id: '', model_revision_id: '', priority: 3, quantity: 1, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '', printer_id: '' })
     onClose()
   }
 
@@ -247,8 +267,8 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="create-job-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="create-job-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 id="create-job-title" className="text-lg sm:text-xl font-display font-semibold mb-4">Create New Job</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -275,7 +295,7 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
             <label className="block text-sm text-farm-400 mb-1">Item Name *</label>
             <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-sm text-farm-400 mb-1">Priority</label>
               <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
@@ -285,9 +305,22 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
               </select>
             </div>
             <div>
+              <label className="block text-sm text-farm-400 mb-1">Quantity</label>
+              <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
               <label className="block text-sm text-farm-400 mb-1">Duration (hours)</label>
               <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Assign Printer (optional)</label>
+            <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+              <option value="">Auto-assign</option>
+              {printersData?.map(p => (
+                <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
@@ -308,29 +341,70 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
-            {onSavePreset && formData.item_name && (
+            {onSavePreset && formData.item_name && !showPresetInput && (
               <button
                 type="button"
-                onClick={() => {
-                  const name = prompt('Preset name:', formData.item_name)
-                  if (name) {
-                    const tags = formData.required_tags ? formData.required_tags.split(',').map(t => t.trim()).filter(Boolean) : []
-                    onSavePreset({
-                      name,
-                      model_id: formData.model_id ? Number(formData.model_id) : null,
-                      item_name: formData.item_name,
-                      priority: formData.priority,
-                      duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
-                      colors_required: formData.colors_required || null,
-                      required_tags: tags,
-                      notes: formData.notes || null,
-                    })
-                  }
-                }}
+                onClick={() => { setPresetName(formData.item_name); setShowPresetInput(true) }}
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm"
               >
                 Save Preset
               </button>
+            )}
+            {showPresetInput && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm w-40"
+                  placeholder="Preset name"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setShowPresetInput(false); setPresetName('') }
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      if (presetName.trim()) {
+                        const tags = formData.required_tags ? formData.required_tags.split(',').map(t => t.trim()).filter(Boolean) : []
+                        onSavePreset({
+                          name: presetName.trim(),
+                          model_id: formData.model_id ? Number(formData.model_id) : null,
+                          item_name: formData.item_name,
+                          priority: formData.priority,
+                          duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
+                          colors_required: formData.colors_required || null,
+                          required_tags: tags,
+                          notes: formData.notes || null,
+                        })
+                        setShowPresetInput(false)
+                        setPresetName('')
+                      }
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (presetName.trim()) {
+                      const tags = formData.required_tags ? formData.required_tags.split(',').map(t => t.trim()).filter(Boolean) : []
+                      onSavePreset({
+                        name: presetName.trim(),
+                        model_id: formData.model_id ? Number(formData.model_id) : null,
+                        item_name: formData.item_name,
+                        priority: formData.priority,
+                        duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
+                        colors_required: formData.colors_required || null,
+                        required_tags: tags,
+                        notes: formData.notes || null,
+                      })
+                      setShowPresetInput(false)
+                      setPresetName('')
+                    }
+                  }}
+                  className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm"
+                >
+                  Save
+                </button>
+              </div>
             )}
             <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">Create Job</button>
           </div>
@@ -343,10 +417,18 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData })
 
 function RejectModal({ isOpen, onClose, onSubmit }) {
   const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKey = (e) => { if (e.key === 'Escape') { onClose(); setReason('') } }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="reject-job-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="reject-job-title" onClick={() => { onClose(); setReason('') }}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700" onClick={e => e.stopPropagation()}>
         <h2 id="reject-job-title" className="text-lg font-display font-semibold mb-4">Reject Job</h2>
         <div className="mb-4">
           <label className="block text-sm text-farm-400 mb-1">Reason (required)</label>
@@ -393,6 +475,13 @@ function EditJobModal({ isOpen, onClose, onSubmit, job, printersData }) {
     }
   }, [job])
 
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
+
   const handleSubmit = (e) => {
     e.preventDefault()
     onSubmit(job.id, {
@@ -412,8 +501,8 @@ function EditJobModal({ isOpen, onClose, onSubmit, job, printersData }) {
   if (!isOpen || !job) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-job-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="edit-job-title" onClick={onClose}>
+      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 id="edit-job-title" className="text-lg sm:text-xl font-display font-semibold mb-4">Edit Job</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -476,9 +565,9 @@ function RecentlyCompleted({ jobs }) {
     ?.filter(j => j.status === 'completed' || j.status === 'failed')
     .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
     .slice(0, 8)
-  
+
   if (!recent || recent.length === 0) return null
-  
+
   return (
     <div className="mt-6">
       <h3 className="text-sm font-display font-semibold text-farm-400 mb-3 flex items-center gap-2">
@@ -492,7 +581,7 @@ function RecentlyCompleted({ jobs }) {
           }`}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium truncate">{job.item_name}</span>
-              {job.status === 'completed' 
+              {job.status === 'completed'
                 ? <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
                 : <XCircle size={14} className="text-red-400 flex-shrink-0" />
               }
@@ -511,41 +600,23 @@ function RecentlyCompleted({ jobs }) {
   )
 }
 
-const PRIORITY_CONFIG = {
-  urgent: { color: 'bg-red-900/50 text-red-400 border-red-800', label: 'Urgent', icon: '🔴' },
-  high: { color: 'bg-orange-900/50 text-orange-400 border-orange-800', label: 'High', icon: '🟠' },
-  normal: { color: 'bg-farm-800 text-farm-400 border-farm-700', label: 'Normal', icon: '' },
-  low: { color: 'bg-blue-900/50 text-blue-400 border-blue-800', label: 'Low', icon: '🔵' },
-}
-
-function PriorityBadge({ priority }) {
-  if (!priority || priority === 'normal') return null
-  const cfg = PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.normal
-  return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-xs border ${cfg.color}`}>
-      {cfg.icon && <span className="text-[10px]">{cfg.icon}</span>}
-      {cfg.label}
-    </span>
-  )
-}
-
 function DueDateBadge({ dueDate }) {
   if (!dueDate) return null
   const due = new Date(dueDate)
   const now = new Date()
   const daysUntil = Math.ceil((due - now) / (1000 * 60 * 60 * 24))
-  
+
   let color = 'text-farm-400'
   if (daysUntil < 0) color = 'text-red-400'
   else if (daysUntil <= 1) color = 'text-orange-400'
   else if (daysUntil <= 3) color = 'text-yellow-400'
-  
-  const label = daysUntil < 0 
+
+  const label = daysUntil < 0
     ? `${Math.abs(daysUntil)}d overdue`
     : daysUntil === 0 ? 'Due today'
     : daysUntil === 1 ? 'Due tomorrow'
     : `Due in ${daysUntil}d`
-    
+
   return (
     <span className={`inline-flex items-center gap-1 text-xs ${color}`}>
       <Calendar size={10} />
@@ -562,7 +633,9 @@ export default function Jobs() {
     onSuccess: () => {
       queryClient.invalidateQueries(['jobs'])
       queryClient.invalidateQueries(['stats'])
-    }
+      toast.success('Scheduler run complete')
+    },
+    onError: (err) => toast.error('Scheduler failed: ' + (err.message || 'Unknown error')),
   })
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
@@ -575,6 +648,7 @@ export default function Jobs() {
   const [failureModal, setFailureModal] = useState(null)
   const [editingJob, setEditingJob] = useState(null)
   const [selectedJobs, setSelectedJobs] = useState(new Set())
+  const [confirmAction, setConfirmAction] = useState(null)
   const toggleJobSelect = (id) => setSelectedJobs(prev => {
     const next = new Set(prev)
     next.has(id) ? next.delete(id) : next.add(id)
@@ -585,7 +659,12 @@ export default function Jobs() {
   }
   const bulkAction = useMutation({
     mutationFn: ({ action, extra }) => bulkOps.jobs([...selectedJobs], action, extra),
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); setSelectedJobs(new Set()) },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries(['jobs'])
+      setSelectedJobs(new Set())
+      toast.success(`Bulk ${vars.action} completed`)
+    },
+    onError: (err, vars) => toast.error(`Bulk ${vars.action} failed: ${err.message}`),
   })
   // Drag-and-drop queue reorder
   const [draggedId, setDraggedId] = useState(null)
@@ -622,7 +701,7 @@ export default function Jobs() {
       await jobs.reorder(reordered.map(j => j.id))
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
     } catch (err) {
-      console.error('Reorder failed:', err)
+      toast.error('Reorder failed: ' + (err.message || 'Unknown error'))
     }
   }
 
@@ -653,81 +732,99 @@ export default function Jobs() {
 
   const schedulePreset = useMutation({
     mutationFn: presets.schedule,
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Preset scheduled') },
+    onError: (err) => toast.error('Schedule preset failed: ' + err.message),
   })
 
   const deletePreset = useMutation({
     mutationFn: presets.delete,
-    onSuccess: () => queryClient.invalidateQueries(['presets']),
+    onSuccess: () => { queryClient.invalidateQueries(['presets']); toast.success('Preset deleted') },
+    onError: (err) => toast.error('Delete preset failed: ' + err.message),
   })
 
   const createPreset = useMutation({
     mutationFn: presets.create,
-    onSuccess: () => queryClient.invalidateQueries(['presets']),
+    onSuccess: () => { queryClient.invalidateQueries(['presets']); toast.success('Preset saved') },
+    onError: (err) => toast.error('Save preset failed: ' + err.message),
   })
 
   const updateJob = useMutation({
     mutationFn: ({ id, data }) => jobs.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job updated') },
+    onError: (err) => toast.error('Update job failed: ' + err.message),
   })
 
   const createJob = useMutation({
     mutationFn: jobs.create,
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job created') },
+    onError: (err) => toast.error('Create job failed: ' + err.message),
   })
 
   const startJob = useMutation({
     mutationFn: jobs.start,
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job started') },
+    onError: (err) => toast.error('Start job failed: ' + err.message),
   })
 
   const completeJob = useMutation({
     mutationFn: jobs.complete,
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job completed') },
+    onError: (err) => toast.error('Complete job failed: ' + err.message),
   })
 
   const cancelJob = useMutation({
     mutationFn: jobs.cancel,
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job cancelled') },
+    onError: (err) => toast.error('Cancel job failed: ' + err.message),
   })
-
-  
-
 
   const deleteJob = useMutation({
     mutationFn: jobs.delete,
-    onSuccess: () => queryClient.invalidateQueries(['jobs']),
+    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job deleted') },
+    onError: (err) => toast.error('Delete job failed: ' + err.message),
   })
 
   const repeatJob = useMutation({
     mutationFn: async (jobId) => {
       return jobs.repeat(jobId)
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job duplicated') },
+    onError: (err) => toast.error('Repeat job failed: ' + err.message),
   })
 
   const approveJobMut = useMutation({
     mutationFn: approveJob,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job approved') },
+    onError: (err) => toast.error('Approve job failed: ' + err.message),
   })
 
   const rejectJobMut = useMutation({
     mutationFn: ({ jobId, reason }) => rejectJob(jobId, reason),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job rejected') },
+    onError: (err) => toast.error('Reject job failed: ' + err.message),
   })
 
   const resubmitJobMut = useMutation({
     mutationFn: resubmitJob,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job resubmitted') },
+    onError: (err) => toast.error('Resubmit job failed: ' + err.message),
   })
 
   const handleAction = (action, jobId, jobName, existingReason, existingNotes) => {
     switch (action) {
-      case 'start': startJob.mutate(jobId); break
-      case 'complete': completeJob.mutate(jobId); break
-      case 'cancel': cancelJob.mutate(jobId); break
+      case 'start':
+        setConfirmAction({ action: 'start', jobId, title: 'Start Job', message: 'Start printing this job?', confirmText: 'Start', confirmVariant: 'confirm' })
+        break
+      case 'complete':
+        setConfirmAction({ action: 'complete', jobId, title: 'Complete Job', message: 'Mark this job as completed?', confirmText: 'Complete', confirmVariant: 'confirm' })
+        break
+      case 'cancel':
+        setConfirmAction({ action: 'cancel', jobId, title: 'Cancel Job', message: 'Cancel this job? If printing, the printer will NOT be stopped automatically.', confirmText: 'Cancel Job', confirmVariant: 'danger' })
+        break
       case 'repeat': repeatJob.mutate(jobId); break
-      case 'delete': if (confirm('Delete this job?')) deleteJob.mutate(jobId); break
+      case 'delete':
+        setConfirmAction({ action: 'delete', jobId, title: 'Delete Job', message: 'Permanently delete this job? This cannot be undone.', confirmText: 'Delete', confirmVariant: 'danger' })
+        break
       case 'edit': {
         const job = (jobsData || []).find(j => j.id === jobId)
         if (job) setEditingJob(job)
@@ -745,6 +842,17 @@ export default function Jobs() {
         setFailureModal({ jobId, jobName, existingReason, existingNotes })
         break
     }
+  }
+
+  const handleConfirmAction = () => {
+    if (!confirmAction) return
+    const { action, jobId } = confirmAction
+    if (action === 'start') startJob.mutate(jobId)
+    else if (action === 'complete') completeJob.mutate(jobId)
+    else if (action === 'cancel') cancelJob.mutate(jobId)
+    else if (action === 'delete') deleteJob.mutate(jobId)
+    else if (action === 'bulkDelete') bulkAction.mutate({ action: 'delete' })
+    setConfirmAction(null)
   }
 
   const handleFailureSubmit = async (jobId, reason, notes) => {
@@ -830,6 +938,7 @@ export default function Jobs() {
               jobTypeFilter === tab.value ? 'bg-print-500' : 'bg-farm-800'
             )}>
               {tab.value === 'all' ? (jobsData?.length || 0) :
+               tab.value === 'approval' ? approvalJobCount :
                tab.value === 'order' ? orderJobCount : adhocJobCount}
             </span>
           </button>
@@ -889,7 +998,13 @@ export default function Jobs() {
           <button onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs">Cancel</button>
           <button onClick={() => bulkAction.mutate({ action: 'reprioritize', extra: { priority: 1 } })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs">Priority 1</button>
           <button onClick={() => bulkAction.mutate({ action: 'reschedule' })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs">Reschedule</button>
-          <button onClick={() => bulkAction.mutate({ action: 'delete' })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-red-900/50 hover:bg-red-800/50 text-red-300 rounded-lg text-xs">Delete</button>
+          <button
+            onClick={() => setConfirmAction({ action: 'bulkDelete', title: 'Delete Jobs', message: `Permanently delete ${selectedJobs.size} selected job(s)? This cannot be undone.`, confirmText: 'Delete All', confirmVariant: 'danger' })}
+            disabled={bulkAction.isPending}
+            className="px-3 py-1.5 bg-red-900/50 hover:bg-red-800/50 text-red-300 rounded-lg text-xs"
+          >
+            Delete
+          </button>
           <button onClick={() => setSelectedJobs(new Set())} className="ml-auto px-3 py-1.5 text-farm-500 hover:text-farm-300 text-xs">Clear</button>
         </div>
       )}
@@ -947,7 +1062,11 @@ export default function Jobs() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
       <RecentlyCompleted jobs={jobsData} />
+
       {failureModal && (
         <FailureReasonModal
           jobId={failureModal.jobId}
@@ -958,14 +1077,13 @@ export default function Jobs() {
           onClose={() => setFailureModal(null)}
         />
       )}
-        </div>
-      </div>
       <CreateJobModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSubmit={(data) => createJob.mutate(data)}
         onSavePreset={(data) => createPreset.mutate(data)}
         modelsData={modelsData}
+        printersData={printersData}
       />
       <EditJobModal
         isOpen={!!editingJob}
@@ -978,6 +1096,15 @@ export default function Jobs() {
         isOpen={showRejectModal}
         onClose={() => { setShowRejectModal(false); setRejectingJobId(null) }}
         onSubmit={(reason) => rejectJobMut.mutate({ jobId: rejectingJobId, reason })}
+      />
+      <ConfirmModal
+        open={!!confirmAction}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmAction(null)}
+        title={confirmAction?.title || ''}
+        message={confirmAction?.message || ''}
+        confirmText={confirmAction?.confirmText || 'Confirm'}
+        confirmVariant={confirmAction?.confirmVariant || 'danger'}
       />
     </div>
   )

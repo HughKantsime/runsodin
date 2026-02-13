@@ -60,6 +60,12 @@
   }
 }
 
+/* Control room mode — hide sidebar and header */
+.control-room-mode aside[role="navigation"],
+.control-room-mode aside[role="navigation"] + div > [role="toolbar"] {
+  display: none !important;
+}
+
 /* Custom scrollbar — industrial thin */
 @layer utilities {
   .scrollbar-thin {

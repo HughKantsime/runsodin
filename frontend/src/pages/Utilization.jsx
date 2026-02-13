@@ -5,23 +5,26 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import clsx from 'clsx'
 
 const API_BASE = '/api'
-const apiHeaders = { 'X-API-Key': localStorage.getItem('api_key') || '' }
+const getApiHeaders = () => ({
+  'X-API-Key': import.meta.env.VITE_API_KEY || '',
+  'Authorization': `Bearer ${localStorage.getItem('token')}`,
+})
 
 export default function Utilization() {
   const [timeRange, setTimeRange] = useState('30')
   
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['stats'],
+    queryKey: ['stats', timeRange],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/stats`, { headers: apiHeaders })
+      const res = await fetch(`${API_BASE}/stats?days=${timeRange}`, { headers: getApiHeaders() })
       return res.json()
     }
   })
 
   const { data: jobsData } = useQuery({
-    queryKey: ['print-jobs-util'],
+    queryKey: ['print-jobs-util', timeRange],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/print-jobs?limit=500`, { headers: apiHeaders })
+      const res = await fetch(`${API_BASE}/print-jobs?limit=500&days=${timeRange}`, { headers: getApiHeaders() })
       return res.json()
     }
   })

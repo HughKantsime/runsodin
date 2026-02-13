@@ -207,14 +207,14 @@ export default function EducationReports() {
             <tr className="text-farm-500 text-xs uppercase tracking-wide border-b border-farm-800">
               <th className="text-left py-2 px-2 cursor-pointer" onClick={() => handleSort('username')}>User <SortIcon field="username" /></th>
               <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_jobs_submitted')}>Submitted <SortIcon field="total_jobs_submitted" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_jobs_approved')}>Approved <SortIcon field="total_jobs_approved" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_jobs_rejected')}>Rejected <SortIcon field="total_jobs_rejected" /></th>
+              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('total_jobs_approved')}>Approved <SortIcon field="total_jobs_approved" /></th>
+              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('total_jobs_rejected')}>Rejected <SortIcon field="total_jobs_rejected" /></th>
               <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_jobs_completed')}>Completed <SortIcon field="total_jobs_completed" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_print_hours')}>Hours <SortIcon field="total_print_hours" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('total_filament_grams')}>Filament <SortIcon field="total_filament_grams" /></th>
+              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('total_print_hours')}>Hours <SortIcon field="total_print_hours" /></th>
+              <th className="text-right py-2 px-2 cursor-pointer hidden lg:table-cell" onClick={() => handleSort('total_filament_grams')}>Filament <SortIcon field="total_filament_grams" /></th>
               <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('approval_rate')}>Approval % <SortIcon field="approval_rate" /></th>
-              <th className="text-right py-2 px-2 cursor-pointer" onClick={() => handleSort('success_rate')}>Success % <SortIcon field="success_rate" /></th>
-              <th className="text-right py-2 px-2">Last Active</th>
+              <th className="text-right py-2 px-2 cursor-pointer hidden md:table-cell" onClick={() => handleSort('success_rate')}>Success % <SortIcon field="success_rate" /></th>
+              <th className="text-right py-2 px-2 hidden lg:table-cell">Last Active</th>
             </tr>
           </thead>
           <tbody>
@@ -225,22 +225,22 @@ export default function EducationReports() {
                   <div className="text-xs text-farm-500">{u.email}</div>
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums text-farm-300">{u.total_jobs_submitted}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-emerald-400">{u.total_jobs_approved}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-red-400">{u.total_jobs_rejected}</td>
+                <td className="py-2 px-2 text-right tabular-nums text-emerald-400 hidden md:table-cell">{u.total_jobs_approved}</td>
+                <td className="py-2 px-2 text-right tabular-nums text-red-400 hidden md:table-cell">{u.total_jobs_rejected}</td>
                 <td className="py-2 px-2 text-right tabular-nums text-farm-300">{u.total_jobs_completed}</td>
-                <td className="py-2 px-2 text-right tabular-nums text-farm-300">{u.total_print_hours}h</td>
-                <td className="py-2 px-2 text-right tabular-nums text-farm-300">{u.total_filament_grams}g</td>
+                <td className="py-2 px-2 text-right tabular-nums text-farm-300 hidden md:table-cell">{u.total_print_hours}h</td>
+                <td className="py-2 px-2 text-right tabular-nums text-farm-300 hidden lg:table-cell">{u.total_filament_grams}g</td>
                 <td className="py-2 px-2 text-right tabular-nums">
                   <span className={clsx('font-medium', u.approval_rate >= 80 ? 'text-emerald-400' : u.approval_rate >= 50 ? 'text-yellow-400' : 'text-red-400')}>
                     {u.approval_rate}%
                   </span>
                 </td>
-                <td className="py-2 px-2 text-right tabular-nums">
+                <td className="py-2 px-2 text-right tabular-nums hidden md:table-cell">
                   <span className={clsx('font-medium', u.success_rate >= 90 ? 'text-emerald-400' : u.success_rate >= 70 ? 'text-yellow-400' : 'text-red-400')}>
                     {u.success_rate}%
                   </span>
                 </td>
-                <td className="py-2 px-2 text-right text-farm-500 text-xs">
+                <td className="py-2 px-2 text-right text-farm-500 text-xs hidden lg:table-cell">
                   {u.last_activity ? new Date(u.last_activity).toLocaleDateString() : '—'}
                 </td>
               </tr>

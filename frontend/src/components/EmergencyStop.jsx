@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react';
-
-const API_BASE = '/api';
-const API_KEY = import.meta.env.VITE_API_KEY;
+import toast from 'react-hot-toast';
+import { fetchAPI } from '../api';
 
 /**
  * Emergency Stop Button - Floating button that shows when any printer is actively printing.
@@ -18,20 +17,13 @@ export default function EmergencyStop() {
   useEffect(() => {
     const fetchPrinters = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const headers = { 'X-API-Key': API_KEY };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        
-        const res = await fetch(`${API_BASE}/printers`, { headers });
-        if (res.ok) {
-          const data = await res.json();
-          setPrinters(data.filter(p => 
-            p.gcode_state === 'RUNNING' || 
-            p.gcode_state === 'PRINTING' || 
-            p.gcode_state === 'PAUSED' ||
-            p.gcode_state === 'PAUSE'
-          ));
-        }
+        const data = await fetchAPI('/printers');
+        setPrinters(data.filter(p =>
+          p.gcode_state === 'RUNNING' ||
+          p.gcode_state === 'PRINTING' ||
+          p.gcode_state === 'PAUSED' ||
+          p.gcode_state === 'PAUSE'
+        ));
       } catch (err) {
         console.error('Failed to fetch printers:', err);
       }
@@ -44,23 +36,11 @@ export default function EmergencyStop() {
 
   const sendCommand = async (printerId, action) => {
     setLoading(prev => ({ ...prev, [printerId]: action }));
-    
+
     try {
-      const token = localStorage.getItem('token');
-      const headers = { 'X-API-Key': API_KEY };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      
-      const res = await fetch(`${API_BASE}/printers/${printerId}/${action}`, {
-        method: 'POST',
-        headers
-      });
-      
-      if (!res.ok) {
-        const err = await res.json();
-        alert(`Failed: ${err.detail || 'Unknown error'}`);
-      }
+      await fetchAPI(`/printers/${printerId}/${action}`, { method: 'POST' });
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      toast.error(`Failed to ${action}: ${err.message || 'Unknown error'}`);
     } finally {
       setLoading(prev => ({ ...prev, [printerId]: null }));
       setConfirmStop(null);

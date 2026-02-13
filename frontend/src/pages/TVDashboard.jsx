@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { VideoOff, X, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { VideoOff, X, AlertTriangle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useBranding } from '../BrandingContext'
 import { printers as printersApi, alerts as alertsApi } from '../api'
+import { ONLINE_THRESHOLD_MS } from '../utils/shared'
 
 const API_BASE = '/api'
 const API_KEY = import.meta.env.VITE_API_KEY
@@ -70,7 +71,7 @@ function TVCameraStream({ cameraId }) {
 }
 
 function TVPrinterCard({ printer }) {
-  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < ONLINE_THRESHOLD_MS
   const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
   const hasError = printer.hms_errors && printer.hms_errors.length > 0
   const hasCamera = printer.camera_url && printer.camera_enabled !== false
@@ -155,8 +156,10 @@ export default function TVDashboard() {
     return () => window.removeEventListener('keydown', handleKey)
   }, [navigate])
 
+  const autoPageTimerRef = useRef(null)
+
   // Data
-  const { data: printerList } = useQuery({
+  const { data: printerList, isLoading: printersLoading } = useQuery({
     queryKey: ['printers'],
     queryFn: () => printersApi.list(true),
     refetchInterval: 15000,
@@ -174,14 +177,20 @@ export default function TVDashboard() {
   const errorCount = allPrinters.filter(p => p.hms_errors?.length > 0).length
   const unreadAlerts = alertSummary?.unread_count || 0
 
-  // Auto-pagination
-  useEffect(() => {
+  // Reset and restart auto-pagination timer
+  const resetAutoPage = useCallback(() => {
+    if (autoPageTimerRef.current) clearInterval(autoPageTimerRef.current)
     if (totalPages <= 1) return
-    const timer = setInterval(() => {
+    autoPageTimerRef.current = setInterval(() => {
       setPage(p => (p + 1) % totalPages)
     }, 30000)
-    return () => clearInterval(timer)
   }, [totalPages])
+
+  // Auto-pagination
+  useEffect(() => {
+    resetAutoPage()
+    return () => { if (autoPageTimerRef.current) clearInterval(autoPageTimerRef.current) }
+  }, [resetAutoPage])
 
   // Reset page if it's out of bounds
   useEffect(() => {
@@ -224,11 +233,17 @@ export default function TVDashboard() {
 
       {/* Printer grid */}
       <div className="flex-1 overflow-hidden p-4">
-        <div className="grid gap-3 h-full" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-          {visiblePrinters.map(printer => (
-            <TVPrinterCard key={printer.id} printer={printer} />
-          ))}
-        </div>
+        {printersLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 size={32} className="animate-spin text-farm-500" />
+          </div>
+        ) : (
+          <div className="grid gap-3 h-full" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+            {visiblePrinters.map(printer => (
+              <TVPrinterCard key={printer.id} printer={printer} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Stats bar */}
@@ -242,7 +257,7 @@ export default function TVDashboard() {
         <div className="flex items-center gap-3">
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
-              <button onClick={() => setPage(p => (p - 1 + totalPages) % totalPages)} className="p-1 text-farm-600 hover:text-farm-400">
+              <button onClick={() => { setPage(p => (p - 1 + totalPages) % totalPages); resetAutoPage() }} className="p-1 text-farm-600 hover:text-farm-400">
                 <ChevronLeft size={16} />
               </button>
               <div className="flex items-center gap-1">
@@ -253,7 +268,7 @@ export default function TVDashboard() {
                   />
                 ))}
               </div>
-              <button onClick={() => setPage(p => (p + 1) % totalPages)} className="p-1 text-farm-600 hover:text-farm-400">
+              <button onClick={() => { setPage(p => (p + 1) % totalPages); resetAutoPage() }} className="p-1 text-farm-600 hover:text-farm-400">
                 <ChevronRight size={16} />
               </button>
             </div>

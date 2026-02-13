@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { Palette, Upload, RotateCcw, Eye, Save, Image, Type, Paintbrush, Monitor, PanelLeft } from "lucide-react"
+import ConfirmModal from '../components/ConfirmModal'
 
 const API_BASE = '/api'
 
@@ -120,6 +121,7 @@ export default function Branding() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState("identity")
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
   const logoInputRef = useRef(null)
   const faviconInputRef = useRef(null)
 
@@ -162,8 +164,27 @@ export default function Branding() {
   }
 
   const handleReset = () => {
+    setShowResetConfirm(true)
+  }
+
+  const doReset = () => {
     setDraft({ ...DEFAULTS, logo_url: draft?.logo_url, favicon_url: draft?.favicon_url })
     setSaved(false)
+    setShowResetConfirm(false)
+  }
+
+  const handleRemoveFavicon = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/branding/favicon`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(null),
+      })
+      if (!res.ok) throw new Error("Remove failed")
+      setBranding(prev => ({ ...prev, favicon_url: null }))
+      setDraft(prev => ({ ...prev, favicon_url: null }))
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   const handleFileUpload = async (endpoint, e) => {
@@ -321,6 +342,7 @@ export default function Branding() {
                     hint="PNG, ICO, SVG, or WebP"
                     inputRef={faviconInputRef}
                     onUpload={e => handleFileUpload("favicon", e)}
+                    onRemove={handleRemoveFavicon}
                   />
                 </div>
               </Section>
@@ -567,6 +589,16 @@ export default function Branding() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={showResetConfirm}
+        onConfirm={doReset}
+        onCancel={() => setShowResetConfirm(false)}
+        title="Reset Branding"
+        message="Reset all colors and text to factory defaults? Your logo and favicon will be kept."
+        confirmText="Reset to Defaults"
+        confirmVariant="danger"
+      />
     </div>
   )
 }

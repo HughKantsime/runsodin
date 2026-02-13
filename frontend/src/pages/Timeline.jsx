@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft,
@@ -11,10 +11,13 @@ import {
   Star,
   Layers,
   Thermometer,
-  AlertTriangle
+  AlertTriangle,
+  CalendarX2,
 } from 'lucide-react'
 import { format, addDays, startOfDay, differenceInMinutes, isSameDay } from 'date-fns'
+import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 
 import { timeline, printers, jobActions, jobs, printJobs } from '../api'
 import DetailDrawer from '../components/DetailDrawer'
@@ -30,6 +33,8 @@ function parseUTC(dateStr) {
 const SLOT_MINUTES = 15
 const ROW_HEIGHT = 56
 const PRINTER_COL_WIDTH = 120
+const ZOOM_MIN = 10
+const ZOOM_MAX = 60
 
 const statusColors = {
   pending: 'bg-status-pending',
@@ -137,11 +142,13 @@ function NowIndicator({ startDate, slotWidth }) {
 
 export default function Timeline() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const containerRef = useRef(null)
+  const scrollAreaRef = useRef(null)
   const [startDate, setStartDate] = useState(() => startOfDay(new Date()))
   const [days, setDays] = useState(7)
   const [slotWidth, setSlotWidth] = useState(20)
-  
+
   const dragRef = useRef({
     active: false,
     job: null,
@@ -149,7 +156,7 @@ export default function Timeline() {
     slotIndex: null,
     newStartTime: null
   })
-  
+
   const [dragUI, setDragUI] = useState({ active: false, printerId: null, left: 0, width: 0, label: '', jobId: null })
   const [selectedBlock, setSelectedBlock] = useState(null)
 
@@ -161,107 +168,147 @@ export default function Timeline() {
   const { data: timelineData, isLoading } = useQuery({
     queryKey: ['timeline', startDate.toISOString(), days],
     queryFn: () => timeline.get(startDate.toISOString(), days),
+    refetchInterval: 30000,
   })
+
+  // Auto-scroll to Now indicator on mount
+  useEffect(() => {
+    if (!scrollAreaRef.current || !timelineData) return
+    const now = new Date()
+    const minutesFromStart = differenceInMinutes(now, startDate)
+    if (minutesFromStart < 0) return
+    const nowLeft = (minutesFromStart / SLOT_MINUTES) * slotWidth
+    const containerWidth = scrollAreaRef.current.clientWidth
+    scrollAreaRef.current.scrollLeft = Math.max(0, nowLeft - containerWidth / 2)
+  }, [timelineData, startDate, slotWidth])
 
   const moveJobMutation = useMutation({
-    mutationFn: ({ jobId, printerId, scheduledStart }) => 
+    mutationFn: ({ jobId, printerId, scheduledStart }) =>
       jobActions.move(jobId, printerId, scheduledStart),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries(['timeline'])
       queryClient.invalidateQueries(['jobs'])
+      const newTime = new Date(variables.scheduledStart)
+      toast.success(`Moved job to ${format(newTime, 'MMM d HH:mm')}`)
     },
     onError: (error) => {
-      alert('Move failed: ' + (error?.message || 'Unknown error'))
+      toast.error('Move failed: ' + (error?.message || 'Unknown error'))
     }
   })
 
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!dragRef.current.active || !containerRef.current) return
+  const handleDragMove = useCallback((clientX, clientY) => {
+    if (!dragRef.current.active || !containerRef.current) return
 
-      const gridElements = containerRef.current.querySelectorAll('.timeline-grid')
-      let targetPrinterId = null
-      let targetRect = null
+    const gridElements = containerRef.current.querySelectorAll('.timeline-grid')
+    let targetPrinterId = null
+    let targetRect = null
 
-      gridElements.forEach((el) => {
-        const rect = el.getBoundingClientRect()
-        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
-          targetPrinterId = parseInt(el.dataset.printerId)
-          targetRect = rect
-        }
-      })
-
-      if (targetPrinterId && targetRect) {
-        const x = e.clientX - targetRect.left
-        const currentSlotWidth = slotWidth
-        const idx = Math.max(0, Math.floor(x / currentSlotWidth))
-        
-        const job = dragRef.current.job
-        const durationMinutes = differenceInMinutes(parseUTC(job.end), parseUTC(job.start))
-        const durationSlots = Math.ceil(durationMinutes / SLOT_MINUTES)
-        
-        const newTime = new Date(startDate.getTime() + idx * SLOT_MINUTES * 60 * 1000)
-        
-        dragRef.current.printerId = targetPrinterId
-        dragRef.current.slotIndex = idx
-        dragRef.current.newStartTime = newTime
-        
-        setDragUI({
-          active: true,
-          printerId: targetPrinterId,
-          left: idx * currentSlotWidth,
-          width: durationSlots * currentSlotWidth - 2,
-          label: format(newTime, 'MMM d HH:mm'),
-          jobId: job.job_id
-        })
+    gridElements.forEach((el) => {
+      const rect = el.getBoundingClientRect()
+      if (clientY >= rect.top && clientY <= rect.bottom) {
+        targetPrinterId = parseInt(el.dataset.printerId)
+        targetRect = rect
       }
+    })
+
+    if (targetPrinterId && targetRect) {
+      const x = clientX - targetRect.left
+      const currentSlotWidth = slotWidth
+      const idx = Math.max(0, Math.floor(x / currentSlotWidth))
+
+      const job = dragRef.current.job
+      const durationMinutes = differenceInMinutes(parseUTC(job.end), parseUTC(job.start))
+      const durationSlots = Math.ceil(durationMinutes / SLOT_MINUTES)
+
+      const newTime = new Date(startDate.getTime() + idx * SLOT_MINUTES * 60 * 1000)
+
+      dragRef.current.printerId = targetPrinterId
+      dragRef.current.slotIndex = idx
+      dragRef.current.newStartTime = newTime
+
+      setDragUI({
+        active: true,
+        printerId: targetPrinterId,
+        left: idx * currentSlotWidth,
+        width: durationSlots * currentSlotWidth - 2,
+        label: format(newTime, 'MMM d HH:mm'),
+        jobId: job.job_id
+      })
+    }
+  }, [slotWidth, startDate])
+
+  const handleDragEnd = useCallback((clientX, clientY) => {
+    if (!dragRef.current.active) return
+
+    const { job, printerId, newStartTime, startX, startY } = dragRef.current
+    const dx = clientX - (startX || 0)
+    const dy = clientY - (startY || 0)
+    const distance = Math.sqrt(dx * dx + dy * dy)
+
+    if (distance < 5 && job) {
+      setSelectedBlock(job)
+    } else if (job && printerId && newStartTime) {
+      const isoTime = newStartTime.toISOString()
+      moveJobMutation.mutate({
+        jobId: job.job_id,
+        printerId: printerId,
+        scheduledStart: isoTime
+      })
     }
 
-    const handleMouseUp = (e) => {
+    dragRef.current = { active: false, job: null, printerId: null, slotIndex: null, newStartTime: null }
+    setDragUI({ active: false, printerId: null, left: 0, width: 0, label: '', jobId: null })
+  }, [moveJobMutation])
+
+  useEffect(() => {
+    const handleMouseMove = (e) => handleDragMove(e.clientX, e.clientY)
+    const handleMouseUp = (e) => handleDragEnd(e.clientX, e.clientY)
+    const handleTouchMove = (e) => {
       if (!dragRef.current.active) return
-
-      const { job, printerId, newStartTime, startX, startY } = dragRef.current
-      const dx = e.clientX - (startX || 0)
-      const dy = e.clientY - (startY || 0)
-      const distance = Math.sqrt(dx * dx + dy * dy)
-
-      if (distance < 5 && job) {
-        // Click, not drag — open detail drawer
-        setSelectedBlock(job)
-      } else if (job && printerId && newStartTime) {
-        const isoTime = newStartTime.toISOString()
-        moveJobMutation.mutate({
-          jobId: job.job_id,
-          printerId: printerId,
-          scheduledStart: isoTime
-        })
-      }
-
-      dragRef.current = { active: false, job: null, printerId: null, slotIndex: null, newStartTime: null }
-      setDragUI({ active: false, printerId: null, left: 0, width: 0, label: '', jobId: null })
+      e.preventDefault()
+      const touch = e.touches[0]
+      handleDragMove(touch.clientX, touch.clientY)
+    }
+    const handleTouchEnd = (e) => {
+      if (!dragRef.current.active) return
+      const touch = e.changedTouches[0]
+      handleDragEnd(touch.clientX, touch.clientY)
     }
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-    
+    window.addEventListener('touchmove', handleTouchMove, { passive: false })
+    window.addEventListener('touchend', handleTouchEnd)
+
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', handleTouchEnd)
     }
-  }, [startDate, slotWidth, moveJobMutation])
+  }, [handleDragMove, handleDragEnd])
 
-  const handleJobMouseDown = (e, block) => {
-    e.preventDefault()
+  const startDrag = (clientX, clientY, block) => {
     dragRef.current = {
       active: true,
       job: block,
       printerId: null,
       slotIndex: null,
       newStartTime: null,
-      startX: e.clientX,
-      startY: e.clientY
+      startX: clientX,
+      startY: clientY
     }
     setDragUI(prev => ({ ...prev, active: true, jobId: block.job_id }))
+  }
+
+  const handleJobMouseDown = (e, block) => {
+    e.preventDefault()
+    startDrag(e.clientX, e.clientY, block)
+  }
+
+  const handleJobTouchStart = (e, block) => {
+    const touch = e.touches[0]
+    startDrag(touch.clientX, touch.clientY, block)
   }
 
   const goToPrevWeek = () => setStartDate(d => addDays(d, -7))
@@ -296,6 +343,9 @@ export default function Timeline() {
           <button onClick={goToNextWeek} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
             <ChevronRight size={18} />
           </button>
+          <span className="ml-2 text-farm-400 text-xs md:text-sm sm:hidden">
+            {format(startDate, 'M/d')} — {format(addDays(startDate, days - 1), 'M/d')}
+          </span>
           <span className="ml-2 text-farm-400 text-xs md:text-sm hidden sm:inline">
             {format(startDate, 'MMM d')} — {format(addDays(startDate, days - 1), 'MMM d, yyyy')}
           </span>
@@ -303,10 +353,19 @@ export default function Timeline() {
 
         <div className="flex items-center gap-2">
           {dragUI.active && <span className="text-xs text-print-400 mr-2">{dragUI.label}</span>}
-          <button onClick={() => setSlotWidth(w => Math.max(10, w - 5))} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+          <button
+            onClick={() => setSlotWidth(w => Math.max(ZOOM_MIN, w - 5))}
+            disabled={slotWidth <= ZOOM_MIN}
+            className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth <= ZOOM_MIN ? "bg-farm-900 text-farm-700 cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
+          >
             <ZoomOut size={16} />
           </button>
-          <button onClick={() => setSlotWidth(w => Math.min(60, w + 5))} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+          <span className="text-xs text-farm-500 tabular-nums w-6 text-center">{Math.round(((slotWidth - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100)}%</span>
+          <button
+            onClick={() => setSlotWidth(w => Math.min(ZOOM_MAX, w + 5))}
+            disabled={slotWidth >= ZOOM_MAX}
+            className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth >= ZOOM_MAX ? "bg-farm-900 text-farm-700 cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
+          >
             <ZoomIn size={16} />
           </button>
           <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
@@ -317,17 +376,23 @@ export default function Timeline() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto relative">
+      <div className="flex-1 overflow-auto relative" ref={scrollAreaRef}>
         {isLoading ? (
           <div className="flex items-center justify-center h-64 text-farm-500 text-sm">Loading...</div>
+        ) : (!timelineData?.slots?.length && !printersData?.length) ? (
+          <div className="flex flex-col items-center justify-center h-64 text-farm-500 gap-3">
+            <CalendarX2 size={32} className="text-farm-600" />
+            <p className="text-sm">No scheduled jobs</p>
+            <button onClick={() => navigate('/jobs')} className="text-sm text-print-400 hover:text-print-300 transition-colors">Go to Jobs →</button>
+          </div>
         ) : (
           <div className="min-w-max">
             <TimelineDateHeader startDate={startDate} days={days} slotWidth={slotWidth} />
             <TimelineHeader startDate={startDate} days={days} slotWidth={slotWidth} />
-            
+
             <div className="relative">
               <NowIndicator startDate={startDate} slotWidth={slotWidth} />
-              
+
               {printersData?.map((printer) => {
                 const slots = slotsByPrinter[printer.id] || []
                 const jobBlocks = slots.map((slot) => {
@@ -345,13 +410,13 @@ export default function Timeline() {
                 const showPreview = dragUI.active && dragUI.printerId === printer.id
 
                 return (
-                  <div 
+                  <div
                     key={printer.id}
-                    className={clsx("flex border-b border-farm-800 relative", dragUI.active && "bg-print-900/10")} 
+                    className={clsx("flex border-b border-farm-800 relative", dragUI.active && "bg-print-900/10")}
                     style={{ height: ROW_HEIGHT }}
                   >
                     <div className="flex-shrink-0 bg-farm-950 border-r border-farm-700 px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
-                      <div className="font-medium text-sm truncate">{printer.name}</div>
+                      <div className="font-medium text-sm truncate">{printer.nickname || printer.name}</div>
                     </div>
                     
                     <div className="flex-1 relative bg-farm-900/50 timeline-grid" data-printer-id={printer.id}>
@@ -381,6 +446,7 @@ export default function Timeline() {
                           <div
                             key={block.job_id || block.mqtt_job_id || `${block.printer_id}-${block.start}`}
                             onMouseDown={canDrag ? (e) => handleJobMouseDown(e, block) : undefined}
+                            onTouchStart={canDrag ? (e) => handleJobTouchStart(e, block) : undefined}
                             onClick={!canDrag && !block.is_setup ? () => setSelectedBlock(block) : undefined}
                             className={clsx(
                               'absolute top-1 bottom-1 rounded-md px-2 py-1 overflow-hidden select-none',

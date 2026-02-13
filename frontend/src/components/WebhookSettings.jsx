@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Webhook, Plus, Trash2, TestTube, Check, X, MessageSquare } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const API_BASE = '/api';
 const API_KEY = import.meta.env.VITE_API_KEY;
@@ -64,7 +65,7 @@ export default function WebhookSettings() {
         loadWebhooks();
       }
     } catch (err) {
-      alert('Failed to create webhook');
+      toast.error('Failed to create webhook');
     }
   };
 
@@ -74,7 +75,7 @@ export default function WebhookSettings() {
       await fetch(`${API_BASE}/webhooks/${id}`, { method: 'DELETE', headers: getHeaders() });
       loadWebhooks();
     } catch (err) {
-      alert('Failed to delete webhook');
+      toast.error('Failed to delete webhook');
     }
   };
 
@@ -87,7 +88,7 @@ export default function WebhookSettings() {
       });
       loadWebhooks();
     } catch (err) {
-      alert('Failed to update webhook');
+      toast.error('Failed to update webhook');
     }
   };
 

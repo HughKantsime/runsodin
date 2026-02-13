@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { X, Maximize2, Minimize2, Monitor, Thermometer } from 'lucide-react'
+import { X, Maximize2, Minimize2, Monitor, Thermometer, RefreshCw, Video } from 'lucide-react'
 import { printers as printersApi } from '../api'
 import { PrinterInfoPanel, ActiveJobPanel, FilamentSlotsPanel } from './PrinterPanels'
 
@@ -22,31 +22,12 @@ export default function CameraModal({ printer, onClose }) {
 
   const p = freshPrinter || printer
 
-  useEffect(() => {
+  const startWebRTC = useCallback(async () => {
     if (!printer) return
-    startWebRTC()
-    return () => {
-      if (pcRef.current) {
-        pcRef.current.close()
-        pcRef.current = null
-      }
-    }
-  }, [printer])
-
-  useEffect(() => {
-    const handleEsc = (e) => {
-      if (e.key === 'Escape') {
-        if (size === 'fullscreen') setSize('large')
-        else onClose()
-      }
-    }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
-  }, [size, onClose])
-
-  const startWebRTC = async () => {
     try {
+      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
       setStatus('connecting')
+      setError(null)
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       })
@@ -94,7 +75,28 @@ export default function CameraModal({ printer, onClose }) {
       setError(err.message)
       setStatus('error')
     }
-  }
+  }, [printer])
+
+  useEffect(() => {
+    startWebRTC()
+    return () => {
+      if (pcRef.current) {
+        pcRef.current.close()
+        pcRef.current = null
+      }
+    }
+  }, [startWebRTC])
+
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        if (size === 'fullscreen') setSize('large')
+        else onClose()
+      }
+    }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [size, onClose])
 
   if (!printer) return null
 
@@ -121,7 +123,7 @@ export default function CameraModal({ printer, onClose }) {
       : 'bg-farm-950 rounded-lg border border-farm-800 shadow-2xl w-96 flex flex-col'
 
   return (
-    <div className={sizeClasses} role="dialog" aria-modal={size !== 'small' ? 'true' : undefined} aria-label={`Camera feed for ${p.name}`} onClick={size !== 'small' ? onClose : undefined}>
+    <div className={sizeClasses} role="dialog" aria-modal={size !== 'small' ? 'true' : undefined} aria-label={`Camera feed for ${p.name}`} onClick={size === 'large' ? onClose : undefined}>
       <div className={containerClasses} onClick={e => e.stopPropagation()}>
         {/* Video section */}
         <div className={size === 'fullscreen' ? 'flex-1 flex flex-col min-w-0' : 'flex flex-col'}>
@@ -135,13 +137,20 @@ export default function CameraModal({ printer, onClose }) {
               className="w-full h-full object-contain"
             />
             {status === 'connecting' && (
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                <Video size={32} className="text-farm-600 animate-pulse" />
                 <div className="text-farm-400 text-sm animate-pulse">Connecting...</div>
               </div>
             )}
-            {status === 'error' && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-red-400 text-sm">{error || 'Connection failed'}</div>
+            {(status === 'error' || status === 'disconnected') && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                <div className="text-red-400 text-sm">{error || 'Connection lost'}</div>
+                <button
+                  onClick={startWebRTC}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm text-farm-300 transition-colors"
+                >
+                  <RefreshCw size={14} /> Reconnect
+                </button>
               </div>
             )}
             {/* Controls overlay - top right */}

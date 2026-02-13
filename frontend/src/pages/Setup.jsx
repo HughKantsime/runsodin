@@ -326,8 +326,16 @@ export default function Setup() {
           <label className={labelClass}>Password</label>
           <div className="relative">
             <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 6 characters" className={inputClass + " pl-10"} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters (uppercase, lowercase, number)" className={inputClass + " pl-10"} />
           </div>
+          {password && (
+            <div className="mt-2 space-y-0.5 text-xs">
+              <p className={password.length >= 8 ? 'text-emerald-400' : 'text-white/30'}>{password.length >= 8 ? '\u2713' : '\u2717'} At least 8 characters</p>
+              <p className={/[A-Z]/.test(password) ? 'text-emerald-400' : 'text-white/30'}>{/[A-Z]/.test(password) ? '\u2713' : '\u2717'} One uppercase letter</p>
+              <p className={/[a-z]/.test(password) ? 'text-emerald-400' : 'text-white/30'}>{/[a-z]/.test(password) ? '\u2713' : '\u2717'} One lowercase letter</p>
+              <p className={/[0-9]/.test(password) ? 'text-emerald-400' : 'text-white/30'}>{/[0-9]/.test(password) ? '\u2713' : '\u2717'} One number</p>
+            </div>
+          )}
         </div>
 
         <div>
@@ -503,10 +511,10 @@ export default function Setup() {
               <ChevronLeft size={16} /> Back
             </button>
             <div className="flex gap-2">
-              <button onClick={handleTestPrinter} disabled={testLoading} className={btnSecondary}>
+              <button onClick={handleTestPrinter} disabled={testLoading || !printerIp.trim()} className={btnPrimary}>
                 {testLoading ? <><Loader2 size={16} className="animate-spin" /> Testing...</> : <>Test Connection</>}
               </button>
-              <button onClick={handleAddPrinter} disabled={isLoading} className={btnPrimary}>
+              <button onClick={handleAddPrinter} disabled={isLoading} className={btnSecondary}>
                 {isLoading ? <><Loader2 size={16} className="animate-spin" /> Adding...</> : <>Add Printer</>}
               </button>
             </div>
@@ -542,10 +550,9 @@ export default function Setup() {
     }
   }
 
-  const renderNetwork = () => {
-    // Auto-detect IP on mount
-    if (!detectedIp) {
-      const authToken = token || localStorage.getItem('token')
+  // Auto-detect network IP when reaching the network step
+  useEffect(() => {
+    if (step === 3 && !detectedIp) {
       fetch('/api/setup/network')
         .then(r => { if (!r.ok) throw new Error('Failed'); return r.json() })
         .then(data => {
@@ -554,6 +561,9 @@ export default function Setup() {
         })
         .catch(() => {})
     }
+  }, [step])
+
+  const renderNetwork = () => {
     return (
       <div>
         <div className="text-center mb-6">

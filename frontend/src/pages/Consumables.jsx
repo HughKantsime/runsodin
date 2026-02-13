@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Trash2, Pencil, X, AlertTriangle, ArrowUpDown } from 'lucide-react'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 import { consumables } from '../api'
 import { canDo } from '../permissions'
+import ConfirmModal from '../components/ConfirmModal'
 
 const UNIT_OPTIONS = ['piece', 'gram', 'ml', 'meter', 'pack', 'box', 'sheet']
 
@@ -19,6 +21,8 @@ export default function Consumables() {
     min_stock: '', vendor: '', notes: '', status: 'active'
   })
   const [adjustData, setAdjustData] = useState({ quantity: '', type: 'restock', notes: '' })
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [confirmLargeAdjust, setConfirmLargeAdjust] = useState(false)
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['consumables', statusFilter],
@@ -77,11 +81,19 @@ export default function Consumables() {
     }
   }
 
+  const LARGE_ADJUST_THRESHOLD = 100
+
   const handleAdjust = (e) => {
     e.preventDefault()
+    const qty = parseFloat(adjustData.quantity)
+    if (qty >= LARGE_ADJUST_THRESHOLD && !confirmLargeAdjust) {
+      setConfirmLargeAdjust(true)
+      return
+    }
+    setConfirmLargeAdjust(false)
     adjustMutation.mutate({
       id: showAdjustModal.id,
-      data: { quantity: parseFloat(adjustData.quantity), type: adjustData.type, notes: adjustData.notes }
+      data: { quantity: qty, type: adjustData.type, notes: adjustData.notes }
     })
   }
 
@@ -95,9 +107,10 @@ export default function Consumables() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--brand-text-primary)' }}>Consumables</h1>
+          <h1 className="text-2xl font-bold text-farm-100">Consumables</h1>
           <p className="text-sm text-farm-400 mt-1">Non-printed inventory items for product assembly</p>
         </div>
+        {/* Consumables share models.* permissions — no separate consumables RBAC tier */}
         {canDo('models.create') && (
           <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 text-white rounded-lg hover:bg-print-500 transition-colors">
             <Plus size={18} /> Add Consumable
@@ -107,22 +120,22 @@ export default function Consumables() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
-          <div className="text-2xl font-bold" style={{ color: 'var(--brand-text-primary)' }}>{items.length}</div>
+        <div className="rounded-lg p-4 bg-farm-900 border border-farm-800">
+          <div className="text-2xl font-bold text-farm-100">{items.length}</div>
           <div className="text-xs text-farm-400">Total Items</div>
         </div>
-        <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
+        <div className="rounded-lg p-4 bg-farm-900 border border-farm-800">
           <div className="text-2xl font-bold text-yellow-400">{lowStockCount}</div>
           <div className="text-xs text-farm-400">Low Stock</div>
         </div>
-        <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
-          <div className="text-2xl font-bold" style={{ color: 'var(--brand-text-primary)' }}>
+        <div className="rounded-lg p-4 bg-farm-900 border border-farm-800">
+          <div className="text-2xl font-bold text-farm-100">
             {items.filter(i => i.status === 'active').length}
           </div>
           <div className="text-xs text-farm-400">Active</div>
         </div>
-        <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
-          <div className="text-2xl font-bold" style={{ color: 'var(--brand-text-primary)' }}>
+        <div className="rounded-lg p-4 bg-farm-900 border border-farm-800">
+          <div className="text-2xl font-bold text-farm-100">
             ${items.reduce((sum, i) => sum + (i.cost_per_unit || 0) * (i.current_stock || 0), 0).toFixed(2)}
           </div>
           <div className="text-xs text-farm-400">Inventory Value</div>
@@ -134,10 +147,10 @@ export default function Consumables() {
         <input
           type="text" placeholder="Search name or SKU..." value={searchText}
           onChange={e => setSearchText(e.target.value)}
-          className="px-3 py-2 bg-farm-800 border border-farm-600 rounded-lg text-sm w-64" style={{ color: 'var(--brand-text-primary)' }}
+          className="px-3 py-2 bg-farm-800 border border-farm-600 rounded-lg text-sm w-64 text-farm-100"
         />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="px-3 py-2 bg-farm-800 border border-farm-600 rounded-lg text-sm" style={{ color: 'var(--brand-text-primary)' }}>
+          className="px-3 py-2 bg-farm-800 border border-farm-600 rounded-lg text-sm text-farm-100">
           <option value="">All Status</option>
           <option value="active">Active</option>
           <option value="depleted">Depleted</option>
@@ -153,10 +166,10 @@ export default function Consumables() {
           {items.length === 0 ? 'No consumables yet. Add your first item.' : 'No results match your search.'}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg" style={{ border: '1px solid var(--brand-sidebar-border)' }}>
+        <div className="overflow-x-auto rounded-lg border border-farm-800">
           <table className="w-full text-sm">
             <thead>
-              <tr style={{ backgroundColor: 'var(--brand-card-bg)' }}>
+              <tr className="bg-farm-900">
                 <th className="text-left p-3 text-farm-400 font-medium">Name</th>
                 <th className="text-left p-3 text-farm-400 font-medium hidden md:table-cell">SKU</th>
                 <th className="text-left p-3 text-farm-400 font-medium">Stock</th>
@@ -172,13 +185,12 @@ export default function Consumables() {
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       {item.is_low_stock && <AlertTriangle size={14} className="text-yellow-400 shrink-0" />}
-                      <span style={{ color: 'var(--brand-text-primary)' }}>{item.name}</span>
+                      <span>{item.name}</span>
                     </div>
                   </td>
                   <td className="p-3 text-farm-400 hidden md:table-cell">{item.sku || '—'}</td>
                   <td className="p-3">
-                    <span className={clsx('font-medium', item.is_low_stock ? 'text-yellow-400' : '')}
-                      style={!item.is_low_stock ? { color: 'var(--brand-text-primary)' } : undefined}>
+                    <span className={clsx('font-medium', item.is_low_stock ? 'text-yellow-400' : 'text-farm-100')}>
                       {item.current_stock}
                     </span>
                     {item.min_stock > 0 && <span className="text-farm-500 text-xs ml-1">/ min {item.min_stock}</span>}
@@ -198,7 +210,7 @@ export default function Consumables() {
                         </button>
                       )}
                       {canDo('models.delete') && (
-                        <button onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteMutation.mutate(item.id) }}
+                        <button onClick={() => setConfirmDelete(item)}
                           className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg" title="Delete">
                           <Trash2 size={14} />
                         </button>
@@ -215,9 +227,9 @@ export default function Consumables() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="rounded-xl p-6 w-full max-w-md" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
+          <div className="rounded-xl p-6 w-full max-w-md bg-farm-950 border border-farm-800">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold" style={{ color: 'var(--brand-text-primary)' }}>
+              <h3 className="text-lg font-semibold">
                 {editingItem ? 'Edit Consumable' : 'Add Consumable'}
               </h3>
               <button onClick={handleCloseModal} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
@@ -226,18 +238,18 @@ export default function Consumables() {
               <div>
                 <label className="text-xs text-farm-400">Name *</label>
                 <input type="text" required value={formData.name} onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
-                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-farm-400">SKU</label>
                   <input type="text" value={formData.sku} onChange={e => setFormData(f => ({ ...f, sku: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-farm-400">Unit</label>
                   <select value={formData.unit} onChange={e => setFormData(f => ({ ...f, unit: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }}>
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm">
                     {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
@@ -246,28 +258,28 @@ export default function Consumables() {
                 <div>
                   <label className="text-xs text-farm-400">Cost/Unit ($)</label>
                   <input type="number" step="0.01" value={formData.cost_per_unit} onChange={e => setFormData(f => ({ ...f, cost_per_unit: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-farm-400">Current Stock</label>
                   <input type="number" step="0.01" value={formData.current_stock} onChange={e => setFormData(f => ({ ...f, current_stock: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-farm-400">Min Stock</label>
                   <input type="number" step="0.01" value={formData.min_stock} onChange={e => setFormData(f => ({ ...f, min_stock: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-farm-400">Vendor</label>
                 <input type="text" value={formData.vendor} onChange={e => setFormData(f => ({ ...f, vendor: e.target.value }))}
-                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="text-xs text-farm-400">Notes</label>
                 <textarea value={formData.notes} onChange={e => setFormData(f => ({ ...f, notes: e.target.value }))}
-                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm h-16 resize-none" style={{ color: 'var(--brand-text-primary)' }} />
+                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm h-16 resize-none" />
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={handleCloseModal} className="px-4 py-2 bg-farm-700 text-farm-300 rounded-lg text-sm hover:bg-farm-600">Cancel</button>
@@ -283,10 +295,10 @@ export default function Consumables() {
       {/* Stock Adjustment Modal */}
       {showAdjustModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="rounded-xl p-6 w-full max-w-sm" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
+          <div className="rounded-xl p-6 w-full max-w-sm bg-farm-950 border border-farm-800">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Adjust Stock</h3>
-              <button onClick={() => setShowAdjustModal(null)} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
+              <h3 className="text-lg font-semibold">Adjust Stock</h3>
+              <button onClick={() => { setShowAdjustModal(null); setConfirmLargeAdjust(false) }} className="text-farm-500 hover:text-farm-300"><X size={20} /></button>
             </div>
             <p className="text-sm text-farm-400 mb-3">{showAdjustModal.name} — current: {showAdjustModal.current_stock} {showAdjustModal.unit}s</p>
             <form onSubmit={handleAdjust} className="space-y-3">
@@ -294,7 +306,7 @@ export default function Consumables() {
                 <div>
                   <label className="text-xs text-farm-400">Type</label>
                   <select value={adjustData.type} onChange={e => setAdjustData(d => ({ ...d, type: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }}>
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm">
                     <option value="restock">Restock</option>
                     <option value="deduct">Deduct</option>
                   </select>
@@ -302,23 +314,39 @@ export default function Consumables() {
                 <div>
                   <label className="text-xs text-farm-400">Quantity</label>
                   <input type="number" step="0.01" required value={adjustData.quantity}
-                    onChange={e => setAdjustData(d => ({ ...d, quantity: e.target.value }))}
-                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                    onChange={e => { setAdjustData(d => ({ ...d, quantity: e.target.value })); setConfirmLargeAdjust(false) }}
+                    className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
                 </div>
               </div>
+              {confirmLargeAdjust && (
+                <div className="p-2 bg-amber-900/30 border border-amber-700/50 rounded-lg text-xs text-amber-300 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  Large adjustment ({adjustData.quantity} {showAdjustModal.unit}s). Click Adjust again to confirm.
+                </div>
+              )}
               <div>
                 <label className="text-xs text-farm-400">Notes</label>
                 <input type="text" value={adjustData.notes} onChange={e => setAdjustData(d => ({ ...d, notes: e.target.value }))}
-                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
+                  className="w-full bg-farm-800 border border-farm-600 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowAdjustModal(null)} className="px-4 py-2 bg-farm-700 text-farm-300 rounded-lg text-sm">Cancel</button>
+                <button type="button" onClick={() => { setShowAdjustModal(null); setConfirmLargeAdjust(false) }} className="px-4 py-2 bg-farm-700 text-farm-300 rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-print-600 text-white rounded-lg text-sm hover:bg-print-500">Adjust</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmDelete}
+        title="Delete Consumable"
+        message={confirmDelete ? `Are you sure you want to delete "${confirmDelete.name}"? This cannot be undone.` : ''}
+        confirmText="Delete"
+        confirmVariant="danger"
+        onConfirm={() => { deleteMutation.mutate(confirmDelete.id); setConfirmDelete(null) }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }

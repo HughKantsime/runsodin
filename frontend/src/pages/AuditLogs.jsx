@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FileText, Download, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { auditLogs } from '../api'
 
 const ACTION_COLORS = {
@@ -16,6 +16,21 @@ const ENTITY_TYPES = ['job', 'printer', 'spool', 'model', 'order', 'user', 'sett
 const ACTIONS = ['create', 'update', 'delete', 'login', 'schedule', 'sync']
 const PAGE_SIZES = [25, 50, 100]
 
+function summarizeDetails(details) {
+  if (!details || typeof details !== 'object') return null
+  const parts = []
+  if (details.name) parts.push(details.name)
+  if (details.status) parts.push(`status: ${details.status}`)
+  if (details.role) parts.push(`role: ${details.role}`)
+  if (details.changes && typeof details.changes === 'object') {
+    const keys = Object.keys(details.changes)
+    if (keys.length > 0) parts.push(`changed: ${keys.join(', ')}`)
+  }
+  if (details.reason) parts.push(details.reason)
+  if (details.ip) parts.push(`from ${details.ip}`)
+  return parts.length > 0 ? parts.join(' \u2022 ') : null
+}
+
 export default function AuditLogs() {
   const [entityType, setEntityType] = useState('')
   const [action, setAction] = useState('')
@@ -24,6 +39,7 @@ export default function AuditLogs() {
   const [limit, setLimit] = useState(50)
   const [offset, setOffset] = useState(0)
   const [expandedId, setExpandedId] = useState(null)
+  const [searchText, setSearchText] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['audit-logs', entityType, action, dateFrom, dateTo, limit, offset],
@@ -36,8 +52,22 @@ export default function AuditLogs() {
     }),
   })
 
-  const logs = data?.logs || []
+  const allLogs = data?.logs || []
   const total = data?.total || 0
+
+  // Client-side text search filter
+  const logs = searchText
+    ? allLogs.filter(log => {
+        const q = searchText.toLowerCase()
+        return (
+          (log.action || '').toLowerCase().includes(q) ||
+          (log.entity_type || '').toLowerCase().includes(q) ||
+          (log.username || '').toLowerCase().includes(q) ||
+          String(log.entity_id || '').toLowerCase().includes(q) ||
+          JSON.stringify(log.details || '').toLowerCase().includes(q)
+        )
+      })
+    : allLogs
   const page = Math.floor(offset / limit) + 1
   const totalPages = Math.ceil(total / limit)
 
@@ -75,6 +105,16 @@ export default function AuditLogs() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+          <input
+            type="text"
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            placeholder="Search logs..."
+            className="bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-3 py-2 text-sm w-48"
+          />
+        </div>
         <select value={entityType} onChange={e => { setEntityType(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
           <option value="">All Types</option>
           {ENTITY_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
@@ -99,6 +139,7 @@ export default function AuditLogs() {
           <thead>
             <tr className="border-b border-farm-800 text-farm-500 text-xs uppercase">
               <th className="text-left px-4 py-3 font-medium">Timestamp</th>
+              <th className="text-left px-4 py-3 font-medium">User</th>
               <th className="text-left px-4 py-3 font-medium">Action</th>
               <th className="text-left px-4 py-3 font-medium">Type</th>
               <th className="text-left px-4 py-3 font-medium">ID</th>
@@ -108,13 +149,18 @@ export default function AuditLogs() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={6} className="text-center py-8 text-farm-500">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center py-8 text-farm-500">Loading...</td></tr>
             ) : logs.length === 0 ? (
-              <tr><td colSpan={6} className="text-center py-8 text-farm-500">No audit log entries</td></tr>
-            ) : logs.map(log => (
+              <tr><td colSpan={7} className="text-center py-8 text-farm-500">{searchText ? 'No matching entries' : 'No audit log entries'}</td></tr>
+            ) : logs.map(log => {
+              const summary = summarizeDetails(log.details)
+              return (
               <tr key={log.id} className="border-b border-farm-800/50 hover:bg-farm-800/30 transition-colors">
                 <td className="px-4 py-2.5 text-farm-400 whitespace-nowrap">
                   {log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                </td>
+                <td className="px-4 py-2.5 text-farm-300 whitespace-nowrap">
+                  {log.username || '—'}
                 </td>
                 <td className={`px-4 py-2.5 font-medium ${ACTION_COLORS[log.action] || 'text-farm-400'}`}>
                   {log.action || '—'}
@@ -130,14 +176,15 @@ export default function AuditLogs() {
                       {expandedId === log.id ? (
                         <pre className="text-xs whitespace-pre-wrap font-mono">{JSON.stringify(log.details, null, 2)}</pre>
                       ) : (
-                        <span className="truncate block max-w-xs">{JSON.stringify(log.details)}</span>
+                        <span className="truncate block max-w-xs">{summary || JSON.stringify(log.details)}</span>
                       )}
                     </button>
                   ) : '—'}
                 </td>
                 <td className="px-4 py-2.5 text-farm-600 whitespace-nowrap">{log.ip_address || '—'}</td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>

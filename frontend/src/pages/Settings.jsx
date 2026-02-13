@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import usePushNotifications from '../hooks/usePushNotifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye } from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye, ChevronDown, ChevronRight } from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -22,6 +22,7 @@ import ChargebackReport from '../components/ChargebackReport'
 import { alertPreferences, smtpConfig } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
+import ProBadge from '../components/ProBadge'
 
 const API_KEY = import.meta.env.VITE_API_KEY
 const getApiHeaders = () => ({
@@ -685,6 +686,47 @@ function ModelUpload({ headers, onUploaded }) {
   )
 }
 
+function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border border-farm-800 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-3 bg-farm-900 hover:bg-farm-800/70 transition-colors text-left"
+      >
+        {Icon && <Icon size={16} className="text-print-400" />}
+        <span className="font-medium text-sm">{title}</span>
+        {open ? <ChevronDown size={14} className="ml-auto text-farm-500" /> : <ChevronRight size={14} className="ml-auto text-farm-500" />}
+      </button>
+      {open && <div className="p-4 md:p-6 border-t border-farm-800">{children}</div>}
+    </div>
+  )
+}
+
+function downloadExport(endpoint, filename) {
+  const token = localStorage.getItem('token')
+  const apiKey = import.meta.env.VITE_API_KEY
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (apiKey) headers['X-API-Key'] = apiKey
+  fetch(endpoint, { headers })
+    .then(res => {
+      if (!res.ok) throw new Error('Export failed')
+      return res.blob()
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+    .catch(() => {})
+}
+
 export default function Settings() {
   const queryClient = useQueryClient()
   const [settings, setSettings] = useState({
@@ -915,7 +957,10 @@ export default function Settings() {
     { id: 'branding', label: 'Branding', icon: Palette },
     { id: 'system', label: 'System', icon: Database },
   ]
-  const TABS = lic.isPro ? ALL_TABS : ALL_TABS.filter(t => !PRO_TABS.includes(t.id))
+  const TABS = ALL_TABS.map(t => ({
+    ...t,
+    disabled: !lic.isPro && PRO_TABS.includes(t.id),
+  }))
 
   return (
     <div className="p-4 md:p-6">
@@ -929,49 +974,55 @@ export default function Settings() {
         {TABS.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => !tab.disabled && setActiveTab(tab.id)}
+            disabled={tab.disabled}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-              activeTab === tab.id
-                ? 'bg-print-600 text-white'
-                : 'bg-farm-900 text-farm-400 hover:bg-farm-800 hover:text-farm-200'
+              tab.disabled
+                ? 'bg-farm-900/50 text-farm-600 cursor-not-allowed'
+                : activeTab === tab.id
+                  ? 'bg-print-600 text-white'
+                  : 'bg-farm-900 text-farm-400 hover:bg-farm-800 hover:text-farm-200'
             }`}
           >
             <tab.icon size={16} />
             <span className="hidden sm:inline">{tab.label}</span>
+            {tab.disabled && <ProBadge />}
           </button>
         ))}
       </div>
 
       {/* ==================== ACCESS TAB (Users + Permissions + SSO + MFA) ==================== */}
-      {activeTab === 'access' && <div className="max-w-4xl space-y-6">
-        <Admin />
-        <div className="border-t border-farm-700 pt-6">
-          <GroupManager />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
+      {activeTab === 'access' && <div className="max-w-4xl space-y-3">
+        <AccessAccordion title="Users & Groups" icon={Users} defaultOpen>
+          <Admin />
+          <div className="border-t border-farm-700 pt-6 mt-6">
+            <GroupManager />
+          </div>
+        </AccessAccordion>
+        <AccessAccordion title="Permissions" icon={Shield}>
           <Permissions />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
+        </AccessAccordion>
+        <AccessAccordion title="Authentication (OIDC & MFA)" icon={Key}>
           <OIDCSettings />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
-          <MFASetup />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
+          <div className="border-t border-farm-700 pt-6 mt-6">
+            <MFASetup />
+          </div>
+        </AccessAccordion>
+        <AccessAccordion title="Tokens & Sessions" icon={Key}>
           <APITokenManager />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
-          <SessionManager />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
+          <div className="border-t border-farm-700 pt-6 mt-6">
+            <SessionManager />
+          </div>
+        </AccessAccordion>
+        <AccessAccordion title="Quotas & Restrictions" icon={Shield}>
           <QuotaManager />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
-          <IPAllowlistSettings />
-        </div>
-        <div className="border-t border-farm-700 pt-6">
+          <div className="border-t border-farm-700 pt-6 mt-6">
+            <IPAllowlistSettings />
+          </div>
+        </AccessAccordion>
+        <AccessAccordion title="Organizations" icon={Users}>
           <OrgManager />
-        </div>
+        </AccessAccordion>
       </div>}
 
       {/* ==================== INTEGRATIONS TAB (Webhooks) ==================== */}
@@ -1354,6 +1405,7 @@ export default function Settings() {
           When enabled, viewer-role users (students) must have their print jobs approved by an operator or admin (teacher) before they can be scheduled. Operators and admins bypass approval.
         </p>
         <ApprovalToggle />
+        <p className="text-xs text-farm-500 mt-2">Saves automatically when toggled.</p>
       </div>
 
       {/* Interface Mode */}
@@ -1376,6 +1428,7 @@ export default function Settings() {
           >
             <div className="font-semibold mb-1">Simple</div>
             <div className="text-xs opacity-70">Essential features only</div>
+            {uiMode === 'advanced' && <div className="text-xs text-amber-400/70 mt-1">Vigil AI settings tab will be hidden</div>}
           </button>
           <button
             onClick={() => toggleUiMode('advanced')}
@@ -1390,11 +1443,14 @@ export default function Settings() {
           </button>
         </div>
       </div>
+      {/* Network — merged into General tab */}
+      <NetworkTab />
+
       {/* Save Button - General */}
       <div className="flex items-center gap-4">
         <button onClick={handleSave} disabled={saveSettings.isPending} className="flex items-center gap-2 px-5 md:px-6 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg font-medium text-sm">
           {saveSettings.isPending ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
-          Save Settings
+          Save Scheduling Settings
         </button>
         {saved && (
           <span className="flex items-center gap-1 text-green-400 text-sm">
@@ -1402,9 +1458,6 @@ export default function Settings() {
           </span>
         )}
       </div>
-
-      {/* Network — merged into General tab */}
-      <NetworkTab />
 
       </div>}
 
@@ -1556,38 +1609,34 @@ export default function Settings() {
           Export your data as CSV files for analysis, reporting, or backup purposes.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <a
-            href="/api/export/jobs"
-            download="jobs_export.csv"
+          <button
+            onClick={() => downloadExport('/api/export/jobs', 'jobs_export.csv')}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
           >
             <Download size={16} />
             Jobs
-          </a>
-          <a
-            href="/api/export/models"
-            download="models_export.csv"
+          </button>
+          <button
+            onClick={() => downloadExport('/api/export/models', 'models_export.csv')}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
           >
             <Download size={16} />
             Models
-          </a>
-          <a
-            href="/api/export/spools"
-            download="spools_export.csv"
+          </button>
+          <button
+            onClick={() => downloadExport('/api/export/spools', 'spools_export.csv')}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
           >
             <Download size={16} />
             Spools
-          </a>
-          <a
-            href="/api/export/filament-usage"
-            download="filament_usage_export.csv"
+          </button>
+          <button
+            onClick={() => downloadExport('/api/export/filament-usage', 'filament_usage_export.csv')}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
           >
             <Download size={16} />
             Filament Usage
-          </a>
+          </button>
         </div>
       </div>
       {/* Data Retention */}
