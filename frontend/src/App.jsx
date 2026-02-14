@@ -68,7 +68,7 @@ import Detections from './pages/Detections'
 import EducationReports from './pages/EducationReports'
 import AuditLogs from './pages/AuditLogs'
 import Timelapses from './pages/Timelapses'
-import { stats, printers } from './api'
+import { stats, printers, getEducationMode } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
@@ -83,7 +83,7 @@ function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
         'transition-colors border-l-3',
         collapsed ? 'flex items-center justify-center py-2 rounded-lg' 
                   : 'flex items-center gap-3 px-4 py-2 rounded-lg text-sm',
-        isActive ? 'border-l-amber-500' : 'border-l-transparent',
+        isActive ? 'border-l-print-500' : 'border-l-transparent',
       )}
       style={({ isActive }) => isActive
         ? { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-active-text)' }
@@ -126,6 +126,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sections, setSections] = useState({ work: true, library: true, monitor: true, tools: true })
   const [uiMode, setUiMode] = useState('advanced')
+  const [educationMode, setEducationMode] = useState(false)
   useEffect(() => {
     const key = localStorage.getItem('pf_api_key') || ''
     fetch('/api/pricing-config', { headers: { 'X-API-Key': key } })
@@ -133,6 +134,12 @@ function Sidebar({ mobileOpen, onMobileClose }) {
     const handler = (e) => setUiMode(e.detail)
     window.addEventListener('ui-mode-changed', handler)
     return () => window.removeEventListener('ui-mode-changed', handler)
+  }, [])
+  useEffect(() => {
+    getEducationMode().then(d => setEducationMode(d?.enabled || false)).catch(() => {})
+    const handler = () => getEducationMode().then(d => setEducationMode(d?.enabled || false)).catch(() => {})
+    window.addEventListener('education-mode-changed', handler)
+    return () => window.removeEventListener('education-mode-changed', handler)
   }, [])
   const adv = uiMode === 'advanced'
   const lic = useLicense()
@@ -256,7 +263,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {(canAccessPage("jobs") || canAccessPage("upload")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
           {((collapsed && !mobileOpen) || sections.work) && <>
             {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>Jobs</NavItem>}
-            {adv && lic.isPro && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders{!lic.isPro && <ProBadge />}</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders{!lic.isPro && <ProBadge />}</NavItem>}
             {canAccessPage('upload') && <NavItem collapsed={collapsed && !mobileOpen} to="/upload" icon={UploadIcon} onClick={handleNavClick}>Upload</NavItem>}
           </>}
 
@@ -264,9 +271,9 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
           {((collapsed && !mobileOpen) || sections.library) && <>
             {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>Models</NavItem>}
-            {adv && lic.isPro && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products{!lic.isPro && <ProBadge />}</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products{!lic.isPro && <ProBadge />}</NavItem>}
             {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>Spools</NavItem>}
-            {adv && lic.isPro && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
+            {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
           </>}
 
           {/* Monitor */}
@@ -430,7 +437,7 @@ function NotFound() {
     <div className="flex flex-col items-center justify-center min-h-[50vh] p-8 text-center">
       <h2 className="text-4xl font-bold text-farm-100 mb-2">404</h2>
       <p className="text-sm text-farm-400 mb-6">Page not found</p>
-      <Link to="/" className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm transition-colors">
+      <Link to="/" className="px-4 py-2 bg-print-600 hover:bg-print-500 text-white rounded-lg text-sm transition-colors">
         Back to Dashboard
       </Link>
     </div>
@@ -502,7 +509,7 @@ export default function App() {
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Desktop search header */}
-          <div className="hidden md:flex items-center justify-end gap-3 p-4 border-b border-farm-800" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <div className="hidden md:flex items-center justify-end gap-3 px-4 py-2 border-b border-farm-800" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />
             <ThemeToggle />
             <AlertBell />
@@ -538,7 +545,7 @@ export default function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
           </ErrorBoundary>
-          <Toaster position="top-right" toastOptions={{ style: { background: '#1a1f2e', color: '#e2e8f0', border: '1px solid #2d3548' } }} />
+          <Toaster position="top-right" toastOptions={{ style: { background: 'var(--brand-card-bg)', color: 'var(--brand-text-primary)', border: '1px solid var(--brand-card-border)' } }} />
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
             <div className="text-center py-4 text-[10px] text-farm-600 select-none">Powered by O.D.I.N.</div>

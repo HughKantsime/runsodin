@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../LicenseContext'
-import { groups as groupsApi } from '../api'
-import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search } from 'lucide-react'
+import { groups as groupsApi, users as usersApi } from '../api'
+import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search, Upload, FileSpreadsheet, CheckCircle, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ConfirmModal'
@@ -94,9 +94,178 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
   )
 }
 
+function ImportUsersModal({ onClose, onImported }) {
+  const fileRef = useRef(null)
+  const [preview, setPreview] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setResult(null)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target.result
+        const lines = text.split('\n').filter(l => l.trim())
+        if (lines.length < 2) {
+          setPreview({ error: 'CSV must have a header row and at least one data row' })
+          return
+        }
+        // Parse header
+        const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''))
+        if (!header.includes('username') || !header.includes('email') || !header.includes('password')) {
+          setPreview({ error: 'CSV must have columns: username, email, password' })
+          return
+        }
+        // Parse rows
+        const rows = []
+        for (let i = 1; i < lines.length; i++) {
+          const vals = lines[i].split(',').map(v => v.trim().replace(/^["']|["']$/g, ''))
+          const row = {}
+          header.forEach((h, idx) => { row[h] = vals[idx] || '' })
+          if (row.username) rows.push(row)
+        }
+        setPreview({ file, rows, header })
+      } catch {
+        setPreview({ error: 'Failed to parse CSV file' })
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const handleImport = async () => {
+    if (!preview?.file) return
+    setImporting(true)
+    try {
+      const data = await usersApi.importCsv(preview.file)
+      setResult(data)
+      if (data.created > 0) onImported()
+    } catch (err) {
+      setResult({ error: err.message })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-farm-900 rounded-t-xl sm:rounded border border-farm-800 w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-display font-bold flex items-center gap-2">
+            <Upload size={18} className="text-print-400" />
+            Import Users from CSV
+          </h2>
+          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
+        </div>
+
+        {/* Instructions */}
+        <div className="bg-farm-800 rounded-lg p-3 mb-4 text-xs text-farm-400">
+          <p className="font-medium text-farm-300 mb-1">CSV Format:</p>
+          <code className="block bg-farm-900 rounded px-2 py-1 font-mono">username,email,password,role</code>
+          <p className="mt-1">Role is optional (defaults to "viewer"). Valid roles: admin, operator, viewer.</p>
+          <p>Passwords must be 8+ chars with uppercase, lowercase, and a number.</p>
+        </div>
+
+        {/* File picker */}
+        <input ref={fileRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="w-full px-4 py-3 rounded-lg border-2 border-dashed border-farm-700 text-farm-400 hover:border-print-500 hover:text-print-400 text-sm transition-colors mb-4"
+        >
+          <FileSpreadsheet size={16} className="inline mr-2" />
+          {preview?.file ? preview.file.name : 'Click to select .csv file'}
+        </button>
+
+        {/* Parse error */}
+        {preview?.error && (
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300 mb-4">
+            {preview.error}
+          </div>
+        )}
+
+        {/* Preview table */}
+        {preview?.rows && (
+          <div className="mb-4">
+            <p className="text-sm text-farm-300 mb-2">{preview.rows.length} user{preview.rows.length !== 1 ? 's' : ''} found:</p>
+            <div className="max-h-48 overflow-y-auto border border-farm-800 rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-farm-800 sticky top-0">
+                  <tr>
+                    <th className="py-1.5 px-2 text-left text-farm-400">Username</th>
+                    <th className="py-1.5 px-2 text-left text-farm-400">Email</th>
+                    <th className="py-1.5 px-2 text-left text-farm-400">Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((row, i) => (
+                    <tr key={i} className="border-t border-farm-800">
+                      <td className="py-1.5 px-2 text-farm-200">{row.username}</td>
+                      <td className="py-1.5 px-2 text-farm-400">{row.email}</td>
+                      <td className="py-1.5 px-2 text-farm-400">{row.role || 'viewer'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Result */}
+        {result && !result.error && (
+          <div className="p-3 rounded-lg mb-4 bg-farm-800 border border-farm-700 text-sm space-y-1">
+            <div className="flex items-center gap-2 text-green-400">
+              <CheckCircle size={14} />
+              {result.created} user{result.created !== 1 ? 's' : ''} created
+            </div>
+            {result.skipped > 0 && (
+              <div className="text-farm-400">{result.skipped} skipped (duplicate usernames)</div>
+            )}
+            {result.errors?.length > 0 && (
+              <div className="mt-2">
+                <p className="text-amber-400 flex items-center gap-1"><AlertTriangle size={12} /> {result.errors.length} error{result.errors.length !== 1 ? 's' : ''}:</p>
+                <ul className="ml-4 mt-1 text-xs text-farm-500 space-y-0.5">
+                  {result.errors.slice(0, 10).map((err, i) => (
+                    <li key={i}>Row {err.row}: {err.reason}</li>
+                  ))}
+                  {result.errors.length > 10 && <li>...and {result.errors.length - 10} more</li>}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        {result?.error && (
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300 mb-4">
+            {result.error}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2 border border-farm-700 rounded-lg hover:bg-farm-800 transition-colors text-sm">
+            {result ? 'Close' : 'Cancel'}
+          </button>
+          {!result && (
+            <button
+              onClick={handleImport}
+              disabled={!preview?.rows || importing}
+              className="flex-1 py-2 bg-print-600 hover:bg-print-500 rounded-lg font-medium transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {importing ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
+              {importing ? 'Importing...' : `Import ${preview?.rows?.length || 0} Users`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Admin() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [editingUser, setEditingUser] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
@@ -167,14 +336,19 @@ export default function Admin() {
           <h1 className="text-xl md:text-2xl font-display font-bold">Admin</h1>
           <p className="text-farm-500 text-sm mt-1">Manage users and permissions</p>
         </div>
-        {atUserLimit
-          ? <span className="flex items-center gap-2 bg-farm-700 text-farm-400 px-4 py-2 rounded-lg font-medium text-sm cursor-not-allowed" title={`User limit reached (${lic.max_users}). Upgrade to Pro for unlimited.`}>
-              <Plus size={16} /> Add User (limit: {lic.max_users})
-            </span>
-          : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-print-600 hover:bg-print-500 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
-              <Plus size={16} /> Add User
-            </button>
-        }
+        <div className="flex gap-2">
+          <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-farm-700 hover:bg-farm-600 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+            <Upload size={16} /> Import CSV
+          </button>
+          {atUserLimit
+            ? <span className="flex items-center gap-2 bg-farm-700 text-farm-400 px-4 py-2 rounded-lg font-medium text-sm cursor-not-allowed" title={`User limit reached (${lic.max_users}). Upgrade to Pro for unlimited.`}>
+                <Plus size={16} /> Add User (limit: {lic.max_users})
+              </span>
+            : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-print-600 hover:bg-print-500 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+                <Plus size={16} /> Add User
+              </button>
+          }
+        </div>
       </div>
 
       {/* Search and Filter */}
@@ -262,6 +436,13 @@ export default function Admin() {
 
       {showModal && (
         <UserModal user={editingUser} groupsList={groupsList} hasGroups={hasGroups} onClose={() => { setShowModal(false); setEditingUser(null) }} onSave={handleSave} />
+      )}
+
+      {showImportModal && (
+        <ImportUsersModal
+          onClose={() => setShowImportModal(false)}
+          onImported={() => queryClient.invalidateQueries(['users'])}
+        />
       )}
 
       <ConfirmModal

@@ -19,7 +19,7 @@ import BackupRestore from '../components/BackupRestore'
 import OrgManager from '../components/OrgManager'
 import ReportScheduleManager from '../components/ReportScheduleManager'
 import ChargebackReport from '../components/ChargebackReport'
-import { alertPreferences, smtpConfig } from '../api'
+import { alertPreferences, smtpConfig, getEducationMode, setEducationMode } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
 import ProBadge from '../components/ProBadge'
@@ -95,6 +95,43 @@ function ApprovalToggle() {
       </div>
       <span className="text-sm">
         {enabled ? "Approval required for viewer-role users" : "Approval disabled — all users create jobs directly"}
+      </span>
+    </label>
+  )
+}
+
+function EducationModeToggle() {
+  const queryClient = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ["education-mode"],
+    queryFn: getEducationMode,
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: (enabled) => setEducationMode(enabled),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["education-mode"] })
+      // Notify sidebar to refresh
+      window.dispatchEvent(new CustomEvent('education-mode-changed'))
+    },
+  })
+
+  const enabled = data?.enabled || false
+
+  return (
+    <label className="flex items-center gap-3 cursor-pointer">
+      <div
+        onClick={() => !isLoading && toggleMutation.mutate(!enabled)}
+        className={`relative w-11 h-6 rounded-full transition-colors ${
+          enabled ? "bg-blue-600" : "bg-farm-700"
+        }`}
+      >
+        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+          enabled ? "translate-x-[22px]" : "translate-x-0.5"
+        }`} />
+      </div>
+      <span className="text-sm">
+        {enabled ? "Education mode enabled — Orders, Products hidden" : "Education mode disabled — all features visible"}
       </span>
     </label>
   )
@@ -1443,6 +1480,19 @@ export default function Settings() {
           </button>
         </div>
       </div>
+      {/* Education Mode */}
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <div className="flex items-center gap-2 md:gap-3 mb-4">
+          <SettingsIcon size={18} className="text-blue-400" />
+          <h2 className="text-lg md:text-xl font-display font-semibold">Education Mode</h2>
+        </div>
+        <p className="text-sm text-farm-400 mb-4">
+          When enabled, commerce features (Orders, Products, Consumables) are hidden from the sidebar and UI. Ideal for educational environments that don't need e-commerce functionality.
+        </p>
+        <EducationModeToggle />
+        <p className="text-xs text-farm-500 mt-2">Saves automatically when toggled. Users may need to refresh their browser.</p>
+      </div>
+
       {/* Network — merged into General tab */}
       <NetworkTab />
 
