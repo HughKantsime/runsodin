@@ -2,6 +2,19 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.26] - 2026-02-14
+
+### Changed
+- **Backend router split** — Refactored monolithic `main.py` (11,550 lines, 306 routes) into 13 modular router files under `backend/routers/` with shared dependencies in `backend/deps.py`; `main.py` reduced to 294-line app shell
+- **CORS hardening** — Scoped `allow_methods` and `allow_headers` from wildcards to explicit lists
+
+### Fixed
+- **JWT secret security** — Removed insecure hardcoded fallback secret in `auth.py`; now fails fast if `JWT_SECRET_KEY` env var is missing
+
+### Added
+- **GTM Plan** — Comprehensive go-to-market strategy document covering three-market approach (prosumer, education, defence/gov), pricing tiers, financial model, and execution phases
+- **Legal documents** — Terms of Service (EULA for all 4 license tiers), Privacy Policy (GDPR-compliant, self-hosted focus), Vigil AI safety disclaimer
+
 ## [1.3.25] - 2026-02-13
 
 ### Added

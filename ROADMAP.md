@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-13 at v1.3.25.
+Updated 2026-02-14 at v1.3.26.
 
 ## Shipped in v1.2.0
 
@@ -76,6 +76,10 @@ Updated 2026-02-13 at v1.3.25.
 - ~~Timelapse bulk delete~~
 - ~~Modal accessibility (Escape, backdrop click) across ~15 modals~~
 - ~~Login UX (OIDC loading, MFA auto-submit, SSO divider), Setup password strength checklist~~
+- ~~Backend router split: main.py (11,550 lines) → 13 router modules + deps.py~~
+- ~~JWT secret hardening (fail-fast on missing env var)~~
+- ~~CORS hardening (explicit method/header lists)~~
+- ~~GTM plan, Terms of Service, Privacy Policy, Vigil AI disclaimer~~
 
 ---
 
