@@ -25,7 +25,7 @@ router = APIRouter()
 # Scheduler
 # ──────────────────────────────────────────────
 
-@router.post("/api/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
+@router.post("/scheduler/run", response_model=ScheduleResult, tags=["Scheduler"])
 def run_scheduler_endpoint(
     config: Optional[SchedulerConfigSchema] = None,
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -80,7 +80,7 @@ def run_scheduler_endpoint(
     )
 
 
-@router.get("/api/scheduler/runs", response_model=list[SchedulerRunResponse], tags=["Scheduler"])
+@router.get("/scheduler/runs", response_model=list[SchedulerRunResponse], tags=["Scheduler"])
 def list_scheduler_runs(
     limit: int = Query(default=30, le=100),
     db: Session = Depends(get_db)
@@ -93,7 +93,7 @@ def list_scheduler_runs(
 # Timeline
 # ──────────────────────────────────────────────
 
-@router.get("/api/timeline", response_model=TimelineResponse, tags=["Timeline"])
+@router.get("/timeline", response_model=TimelineResponse, tags=["Timeline"])
 def get_timeline(
     start_date: Optional[datetime] = None,
     days: int = Query(default=7, ge=1, le=30),

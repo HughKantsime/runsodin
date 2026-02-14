@@ -1,12 +1,12 @@
 """O.D.I.N. — Auth, Users, Sessions, MFA, OIDC, Tokens, Quotas, GDPR, RBAC Routes"""
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
 from datetime import datetime, timedelta
-import json, logging, os
+import csv, io, json, logging, os, re
 
 from deps import (get_db, get_current_user, require_role, log_audit,
                   _validate_password, _check_rate_limit, _record_login_attempt,
@@ -25,7 +25,7 @@ router = APIRouter()
 # Login
 # =============================================================================
 
-@router.post("/api/auth/login", tags=["Auth"])
+@router.post("/auth/login", tags=["Auth"])
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Security checks
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
@@ -80,7 +80,7 @@ def _record_session(db, user_id, access_token, ip, user_agent):
 # MFA / Two-Factor Authentication
 # =============================================================================
 
-@router.post("/api/auth/mfa/verify", tags=["Auth"])
+@router.post("/auth/mfa/verify", tags=["Auth"])
 async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)):
     """Verify TOTP code during login. Requires mfa_pending token."""
     import pyotp
@@ -118,7 +118,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/api/auth/mfa/setup", tags=["Auth"])
+@router.post("/auth/mfa/setup", tags=["Auth"])
 async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Generate TOTP secret and provisioning URI for MFA setup."""
     import pyotp
@@ -156,7 +156,7 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     }
 
 
-@router.post("/api/auth/mfa/confirm", tags=["Auth"])
+@router.post("/auth/mfa/confirm", tags=["Auth"])
 async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Confirm MFA setup by verifying a TOTP code. Enables MFA on the account."""
     import pyotp
@@ -187,7 +187,7 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     return {"status": "ok", "message": "MFA enabled successfully"}
 
 
-@router.delete("/api/auth/mfa", tags=["Auth"])
+@router.delete("/auth/mfa", tags=["Auth"])
 async def mfa_disable(body: dict = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Disable MFA. Requires current TOTP code or admin role."""
     import pyotp
@@ -217,7 +217,7 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
     return {"status": "ok", "message": "MFA disabled"}
 
 
-@router.delete("/api/admin/users/{user_id}/mfa", tags=["Auth"])
+@router.delete("/admin/users/{user_id}/mfa", tags=["Auth"])
 async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-disable MFA for a user (no TOTP required)."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -236,20 +236,20 @@ async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_r
     return {"status": "ok", "message": f"MFA disabled for {user.username}"}
 
 
-@router.get("/api/auth/mfa/status", tags=["Auth"])
+@router.get("/auth/mfa/status", tags=["Auth"])
 async def mfa_status(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get MFA status for the current user."""
     return {"mfa_enabled": bool(current_user.get("mfa_enabled"))}
 
 
-@router.get("/api/config/require-mfa", tags=["Config"])
+@router.get("/config/require-mfa", tags=["Config"])
 async def get_require_mfa(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Get whether MFA is required for all users."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'require_mfa'")).fetchone()
     return {"require_mfa": row[0] == "true" if row else False}
 
 
-@router.put("/api/config/require-mfa", tags=["Config"])
+@router.put("/config/require-mfa", tags=["Config"])
 async def set_require_mfa(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set whether MFA is required for all users."""
     require = bool(body.get("require_mfa", False))
@@ -264,7 +264,7 @@ async def set_require_mfa(body: dict, current_user: dict = Depends(require_role(
 # Session Management
 # =============================================================================
 
-@router.get("/api/sessions", tags=["Sessions"])
+@router.get("/sessions", tags=["Sessions"])
 async def list_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List active sessions for the current user."""
     rows = db.execute(text(
@@ -293,7 +293,7 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
     } for r in rows]
 
 
-@router.delete("/api/sessions/{session_id}", tags=["Sessions"])
+@router.delete("/sessions/{session_id}", tags=["Sessions"])
 async def revoke_session(session_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke a specific session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id AND user_id = :uid"),
@@ -317,7 +317,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     return {"status": "ok"}
 
 
-@router.delete("/api/sessions", tags=["Sessions"])
+@router.delete("/sessions", tags=["Sessions"])
 async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke all sessions except the current one."""
     # Find current jti
@@ -354,7 +354,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
     return {"status": "ok", "revoked": count}
 
 
-@router.get("/api/admin/sessions", tags=["Sessions"])
+@router.get("/admin/sessions", tags=["Sessions"])
 async def admin_list_sessions(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: list all active sessions across all users."""
     rows = db.execute(text(
@@ -368,7 +368,7 @@ async def admin_list_sessions(current_user: dict = Depends(require_role("admin")
     } for r in rows]
 
 
-@router.delete("/api/admin/sessions/{session_id}", tags=["Sessions"])
+@router.delete("/admin/sessions/{session_id}", tags=["Sessions"])
 async def admin_revoke_session(session_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-revoke any session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id"), {"id": session_id}).fetchone()
@@ -407,7 +407,7 @@ VALID_SCOPES = {
 }
 
 
-@router.post("/api/tokens", tags=["API Tokens"])
+@router.post("/tokens", tags=["API Tokens"])
 async def create_api_token(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Create a new scoped API token for the current user."""
     import secrets
@@ -461,7 +461,7 @@ async def create_api_token(body: dict, current_user: dict = Depends(require_role
     }
 
 
-@router.get("/api/tokens", tags=["API Tokens"])
+@router.get("/tokens", tags=["API Tokens"])
 async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all API tokens for the current user."""
     rows = db.execute(text(
@@ -476,7 +476,7 @@ async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), 
     } for r in rows]
 
 
-@router.delete("/api/tokens/{token_id}", tags=["API Tokens"])
+@router.delete("/tokens/{token_id}", tags=["API Tokens"])
 async def revoke_api_token(token_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke (delete) an API token."""
     row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id AND user_id = :uid"),
@@ -526,7 +526,7 @@ def _get_quota_usage(db, user_id, period):
     return {"user_id": user_id, "period_key": key, "grams_used": 0, "hours_used": 0, "jobs_used": 0}
 
 
-@router.get("/api/quotas", tags=["Quotas"])
+@router.get("/quotas", tags=["Quotas"])
 async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current user's quota config and usage."""
     period = current_user.get("quota_period") or "monthly"
@@ -545,7 +545,7 @@ async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db:
     }
 
 
-@router.get("/api/admin/quotas", tags=["Quotas"])
+@router.get("/admin/quotas", tags=["Quotas"])
 async def admin_list_quotas(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: list all users' quota config and usage."""
     users = db.execute(text(
@@ -564,7 +564,7 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
     return result
 
 
-@router.put("/api/admin/quotas/{user_id}", tags=["Quotas"])
+@router.put("/admin/quotas/{user_id}", tags=["Quotas"])
 async def admin_set_quota(user_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: set quotas for a user."""
     user = db.execute(text("SELECT id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -590,7 +590,7 @@ async def admin_set_quota(user_id: int, body: dict, current_user: dict = Depends
 # GDPR Data Export & Erasure
 # =============================================================================
 
-@router.get("/api/users/{user_id}/export", tags=["GDPR"])
+@router.get("/users/{user_id}/export", tags=["GDPR"])
 async def export_user_data(user_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Export all personal data for a user (GDPR Article 20)."""
     # Users can export their own data; admins can export anyone's
@@ -631,7 +631,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     return export
 
 
-@router.delete("/api/users/{user_id}/erase", tags=["GDPR"])
+@router.delete("/users/{user_id}/erase", tags=["GDPR"])
 async def erase_user_data(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Anonymize user data (GDPR Article 17). Admin only. Preserves job records for analytics."""
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -673,7 +673,7 @@ RETENTION_DEFAULTS = {
 }
 
 
-@router.get("/api/config/retention", tags=["Config"])
+@router.get("/config/retention", tags=["Config"])
 async def get_retention_config(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Get data retention policy configuration."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
@@ -683,7 +683,7 @@ async def get_retention_config(current_user: dict = Depends(require_role("admin"
     return {**RETENTION_DEFAULTS, **val}
 
 
-@router.put("/api/config/retention", tags=["Config"])
+@router.put("/config/retention", tags=["Config"])
 async def set_retention_config(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set data retention policy configuration."""
     config = {}
@@ -703,7 +703,7 @@ async def set_retention_config(body: dict, current_user: dict = Depends(require_
     return {**RETENTION_DEFAULTS, **config}
 
 
-@router.post("/api/admin/retention/cleanup", tags=["Config"])
+@router.post("/admin/retention/cleanup", tags=["Config"])
 async def run_retention_cleanup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Manually trigger data retention cleanup."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
@@ -750,7 +750,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
 # OIDC / SSO Authentication
 # =============================================================================
 
-@router.get("/api/auth/oidc/config", tags=["Auth"])
+@router.get("/auth/oidc/config", tags=["Auth"])
 async def get_oidc_public_config(db: Session = Depends(get_db)):
     """Get public OIDC config for login page (is SSO enabled, display name)."""
     row = db.execute(text("SELECT is_enabled, display_name FROM oidc_config LIMIT 1")).fetchone()
@@ -762,7 +762,7 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/api/auth/oidc/login", tags=["Auth"])
+@router.get("/auth/oidc/login", tags=["Auth"])
 async def oidc_login(request: Request, db: Session = Depends(get_db)):
     """Initiate OIDC login flow. Redirects to identity provider."""
     from oidc_handler import create_handler_from_config
@@ -785,7 +785,7 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(url=url, status_code=302)
 
 
-@router.get("/api/auth/oidc/callback", tags=["Auth"])
+@router.get("/auth/oidc/callback", tags=["Auth"])
 async def oidc_callback(
     request: Request,
     code: str = None,
@@ -912,7 +912,7 @@ async def oidc_callback(
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
 
 
-@router.get("/api/admin/oidc", tags=["Admin"])
+@router.get("/admin/oidc", tags=["Admin"])
 async def get_oidc_config(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)
@@ -931,7 +931,7 @@ async def get_oidc_config(
     return config
 
 
-@router.put("/api/admin/oidc", tags=["Admin"])
+@router.put("/admin/oidc", tags=["Admin"])
 async def update_oidc_config(
     request: Request,
     current_user: dict = Depends(require_role("admin")),
@@ -973,7 +973,7 @@ async def update_oidc_config(
 # Auth: Get Me
 # =============================================================================
 
-@router.get("/api/auth/me", tags=["Auth"])
+@router.get("/auth/me", tags=["Auth"])
 async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -984,12 +984,12 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 # Users CRUD
 # =============================================================================
 
-@router.get("/api/users", tags=["Users"])
+@router.get("/users", tags=["Users"])
 async def list_users(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users")).fetchall()
     return [dict(u._mapping) for u in users]
 
-@router.post("/api/users", tags=["Users"])
+@router.post("/users", tags=["Users"])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     # Check license user limit
     current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
@@ -1006,7 +1006,7 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
         raise HTTPException(status_code=400, detail="Username or email already exists")
     return {"status": "created"}
 
-@router.patch("/api/users/{user_id}", tags=["Users"])
+@router.patch("/users/{user_id}", tags=["Users"])
 async def update_user(user_id: int, updates: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if 'password' in updates and updates['password']:
         pw_valid, pw_msg = _validate_password(updates['password'])
@@ -1027,7 +1027,7 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
         db.commit()
     return {"status": "updated"}
 
-@router.delete("/api/users/{user_id}", tags=["Users"])
+@router.delete("/users/{user_id}", tags=["Users"])
 async def delete_user(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if current_user["id"] == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
@@ -1036,9 +1036,123 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     return {"status": "deleted"}
 
 
+@router.post("/users/import", tags=["Users"])
+async def import_users_csv(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Bulk import users from a CSV file. Admin only.
+
+    CSV columns: username, email, password, role (optional, defaults to 'viewer').
+    Skips rows that duplicate an existing username. Validates password complexity.
+    Respects license user limits.
+    """
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are accepted")
+
+    content = await file.read()
+    try:
+        text_content = content.decode("utf-8-sig")  # handle BOM
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
+
+    reader = csv.DictReader(io.StringIO(text_content))
+
+    # Validate header
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV file is empty or has no header row")
+    lower_fields = [f.strip().lower() for f in reader.fieldnames]
+    if "username" not in lower_fields or "email" not in lower_fields or "password" not in lower_fields:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV must have columns: username, email, password (and optionally role)",
+        )
+
+    # Normalise header keys to lowercase
+    valid_roles = {"admin", "operator", "viewer"}
+    email_re = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+    # Pre-fetch existing usernames for fast lookup
+    existing = {
+        r[0]
+        for r in db.execute(text("SELECT username FROM users")).fetchall()
+    }
+
+    current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+
+    created = 0
+    skipped = 0
+    errors = []
+
+    for row_num, raw_row in enumerate(reader, start=2):  # row 1 is header
+        # Normalise keys
+        row = {k.strip().lower(): (v.strip() if v else "") for k, v in raw_row.items()}
+
+        username = row.get("username", "")
+        email = row.get("email", "")
+        password = row.get("password", "")
+        role = row.get("role", "").lower() or "viewer"
+
+        # --- Validation ---
+        if not username:
+            errors.append({"row": row_num, "reason": "Missing username"})
+            continue
+        if not email:
+            errors.append({"row": row_num, "reason": "Missing email"})
+            continue
+        if not email_re.match(email):
+            errors.append({"row": row_num, "reason": f"Invalid email format: {email}"})
+            continue
+        if not password:
+            errors.append({"row": row_num, "reason": "Missing password"})
+            continue
+
+        pw_valid, pw_msg = _validate_password(password)
+        if not pw_valid:
+            errors.append({"row": row_num, "reason": pw_msg})
+            continue
+
+        if role not in valid_roles:
+            errors.append({"row": row_num, "reason": f"Invalid role '{role}'. Must be admin, operator, or viewer"})
+            continue
+
+        # Duplicate check
+        if username in existing:
+            skipped += 1
+            continue
+
+        # License limit check
+        try:
+            check_user_limit(current_count)
+        except HTTPException:
+            errors.append({"row": row_num, "reason": "License user limit reached"})
+            break  # stop processing further rows
+
+        # Create user
+        password_hash_val = hash_password(password)
+        try:
+            db.execute(
+                text("""INSERT INTO users (username, email, password_hash, role)
+                        VALUES (:username, :email, :password_hash, :role)"""),
+                {"username": username, "email": email, "password_hash": password_hash_val, "role": role},
+            )
+            db.commit()
+            existing.add(username)
+            current_count += 1
+            created += 1
+        except Exception:
+            db.rollback()
+            skipped += 1  # likely unique constraint on email
+
+    log_audit(db, "users_imported", "user", details=f"CSV import: {created} created, {skipped} skipped, {len(errors)} errors")
+
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
 # ============== Groups (Education/Enterprise) ==============
 
-@router.get("/api/groups", tags=["Groups"])
+@router.get("/groups", tags=["Groups"])
 async def list_groups(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
     groups = db.execute(text("""
@@ -1052,7 +1166,7 @@ async def list_groups(current_user: dict = Depends(require_role("operator")), db
     return [dict(g._mapping) for g in groups]
 
 
-@router.post("/api/groups", tags=["Groups"])
+@router.post("/groups", tags=["Groups"])
 async def create_group(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     require_feature("user_groups")
     name = body.get("name", "").strip()
@@ -1078,7 +1192,7 @@ async def create_group(body: dict, current_user: dict = Depends(require_role("ad
         raise HTTPException(status_code=400, detail="Group name already exists")
 
 
-@router.get("/api/groups/{group_id}", tags=["Groups"])
+@router.get("/groups/{group_id}", tags=["Groups"])
 async def get_group(group_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
     group = db.execute(text("""
@@ -1100,7 +1214,7 @@ async def get_group(group_id: int, current_user: dict = Depends(require_role("op
     return result
 
 
-@router.patch("/api/groups/{group_id}", tags=["Groups"])
+@router.patch("/groups/{group_id}", tags=["Groups"])
 async def update_group(group_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     require_feature("user_groups")
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
@@ -1126,7 +1240,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
     return {"status": "updated"}
 
 
-@router.delete("/api/groups/{group_id}", tags=["Groups"])
+@router.delete("/groups/{group_id}", tags=["Groups"])
 async def delete_group(group_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     require_feature("user_groups")
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
@@ -1217,7 +1331,7 @@ def _get_rbac(db: Session):
     }
 
 
-@router.get("/api/permissions", tags=["RBAC"])
+@router.get("/permissions", tags=["RBAC"])
 def get_permissions(db: Session = Depends(get_db)):
     """Get current RBAC permission map. Public (needed at login)."""
     return _get_rbac(db)
@@ -1228,7 +1342,7 @@ class RBACUpdateRequest(PydanticBaseModel):
     action_access: dict
 
 
-@router.put("/api/permissions", tags=["RBAC"])
+@router.put("/permissions", tags=["RBAC"])
 def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update RBAC permissions. Admin only."""
     valid_roles = {"admin", "operator", "viewer"}
@@ -1259,7 +1373,7 @@ def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(req
     return {"message": "Permissions updated", **value}
 
 
-@router.post("/api/permissions/reset", tags=["RBAC"])
+@router.post("/permissions/reset", tags=["RBAC"])
 def reset_permissions(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Reset permissions to defaults. Admin only."""
     row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()

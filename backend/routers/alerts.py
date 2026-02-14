@@ -27,7 +27,7 @@ router = APIRouter()
 
 # ============== Webhooks ==============
 
-@router.get("/api/webhooks", tags=["Webhooks"])
+@router.get("/webhooks", tags=["Webhooks"])
 async def list_webhooks(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)
@@ -37,7 +37,7 @@ async def list_webhooks(
     return [dict(r._mapping) for r in rows]
 
 
-@router.post("/api/webhooks", tags=["Webhooks"])
+@router.post("/webhooks", tags=["Webhooks"])
 async def create_webhook(
     request: Request,
     current_user: dict = Depends(require_role("admin")),
@@ -67,7 +67,7 @@ async def create_webhook(
     return {"success": True, "message": "Webhook created"}
 
 
-@router.patch("/api/webhooks/{webhook_id}", tags=["Webhooks"])
+@router.patch("/webhooks/{webhook_id}", tags=["Webhooks"])
 async def update_webhook(
     webhook_id: int,
     request: Request,
@@ -97,7 +97,7 @@ async def update_webhook(
     return {"success": True}
 
 
-@router.delete("/api/webhooks/{webhook_id}", tags=["Webhooks"])
+@router.delete("/webhooks/{webhook_id}", tags=["Webhooks"])
 async def delete_webhook(
     webhook_id: int,
     current_user: dict = Depends(require_role("admin")),
@@ -109,7 +109,7 @@ async def delete_webhook(
     return {"success": True}
 
 
-@router.post("/api/webhooks/{webhook_id}/test", tags=["Webhooks"])
+@router.post("/webhooks/{webhook_id}/test", tags=["Webhooks"])
 async def test_webhook(
     webhook_id: int,
     current_user: dict = Depends(require_role("admin")),
@@ -293,7 +293,7 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
 
 # ============== Alerts ==============
 
-@router.get("/api/alerts", response_model=List[AlertResponse], tags=["Alerts"])
+@router.get("/alerts", response_model=List[AlertResponse], tags=["Alerts"])
 async def list_alerts(
     severity: Optional[str] = None,
     alert_type: Optional[str] = None,
@@ -332,7 +332,7 @@ async def list_alerts(
     return results
 
 
-@router.get("/api/alerts/unread-count", tags=["Alerts"])
+@router.get("/alerts/unread-count", tags=["Alerts"])
 async def get_unread_count(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -347,7 +347,7 @@ async def get_unread_count(
     return {"unread_count": count}
 
 
-@router.get("/api/alerts/summary", response_model=AlertSummary, tags=["Alerts"])
+@router.get("/alerts/summary", response_model=AlertSummary, tags=["Alerts"])
 async def get_alert_summary(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -375,7 +375,7 @@ async def get_alert_summary(
     )
 
 
-@router.patch("/api/alerts/{alert_id}/read", tags=["Alerts"])
+@router.patch("/alerts/{alert_id}/read", tags=["Alerts"])
 async def mark_alert_read(
     alert_id: int,
     current_user: dict = Depends(get_current_user),
@@ -395,7 +395,7 @@ async def mark_alert_read(
     return {"status": "ok"}
 
 
-@router.post("/api/alerts/mark-all-read", tags=["Alerts"])
+@router.post("/alerts/mark-all-read", tags=["Alerts"])
 async def mark_all_read(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -411,7 +411,7 @@ async def mark_all_read(
     return {"status": "ok"}
 
 
-@router.patch("/api/alerts/{alert_id}/dismiss", tags=["Alerts"])
+@router.patch("/alerts/{alert_id}/dismiss", tags=["Alerts"])
 async def dismiss_alert(
     alert_id: int,
     current_user: dict = Depends(get_current_user),
@@ -434,7 +434,7 @@ async def dismiss_alert(
 
 # ============== Alert Preferences ==============
 
-@router.get("/api/alert-preferences", response_model=List[AlertPreferenceResponse], tags=["Alerts"])
+@router.get("/alert-preferences", response_model=List[AlertPreferenceResponse], tags=["Alerts"])
 async def get_alert_preferences(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -457,7 +457,7 @@ async def get_alert_preferences(
     return prefs
 
 
-@router.put("/api/alert-preferences", tags=["Alerts"])
+@router.put("/alert-preferences", tags=["Alerts"])
 async def update_alert_preferences(
     data: AlertPreferencesUpdate,
     current_user: dict = Depends(get_current_user),
@@ -495,7 +495,7 @@ async def update_alert_preferences(
 
 # ============== SMTP Config (Admin Only) ==============
 
-@router.get("/api/smtp-config", tags=["Alerts"])
+@router.get("/smtp-config", tags=["Alerts"])
 async def get_smtp_config(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)
@@ -516,7 +516,7 @@ async def get_smtp_config(
     )
 
 
-@router.put("/api/smtp-config", tags=["Alerts"])
+@router.put("/smtp-config", tags=["Alerts"])
 async def update_smtp_config(
     data: SmtpConfigBase,
     current_user: dict = Depends(require_role("admin")),
@@ -538,7 +538,7 @@ async def update_smtp_config(
     return {"status": "ok", "message": "SMTP configuration updated"}
 
 
-@router.post("/api/alerts/test-email", tags=["Alerts"])
+@router.post("/alerts/test-email", tags=["Alerts"])
 async def send_test_email(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)
@@ -563,7 +563,7 @@ async def send_test_email(
 
 # ============== Browser Push Subscription ==============
 
-@router.get("/api/push/vapid-key", tags=["Alerts"])
+@router.get("/push/vapid-key", tags=["Alerts"])
 async def get_vapid_key(db: Session = Depends(get_db)):
     """Get VAPID public key for browser push subscription."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'vapid_keys'")).fetchone()
@@ -576,7 +576,7 @@ async def get_vapid_key(db: Session = Depends(get_db)):
         return {"public_key": None, "enabled": False}
 
 
-@router.post("/api/push/subscribe", tags=["Alerts"])
+@router.post("/push/subscribe", tags=["Alerts"])
 async def subscribe_push(
     data: PushSubscriptionCreate,
     current_user: dict = Depends(get_current_user),
@@ -606,7 +606,7 @@ async def subscribe_push(
     return {"status": "ok", "message": "Push subscription registered"}
 
 
-@router.delete("/api/push/subscribe", tags=["Alerts"])
+@router.delete("/push/subscribe", tags=["Alerts"])
 async def unsubscribe_push(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)

@@ -123,8 +123,8 @@ app = FastAPI(
     description="Orchestrated Dispatch & Inventory Network — Self-hosted 3D print farm management",
     version=__version__,
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
 )
 
 # CORS
@@ -135,6 +135,44 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "Accept"],
 )
+
+# ──────────────────────────────────────────────
+# Security Headers Middleware
+# ──────────────────────────────────────────────
+
+_CSP_SKIP_PREFIXES = ("/api/docs", "/api/redoc", "/api/v1/docs", "/api/v1/redoc", "/openapi.json")
+
+_CSP_DIRECTIVES = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' ws: wss:",
+    "media-src 'self' blob:",
+    "frame-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+])
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Attach CSP (report-only) and other security headers to every response."""
+    response = await call_next(request)
+
+    # CSP — skip Swagger/ReDoc (they load external scripts)
+    if not any(request.url.path.startswith(p) for p in _CSP_SKIP_PREFIXES):
+        response.headers["Content-Security-Policy-Report-Only"] = _CSP_DIRECTIVES
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+
+    return response
+
 
 # Static files for branding assets
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -150,21 +188,29 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 async def authenticate_request(request: Request, call_next):
     """Check IP allowlist and API key for all routes."""
     # Skip auth for health endpoint and OPTIONS (CORS preflight)
+    path = request.url.path
+    # Strip /api/v1 or /api prefix for uniform matching
+    _api_path = ""
+    if path.startswith("/api/v1/"):
+        _api_path = path[7:]  # strip "/api/v1" → "/..."
+    elif path.startswith("/api/"):
+        _api_path = path[4:]  # strip "/api" → "/..."
+
     if (
-        request.url.path in ("/health", "/metrics", "/ws")
-        or request.url.path.endswith("/label")
-        or request.url.path.endswith("/labels/batch")
-        or request.url.path.startswith("/api/auth")
-        or request.url.path.startswith("/api/setup")
-        or request.url.path == "/api/license"
-        or (request.url.path == "/api/branding" and request.method == "GET")
-        or request.url.path.startswith("/static/branding")
+        path in ("/health", "/metrics", "/ws")
+        or path.endswith("/label")
+        or path.endswith("/labels/batch")
+        or _api_path.startswith("/auth")
+        or _api_path.startswith("/setup")
+        or _api_path == "/license"
+        or (_api_path == "/branding" and request.method == "GET")
+        or path.startswith("/static/branding")
         or request.method == "OPTIONS"
     ):
         return await call_next(request)
 
     # IP allowlist check
-    if request.url.path.startswith("/api/"):
+    if path.startswith("/api/"):
         try:
             _db = SessionLocal()
             try:
@@ -212,6 +258,16 @@ async def authenticate_request(request: Request, call_next):
 
 
 # ──────────────────────────────────────────────
+# Health — root-level (not versioned)
+# ──────────────────────────────────────────────
+
+@app.get("/health", tags=["System"], include_in_schema=False)
+async def health_root():
+    """Root-level health check — delegates to /api/v1/health."""
+    return await system.health_check()
+
+
+# ──────────────────────────────────────────────
 # WebSocket Endpoint
 # ──────────────────────────────────────────────
 
@@ -246,22 +302,28 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 # ──────────────────────────────────────────────
-# Routers
+# Routers — mounted under /api (backwards compat) and /api/v1 (versioned)
 # ──────────────────────────────────────────────
 
-app.include_router(auth.router)
-app.include_router(printers.router)
-app.include_router(spools.router)
-app.include_router(cameras.router)
-app.include_router(jobs.router)
-app.include_router(models.router)
-app.include_router(scheduler.router)
-app.include_router(orders.router)
-app.include_router(orgs.router)
-app.include_router(analytics.router)
-app.include_router(alerts.router)
-app.include_router(system.router)
-app.include_router(vision.router)
+_all_routers = [
+    auth.router,
+    printers.router,
+    spools.router,
+    cameras.router,
+    jobs.router,
+    models.router,
+    scheduler.router,
+    orders.router,
+    orgs.router,
+    analytics.router,
+    alerts.router,
+    system.router,
+    vision.router,
+]
+
+for _router in _all_routers:
+    app.include_router(_router, prefix="/api")
+    app.include_router(_router, prefix="/api/v1")
 
 
 # ──────────────────────────────────────────────

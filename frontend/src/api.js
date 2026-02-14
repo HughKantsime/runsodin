@@ -1,4 +1,4 @@
-const API_BASE = '/api'
+const API_BASE = '/api/v1'
 
 // API Key for authentication - leave empty if auth is disabled
 const API_KEY = import.meta.env.VITE_API_KEY
@@ -332,6 +332,24 @@ export const users = {
   create: (data) => fetchAPI('/users', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id) => fetchAPI(`/users/${id}`, { method: 'DELETE' }),
+  importCsv: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const headers = {}
+    if (API_KEY) headers['X-API-Key'] = API_KEY
+    const tk = localStorage.getItem('token')
+    if (tk) headers['Authorization'] = 'Bearer ' + tk
+    const response = await fetch(`${API_BASE}/users/import`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(err.detail || 'Import failed')
+    }
+    return response.json()
+  },
 }
 
 
@@ -608,6 +626,10 @@ export const getAmsEnvironment = (printerId, hours = 24, unit = null) => {
   return fetchAPI(url)
 }
 export const getAmsCurrent = (printerId) => fetchAPI(`/printers/${printerId}/ams/current`)
+
+// ---- Education Mode ----
+export const getEducationMode = () => fetchAPI('/settings/education-mode')
+export const setEducationMode = (enabled) => fetchAPI('/settings/education-mode', { method: 'PUT', body: JSON.stringify({ enabled }) })
 
 // ---- Language / i18n ----
 export const getLanguage = () => fetchAPI('/settings/language')

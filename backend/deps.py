@@ -27,6 +27,7 @@ from models import (
     SchedulerRun, Alert, AlertPreference, AlertType, AlertSeverity,
     PushSubscription, MaintenanceTask, MaintenanceLog, SystemConfig,
     NozzleLifecycle, DryingLog, HYGROSCOPIC_TYPES, PrintPreset, Timelapse,
+    VisionDetection, VisionSettings, VisionModel,
     init_db,
 )
 from config import settings
@@ -67,7 +68,7 @@ def get_db():
 # Auth
 # ──────────────────────────────────────────────
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 async def get_current_user(

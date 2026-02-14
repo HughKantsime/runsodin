@@ -1,24 +1,65 @@
 """O.D.I.N. — Vigil AI Vision Routes"""
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sa_func, case, text
 from typing import Optional
 import json
 import logging
 import os
 import re
-import sqlite3 as _sqlite3
 
 from deps import get_db, require_role
-from models import Printer, SystemConfig
+from models import Printer, SystemConfig, VisionDetection, VisionSettings, VisionModel
 from config import settings
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
+def _detection_to_dict(det: VisionDetection, printer_name=None, printer_nickname=None) -> dict:
+    """Convert a VisionDetection ORM object to a dict matching the raw sqlite3 output."""
+    d = {
+        "id": det.id,
+        "printer_id": det.printer_id,
+        "print_job_id": det.print_job_id,
+        "detection_type": det.detection_type,
+        "confidence": det.confidence,
+        "status": det.status,
+        "frame_path": det.frame_path,
+        "bbox_json": det.bbox_json,
+        "metadata_json": det.metadata_json,
+        "reviewed_by": det.reviewed_by,
+        "reviewed_at": det.reviewed_at.isoformat() if det.reviewed_at else None,
+        "created_at": det.created_at.isoformat() if det.created_at else None,
+    }
+    if printer_name is not None:
+        d["printer_name"] = printer_name
+    if printer_nickname is not None:
+        d["printer_nickname"] = printer_nickname
+    return d
+
+
+def _settings_to_dict(s: VisionSettings) -> dict:
+    """Convert a VisionSettings ORM object to a dict."""
+    return {
+        "printer_id": s.printer_id,
+        "enabled": s.enabled,
+        "spaghetti_enabled": s.spaghetti_enabled,
+        "spaghetti_threshold": s.spaghetti_threshold,
+        "first_layer_enabled": s.first_layer_enabled,
+        "first_layer_threshold": s.first_layer_threshold,
+        "detachment_enabled": s.detachment_enabled,
+        "detachment_threshold": s.detachment_threshold,
+        "auto_pause": s.auto_pause,
+        "capture_interval_sec": s.capture_interval_sec,
+        "collect_training_data": s.collect_training_data,
+        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+    }
+
+
 # ============== Vigil AI: Detections ==============
 
-@router.get("/api/vision/detections", tags=["Vigil AI"])
+@router.get("/vision/detections", tags=["Vigil AI"])
 async def list_vision_detections(
     printer_id: Optional[int] = None,
     detection_type: Optional[str] = None,
@@ -29,71 +70,62 @@ async def list_vision_detections(
     db: Session = Depends(get_db),
 ):
     """List vision detections with optional filters."""
-    conn = _sqlite3.connect(db.bind.url.database if hasattr(db.bind.url, 'database') else '/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
+    query = (
+        db.query(VisionDetection, Printer.name, Printer.nickname)
+        .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
+    )
+    count_query = db.query(sa_func.count(VisionDetection.id))
 
-    where = []
-    params = []
     if printer_id is not None:
-        where.append("vd.printer_id = ?")
-        params.append(printer_id)
+        query = query.filter(VisionDetection.printer_id == printer_id)
+        count_query = count_query.filter(VisionDetection.printer_id == printer_id)
     if detection_type:
-        where.append("vd.detection_type = ?")
-        params.append(detection_type)
+        query = query.filter(VisionDetection.detection_type == detection_type)
+        count_query = count_query.filter(VisionDetection.detection_type == detection_type)
     if status_filter:
-        where.append("vd.status = ?")
-        params.append(status_filter)
+        query = query.filter(VisionDetection.status == status_filter)
+        count_query = count_query.filter(VisionDetection.status == status_filter)
 
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-    params_count = list(params)
-    params += [limit, offset]
+    total = count_query.scalar()
+    rows = (
+        query.order_by(VisionDetection.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
 
-    cur.execute(f"""
-        SELECT vd.*, p.name as printer_name, p.nickname as printer_nickname
-        FROM vision_detections vd
-        LEFT JOIN printers p ON p.id = vd.printer_id
-        {where_sql}
-        ORDER BY vd.created_at DESC
-        LIMIT ? OFFSET ?
-    """, params)
-    rows = [dict(r) for r in cur.fetchall()]
-
-    cur.execute(f"SELECT COUNT(*) FROM vision_detections vd {where_sql}", params_count)
-    total = cur.fetchone()[0]
-    conn.close()
-
-    return {"items": rows, "total": total}
+    items = [
+        _detection_to_dict(det, printer_name=pname, printer_nickname=pnick)
+        for det, pname, pnick in rows
+    ]
+    return {"items": items, "total": total}
 
 
-@router.get("/api/vision/detections/{detection_id}", tags=["Vigil AI"])
+@router.get("/vision/detections/{detection_id}", tags=["Vigil AI"])
 async def get_vision_detection(
     detection_id: int,
     current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db),
 ):
     """Get a single detection detail."""
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT vd.*, p.name as printer_name, p.nickname as printer_nickname
-        FROM vision_detections vd
-        LEFT JOIN printers p ON p.id = vd.printer_id
-        WHERE vd.id = ?
-    """, (detection_id,))
-    row = cur.fetchone()
-    conn.close()
+    row = (
+        db.query(VisionDetection, Printer.name, Printer.nickname)
+        .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
+        .filter(VisionDetection.id == detection_id)
+        .first()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Detection not found")
-    return dict(row)
+    det, pname, pnick = row
+    return _detection_to_dict(det, printer_name=pname, printer_nickname=pnick)
 
 
-@router.patch("/api/vision/detections/{detection_id}", tags=["Vigil AI"])
+@router.patch("/vision/detections/{detection_id}", tags=["Vigil AI"])
 async def review_vision_detection(
     detection_id: int,
     request: Request,
     current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
 ):
     """Review a detection: set status to confirmed or dismissed."""
     body = await request.json()
@@ -101,27 +133,20 @@ async def review_vision_detection(
     if new_status not in ("confirmed", "dismissed"):
         raise HTTPException(status_code=400, detail="Status must be 'confirmed' or 'dismissed'")
 
-    conn = _sqlite3.connect('/data/odin.db')
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM vision_detections WHERE id = ?", (detection_id,))
-    if not cur.fetchone():
-        conn.close()
+    det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
+    if not det:
         raise HTTPException(status_code=404, detail="Detection not found")
 
-    cur.execute(
-        """UPDATE vision_detections
-        SET status = ?, reviewed_by = ?, reviewed_at = datetime('now')
-        WHERE id = ?""",
-        (new_status, current_user["id"], detection_id)
-    )
-    conn.commit()
-    conn.close()
+    det.status = new_status
+    det.reviewed_by = current_user["id"]
+    det.reviewed_at = sa_func.now()
+    db.commit()
     return {"id": detection_id, "status": new_status}
 
 
 # ============== Vigil AI: Per-Printer Vision Settings ==============
 
-@router.get("/api/printers/{printer_id}/vision", tags=["Vigil AI"])
+@router.get("/printers/{printer_id}/vision", tags=["Vigil AI"])
 async def get_printer_vision_settings(
     printer_id: int,
     current_user: dict = Depends(require_role("viewer")),
@@ -132,15 +157,9 @@ async def get_printer_vision_settings(
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
 
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM vision_settings WHERE printer_id = ?", (printer_id,))
-    row = cur.fetchone()
-    conn.close()
-
+    row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
     if row:
-        return dict(row)
+        return _settings_to_dict(row)
     # Return defaults
     return {
         "printer_id": printer_id,
@@ -153,7 +172,7 @@ async def get_printer_vision_settings(
     }
 
 
-@router.patch("/api/printers/{printer_id}/vision", tags=["Vigil AI"])
+@router.patch("/printers/{printer_id}/vision", tags=["Vigil AI"])
 async def update_printer_vision_settings(
     printer_id: int,
     request: Request,
@@ -176,29 +195,22 @@ async def update_printer_vision_settings(
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
 
-    conn = _sqlite3.connect('/data/odin.db')
-    cur = conn.cursor()
-
-    # Upsert
-    cur.execute("SELECT printer_id FROM vision_settings WHERE printer_id = ?", (printer_id,))
-    if cur.fetchone():
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        params = list(updates.values()) + [printer_id]
-        cur.execute(f"UPDATE vision_settings SET {set_clause}, updated_at = datetime('now') WHERE printer_id = ?", params)
+    row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
+    if row:
+        for k, v in updates.items():
+            setattr(row, k, v)
+        row.updated_at = sa_func.now()
     else:
-        updates["printer_id"] = printer_id
-        cols = ", ".join(updates.keys())
-        placeholders = ", ".join("?" for _ in updates)
-        cur.execute(f"INSERT INTO vision_settings ({cols}) VALUES ({placeholders})", list(updates.values()))
+        row = VisionSettings(printer_id=printer_id, **updates)
+        db.add(row)
 
-    conn.commit()
-    conn.close()
+    db.commit()
     return {"printer_id": printer_id, **updates}
 
 
 # ============== Vigil AI: Global Vision Settings ==============
 
-@router.get("/api/vision/settings", tags=["Vigil AI"])
+@router.get("/vision/settings", tags=["Vigil AI"])
 async def get_global_vision_settings(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db),
@@ -214,7 +226,7 @@ async def get_global_vision_settings(
     return defaults
 
 
-@router.patch("/api/vision/settings", tags=["Vigil AI"])
+@router.patch("/vision/settings", tags=["Vigil AI"])
 async def update_global_vision_settings(
     request: Request,
     current_user: dict = Depends(require_role("admin")),
@@ -238,7 +250,7 @@ async def update_global_vision_settings(
 
 # ============== Vigil AI: Frames ==============
 
-@router.get("/api/vision/frames/{printer_id}/{filename}", tags=["Vigil AI"])
+@router.get("/vision/frames/{printer_id}/{filename}", tags=["Vigil AI"])
 async def serve_vision_frame(
     printer_id: int,
     filename: str,
@@ -265,22 +277,30 @@ async def serve_vision_frame(
 
 # ============== Vigil AI: Models ==============
 
-@router.get("/api/vision/models", tags=["Vigil AI"])
+@router.get("/vision/models", tags=["Vigil AI"])
 async def list_vision_models(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ):
     """List registered ONNX models."""
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM vision_models ORDER BY uploaded_at DESC")
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
+    rows = db.query(VisionModel).order_by(VisionModel.uploaded_at.desc()).all()
+    return [
+        {
+            "id": m.id,
+            "name": m.name,
+            "detection_type": m.detection_type,
+            "filename": m.filename,
+            "version": m.version,
+            "input_size": m.input_size,
+            "is_active": m.is_active,
+            "metadata_json": m.metadata_json,
+            "uploaded_at": m.uploaded_at.isoformat() if m.uploaded_at else None,
+        }
+        for m in rows
+    ]
 
 
-@router.post("/api/vision/models", tags=["Vigil AI"])
+@router.post("/vision/models", tags=["Vigil AI"])
 async def upload_vision_model(
     file: UploadFile = File(...),
     name: str = Query(...),
@@ -288,6 +308,7 @@ async def upload_vision_model(
     version: Optional[str] = None,
     input_size: int = Query(640),
     current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
 ):
     """Upload a custom ONNX model."""
     if detection_type not in ('spaghetti', 'first_layer', 'detachment'):
@@ -305,107 +326,105 @@ async def upload_vision_model(
         f.write(content)
 
     # Register in DB
-    conn = _sqlite3.connect('/data/odin.db')
-    cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO vision_models (name, detection_type, filename, version, input_size, uploaded_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))""",
-        (name, detection_type, safe_name, version, input_size)
+    model = VisionModel(
+        name=name,
+        detection_type=detection_type,
+        filename=safe_name,
+        version=version,
+        input_size=input_size,
     )
-    model_id = cur.lastrowid
-    conn.commit()
-    conn.close()
+    db.add(model)
+    db.commit()
+    db.refresh(model)
 
-    return {"id": model_id, "name": name, "filename": safe_name}
+    return {"id": model.id, "name": name, "filename": safe_name}
 
 
-@router.patch("/api/vision/models/{model_id}/activate", tags=["Vigil AI"])
+@router.patch("/vision/models/{model_id}/activate", tags=["Vigil AI"])
 async def activate_vision_model(
     model_id: int,
     current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
 ):
     """Set a model as active for its detection type (deactivates others of same type)."""
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, detection_type FROM vision_models WHERE id = ?", (model_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
+    model = db.query(VisionModel).filter(VisionModel.id == model_id).first()
+    if not model:
         raise HTTPException(status_code=404, detail="Model not found")
 
-    dt = row['detection_type']
+    dt = model.detection_type
     # Deactivate all models of same type
-    cur.execute("UPDATE vision_models SET is_active = 0 WHERE detection_type = ?", (dt,))
+    db.query(VisionModel).filter(VisionModel.detection_type == dt).update({"is_active": 0})
     # Activate this one
-    cur.execute("UPDATE vision_models SET is_active = 1 WHERE id = ?", (model_id,))
-    conn.commit()
-    conn.close()
+    model.is_active = 1
+    db.commit()
 
     return {"id": model_id, "detection_type": dt, "is_active": True}
 
 
 # ============== Vigil AI: Stats ==============
 
-@router.get("/api/vision/stats", tags=["Vigil AI"])
+@router.get("/vision/stats", tags=["Vigil AI"])
 async def get_vision_stats(
     days: int = Query(7, le=90),
     current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
 ):
     """Detection statistics: counts by type, status, and printer."""
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
-
-    cutoff = f"-{days} days"
+    cutoff = sa_func.datetime("now", f"-{days} days")
 
     # By type
-    cur.execute("""
-        SELECT detection_type, COUNT(*) as count
-        FROM vision_detections
-        WHERE created_at > datetime('now', ?)
-        GROUP BY detection_type
-    """, (cutoff,))
-    by_type = {r['detection_type']: r['count'] for r in cur.fetchall()}
+    type_rows = (
+        db.query(VisionDetection.detection_type, sa_func.count(VisionDetection.id))
+        .filter(VisionDetection.created_at > cutoff)
+        .group_by(VisionDetection.detection_type)
+        .all()
+    )
+    by_type = {dt: cnt for dt, cnt in type_rows}
 
     # By status
-    cur.execute("""
-        SELECT status, COUNT(*) as count
-        FROM vision_detections
-        WHERE created_at > datetime('now', ?)
-        GROUP BY status
-    """, (cutoff,))
-    by_status = {r['status']: r['count'] for r in cur.fetchall()}
+    status_rows = (
+        db.query(VisionDetection.status, sa_func.count(VisionDetection.id))
+        .filter(VisionDetection.created_at > cutoff)
+        .group_by(VisionDetection.status)
+        .all()
+    )
+    by_status = {s: cnt for s, cnt in status_rows}
 
     # By printer (top 10)
-    cur.execute("""
-        SELECT vd.printer_id, p.name, p.nickname, COUNT(*) as count
-        FROM vision_detections vd
-        LEFT JOIN printers p ON p.id = vd.printer_id
-        WHERE vd.created_at > datetime('now', ?)
-        GROUP BY vd.printer_id
-        ORDER BY count DESC LIMIT 10
-    """, (cutoff,))
-    by_printer = [dict(r) for r in cur.fetchall()]
+    printer_rows = (
+        db.query(
+            VisionDetection.printer_id,
+            Printer.name,
+            Printer.nickname,
+            sa_func.count(VisionDetection.id).label("count"),
+        )
+        .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
+        .filter(VisionDetection.created_at > cutoff)
+        .group_by(VisionDetection.printer_id)
+        .order_by(sa_func.count(VisionDetection.id).desc())
+        .limit(10)
+        .all()
+    )
+    by_printer = [
+        {"printer_id": pid, "name": pname, "nickname": pnick, "count": cnt}
+        for pid, pname, pnick, cnt in printer_rows
+    ]
 
     # Accuracy (if reviewed detections exist)
-    cur.execute("""
-        SELECT
-            COUNT(*) as total_reviewed,
-            SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
-            SUM(CASE WHEN status = 'dismissed' THEN 1 ELSE 0 END) as dismissed
-        FROM vision_detections
-        WHERE created_at > datetime('now', ?)
-          AND status IN ('confirmed', 'dismissed')
-    """, (cutoff,))
-    accuracy_row = cur.fetchone()
-    total_reviewed = accuracy_row['total_reviewed'] or 0
+    accuracy_row = (
+        db.query(
+            sa_func.count(VisionDetection.id).label("total_reviewed"),
+            sa_func.sum(case((VisionDetection.status == "confirmed", 1), else_=0)).label("confirmed"),
+            sa_func.sum(case((VisionDetection.status == "dismissed", 1), else_=0)).label("dismissed"),
+        )
+        .filter(VisionDetection.created_at > cutoff)
+        .filter(VisionDetection.status.in_(["confirmed", "dismissed"]))
+        .first()
+    )
+    total_reviewed = accuracy_row.total_reviewed or 0
     accuracy = None
     if total_reviewed > 0:
-        accuracy = round((accuracy_row['confirmed'] or 0) / total_reviewed * 100, 1)
-
-    conn.close()
+        accuracy = round((accuracy_row.confirmed or 0) / total_reviewed * 100, 1)
 
     return {
         "days": days,
@@ -419,51 +438,61 @@ async def get_vision_stats(
 
 # ============== Vigil AI: Training Data ==============
 
-@router.get("/api/vision/training-data", tags=["Vigil AI"])
+@router.get("/vision/training-data", tags=["Vigil AI"])
 async def list_training_data(
     printer_id: Optional[int] = None,
     labeled: Optional[bool] = None,
     limit: int = Query(50, le=200),
     offset: int = 0,
     current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
 ):
     """List captured training frames with labels."""
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
+    query = db.query(
+        VisionDetection.id,
+        VisionDetection.printer_id,
+        VisionDetection.detection_type,
+        VisionDetection.confidence,
+        VisionDetection.status,
+        VisionDetection.frame_path,
+        VisionDetection.bbox_json,
+        VisionDetection.created_at,
+    ).filter(VisionDetection.frame_path.isnot(None))
 
-    # Training data = confirmed/dismissed detections (labeled) + frames from collect mode
-    where = ["1=1"]
-    params = []
     if printer_id is not None:
-        where.append("vd.printer_id = ?")
-        params.append(printer_id)
+        query = query.filter(VisionDetection.printer_id == printer_id)
     if labeled is True:
-        where.append("vd.status IN ('confirmed', 'dismissed')")
+        query = query.filter(VisionDetection.status.in_(["confirmed", "dismissed"]))
     elif labeled is False:
-        where.append("vd.status = 'pending'")
+        query = query.filter(VisionDetection.status == "pending")
 
-    where_sql = " AND ".join(where)
-    params_extra = list(params) + [limit, offset]
+    rows = (
+        query.order_by(VisionDetection.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "printer_id": r.printer_id,
+            "detection_type": r.detection_type,
+            "confidence": r.confidence,
+            "status": r.status,
+            "frame_path": r.frame_path,
+            "bbox_json": r.bbox_json,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
 
-    cur.execute(f"""
-        SELECT vd.id, vd.printer_id, vd.detection_type, vd.confidence,
-               vd.status, vd.frame_path, vd.bbox_json, vd.created_at
-        FROM vision_detections vd
-        WHERE {where_sql} AND vd.frame_path IS NOT NULL
-        ORDER BY vd.created_at DESC
-        LIMIT ? OFFSET ?
-    """, params_extra)
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
 
-
-@router.post("/api/vision/training-data/{detection_id}/label", tags=["Vigil AI"])
+@router.post("/vision/training-data/{detection_id}/label", tags=["Vigil AI"])
 async def label_training_data(
     detection_id: int,
     request: Request,
     current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
 ):
     """Save a label (class + bbox) for a training frame."""
     body = await request.json()
@@ -473,44 +502,39 @@ async def label_training_data(
     if not label_class or bbox is None:
         raise HTTPException(status_code=400, detail="class and bbox are required")
 
-    conn = _sqlite3.connect('/data/odin.db')
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM vision_detections WHERE id = ?", (detection_id,))
-    if not cur.fetchone():
-        conn.close()
+    det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
+    if not det:
         raise HTTPException(status_code=404, detail="Detection not found")
 
     metadata = json.dumps({"label_class": label_class, "label_bbox": bbox})
-    cur.execute(
-        "UPDATE vision_detections SET metadata_json = ?, detection_type = ? WHERE id = ?",
-        (metadata, label_class, detection_id)
-    )
-    conn.commit()
-    conn.close()
+    det.metadata_json = metadata
+    det.detection_type = label_class
+    db.commit()
     return {"id": detection_id, "labeled": True}
 
 
-@router.get("/api/vision/training-data/export", tags=["Vigil AI"])
+@router.get("/vision/training-data/export", tags=["Vigil AI"])
 async def export_training_data(
     current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
 ):
     """Download labeled dataset as ZIP in YOLO format."""
     import zipfile
     import io
     from fastapi.responses import StreamingResponse
 
-    conn = _sqlite3.connect('/data/odin.db')
-    conn.row_factory = _sqlite3.Row
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT id, detection_type, frame_path, bbox_json, metadata_json
-        FROM vision_detections
-        WHERE status IN ('confirmed', 'dismissed')
-          AND frame_path IS NOT NULL
-    """)
-    rows = cur.fetchall()
-    conn.close()
+    rows = (
+        db.query(
+            VisionDetection.id,
+            VisionDetection.detection_type,
+            VisionDetection.frame_path,
+            VisionDetection.bbox_json,
+            VisionDetection.metadata_json,
+        )
+        .filter(VisionDetection.status.in_(["confirmed", "dismissed"]))
+        .filter(VisionDetection.frame_path.isnot(None))
+        .all()
+    )
 
     # Class mapping
     class_map = {'spaghetti': 0, 'first_layer': 1, 'detachment': 2}
@@ -529,16 +553,16 @@ async def export_training_data(
         ))
 
         for row in rows:
-            frame_abs = os.path.join('/data/vision_frames', row['frame_path'])
+            frame_abs = os.path.join('/data/vision_frames', row.frame_path)
             if not os.path.isfile(frame_abs):
                 continue
 
-            base = os.path.splitext(os.path.basename(row['frame_path']))[0]
-            zf.write(frame_abs, f"images/{os.path.basename(row['frame_path'])}")
+            base = os.path.splitext(os.path.basename(row.frame_path))[0]
+            zf.write(frame_abs, f"images/{os.path.basename(row.frame_path)}")
 
             # YOLO label format: class_id cx cy w h (normalized)
-            bbox = json.loads(row['bbox_json']) if row['bbox_json'] else None
-            dt = row['detection_type']
+            bbox = json.loads(row.bbox_json) if row.bbox_json else None
+            dt = row.detection_type
             class_id = class_map.get(dt, 0)
 
             if bbox and len(bbox) == 4:

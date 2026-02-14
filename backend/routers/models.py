@@ -107,7 +107,7 @@ def calculate_job_cost(db: Session, model_id: int = None, filament_grams: float 
 # Models CRUD
 # ──────────────────────────────────────────────
 
-@router.get("/api/models", response_model=List[ModelResponse], tags=["Models"])
+@router.get("/models", response_model=List[ModelResponse], tags=["Models"])
 def list_models(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
@@ -126,7 +126,7 @@ def list_models(
     return query.order_by(Model.name).all()
 
 
-@router.get("/api/models-with-pricing", tags=["Models"])
+@router.get("/models-with-pricing", tags=["Models"])
 def list_models_with_pricing(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
@@ -215,7 +215,7 @@ def list_models_with_pricing(
     return result
 
 
-@router.post("/api/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED, tags=["Models"])
+@router.post("/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED, tags=["Models"])
 def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new model definition."""
     # Convert color requirements to dict format
@@ -245,7 +245,7 @@ def create_model(model: ModelCreate, current_user: dict = Depends(require_role("
     return db_model
 
 
-@router.get("/api/models/{model_id}", response_model=ModelResponse, tags=["Models"])
+@router.get("/models/{model_id}", response_model=ModelResponse, tags=["Models"])
 def get_model(model_id: int, db: Session = Depends(get_db)):
     """Get a specific model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -254,7 +254,7 @@ def get_model(model_id: int, db: Session = Depends(get_db)):
     return model
 
 
-@router.patch("/api/models/{model_id}", response_model=ModelResponse, tags=["Models"])
+@router.patch("/models/{model_id}", response_model=ModelResponse, tags=["Models"])
 def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -275,7 +275,7 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
     return model
 
 
-@router.delete("/api/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Models"])
+@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Models"])
 def delete_model(model_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -286,7 +286,7 @@ def delete_model(model_id: int, current_user: dict = Depends(require_role("opera
     db.commit()
 
 
-@router.post("/api/models/{model_id}/schedule", tags=["Models"])
+@router.post("/models/{model_id}/schedule", tags=["Models"])
 def schedule_from_model(
     model_id: int,
     printer_id: Optional[int] = None,
@@ -352,7 +352,7 @@ def _normalize_model_name(name: str) -> str:
         result = re.sub(p, '', result, flags=re.IGNORECASE)
     return result.strip()
 
-@router.post("/api/print-files/upload", tags=["Print Files"])
+@router.post("/print-files/upload", tags=["Print Files"])
 async def upload_3mf(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -497,7 +497,7 @@ async def upload_3mf(
         os.unlink(tmp_path)
 
 
-@router.get("/api/print-files", tags=["Print Files"])
+@router.get("/print-files", tags=["Print Files"])
 def list_print_files(
     limit: int = Query(default=20, ge=1, le=100),
     include_scheduled: bool = False,
@@ -526,7 +526,7 @@ def list_print_files(
     return files
 
 
-@router.get("/api/print-files/{file_id}", tags=["Print Files"])
+@router.get("/print-files/{file_id}", tags=["Print Files"])
 def get_print_file(file_id: int, db: Session = Depends(get_db)):
     """Get details of a specific print file."""
     result = db.execute(text("SELECT * FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
@@ -541,7 +541,7 @@ def get_print_file(file_id: int, db: Session = Depends(get_db)):
     return r
 
 
-@router.delete("/api/print-files/{file_id}", tags=["Print Files"])
+@router.delete("/print-files/{file_id}", tags=["Print Files"])
 def delete_print_file(file_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete an uploaded print file."""
     result = db.execute(text("SELECT id FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
@@ -553,7 +553,7 @@ def delete_print_file(file_id: int, current_user: dict = Depends(require_role("o
     return {"deleted": True}
 
 
-@router.post("/api/print-files/{file_id}/schedule", tags=["Print Files"])
+@router.post("/print-files/{file_id}/schedule", tags=["Print Files"])
 def schedule_print_file(
     file_id: int,
     printer_id: Optional[int] = None,
@@ -608,7 +608,7 @@ def schedule_print_file(
 # Model Revisions
 # ──────────────────────────────────────────────
 
-@router.get("/api/models/{model_id}/revisions", tags=["Models"])
+@router.get("/models/{model_id}/revisions", tags=["Models"])
 async def list_model_revisions(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all revisions for a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -629,7 +629,7 @@ async def list_model_revisions(model_id: int, current_user: dict = Depends(requi
     } for r in rows]
 
 
-@router.post("/api/models/{model_id}/revisions", tags=["Models"])
+@router.post("/models/{model_id}/revisions", tags=["Models"])
 async def create_model_revision(
     model_id: int, changelog: str = "", file: UploadFile = File(None),
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -665,7 +665,7 @@ async def create_model_revision(
     return {"revision_number": next_rev, "file_path": file_path}
 
 
-@router.post("/api/models/{model_id}/revisions/{rev_number}/revert", tags=["Models"])
+@router.post("/models/{model_id}/revisions/{rev_number}/revert", tags=["Models"])
 async def revert_model_revision(
     model_id: int, rev_number: int,
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -712,7 +712,7 @@ async def revert_model_revision(
 # Mesh / 3D Viewer
 # ──────────────────────────────────────────────
 
-@router.get("/api/print-files/{file_id}/mesh", tags=["3D Viewer"])
+@router.get("/print-files/{file_id}/mesh", tags=["3D Viewer"])
 async def get_print_file_mesh(file_id: int, db: Session = Depends(get_db)):
     """Get mesh geometry data for 3D viewer from a print file."""
     result = db.execute(text(
@@ -726,7 +726,7 @@ async def get_print_file_mesh(file_id: int, db: Session = Depends(get_db)):
     return json_stdlib.loads(result[0])
 
 
-@router.get("/api/models/{model_id}/mesh", tags=["3D Viewer"])
+@router.get("/models/{model_id}/mesh", tags=["3D Viewer"])
 async def get_model_mesh(model_id: int, db: Session = Depends(get_db)):
     """Get mesh geometry for a model (via its linked print_file)."""
     # Find print_file_id from model
@@ -752,7 +752,7 @@ async def get_model_mesh(model_id: int, db: Session = Depends(get_db)):
 # Model Variants
 # ──────────────────────────────────────────────
 
-@router.get("/api/models/{model_id}/variants", tags=["Models"])
+@router.get("/models/{model_id}/variants", tags=["Models"])
 def get_model_variants(model_id: int, db: Session = Depends(get_db)):
     """Get all print file variants for a model."""
     model = db.execute(text("SELECT id, name FROM models WHERE id = :id"), {"id": model_id}).fetchone()
@@ -776,7 +776,7 @@ def get_model_variants(model_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.delete("/api/models/{model_id}/variants/{variant_id}", tags=["Models"])
+@router.delete("/models/{model_id}/variants/{variant_id}", tags=["Models"])
 def delete_model_variant(model_id: int, variant_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a variant from a model."""
     v = db.execute(text("SELECT id FROM print_files WHERE id=:id AND model_id=:mid"),
@@ -795,7 +795,7 @@ def delete_model_variant(model_id: int, variant_id: int, current_user: dict = De
 # Pricing Config & Model Cost
 # ──────────────────────────────────────────────
 
-@router.get("/api/pricing-config")
+@router.get("/pricing-config")
 def get_pricing_config(db: Session = Depends(get_db)):
     """Get system pricing configuration."""
     config = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
@@ -805,7 +805,7 @@ def get_pricing_config(db: Session = Depends(get_db)):
     return config.value
 
 
-@router.put("/api/pricing-config")
+@router.put("/pricing-config")
 def update_pricing_config(
     config_data: dict,
     current_user: dict = Depends(require_role("admin")),
@@ -829,7 +829,7 @@ def update_pricing_config(
     return config.value
 
 
-@router.get("/api/models/{model_id}/cost")
+@router.get("/models/{model_id}/cost")
 def calculate_model_cost(
     model_id: int,
     db: Session = Depends(get_db)

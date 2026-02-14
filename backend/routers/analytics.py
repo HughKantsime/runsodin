@@ -25,7 +25,7 @@ router = APIRouter()
 
 # ============== Stats ==============
 
-@router.get("/api/stats", tags=["Stats"])
+@router.get("/stats", tags=["Stats"])
 async def get_stats(db: Session = Depends(get_db)):
     """Get dashboard statistics."""
     total_printers = db.query(Printer).count()
@@ -123,7 +123,7 @@ async def get_stats(db: Session = Depends(get_db)):
 
 # ============== Analytics ==============
 
-@router.get("/api/analytics", tags=["Analytics"])
+@router.get("/analytics", tags=["Analytics"])
 def get_analytics(db: Session = Depends(get_db)):
     """Get analytics data for dashboard."""
     from sqlalchemy import func
@@ -291,7 +291,7 @@ def get_analytics(db: Session = Depends(get_db)):
 
 # ============== Failure Analytics ==============
 
-@router.get("/api/analytics/failures", tags=["Analytics"])
+@router.get("/analytics/failures", tags=["Analytics"])
 def get_failure_analytics(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
@@ -402,7 +402,7 @@ def get_failure_analytics(
 
 # ============== Time Accuracy Analytics ==============
 
-@router.get("/api/analytics/time-accuracy", tags=["Analytics"])
+@router.get("/analytics/time-accuracy", tags=["Analytics"])
 def get_time_accuracy(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
@@ -483,7 +483,7 @@ def get_time_accuracy(
 
 # ============== Education Usage Report ==============
 
-@router.get("/api/education/usage-report", tags=["Education"])
+@router.get("/education/usage-report", tags=["Education"])
 def get_education_usage_report(
     days: int = Query(default=30, ge=7, le=90),
     db: Session = Depends(get_db),
@@ -586,7 +586,7 @@ def get_education_usage_report(
 
 # ============== CSV Export ==============
 
-@router.get("/api/export/jobs", tags=["Export"])
+@router.get("/export/jobs", tags=["Export"])
 def export_jobs_csv(
     status: Optional[str] = None,
     current_user: dict = Depends(require_role("operator")),
@@ -635,7 +635,7 @@ def export_jobs_csv(
     )
 
 
-@router.get("/api/export/spools", tags=["Export"])
+@router.get("/export/spools", tags=["Export"])
 def export_spools_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Export spools as CSV."""
     spools = db.query(Spool).order_by(Spool.id).all()
@@ -677,7 +677,7 @@ def export_spools_csv(current_user: dict = Depends(require_role("operator")), db
     )
 
 
-@router.get("/api/export/filament-usage", tags=["Export"])
+@router.get("/export/filament-usage", tags=["Export"])
 def export_filament_usage_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Export filament usage history as CSV."""
     usage_records = db.query(SpoolUsage).order_by(SpoolUsage.used_at.desc()).all()
@@ -709,7 +709,7 @@ def export_filament_usage_csv(current_user: dict = Depends(require_role("operato
     )
 
 
-@router.get("/api/export/models", tags=["Export"])
+@router.get("/export/models", tags=["Export"])
 def export_models_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Export models as CSV."""
     models = db.query(Model).order_by(Model.name).all()
@@ -746,7 +746,7 @@ def export_models_csv(current_user: dict = Depends(require_role("operator")), db
     )
 
 
-@router.get("/api/export/audit-logs", tags=["Export"])
+@router.get("/export/audit-logs", tags=["Export"])
 def export_audit_logs_csv(
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
@@ -785,7 +785,7 @@ def export_audit_logs_csv(
 
 # ============== Audit Log ==============
 
-@router.get("/api/audit-logs", tags=["Audit"])
+@router.get("/audit-logs", tags=["Audit"])
 def list_audit_logs(
     limit: int = Query(default=50, le=500),
     offset: int = 0,
@@ -832,7 +832,7 @@ def list_audit_logs(
 
 # ============== Chargeback Report ==============
 
-@router.get("/api/reports/chargebacks", tags=["Reports"])
+@router.get("/reports/chargebacks", tags=["Reports"])
 async def chargeback_report(
     start_date: str = None, end_date: str = None,
     current_user: dict = Depends(require_role("admin")),
@@ -871,7 +871,7 @@ async def chargeback_report(
 REPORT_TYPES = ["fleet_utilization", "job_summary", "filament_consumption", "failure_analysis", "chargeback_summary"]
 
 
-@router.get("/api/report-schedules", tags=["Reports"])
+@router.get("/report-schedules", tags=["Reports"])
 async def list_report_schedules(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """List all scheduled reports."""
     rows = db.execute(text("SELECT * FROM report_schedules ORDER BY created_at DESC")).fetchall()
@@ -884,7 +884,7 @@ async def list_report_schedules(current_user: dict = Depends(require_role("admin
     } for r in rows]
 
 
-@router.post("/api/report-schedules", tags=["Reports"])
+@router.post("/report-schedules", tags=["Reports"])
 async def create_report_schedule(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Create a new scheduled report."""
     name = body.get("name", "").strip()
@@ -922,7 +922,7 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
     return {"id": sched_id, "status": "ok"}
 
 
-@router.delete("/api/report-schedules/{schedule_id}", tags=["Reports"])
+@router.delete("/report-schedules/{schedule_id}", tags=["Reports"])
 async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a scheduled report."""
     row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
@@ -933,7 +933,7 @@ async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(
     return {"status": "ok"}
 
 
-@router.patch("/api/report-schedules/{schedule_id}", tags=["Reports"])
+@router.patch("/report-schedules/{schedule_id}", tags=["Reports"])
 async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update a scheduled report (toggle active, change recipients, etc.)."""
     row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()

@@ -28,7 +28,7 @@ router = APIRouter()
 # Timelapses
 # ====================================================================
 
-@router.get("/api/timelapses", tags=["Timelapses"])
+@router.get("/timelapses", tags=["Timelapses"])
 def list_timelapses(
     printer_id: Optional[int] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -70,7 +70,7 @@ def list_timelapses(
     }
 
 
-@router.get("/api/timelapses/{timelapse_id}/video", tags=["Timelapses"])
+@router.get("/timelapses/{timelapse_id}/video", tags=["Timelapses"])
 def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Serve the timelapse MP4 file. Accepts ?token= query param for <video> src auth."""
     # <video> elements can't send Bearer headers, so accept token as query param
@@ -94,7 +94,7 @@ def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Sess
     return FileResponse(str(video_path), media_type="video/mp4", filename=video_path.name)
 
 
-@router.delete("/api/timelapses/{timelapse_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Timelapses"])
+@router.delete("/timelapses/{timelapse_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Timelapses"])
 def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
     """Delete a timelapse recording and its video file."""
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
@@ -117,7 +117,7 @@ def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_u
 # Cameras
 # ====================================================================
 
-@router.get("/api/cameras", tags=["Cameras"])
+@router.get("/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db)):
     """List printers with active camera streams in go2rtc."""
     # Check which streams go2rtc actually has configured
@@ -144,7 +144,7 @@ def list_cameras(db: Session = Depends(get_db)):
     return sorted(cameras, key=lambda x: x.get("display_order", 0))
 
 
-@router.patch("/api/cameras/{printer_id}/toggle", tags=["Cameras"])
+@router.patch("/cameras/{printer_id}/toggle", tags=["Cameras"])
 def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Toggle camera on/off for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -160,7 +160,7 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("op
     return {"id": printer_id, "camera_enabled": new_state}
 
 
-@router.get("/api/cameras/{printer_id}/stream", tags=["Cameras"])
+@router.get("/cameras/{printer_id}/stream", tags=["Cameras"])
 def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
     """Get go2rtc stream info for a printer camera."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -184,7 +184,7 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/api/cameras/{printer_id}/webrtc", tags=["Cameras"])
+@router.post("/cameras/{printer_id}/webrtc", tags=["Cameras"])
 async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends(get_db)):
     """Proxy WebRTC signaling to go2rtc."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()

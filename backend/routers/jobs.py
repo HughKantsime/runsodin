@@ -76,7 +76,7 @@ FAILURE_REASONS = [
 # Jobs CRUD
 # ──────────────────────────────────────────────
 
-@router.get("/api/jobs", response_model=List[JobResponse], tags=["Jobs"])
+@router.get("/jobs", response_model=List[JobResponse], tags=["Jobs"])
 def list_jobs(
     status: Optional[JobStatus] = None,
     printer_id: Optional[int] = None,
@@ -101,7 +101,7 @@ def list_jobs(
     return query.order_by(Job.priority, Job.created_at).offset(offset).limit(limit).all()
 
 
-@router.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
+@router.post("/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Create a new print job. If approval is required and user is a viewer, job is created as 'submitted'.
 
@@ -202,7 +202,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     return db_job
 
 
-@router.post("/api/jobs/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
+@router.post("/jobs/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
     from routers.models import calculate_job_cost
@@ -237,7 +237,7 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
     return db_jobs
 
 
-@router.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@router.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 def get_job(job_id: int, db: Session = Depends(get_db)):
     """Get a specific job."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -246,7 +246,7 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
     return job
 
 
-@router.patch("/api/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@router.patch("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -261,7 +261,7 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
     return job
 
 
-@router.delete("/api/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
+@router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
 def delete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -272,7 +272,7 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
     db.commit()
 
 
-@router.post("/api/jobs/{job_id}/repeat", tags=["Jobs"])
+@router.post("/jobs/{job_id}/repeat", tags=["Jobs"])
 async def repeat_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Clone a job for printing again. Creates a new pending job with same settings."""
     original = db.query(Job).filter(Job.id == job_id).first()
@@ -312,7 +312,7 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
 # Job lifecycle
 # ──────────────────────────────────────────────
 
-@router.post("/api/jobs/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
+@router.post("/jobs/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
 def start_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as started (printing)."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -331,7 +331,7 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
     return job
 
 
-@router.post("/api/jobs/{job_id}/complete", response_model=JobResponse, tags=["Jobs"])
+@router.post("/jobs/{job_id}/complete", response_model=JobResponse, tags=["Jobs"])
 def complete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as completed and auto-deduct filament from loaded spools."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -424,7 +424,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     return job
 
 
-@router.post("/api/jobs/{job_id}/fail", response_model=JobResponse, tags=["Jobs"])
+@router.post("/jobs/{job_id}/fail", response_model=JobResponse, tags=["Jobs"])
 def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as failed."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -441,7 +441,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     db.refresh(job)
     return job
 
-@router.post("/api/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
+@router.post("/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
 def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Cancel a pending or scheduled job."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -456,7 +456,7 @@ def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator"
     return job
 
 
-@router.post("/api/jobs/{job_id}/reset", response_model=JobResponse, tags=["Jobs"])
+@router.post("/jobs/{job_id}/reset", response_model=JobResponse, tags=["Jobs"])
 def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Reset a job back to pending status."""
     job = db.query(Job).filter(Job.id == job_id).first()
@@ -485,7 +485,7 @@ class _RejectJobRequest(PydanticBaseModel):
     """Inline schema for reject endpoint."""
     reason: str
 
-@router.post("/api/jobs/{job_id}/approve", tags=["Jobs"])
+@router.post("/jobs/{job_id}/approve", tags=["Jobs"])
 def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     require_feature("job_approval")
     """Approve a submitted job. Moves it to pending status for scheduling."""
@@ -524,7 +524,7 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
     return {"status": "approved", "job_id": job.id}
 
 
-@router.post("/api/jobs/{job_id}/reject", tags=["Jobs"])
+@router.post("/jobs/{job_id}/reject", tags=["Jobs"])
 def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     require_feature("job_approval")
     """Reject a submitted job with a required reason."""
@@ -566,7 +566,7 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
     return {"status": "rejected", "job_id": job.id, "reason": body.reason.strip()}
 
 
-@router.post("/api/jobs/{job_id}/resubmit", tags=["Jobs"])
+@router.post("/jobs/{job_id}/resubmit", tags=["Jobs"])
 def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     require_feature("job_approval")
     """Resubmit a rejected job for approval again."""
@@ -614,7 +614,7 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
 # Config: require-job-approval
 # ──────────────────────────────────────────────
 
-@router.get("/api/config/require-job-approval", tags=["Config"])
+@router.get("/config/require-job-approval", tags=["Config"])
 def get_approval_setting(db: Session = Depends(get_db)):
     """Get the current job approval requirement setting."""
     config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
@@ -624,7 +624,7 @@ def get_approval_setting(db: Session = Depends(get_db)):
     return {"require_job_approval": enabled}
 
 
-@router.put("/api/config/require-job-approval", tags=["Config"])
+@router.put("/config/require-job-approval", tags=["Config"])
 def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
     """Toggle the job approval requirement. Admin only. Requires Education tier."""
     require_feature("job_approval")
@@ -643,7 +643,7 @@ def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user
 # Link job to MQTT print
 # ──────────────────────────────────────────────
 
-@router.post("/api/jobs/{job_id}/link-print", tags=["Jobs"])
+@router.post("/jobs/{job_id}/link-print", tags=["Jobs"])
 def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Link a scheduled job to an MQTT-detected print."""
     # Check job exists
@@ -681,7 +681,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     return {"message": "Linked", "job_id": job_id, "print_job_id": print_job_id}
 
 
-@router.get("/api/print-jobs/unlinked", tags=["Print Jobs"])
+@router.get("/print-jobs/unlinked", tags=["Print Jobs"])
 def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db)):
     """Get recent print jobs not linked to scheduled jobs."""
     sql = """
@@ -710,7 +710,7 @@ class MoveJobRequest(PydanticBaseModel):
     printer_id: int
     scheduled_start: datetime
 
-@router.patch("/api/jobs/{job_id}/move", tags=["Jobs"])
+@router.patch("/jobs/{job_id}/move", tags=["Jobs"])
 def move_job(
     job_id: int,
     request: MoveJobRequest,
@@ -768,7 +768,7 @@ def move_job(
 # Print jobs (MQTT-tracked)
 # ──────────────────────────────────────────────
 
-@router.get("/api/print-jobs", tags=["Print Jobs"])
+@router.get("/print-jobs", tags=["Print Jobs"])
 def get_print_jobs(
     printer_id: Optional[int] = None,
     status: Optional[str] = None,
@@ -815,7 +815,7 @@ def get_print_jobs(
 
     return jobs
 
-@router.get("/api/print-jobs/stats", tags=["Print Jobs"])
+@router.get("/print-jobs/stats", tags=["Print Jobs"])
 def get_print_job_stats(db: Session = Depends(get_db)):
     """Get aggregated print job statistics."""
     query = text("""
@@ -844,7 +844,7 @@ def get_print_job_stats(db: Session = Depends(get_db)):
 # Bulk update jobs
 # ──────────────────────────────────────────────
 
-@router.post("/api/jobs/bulk-update", tags=["Jobs"])
+@router.post("/jobs/bulk-update", tags=["Jobs"])
 async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Bulk update job fields (status, priority) for multiple jobs."""
     job_ids = body.get("job_ids", [])
@@ -896,7 +896,7 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
 class JobReorderRequest(PydanticBaseModel):
     job_ids: list[int]  # Ordered list of job IDs in desired queue position
 
-@router.patch("/api/jobs/reorder", tags=["Jobs"])
+@router.patch("/jobs/reorder", tags=["Jobs"])
 async def reorder_jobs(req: JobReorderRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """
     Reorder job queue. Accepts ordered list of job IDs.
@@ -916,13 +916,13 @@ async def reorder_jobs(req: JobReorderRequest, current_user: dict = Depends(requ
 # Failure reasons
 # ──────────────────────────────────────────────
 
-@router.get("/api/failure-reasons", tags=["Jobs"])
+@router.get("/failure-reasons", tags=["Jobs"])
 async def get_failure_reasons():
     """List available failure reason categories."""
     return FAILURE_REASONS
 
 
-@router.patch("/api/jobs/{job_id}/failure", tags=["Jobs"])
+@router.patch("/jobs/{job_id}/failure", tags=["Jobs"])
 async def update_job_failure(
     job_id: int,
     request: Request,
@@ -966,7 +966,7 @@ async def update_job_failure(
 # Print Presets
 # ──────────────────────────────────────────────
 
-@router.get("/api/presets", tags=["Presets"])
+@router.get("/presets", tags=["Presets"])
 def list_presets(db: Session = Depends(get_db)):
     """List all print presets."""
     presets = db.query(PrintPreset).order_by(PrintPreset.name).all()
@@ -989,7 +989,7 @@ def list_presets(db: Session = Depends(get_db)):
     ]
 
 
-@router.post("/api/presets", tags=["Presets"], status_code=status.HTTP_201_CREATED)
+@router.post("/presets", tags=["Presets"], status_code=status.HTTP_201_CREATED)
 def create_preset(
     request_data: dict,
     current_user: dict = Depends(require_role("operator")),
@@ -1014,7 +1014,7 @@ def create_preset(
     return {"id": preset.id, "name": preset.name}
 
 
-@router.delete("/api/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Presets"])
+@router.delete("/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Presets"])
 def delete_preset(
     preset_id: int,
     current_user: dict = Depends(require_role("operator")),
@@ -1028,7 +1028,7 @@ def delete_preset(
     db.commit()
 
 
-@router.post("/api/presets/{preset_id}/schedule", tags=["Presets"])
+@router.post("/presets/{preset_id}/schedule", tags=["Presets"])
 def schedule_from_preset(
     preset_id: int,
     current_user: dict = Depends(get_current_user),

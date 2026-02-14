@@ -16,7 +16,7 @@ router = APIRouter()
 # Organizations CRUD
 # =============================================================================
 
-@router.get("/api/orgs", tags=["Organizations"])
+@router.get("/orgs", tags=["Organizations"])
 async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """List all organizations."""
     rows = db.execute(text(
@@ -30,7 +30,7 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
     } for r in rows]
 
 
-@router.post("/api/orgs", tags=["Organizations"])
+@router.post("/orgs", tags=["Organizations"])
 async def create_org(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Create a new organization."""
     name = body.get("name", "").strip()
@@ -51,7 +51,7 @@ async def create_org(body: dict, current_user: dict = Depends(require_role("admi
     return {"id": org_id, "name": name, "status": "ok"}
 
 
-@router.patch("/api/orgs/{org_id}", tags=["Organizations"])
+@router.patch("/orgs/{org_id}", tags=["Organizations"])
 async def update_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an organization."""
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
@@ -71,7 +71,7 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
     return {"status": "ok"}
 
 
-@router.delete("/api/orgs/{org_id}", tags=["Organizations"])
+@router.delete("/orgs/{org_id}", tags=["Organizations"])
 async def delete_org(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete an organization. Unlinks members but does not delete them."""
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
@@ -90,7 +90,7 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_role("adm
     return {"status": "ok"}
 
 
-@router.post("/api/orgs/{org_id}/members", tags=["Organizations"])
+@router.post("/orgs/{org_id}/members", tags=["Organizations"])
 async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Add a user to an organization."""
     user_id = body.get("user_id")
@@ -106,7 +106,7 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     return {"status": "ok"}
 
 
-@router.post("/api/orgs/{org_id}/printers", tags=["Organizations"])
+@router.post("/orgs/{org_id}/printers", tags=["Organizations"])
 async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Assign a printer to an organization."""
     printer_id = body.get("printer_id")

@@ -65,14 +65,14 @@ async def health_check():
 
 # ============== License ==============
 
-@router.get("/api/license", tags=["License"])
+@router.get("/license", tags=["License"])
 def get_license_info():
     """Get current license status. No auth required so frontend can check tier."""
     license_info = get_license()
     return license_info.to_dict()
 
 
-@router.post("/api/license/upload", tags=["License"])
+@router.post("/license/upload", tags=["License"])
 async def upload_license(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("admin")),
@@ -116,7 +116,7 @@ async def upload_license(
     }
 
 
-@router.delete("/api/license", tags=["License"])
+@router.delete("/license", tags=["License"])
 def remove_license(
     current_user: dict = Depends(require_role("admin")),
 ):
@@ -178,7 +178,7 @@ def _setup_is_locked(db: Session) -> bool:
     return _setup_users_exist(db) or _setup_is_complete(db)
 
 
-@router.get("/api/setup/status", tags=["Setup"])
+@router.get("/setup/status", tags=["Setup"])
 def setup_status(db: Session = Depends(get_db)):
     """Check if initial setup is needed. No auth required."""
     has_users = _setup_users_exist(db)
@@ -190,7 +190,7 @@ def setup_status(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/api/setup/admin", tags=["Setup"])
+@router.post("/setup/admin", tags=["Setup"])
 def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)):
     """Create the first admin user during setup. Refuses if any user exists."""
     if _setup_users_exist(db):
@@ -221,7 +221,7 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/api/setup/test-printer", tags=["Setup"])
+@router.post("/setup/test-printer", tags=["Setup"])
 def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(get_db)):
     """Test printer connection during setup. Wraps existing test logic."""
     if _setup_is_locked(db):
@@ -277,7 +277,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
     return {"success": False, "error": f"Unknown printer type: {request.api_type}"}
 
 
-@router.post("/api/setup/printer", tags=["Setup"])
+@router.post("/setup/printer", tags=["Setup"])
 def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get_db)):
     """Create a printer during setup. Requires JWT from admin creation step."""
     if _setup_is_locked(db):
@@ -313,7 +313,7 @@ def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get
     return {"id": db_printer.id, "name": db_printer.name, "status": "created"}
 
 
-@router.post("/api/setup/complete", tags=["Setup"])
+@router.post("/setup/complete", tags=["Setup"])
 def setup_mark_complete(db: Session = Depends(get_db)):
     """Mark setup as complete. Prevents wizard from showing again."""
     if _setup_is_locked(db):
@@ -348,7 +348,7 @@ def _get_lan_ip():
         return None
 
 
-@router.get("/api/setup/network", tags=["Setup"])
+@router.get("/setup/network", tags=["Setup"])
 def setup_network_info(request: Request):
     """Return auto-detected host IP for network configuration."""
     # Best detection: use the Host header from the browser request
@@ -367,7 +367,7 @@ def setup_network_info(request: Request):
     return {"detected_ip": detected_ip, "configured_ip": os.environ.get("ODIN_HOST_IP", "")}
 
 
-@router.post("/api/setup/network", tags=["Setup"])
+@router.post("/setup/network", tags=["Setup"])
 async def setup_save_network(request: Request, db: Session = Depends(get_db)):
     """Save host IP for WebRTC camera streaming."""
     data = await request.json()
@@ -429,7 +429,7 @@ class ConfigUpdate(PydanticBaseModel):
 ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
 
 
-@router.get("/api/config", tags=["Config"])
+@router.get("/config", tags=["Config"])
 def get_config():
     """Get current configuration."""
     return {
@@ -438,7 +438,7 @@ def get_config():
         "blackout_end": settings.blackout_end,
     }
 
-@router.put("/api/config", tags=["Config"])
+@router.put("/config", tags=["Config"])
 def update_config(config: ConfigUpdate, current_user: dict = Depends(require_role("admin"))):
     """Update configuration. Writes to .env file."""
     # Use environment variable or default path
@@ -471,7 +471,7 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_rol
 
     return {"success": True, "message": "Config updated. Restart backend to apply changes."}
 
-@router.get("/api/spoolman/test", tags=["Spoolman"])
+@router.get("/spoolman/test", tags=["Spoolman"])
 async def test_spoolman_connection():
     """Test Spoolman connection."""
     if not settings.spoolman_url:
@@ -490,7 +490,7 @@ async def test_spoolman_connection():
 
 # ============== IP Allowlist ==============
 
-@router.get("/api/config/ip-allowlist", tags=["Config"])
+@router.get("/config/ip-allowlist", tags=["Config"])
 async def get_ip_allowlist(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Get the IP allowlist configuration."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
@@ -500,7 +500,7 @@ async def get_ip_allowlist(current_user: dict = Depends(require_role("admin")), 
     return val
 
 
-@router.put("/api/config/ip-allowlist", tags=["Config"])
+@router.put("/config/ip-allowlist", tags=["Config"])
 async def set_ip_allowlist(request: Request, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set the IP allowlist. Includes lock-out protection."""
     import ipaddress
@@ -544,7 +544,7 @@ RETENTION_DEFAULTS = {
 }
 
 
-@router.get("/api/config/retention", tags=["Config"])
+@router.get("/config/retention", tags=["Config"])
 async def get_retention_config(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Get data retention policy configuration."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
@@ -554,7 +554,7 @@ async def get_retention_config(current_user: dict = Depends(require_role("admin"
     return {**RETENTION_DEFAULTS, **val}
 
 
-@router.put("/api/config/retention", tags=["Config"])
+@router.put("/config/retention", tags=["Config"])
 async def set_retention_config(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set data retention policy configuration."""
     config = {}
@@ -574,7 +574,7 @@ async def set_retention_config(body: dict, current_user: dict = Depends(require_
     return {**RETENTION_DEFAULTS, **config}
 
 
-@router.post("/api/admin/retention/cleanup", tags=["Config"])
+@router.post("/admin/retention/cleanup", tags=["Config"])
 async def run_retention_cleanup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Manually trigger data retention cleanup."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
@@ -619,7 +619,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
 
 # ============== Backup Restore ==============
 
-@router.post("/api/backups/restore", tags=["System"])
+@router.post("/backups/restore", tags=["System"])
 async def restore_backup(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Restore database from an uploaded backup file."""
     import sqlite3
@@ -825,7 +825,7 @@ async def prometheus_metrics(db: Session = Depends(get_db)):
 
 # ============== HMS Code Lookup ==============
 
-@router.get("/api/hms-codes/{code}", tags=["Monitoring"])
+@router.get("/hms-codes/{code}", tags=["Monitoring"])
 async def lookup_hms(code: str):
     """Look up human-readable description for a Bambu HMS error code."""
     try:
@@ -841,7 +841,7 @@ async def lookup_hms(code: str):
 
 # ============== Quiet Hours Config ==============
 
-@router.get("/api/config/quiet-hours")
+@router.get("/config/quiet-hours")
 async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
     """Get quiet hours settings."""
     keys = ["quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_digest"]
@@ -862,7 +862,7 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: di
     return config
 
 
-@router.put("/api/config/quiet-hours")
+@router.put("/config/quiet-hours")
 async def update_quiet_hours_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update quiet hours settings. Admin only."""
 
@@ -898,7 +898,7 @@ try:
 except ImportError:
     mqtt_republish = None
 
-@router.get("/api/config/mqtt-republish")
+@router.get("/config/mqtt-republish")
 async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
     """Get MQTT republish settings."""
     keys = [
@@ -927,7 +927,7 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
     return config
 
 
-@router.put("/api/config/mqtt-republish")
+@router.put("/config/mqtt-republish")
 async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update MQTT republish settings. Admin only."""
 
@@ -958,7 +958,7 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
     return {"status": "ok"}
 
 
-@router.post("/api/config/mqtt-republish/test")
+@router.post("/config/mqtt-republish/test")
 async def test_mqtt_republish(request: Request, current_user: dict = Depends(require_role("admin"))):
     """Test connection to external MQTT broker."""
     # Role check handled by require_role("admin") dependency
@@ -980,13 +980,13 @@ async def test_mqtt_republish(request: Request, current_user: dict = Depends(req
 
 # ============== Branding ==============
 
-@router.get("/api/branding", tags=["Branding"])
+@router.get("/branding", tags=["Branding"])
 async def get_branding(db: Session = Depends(get_db)):
     """Get branding config. PUBLIC - no auth required."""
     return branding_to_dict(get_or_create_branding(db))
 
 
-@router.put("/api/branding", tags=["Branding"])
+@router.put("/branding", tags=["Branding"])
 async def update_branding(data: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
     branding = get_or_create_branding(db)
@@ -999,7 +999,7 @@ async def update_branding(data: dict, current_user: dict = Depends(require_role(
     return branding_to_dict(branding)
 
 
-@router.post("/api/branding/logo", tags=["Branding"])
+@router.post("/branding/logo", tags=["Branding"])
 async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Upload brand logo. Admin only."""
     allowed = {"image/png", "image/jpeg", "image/svg+xml", "image/webp"}
@@ -1017,7 +1017,7 @@ async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends
     return {"logo_url": branding.logo_url}
 
 
-@router.post("/api/branding/favicon", tags=["Branding"])
+@router.post("/branding/favicon", tags=["Branding"])
 async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Upload favicon. Admin only."""
     allowed = {"image/png", "image/x-icon", "image/svg+xml", "image/webp"}
@@ -1035,7 +1035,7 @@ async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depe
     return {"favicon_url": branding.favicon_url}
 
 
-@router.delete("/api/branding/logo", tags=["Branding"])
+@router.delete("/branding/logo", tags=["Branding"])
 async def remove_logo(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Remove brand logo. Admin only."""
     branding = get_or_create_branding(db)
@@ -1050,7 +1050,7 @@ async def remove_logo(current_user: dict = Depends(require_role("admin")), db: S
 
 # ============== Database Backups ==============
 
-@router.post("/api/backups", tags=["System"])
+@router.post("/backups", tags=["System"])
 def create_backup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Create a database backup using SQLite online backup API."""
     import sqlite3 as sqlite3_mod
@@ -1090,7 +1090,7 @@ def create_backup(current_user: dict = Depends(require_role("admin")), db: Sessi
     }
 
 
-@router.get("/api/backups", tags=["System"])
+@router.get("/backups", tags=["System"])
 def list_backups(current_user: dict = Depends(require_role("admin"))):
     """List all database backups."""
     backup_dir = Path(__file__).parent.parent / "backups"
@@ -1109,7 +1109,7 @@ def list_backups(current_user: dict = Depends(require_role("admin"))):
     return backups
 
 
-@router.get("/api/backups/{filename}", tags=["System"])
+@router.get("/backups/{filename}", tags=["System"])
 def download_backup(filename: str, current_user: dict = Depends(require_role("admin"))):
     """Download a database backup file."""
     if "/" in filename or ".." in filename:
@@ -1129,7 +1129,7 @@ def download_backup(filename: str, current_user: dict = Depends(require_role("ad
     )
 
 
-@router.delete("/api/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
+@router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
 def delete_backup(filename: str, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a database backup."""
     if "/" in filename or ".." in filename:
@@ -1145,16 +1145,46 @@ def delete_backup(filename: str, current_user: dict = Depends(require_role("admi
     log_audit(db, "backup_deleted", "system", details={"filename": filename})
 
 
+# ============== Education Mode ==============
+
+@router.get("/settings/education-mode", tags=["Settings"])
+async def get_education_mode(db: Session = Depends(get_db)):
+    """Get education mode status. Public (frontend needs this at load time)."""
+    row = db.execute(text("SELECT value FROM system_config WHERE key = 'education_mode'")).fetchone()
+    return {"enabled": row[0] == "true" if row else False}
+
+
+@router.put("/settings/education-mode", tags=["Settings"])
+async def set_education_mode(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Enable or disable education mode. Admin only.
+
+    When enabled, commerce-related features (Orders, Products) are hidden from the sidebar and UI.
+    """
+    data = await request.json()
+    enabled = bool(data.get("enabled", False))
+    str_val = "true" if enabled else "false"
+
+    existing = db.execute(text("SELECT 1 FROM system_config WHERE key = 'education_mode'")).fetchone()
+    if existing:
+        db.execute(text("UPDATE system_config SET value = :v WHERE key = 'education_mode'"), {"v": str_val})
+    else:
+        db.execute(text("INSERT INTO system_config (key, value) VALUES ('education_mode', :v)"), {"v": str_val})
+    db.commit()
+
+    log_audit(db, "education_mode_toggled", details=f"Education mode {'enabled' if enabled else 'disabled'}")
+    return {"enabled": enabled}
+
+
 # ============== Language / i18n ==============
 
-@router.get("/api/settings/language", tags=["Settings"])
+@router.get("/settings/language", tags=["Settings"])
 async def get_language(db: Session = Depends(get_db)):
     """Get current interface language."""
     result = db.execute(text("SELECT value FROM system_config WHERE key = 'language'")).fetchone()
     return {"language": result[0] if result else "en"}
 
 
-@router.put("/api/settings/language", tags=["Settings"])
+@router.put("/settings/language", tags=["Settings"])
 async def set_language(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set interface language."""
     data = await request.json()
@@ -1202,7 +1232,7 @@ class MaintenanceLogCreate(PydanticBaseModel):
     downtime_minutes: int = 0
 
 
-@router.get("/api/maintenance/tasks", tags=["Maintenance"])
+@router.get("/maintenance/tasks", tags=["Maintenance"])
 def list_maintenance_tasks(db: Session = Depends(get_db)):
     """List all maintenance task templates."""
     tasks = db.query(MaintenanceTask).order_by(MaintenanceTask.name).all()
@@ -1219,7 +1249,7 @@ def list_maintenance_tasks(db: Session = Depends(get_db)):
     } for t in tasks]
 
 
-@router.post("/api/maintenance/tasks", tags=["Maintenance"])
+@router.post("/maintenance/tasks", tags=["Maintenance"])
 def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new maintenance task template."""
     task = MaintenanceTask(
@@ -1237,7 +1267,7 @@ def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = De
     return {"id": task.id, "name": task.name, "message": "Task created"}
 
 
-@router.patch("/api/maintenance/tasks/{task_id}", tags=["Maintenance"])
+@router.patch("/maintenance/tasks/{task_id}", tags=["Maintenance"])
 def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a maintenance task template."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
@@ -1249,7 +1279,7 @@ def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_u
     return {"id": task.id, "message": "Task updated"}
 
 
-@router.delete("/api/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
+@router.delete("/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
 def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a maintenance task template and its logs."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
@@ -1259,7 +1289,7 @@ def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_r
     db.commit()
 
 
-@router.get("/api/maintenance/logs", tags=["Maintenance"])
+@router.get("/maintenance/logs", tags=["Maintenance"])
 def list_maintenance_logs(
     printer_id: Optional[int] = None,
     limit: int = Query(default=50, ge=1, le=200),
@@ -1284,7 +1314,7 @@ def list_maintenance_logs(
     } for l in logs]
 
 
-@router.post("/api/maintenance/logs", tags=["Maintenance"])
+@router.post("/maintenance/logs", tags=["Maintenance"])
 def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Log a maintenance action performed on a printer."""
     printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
@@ -1314,7 +1344,7 @@ def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depe
     return {"id": log_entry.id, "message": "Maintenance logged", "print_hours_at_service": total_hours}
 
 
-@router.delete("/api/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
+@router.delete("/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
 def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a maintenance log entry."""
     log_entry = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
@@ -1324,7 +1354,7 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
     db.commit()
 
 
-@router.get("/api/maintenance/status", tags=["Maintenance"])
+@router.get("/maintenance/status", tags=["Maintenance"])
 def get_maintenance_status(db: Session = Depends(get_db)):
     """Get maintenance status for all active printers. Returns per-printer task health."""
     printers = db.query(Printer).filter(Printer.is_active == True).order_by(Printer.name).all()
@@ -1423,7 +1453,7 @@ def get_maintenance_status(db: Session = Depends(get_db)):
     return result
 
 
-@router.post("/api/maintenance/seed-defaults", tags=["Maintenance"])
+@router.post("/maintenance/seed-defaults", tags=["Maintenance"])
 def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Seed default maintenance tasks for common Bambu Lab printer models."""
     defaults = [
@@ -1486,7 +1516,7 @@ def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("ad
 
 # ============== Global Search ==============
 
-@router.get("/api/search", tags=["Search"])
+@router.get("/search", tags=["Search"])
 def global_search(q: str = "", db: Session = Depends(get_db)):
     """Search across models, jobs, spools, and printers."""
     if not q or len(q) < 2:
