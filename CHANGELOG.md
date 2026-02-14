@@ -2,6 +2,30 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.27] - 2026-02-14
+
+### Added
+- **API versioning** — All routes available at both `/api/` (backwards compat) and `/api/v1/` (versioned); Swagger docs at `/api/v1/docs`
+- **CSP security headers** — Content-Security-Policy (report-only), X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy on all responses
+- **Alembic migrations** — Framework with initial schema covering 27 SQLAlchemy tables; SQLite batch mode enabled
+- **Bulk CSV user import** — `POST /api/v1/users/import` admin endpoint with validation, duplicate skipping, license limit enforcement
+- **Education mode toggle** — Hides commerce UI (Orders, Products, Consumables) when enabled via Settings
+- **Marketing site pages** — Features page (8 categories from FEATURES.md), Install/Getting Started page with copy-able commands; updated navigation
+
+### Changed
+- **Vision endpoints unified** — Converted all Vigil AI API endpoints from raw sqlite3 to SQLAlchemy (3 new models: VisionDetection, VisionSettings, VisionModel)
+- **UI industrial polish** — Printer status dots replace large badges, cards get subtle borders, Jobs table alternating rows with monospace headers, theme token consistency
+- **Branding cleanup** — All "PrintFarm Scheduler" references replaced with "O.D.I.N." across 12 files; VAPID email updated to runsodin.com
+
+### Removed
+- Dead code: `adapters.py`, `printer_adapter.py`, stale `migrations/`, `systemd/` services, `setup-dev.sh`, `GETTING_STARTED.md`
+- Unused deps: `axios`, `@types/react`, `@types/react-dom`
+- Debug noise: `print()` calls replaced with logger, WebSocket `console.log` removed
+
+### Fixed
+- Hardcoded Spoolman URL replaced with `settings.spoolman_url`
+- Stale `(v0.17.0)` version comments removed
+
 ## [1.3.26] - 2026-02-14
 
 ### Changed

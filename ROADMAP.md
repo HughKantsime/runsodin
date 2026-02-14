@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-14 at v1.3.26.
+Updated 2026-02-14 at v1.3.27.
 
 ## Shipped in v1.2.0
 
@@ -80,6 +80,16 @@ Updated 2026-02-14 at v1.3.26.
 - ~~JWT secret hardening (fail-fast on missing env var)~~
 - ~~CORS hardening (explicit method/header lists)~~
 - ~~GTM plan, Terms of Service, Privacy Policy, Vigil AI disclaimer~~
+- ~~API versioning: /api/v1/ prefix with backwards-compatible /api/ mount~~
+- ~~CSP + security headers middleware (report-only)~~
+- ~~Alembic migration framework with initial schema (27 tables, SQLite batch mode)~~
+- ~~Vision endpoints: raw sqlite3 → SQLAlchemy (VisionDetection, VisionSettings, VisionModel)~~
+- ~~Bulk CSV user import (POST /api/v1/users/import)~~
+- ~~Education mode toggle (hides commerce UI)~~
+- ~~Dead code removal: adapters.py, printer_adapter.py, stale migrations, systemd services~~
+- ~~Branding cleanup: "PrintFarm Scheduler" → "O.D.I.N." across 12 files~~
+- ~~UI industrial polish: status dots, card borders, table striping, theme tokens~~
+- ~~Marketing site: Features page, Install page, updated navigation~~
 
 ---
 
