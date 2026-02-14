@@ -25,17 +25,17 @@ import { ONLINE_THRESHOLD_MS, getShortName } from '../utils/shared'
 
 function StatCard({ label, value, icon: Icon, color = 'farm', trend, onClick }) {
   const colorClasses = {
-    farm: 'bg-farm-900 text-farm-100',
-    print: 'bg-print-900/30 text-print-400',
-    pending: 'bg-amber-900/30 text-amber-400',
-    scheduled: 'bg-blue-900/30 text-blue-400',
-    alert: 'bg-red-900/30 text-red-400',
-    maintenance: 'bg-purple-900/30 text-purple-400',
+    farm: 'bg-farm-900 text-farm-100 border-farm-800',
+    print: 'bg-print-900/30 text-print-400 border-print-700/30',
+    pending: 'bg-amber-900/30 text-amber-400 border-amber-700/30',
+    scheduled: 'bg-blue-900/30 text-blue-400 border-blue-700/30',
+    alert: 'bg-red-900/30 text-red-400 border-red-700/30',
+    maintenance: 'bg-purple-900/30 text-purple-400 border-purple-700/30',
   }
 
   return (
     <div
-      className={clsx('rounded-lg p-3 md:p-4', colorClasses[color], onClick && 'cursor-pointer hover:bg-farm-800 transition-colors')}
+      className={clsx('rounded-lg p-3 md:p-4 border', colorClasses[color], onClick && 'cursor-pointer hover:bg-farm-800 transition-colors')}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
     >
@@ -82,8 +82,9 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className={clsx('px-2 py-0.5 rounded text-[10px] md:text-xs font-medium text-white', statusColor)}>
-              {statusLabel}
+            <span className="flex items-center gap-1.5 text-[10px] md:text-xs font-medium">
+              <span className={clsx('w-2 h-2 rounded-full', statusColor)} />
+              <span className={hasError ? 'text-red-400' : isPrinting ? 'text-green-400' : online ? 'text-yellow-400' : 'text-farm-500'}>{statusLabel}</span>
             </span>
             {hasCamera && (
               <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-farm-700 rounded-lg transition-colors" aria-label="View camera">
@@ -203,7 +204,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   }
 
   return (
-    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4', statusColors[job.status])}>
+    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800', statusColors[job.status])}>
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium truncate">{job.item_name}</h4>
@@ -249,7 +250,7 @@ function MqttPrintItem({ job }) {
   }
 
   return (
-    <div className="bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border-print-500">
+    <div className="bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800 border-l-print-500">
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium flex items-center gap-2 truncate">
@@ -269,9 +270,9 @@ function MqttPrintItem({ job }) {
 function PrintHistoryItem({ job }) {
   const statusColors = {
     running: "border-yellow-500",
-    completed: "border-gray-500",
+    completed: "border-farm-600",
     failed: "border-red-500",
-    cancelled: "border-gray-500",
+    cancelled: "border-farm-600",
   }
 
   const formatDuration = (minutes) => {
@@ -289,7 +290,7 @@ function PrintHistoryItem({ job }) {
   }
 
   return (
-    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4', statusColors[job.status] || 'border-farm-700')}>
+    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800', statusColors[job.status] || 'border-l-farm-700')}>
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium truncate">{job.job_name || 'Unknown'}</h4>
@@ -517,7 +518,7 @@ export default function Dashboard() {
               />
             ))}
             {(!printersData || printersData.length === 0) && (
-              <div className="col-span-full bg-farm-900 rounded-lg p-8 text-center text-farm-500">No printers configured.</div>
+              <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800 p-8 text-center text-farm-500">No printers configured.</div>
             )}
           </div>
         </div>
@@ -544,7 +545,7 @@ export default function Dashboard() {
               ))}
           </div>
           {(!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0) && (
-            <div className="bg-farm-900 rounded-lg p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
+            <div className="bg-farm-900 rounded-lg border border-farm-800 p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
           )}
         </div>
 
@@ -555,7 +556,7 @@ export default function Dashboard() {
             {completedMqttJobs.slice(0, 12).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
           </div>
           {completedMqttJobs.length === 0 && (
-            <div className="bg-farm-900 rounded-lg p-6 text-center text-farm-500 text-sm">No print history yet</div>
+            <div className="bg-farm-900 rounded-lg border border-farm-800 p-6 text-center text-farm-500 text-sm">No print history yet</div>
           )}
         </div>
 

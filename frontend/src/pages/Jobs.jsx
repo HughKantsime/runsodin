@@ -63,7 +63,7 @@ function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect }) {
 
   return (
     <tr className={clsx(
-          'border-b border-farm-800 hover:bg-farm-900/50',
+          'border-b border-farm-800 hover:bg-farm-800/50 even:bg-farm-950/40',
           job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
         )}
         {...(dragProps || {})}>
@@ -1017,26 +1017,26 @@ export default function Jobs() {
                 <th scope="col" className="px-2 py-3 w-10">
                   <input type="checkbox" checked={filteredJobs.length > 0 && selectedJobs.size === filteredJobs.length} onChange={() => toggleSelectAll(filteredJobs.map(j => j.id))} className="rounded border-farm-600" aria-label="Select all jobs" />
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('status')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('status')}>
                   <div className="flex items-center gap-1">Status <SortIcon field="status" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('item_name')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('item_name')}>
                   <div className="flex items-center gap-1">Item <SortIcon field="item_name" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('priority')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('priority')}>
                   <div className="flex items-center gap-1">Pri <SortIcon field="priority" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('printer')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('printer')}>
                   <div className="flex items-center gap-1">Printer <SortIcon field="printer" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell">Colors</th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden md:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('duration_hours')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden lg:table-cell">Colors</th>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden md:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('duration_hours')}>
                   <div className="flex items-center gap-1">Duration <SortIcon field="duration_hours" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400 hidden lg:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('scheduled_start')}>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('scheduled_start')}>
                   <div className="flex items-center gap-1">Scheduled <SortIcon field="scheduled_start" sortField={sortField} sortDirection={sortDirection} /></div>
                 </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-medium text-farm-400">Actions</th>
+                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>

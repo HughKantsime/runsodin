@@ -159,7 +159,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, p
           "px-2 py-1 rounded-lg text-xs font-medium flex-shrink-0 ml-2",
           spool.status === 'active' ? "bg-green-500/20 text-green-400" :
           spool.status === 'empty' ? "bg-red-500/20 text-red-400" :
-          "bg-gray-500/20 text-gray-400"
+          "bg-farm-700/30 text-farm-400"
         )}>
           {spool.status}
         </span>

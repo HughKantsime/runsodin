@@ -66,6 +66,26 @@
   display: none !important;
 }
 
+/* Table row striping — subtle alternating rows */
+@layer components {
+  .table-industrial tbody tr:nth-child(even) {
+    background-color: rgba(10, 12, 16, 0.4);
+  }
+  .table-industrial tbody tr {
+    @apply border-b border-farm-800;
+    transition: background-color 0.1s ease;
+  }
+  .table-industrial tbody tr:hover {
+    background-color: rgba(26, 32, 48, 0.5);
+  }
+  .table-industrial thead {
+    @apply bg-farm-950 border-b border-farm-800;
+  }
+  .table-industrial th {
+    @apply text-xs font-medium text-farm-400 uppercase tracking-wider;
+  }
+}
+
 /* Custom scrollbar — industrial thin */
 @layer utilities {
   .scrollbar-thin {
