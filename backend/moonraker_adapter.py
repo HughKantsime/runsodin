@@ -1,5 +1,5 @@
 """
-Moonraker Adapter for PrintFarm Scheduler
+O.D.I.N. — Moonraker Adapter
 
 Connects to Klipper printers via Moonraker REST API for:
 - Status monitoring (idle, printing, error, paused)

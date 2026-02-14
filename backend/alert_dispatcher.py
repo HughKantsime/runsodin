@@ -1,5 +1,5 @@
 """
-Alert Dispatcher for PrintFarm Scheduler (v0.17.0)
+O.D.I.N. — Alert Dispatcher
 
 Central fan-out module that receives events and delivers alerts
 to users via their configured channels (in-app, browser push, email).
@@ -212,7 +212,7 @@ def _deliver_email(db, user_id, title, message, severity):
     emoji_map = {"critical": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f7e2"}
     emoji = emoji_map.get(severity, "")
     
-    subject = f"[PrintFarm] {emoji} {title}"
+    subject = f"[O.D.I.N.] {emoji} {title}"
     body = f"""{title}
 
 {message or ''}

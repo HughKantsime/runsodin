@@ -185,7 +185,7 @@ def sync_go2rtc_config(db: Session):
         lan_ip = _get_lan_ip()
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
-        print(f"[go2rtc] WebRTC ICE candidate: {lan_ip}:8555")
+        log.info(f"go2rtc WebRTC ICE candidate: {lan_ip}:8555")
     config = {
         "api": {"listen": "0.0.0.0:1984"},
         "webrtc": webrtc_config,
@@ -293,7 +293,7 @@ def _send_printer_command(printer, action: str) -> bool:
 # Printers CRUD
 # ====================================================================
 
-@router.get("/api/printers", response_model=List[PrinterResponse], tags=["Printers"])
+@router.get("/printers", response_model=List[PrinterResponse], tags=["Printers"])
 def list_printers(
     active_only: bool = False,
     tag: Optional[str] = None,
@@ -319,7 +319,7 @@ def list_printers(
     return printers
 
 
-@router.get("/api/printers/tags", tags=["Printers"])
+@router.get("/printers/tags", tags=["Printers"])
 def list_all_tags(db: Session = Depends(get_db)):
     """Get all unique tags across all printers."""
     printers = db.query(Printer).filter(Printer.tags.isnot(None)).all()
@@ -330,7 +330,7 @@ def list_all_tags(db: Session = Depends(get_db)):
     return sorted(tags)
 
 
-@router.post("/api/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
+@router.post("/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
 def create_printer(
     printer: PrinterCreate,
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -386,7 +386,7 @@ def create_printer(
     return db_printer
 
 
-@router.post("/api/printers/reorder", tags=["Printers"])
+@router.post("/printers/reorder", tags=["Printers"])
 def reorder_printers(
     data: dict,
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -402,7 +402,7 @@ def reorder_printers(
     return {"success": True, "order": printer_ids}
 
 
-@router.get("/api/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
+@router.get("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
 def get_printer(printer_id: int, db: Session = Depends(get_db)):
     """Get a specific printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -411,7 +411,7 @@ def get_printer(printer_id: int, db: Session = Depends(get_db)):
     return printer
 
 
-@router.patch("/api/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
+@router.patch("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
 def update_printer(
     printer_id: int,
     updates: PrinterUpdate,
@@ -459,7 +459,7 @@ def update_printer(
     return printer
 
 
-@router.delete("/api/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
+@router.delete("/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
 def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -474,7 +474,7 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
 # Filament Slots
 # ====================================================================
 
-@router.get("/api/printers/{printer_id}/slots", response_model=List[FilamentSlotResponse], tags=["Filament"])
+@router.get("/printers/{printer_id}/slots", response_model=List[FilamentSlotResponse], tags=["Filament"])
 def list_filament_slots(printer_id: int, db: Session = Depends(get_db)):
     """List filament slots for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -483,7 +483,7 @@ def list_filament_slots(printer_id: int, db: Session = Depends(get_db)):
     return printer.filament_slots
 
 
-@router.patch("/api/printers/{printer_id}/slots/{slot_number}", response_model=FilamentSlotResponse, tags=["Filament"])
+@router.patch("/printers/{printer_id}/slots/{slot_number}", response_model=FilamentSlotResponse, tags=["Filament"])
 def update_filament_slot(
     printer_id: int,
     slot_number: int,
@@ -520,7 +520,7 @@ def update_filament_slot(
 # AMS Sync
 # ====================================================================
 
-@router.post("/api/printers/{printer_id}/sync-ams", tags=["Printers"])
+@router.post("/printers/{printer_id}/sync-ams", tags=["Printers"])
 def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """
     Sync AMS filament state from printer.
@@ -1060,7 +1060,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
 # Lights
 # ====================================================================
 
-@router.post("/api/printers/{printer_id}/lights", tags=["Printers"])
+@router.post("/printers/{printer_id}/lights", tags=["Printers"])
 def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Toggle chamber lights on/off for a Bambu printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1131,7 +1131,7 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
 # Test Connection
 # ====================================================================
 
-@router.post("/api/printers/test-connection", tags=["Printers"])
+@router.post("/printers/test-connection", tags=["Printers"])
 def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator"))):
     """
     Test connection to a printer without saving.
@@ -1233,7 +1233,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 # Bambu Integration
 # ====================================================================
 
-@router.post("/api/bambu/test-connection", tags=["Bambu"])
+@router.post("/bambu/test-connection", tags=["Bambu"])
 async def test_bambu_printer_connection(request: BambuConnectionTest, current_user: dict = Depends(require_role("operator"))):
     """Test connection to a Bambu Lab printer via local MQTT."""
     if not BAMBU_AVAILABLE:
@@ -1247,7 +1247,7 @@ async def test_bambu_printer_connection(request: BambuConnectionTest, current_us
     return result
 
 
-@router.post("/api/printers/{printer_id}/bambu/sync-ams", response_model=BambuSyncResult, tags=["Bambu"])
+@router.post("/printers/{printer_id}/bambu/sync-ams", response_model=BambuSyncResult, tags=["Bambu"])
 async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Sync AMS filament slots from a Bambu Lab printer."""
     if not BAMBU_AVAILABLE:
@@ -1365,7 +1365,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
     )
 
 
-@router.get("/api/bambu/filament-types", tags=["Bambu"])
+@router.get("/bambu/filament-types", tags=["Bambu"])
 async def list_bambu_filament_types():
     """List Bambu filament type codes and their mappings."""
     if not BAMBU_AVAILABLE:
@@ -1373,7 +1373,7 @@ async def list_bambu_filament_types():
     return {"bambu_to_normalized": BAMBU_FILAMENT_TYPE_MAP}
 
 
-@router.patch("/api/printers/{printer_id}/slots/{slot_number}/manual-assign", tags=["Bambu"])
+@router.patch("/printers/{printer_id}/slots/{slot_number}/manual-assign", tags=["Bambu"])
 async def manual_slot_assignment(
     printer_id: int,
     slot_number: int,
@@ -1426,7 +1426,7 @@ async def manual_slot_assignment(
     }
 
 
-@router.get("/api/printers/{printer_id}/unmatched-slots", tags=["Bambu"])
+@router.get("/printers/{printer_id}/unmatched-slots", tags=["Bambu"])
 async def get_unmatched_slots(printer_id: int, db: Session = Depends(get_db)):
     """Get slots that need manual filament assignment."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1464,7 +1464,7 @@ async def get_unmatched_slots(printer_id: int, db: Session = Depends(get_db)):
 # Live Status
 # ====================================================================
 
-@router.get("/api/printers/{printer_id}/live-status", tags=["Printers"])
+@router.get("/printers/{printer_id}/live-status", tags=["Printers"])
 def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
     """Get real-time status from printer via MQTT."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1529,7 +1529,7 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
         return {"error": str(e)}
 
 
-@router.get("/api/printers/live-status", tags=["Printers"])
+@router.get("/printers/live-status", tags=["Printers"])
 def get_all_printers_live_status(db: Session = Depends(get_db)):
     """Get real-time status from all Bambu printers."""
     printers = db.query(Printer).filter(
@@ -1549,7 +1549,7 @@ def get_all_printers_live_status(db: Session = Depends(get_db)):
 # Bulk Update
 # ====================================================================
 
-@router.post("/api/printers/bulk-update", tags=["Printers"])
+@router.post("/printers/bulk-update", tags=["Printers"])
 async def bulk_update_printers(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Bulk update printer fields for multiple printers."""
     printer_ids = body.get("printer_ids", [])
@@ -1589,7 +1589,7 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
 # Printer Commands (Stop / Pause / Resume)
 # ====================================================================
 
-@router.post("/api/printers/{printer_id}/stop", tags=["Printers"])
+@router.post("/printers/{printer_id}/stop", tags=["Printers"])
 async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1605,7 +1605,7 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
     raise HTTPException(status_code=500, detail="Failed to stop print")
 
 
-@router.post("/api/printers/{printer_id}/pause", tags=["Printers"])
+@router.post("/printers/{printer_id}/pause", tags=["Printers"])
 async def pause_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Pause current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1619,7 +1619,7 @@ async def pause_printer(printer_id: int, current_user: dict = Depends(require_ro
     raise HTTPException(status_code=500, detail="Failed to pause print")
 
 
-@router.post("/api/printers/{printer_id}/resume", tags=["Printers"])
+@router.post("/printers/{printer_id}/resume", tags=["Printers"])
 async def resume_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Resume paused print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1637,7 +1637,7 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
 # AMS Environment
 # ====================================================================
 
-@router.get("/api/printers/{printer_id}/ams/environment", tags=["AMS"])
+@router.get("/printers/{printer_id}/ams/environment", tags=["AMS"])
 async def get_ams_environment(
     printer_id: int,
     hours: int = Query(default=24, ge=1, le=168),
@@ -1687,7 +1687,7 @@ async def get_ams_environment(
     }
 
 
-@router.get("/api/printers/{printer_id}/ams/current", tags=["AMS"])
+@router.get("/printers/{printer_id}/ams/current", tags=["AMS"])
 async def get_ams_current(printer_id: int, db: Session = Depends(get_db)):
     """
     Get latest AMS environmental readings for a printer.
@@ -1725,7 +1725,7 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db)):
 # Smart Plug Control
 # ====================================================================
 
-@router.get("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
+@router.get("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
     """Get smart plug configuration for a printer."""
     result = db.execute(text("""
@@ -1750,7 +1750,7 @@ async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
+@router.put("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update smart plug configuration for a printer."""
     data = await request.json()
@@ -1785,7 +1785,7 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
     return {"status": "ok", "message": "Smart plug configuration updated"}
 
 
-@router.delete("/api/printers/{printer_id}/plug", tags=["Smart Plug"])
+@router.delete("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove smart plug configuration from a printer."""
     db.execute(text("""
@@ -1799,7 +1799,7 @@ async def remove_plug_config(printer_id: int, current_user: dict = Depends(requi
     return {"status": "ok"}
 
 
-@router.post("/api/printers/{printer_id}/plug/on", tags=["Smart Plug"])
+@router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
 async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator"))):
     """Turn on a printer's smart plug."""
     result = smart_plug.power_on(printer_id)
@@ -1808,7 +1808,7 @@ async def plug_power_on(printer_id: int, current_user: dict = Depends(require_ro
     return {"power_state": result}
 
 
-@router.post("/api/printers/{printer_id}/plug/off", tags=["Smart Plug"])
+@router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
 async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator"))):
     """Turn off a printer's smart plug."""
     result = smart_plug.power_off(printer_id)
@@ -1817,7 +1817,7 @@ async def plug_power_off(printer_id: int, current_user: dict = Depends(require_r
     return {"power_state": result}
 
 
-@router.post("/api/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
+@router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
 async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator"))):
     """Toggle a printer's smart plug."""
     result = smart_plug.power_toggle(printer_id)
@@ -1826,7 +1826,7 @@ async def plug_power_toggle(printer_id: int, current_user: dict = Depends(requir
     return {"power_state": result}
 
 
-@router.get("/api/printers/{printer_id}/plug/energy", tags=["Smart Plug"])
+@router.get("/printers/{printer_id}/plug/energy", tags=["Smart Plug"])
 async def plug_energy(printer_id: int):
     """Get current energy data from smart plug."""
     data = smart_plug.get_energy(printer_id)
@@ -1835,7 +1835,7 @@ async def plug_energy(printer_id: int):
     return data
 
 
-@router.get("/api/printers/{printer_id}/plug/state", tags=["Smart Plug"])
+@router.get("/printers/{printer_id}/plug/state", tags=["Smart Plug"])
 async def plug_state(printer_id: int):
     """Query current power state from smart plug."""
     state = smart_plug.get_power_state(printer_id)
@@ -1844,14 +1844,14 @@ async def plug_state(printer_id: int):
     return {"power_state": state}
 
 
-@router.get("/api/settings/energy-rate", tags=["Smart Plug"])
+@router.get("/settings/energy-rate", tags=["Smart Plug"])
 async def get_energy_rate(db: Session = Depends(get_db)):
     """Get energy cost per kWh."""
     result = db.execute(text("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")).fetchone()
     return {"energy_cost_per_kwh": float(result[0]) if result else 0.12}
 
 
-@router.put("/api/settings/energy-rate", tags=["Smart Plug"])
+@router.put("/settings/energy-rate", tags=["Smart Plug"])
 async def set_energy_rate(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set energy cost per kWh."""
     data = await request.json()
@@ -1867,7 +1867,7 @@ async def set_energy_rate(request: Request, current_user: dict = Depends(require
 # Telemetry
 # ====================================================================
 
-@router.get("/api/printers/{printer_id}/telemetry", tags=["Telemetry"])
+@router.get("/printers/{printer_id}/telemetry", tags=["Telemetry"])
 def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
                           current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get timeseries telemetry data for a printer (recorded during prints)."""
@@ -1880,7 +1880,7 @@ def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
              "bed_target": r[3], "nozzle_target": r[4], "fan_speed": r[5]} for r in rows]
 
 
-@router.get("/api/printers/{printer_id}/hms-history", tags=["Telemetry"])
+@router.get("/printers/{printer_id}/hms-history", tags=["Telemetry"])
 def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
                           current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get HMS error history with occurrence timestamps."""
@@ -1903,7 +1903,7 @@ def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
 # Nozzle Lifecycle
 # ====================================================================
 
-@router.get("/api/printers/{printer_id}/nozzle", tags=["Telemetry"])
+@router.get("/printers/{printer_id}/nozzle", tags=["Telemetry"])
 def get_current_nozzle(printer_id: int, current_user: dict = Depends(require_role("viewer")),
                        db: Session = Depends(get_db)):
     """Get the currently installed nozzle for a printer."""
@@ -1916,7 +1916,7 @@ def get_current_nozzle(printer_id: int, current_user: dict = Depends(require_rol
     return NozzleLifecycleResponse.model_validate(nozzle)
 
 
-@router.post("/api/printers/{printer_id}/nozzle", tags=["Telemetry"])
+@router.post("/printers/{printer_id}/nozzle", tags=["Telemetry"])
 def install_nozzle(printer_id: int, data: NozzleInstall,
                    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Install a new nozzle (auto-retires the previous one)."""
@@ -1944,7 +1944,7 @@ def install_nozzle(printer_id: int, data: NozzleInstall,
     return NozzleLifecycleResponse.model_validate(nozzle)
 
 
-@router.patch("/api/printers/{printer_id}/nozzle/{nozzle_id}/retire", tags=["Telemetry"])
+@router.patch("/printers/{printer_id}/nozzle/{nozzle_id}/retire", tags=["Telemetry"])
 def retire_nozzle(printer_id: int, nozzle_id: int,
                   current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Retire a specific nozzle."""
@@ -1962,7 +1962,7 @@ def retire_nozzle(printer_id: int, nozzle_id: int,
     return NozzleLifecycleResponse.model_validate(nozzle)
 
 
-@router.get("/api/printers/{printer_id}/nozzle/history", tags=["Telemetry"])
+@router.get("/printers/{printer_id}/nozzle/history", tags=["Telemetry"])
 def get_nozzle_history(printer_id: int, current_user: dict = Depends(require_role("viewer")),
                        db: Session = Depends(get_db)):
     """Get all nozzles (past and present) for a printer."""

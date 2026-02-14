@@ -33,7 +33,7 @@ export default function useWebSocket() {
       wsRef.current = ws
 
       ws.onopen = () => {
-        console.log('[WS] Connected')
+        // Connected
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current)
           reconnectTimer.current = null
@@ -121,7 +121,7 @@ export default function useWebSocket() {
       }
 
       ws.onclose = () => {
-        console.log('[WS] Disconnected, reconnecting in 5s...')
+        // Disconnected — reconnecting in 5s
         wsRef.current = null
         reconnectTimer.current = setTimeout(connect, 5000)
       }

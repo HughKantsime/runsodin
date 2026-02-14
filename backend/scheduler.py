@@ -1,5 +1,5 @@
 """
-Scheduler Engine for PrintFarm
+O.D.I.N. — Scheduler Engine
 
 This is the brain of the operation - it assigns pending jobs to printers
 while optimizing for minimal filament changes.

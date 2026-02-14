@@ -641,7 +641,7 @@ class PaginatedResponse(BaseModel):
     pages: int
 
 
-# ============== Alert Schemas (v0.17.0) ==============
+# ============== Alert Schemas ==============
 
 class AlertTypeEnum(str, Enum):
     PRINT_COMPLETE = "print_complete"

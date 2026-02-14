@@ -1,4 +1,4 @@
-// PrintFarm Scheduler - Service Worker for Push Notifications
+// O.D.I.N. - Service Worker for Push Notifications
 
 const CACHE_NAME = 'odin-v1';
 
@@ -35,7 +35,7 @@ self.addEventListener('push', (event) => {
         body: payload.body || payload.message || data.body,
         icon: payload.icon || data.icon,
         badge: payload.badge || data.badge,
-        tag: payload.tag || `printfarm-${payload.alert_type || 'alert'}`,
+        tag: payload.tag || `odin-${payload.alert_type || 'alert'}`,
         data: {
           url: payload.url || '/',
           alert_id: payload.alert_id,

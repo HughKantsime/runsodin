@@ -197,7 +197,7 @@ def generate_single_label(spool, width, height):
 # Spoolman Integration
 # ====================================================================
 
-@router.post("/api/spoolman/sync", response_model=SpoolmanSyncResult, tags=["Spoolman"])
+@router.post("/spoolman/sync", response_model=SpoolmanSyncResult, tags=["Spoolman"])
 async def sync_spoolman(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Sync filament data from Spoolman."""
     if not settings.spoolman_url:
@@ -220,7 +220,7 @@ async def sync_spoolman(current_user: dict = Depends(require_role("operator")), 
     )
 
 
-@router.get("/api/spoolman/spools", response_model=List[SpoolmanSpool], tags=["Spoolman"])
+@router.get("/spoolman/spools", response_model=List[SpoolmanSpool], tags=["Spoolman"])
 async def list_spoolman_spools():
     """List available spools from Spoolman."""
     if not settings.spoolman_url:
@@ -249,15 +249,12 @@ async def list_spoolman_spools():
     return spools
 
 
-SPOOLMAN_URL = "http://localhost:7912"
-
-
-@router.get("/api/spoolman/filaments", tags=["Spoolman"])
+@router.get("/spoolman/filaments", tags=["Spoolman"])
 async def get_spoolman_filaments():
     """Fetch all filament types from Spoolman."""
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{SPOOLMAN_URL}/api/v1/filament", timeout=10.0)
+            response = await client.get(f"{settings.spoolman_url}/api/v1/filament", timeout=10.0)
             response.raise_for_status()
             return response.json()
     except Exception as e:
@@ -268,7 +265,7 @@ async def get_spoolman_filaments():
 # Filament Library
 # ====================================================================
 
-@router.get("/api/filaments", tags=["Filaments"])
+@router.get("/filaments", tags=["Filaments"])
 def list_filaments(
     brand: Optional[str] = None,
     material: Optional[str] = None,
@@ -296,7 +293,7 @@ def list_filaments(
     return result
 
 
-@router.post("/api/filaments", tags=["Filaments"])
+@router.post("/filaments", tags=["Filaments"])
 def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a custom filament to the library."""
     filament = FilamentLibrary(
@@ -311,7 +308,7 @@ def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depend
     return {"id": filament.id, "brand": filament.brand, "name": filament.name, "message": "Filament added"}
 
 
-@router.get("/api/filaments/combined", tags=["Filaments"])
+@router.get("/filaments/combined", tags=["Filaments"])
 async def get_combined_filaments(db: Session = Depends(get_db)):
     """Get filaments from both Spoolman (if available) and local library."""
     result = []
@@ -352,7 +349,7 @@ async def get_combined_filaments(db: Session = Depends(get_db)):
     return result
 
 
-@router.get("/api/filaments/{filament_id}", tags=["Filaments"])
+@router.get("/filaments/{filament_id}", tags=["Filaments"])
 def get_filament(filament_id: str, db: Session = Depends(get_db)):
     """Get a specific filament from the library."""
     fid_str = filament_id.replace("lib_", "")
@@ -376,7 +373,7 @@ def get_filament(filament_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.patch("/api/filaments/{filament_id}", tags=["Filaments"])
+@router.patch("/filaments/{filament_id}", tags=["Filaments"])
 def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a filament in the library."""
     fid_str = filament_id.replace("lib_", "")
@@ -404,7 +401,7 @@ def update_filament(filament_id: str, updates: FilamentUpdateRequest, current_us
     }
 
 
-@router.delete("/api/filaments/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
+@router.delete("/filaments/{filament_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Filaments"])
 def delete_filament(filament_id: str, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a filament from the library."""
     fid_str = filament_id.replace("lib_", "")
@@ -424,7 +421,7 @@ def delete_filament(filament_id: str, current_user: dict = Depends(require_role(
 # Spool CRUD
 # ====================================================================
 
-@router.get("/api/spools", tags=["Spools"])
+@router.get("/spools", tags=["Spools"])
 def list_spools(
     status: Optional[str] = None,
     filament_id: Optional[int] = None,
@@ -479,7 +476,7 @@ def list_spools(
     return result
 
 
-@router.get("/api/spools/{spool_id}", tags=["Spools"])
+@router.get("/spools/{spool_id}", tags=["Spools"])
 def get_spool(spool_id: int, db: Session = Depends(get_db)):
     """Get a single spool with details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -522,7 +519,7 @@ def get_spool(spool_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/api/spools", tags=["Spools"])
+@router.post("/spools", tags=["Spools"])
 def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new spool."""
     # Verify filament exists
@@ -561,7 +558,7 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
     }
 
 
-@router.patch("/api/spools/{spool_id}", tags=["Spools"])
+@router.patch("/spools/{spool_id}", tags=["Spools"])
 def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update spool details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -582,7 +579,7 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
     return {"success": True, "id": spool.id}
 
 
-@router.delete("/api/spools/{spool_id}", tags=["Spools"])
+@router.delete("/spools/{spool_id}", tags=["Spools"])
 def delete_spool(spool_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a spool (or archive it)."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -600,7 +597,7 @@ def delete_spool(spool_id: int, current_user: dict = Depends(require_role("opera
 # Spool Actions (load/unload/use/weigh)
 # ====================================================================
 
-@router.post("/api/spools/{spool_id}/load", tags=["Spools"])
+@router.post("/spools/{spool_id}/load", tags=["Spools"])
 def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Load a spool into a printer slot."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -647,7 +644,7 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
     }
 
 
-@router.post("/api/spools/{spool_id}/unload", tags=["Spools"])
+@router.post("/spools/{spool_id}/unload", tags=["Spools"])
 def unload_spool(
     spool_id: int,
     storage_location: Optional[str] = None,
@@ -677,7 +674,7 @@ def unload_spool(
     return {"success": True, "message": "Spool unloaded"}
 
 
-@router.post("/api/spools/{spool_id}/use", tags=["Spools"])
+@router.post("/spools/{spool_id}/use", tags=["Spools"])
 def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Record filament usage from a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -710,7 +707,7 @@ def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depe
     }
 
 
-@router.post("/api/spools/{spool_id}/weigh", tags=["Spools"])
+@router.post("/spools/{spool_id}/weigh", tags=["Spools"])
 def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update spool weight from scale measurement."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -749,7 +746,7 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
 # QR Codes & Labels
 # ====================================================================
 
-@router.get("/api/spools/{spool_id}/qr", tags=["Spools"])
+@router.get("/spools/{spool_id}/qr", tags=["Spools"])
 def get_spool_qr(spool_id: int, db: Session = Depends(get_db)):
     """Get QR code data for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -765,7 +762,7 @@ def get_spool_qr(spool_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/api/spools/lookup/{qr_code}", tags=["Spools"])
+@router.get("/spools/lookup/{qr_code}", tags=["Spools"])
 def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
     """Look up spool details by QR code."""
     spool = db.query(Spool).filter(Spool.qr_code == qr_code).first()
@@ -786,7 +783,7 @@ def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/api/spools/{spool_id}/label", tags=["Spools"])
+@router.get("/spools/{spool_id}/label", tags=["Spools"])
 def generate_spool_label(
     spool_id: int,
     size: str = "small",  # small (2x1"), medium (3x2"), large (4x3")
@@ -900,7 +897,7 @@ def generate_spool_label(
     )
 
 
-@router.get("/api/spools/labels/batch", tags=["Spools"])
+@router.get("/spools/labels/batch", tags=["Spools"])
 def generate_batch_labels(
     spool_ids: str,  # Comma-separated IDs
     size: str = "small",
@@ -961,7 +958,7 @@ def generate_batch_labels(
 # Slot Assignment
 # ====================================================================
 
-@router.post("/api/printers/{printer_id}/slots/{slot_number}/assign", tags=["Spools"])
+@router.post("/printers/{printer_id}/slots/{slot_number}/assign", tags=["Spools"])
 def assign_spool_to_slot(
     printer_id: int,
     slot_number: int,
@@ -994,7 +991,7 @@ def assign_spool_to_slot(
     return {"success": True, "message": "Spool assigned, awaiting confirmation"}
 
 
-@router.post("/api/printers/{printer_id}/slots/{slot_number}/confirm", tags=["Spools"])
+@router.post("/printers/{printer_id}/slots/{slot_number}/confirm", tags=["Spools"])
 def confirm_slot_assignment(
     printer_id: int,
     slot_number: int,
@@ -1017,7 +1014,7 @@ def confirm_slot_assignment(
     return {"success": True, "message": "Spool assignment confirmed"}
 
 
-@router.get("/api/printers/{printer_id}/slots/needs-attention", tags=["Spools"])
+@router.get("/printers/{printer_id}/slots/needs-attention", tags=["Spools"])
 def get_slots_needing_attention(printer_id: int, db: Session = Depends(get_db)):
     """Get slots that need spool confirmation or have mismatches."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -1067,7 +1064,7 @@ def get_slots_needing_attention(printer_id: int, db: Session = Depends(get_db)):
 # Drying Log
 # ====================================================================
 
-@router.post("/api/spools/{spool_id}/dry", tags=["Spools"])
+@router.post("/spools/{spool_id}/dry", tags=["Spools"])
 def log_drying_session(
     spool_id: int,
     duration_hours: float,
@@ -1106,7 +1103,7 @@ def log_drying_session(
     }
 
 
-@router.get("/api/spools/{spool_id}/drying-history", tags=["Spools"])
+@router.get("/spools/{spool_id}/drying-history", tags=["Spools"])
 def get_drying_history(spool_id: int, db: Session = Depends(get_db)):
     """Get drying session history for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -1136,7 +1133,7 @@ def get_drying_history(spool_id: int, db: Session = Depends(get_db)):
 # Scan Assign
 # ====================================================================
 
-@router.post("/api/spools/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
+@router.post("/spools/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
 def scan_assign_spool(
     data: ScanAssignRequest,
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
@@ -1225,7 +1222,7 @@ def scan_assign_spool(
 # Bulk Update
 # ====================================================================
 
-@router.post("/api/spools/bulk-update", tags=["Spools"])
+@router.post("/spools/bulk-update", tags=["Spools"])
 async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Bulk update spool fields for multiple spools."""
     spool_ids = body.get("spool_ids", [])

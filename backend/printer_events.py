@@ -93,7 +93,7 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
                         },
                         data=payload,
                         vapid_private_key=vapid_keys["private_key"],
-                        vapid_claims={"sub": "mailto:admin@printfarm.local"}
+                        vapid_claims={"sub": "mailto:admin@runsodin.com"}
                     )
                     log.info(f"Push sent to user {user_id}")
                 except WebPushException as e:
@@ -150,7 +150,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                             "title": f"🖨️ {title}",
                             "description": message,
                             "color": color,
-                            "footer": {"text": "PrintFarm Scheduler"},
+                            "footer": {"text": "O.D.I.N."},
                             "timestamp": datetime.utcnow().isoformat() + "Z"
                         }]
                     }
@@ -207,12 +207,12 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
         
         # Build email
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = f"🖨️ PrintFarm: {title}"
+        msg['Subject'] = f"🖨️ O.D.I.N.: {title}"
         msg['From'] = smtp_config.get("from_address", smtp_config.get("username"))
         msg['To'] = user_email
         
         # Plain text version
-        text_body = f"{title}\n\n{message}\n\n--\nPrintFarm Scheduler"
+        text_body = f"{title}\n\n{message}\n\n--\nO.D.I.N."
         
         # HTML version
         html_body = f"""
@@ -222,7 +222,7 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
                 <h2 style="color: #3b82f6; margin-top: 0;">🖨️ {title}</h2>
                 <p style="color: #d0d0d0;">{message}</p>
                 <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
-                <p style="color: #888; font-size: 12px;">PrintFarm Scheduler</p>
+                <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
             </div>
         </body>
         </html>

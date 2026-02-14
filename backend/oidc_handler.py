@@ -1,5 +1,5 @@
 """
-OIDC Authentication Handler for PrintFarm Scheduler
+O.D.I.N. — OIDC Authentication Handler
 
 Supports Microsoft Entra ID (Azure AD) for enterprise SSO.
 GCC High compatible - uses configurable endpoints.

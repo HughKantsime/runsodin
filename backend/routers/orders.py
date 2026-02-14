@@ -100,7 +100,7 @@ def calculate_job_cost(db: Session, model_id: int = None, filament_grams: float 
 
 # -------------- Products --------------
 
-@router.get("/api/products", response_model=List[ProductResponse], tags=["Products"])
+@router.get("/products", response_model=List[ProductResponse], tags=["Products"])
 def list_products(db: Session = Depends(get_db)):
     """List all products."""
     products = db.query(Product).all()
@@ -128,7 +128,7 @@ def list_products(db: Session = Depends(get_db)):
     return result
 
 
-@router.post("/api/products", response_model=ProductResponse, tags=["Products"])
+@router.post("/products", response_model=ProductResponse, tags=["Products"])
 def create_product(data: ProductCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new product with optional BOM components."""
     product = Product(
@@ -156,7 +156,7 @@ def create_product(data: ProductCreate, current_user: dict = Depends(require_rol
     return product
 
 
-@router.get("/api/products/{product_id}", response_model=ProductResponse, tags=["Products"])
+@router.get("/products/{product_id}", response_model=ProductResponse, tags=["Products"])
 def get_product(product_id: int, db: Session = Depends(get_db)):
     """Get a product with its BOM components."""
     product = db.query(Product).filter(Product.id == product_id).first()
@@ -194,7 +194,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
     return resp
 
 
-@router.patch("/api/products/{product_id}", response_model=ProductResponse, tags=["Products"])
+@router.patch("/products/{product_id}", response_model=ProductResponse, tags=["Products"])
 def update_product(product_id: int, data: ProductUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a product."""
     product = db.query(Product).filter(Product.id == product_id).first()
@@ -209,7 +209,7 @@ def update_product(product_id: int, data: ProductUpdate, current_user: dict = De
     return product
 
 
-@router.delete("/api/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
+@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
 def delete_product(product_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete a product."""
     product = db.query(Product).filter(Product.id == product_id).first()
@@ -222,7 +222,7 @@ def delete_product(product_id: int, current_user: dict = Depends(require_role("o
 
 # -------------- Product Components (BOM) --------------
 
-@router.post("/api/products/{product_id}/components", response_model=ProductComponentResponse, tags=["Products"])
+@router.post("/products/{product_id}/components", response_model=ProductComponentResponse, tags=["Products"])
 def add_product_component(product_id: int, data: ProductComponentCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a component to a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
@@ -248,7 +248,7 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
     return resp
 
 
-@router.delete("/api/products/{product_id}/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
+@router.delete("/products/{product_id}/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Products"])
 def remove_product_component(product_id: int, component_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a component from a product's BOM."""
     comp = db.query(ProductComponent).filter(
@@ -264,7 +264,7 @@ def remove_product_component(product_id: int, component_id: int, current_user: d
 
 # -------------- Orders --------------
 
-@router.get("/api/orders", response_model=List[OrderSummary], tags=["Orders"])
+@router.get("/orders", response_model=List[OrderSummary], tags=["Orders"])
 def list_orders(
     status_filter: Optional[str] = None,
     platform: Optional[str] = None,
@@ -297,7 +297,7 @@ def list_orders(
     return result
 
 
-@router.post("/api/orders", response_model=OrderResponse, tags=["Orders"])
+@router.post("/orders", response_model=OrderResponse, tags=["Orders"])
 def create_order(data: OrderCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new order with optional line items."""
     order = Order(
@@ -338,7 +338,7 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
     return _enrich_order_response(order, db)
 
 
-@router.get("/api/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
+@router.get("/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
 def get_order(order_id: int, db: Session = Depends(get_db)):
     """Get an order with items and P&L calculation."""
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -348,7 +348,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
     return _enrich_order_response(order, db)
 
 
-@router.patch("/api/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
+@router.patch("/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
 def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -363,7 +363,7 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
     return _enrich_order_response(order, db)
 
 
-@router.delete("/api/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
+@router.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
 def delete_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Delete an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -376,7 +376,7 @@ def delete_order(order_id: int, current_user: dict = Depends(require_role("opera
 
 # -------------- Order Items --------------
 
-@router.post("/api/orders/{order_id}/items", response_model=OrderItemResponse, tags=["Orders"])
+@router.post("/orders/{order_id}/items", response_model=OrderItemResponse, tags=["Orders"])
 def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a line item to an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -405,7 +405,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
     return resp
 
 
-@router.patch("/api/orders/{order_id}/items/{item_id}", response_model=OrderItemResponse, tags=["Orders"])
+@router.patch("/orders/{order_id}/items/{item_id}", response_model=OrderItemResponse, tags=["Orders"])
 def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an order line item."""
     item = db.query(OrderItem).filter(
@@ -431,7 +431,7 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
     return resp
 
 
-@router.delete("/api/orders/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
+@router.delete("/orders/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Orders"])
 def remove_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a line item from an order."""
     item = db.query(OrderItem).filter(
@@ -447,7 +447,7 @@ def remove_order_item(order_id: int, item_id: int, current_user: dict = Depends(
 
 # -------------- Order Actions --------------
 
-@router.post("/api/orders/{order_id}/schedule", tags=["Orders"])
+@router.post("/orders/{order_id}/schedule", tags=["Orders"])
 def schedule_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Generate jobs for an order based on BOM."""
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -533,7 +533,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     }
 
 
-@router.get("/api/orders/{order_id}/invoice.pdf", tags=["Orders"])
+@router.get("/orders/{order_id}/invoice.pdf", tags=["Orders"])
 def get_order_invoice(
     order_id: int,
     current_user: dict = Depends(require_role("operator")),
@@ -555,7 +555,7 @@ def get_order_invoice(
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        print(f"[invoice] PDF generation failed for order {order_id}: {e}\n{tb}")
+        log.error(f"PDF generation failed for order {order_id}: {e}\n{tb}")
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
     from fastapi.responses import Response as FastAPIResponse
@@ -569,7 +569,7 @@ def get_order_invoice(
     )
 
 
-@router.patch("/api/orders/{order_id}/ship", response_model=OrderResponse, tags=["Orders"])
+@router.patch("/orders/{order_id}/ship", response_model=OrderResponse, tags=["Orders"])
 def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark an order as shipped."""
     order = db.query(Order).filter(Order.id == order_id).first()
@@ -638,7 +638,7 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
 
 # ============== Consumables ==============
 
-@router.get("/api/consumables", tags=["Consumables"])
+@router.get("/consumables", tags=["Consumables"])
 def list_consumables(status: str = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all consumables with low-stock flag."""
     query = db.query(Consumable)
@@ -653,7 +653,7 @@ def list_consumables(status: str = None, current_user: dict = Depends(require_ro
     return result
 
 
-@router.post("/api/consumables", tags=["Consumables"])
+@router.post("/consumables", tags=["Consumables"])
 def create_consumable(data: ConsumableCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new consumable item."""
     item = Consumable(**data.model_dump())
@@ -665,7 +665,7 @@ def create_consumable(data: ConsumableCreate, current_user: dict = Depends(requi
     return resp
 
 
-@router.get("/api/consumables/low-stock", tags=["Consumables"])
+@router.get("/consumables/low-stock", tags=["Consumables"])
 def low_stock_consumables(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get consumables below their minimum stock threshold."""
     items = db.query(Consumable).filter(
@@ -681,7 +681,7 @@ def low_stock_consumables(current_user: dict = Depends(require_role("viewer")), 
     return result
 
 
-@router.get("/api/consumables/{consumable_id}", tags=["Consumables"])
+@router.get("/consumables/{consumable_id}", tags=["Consumables"])
 def get_consumable(consumable_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a consumable with recent usage history."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
@@ -700,7 +700,7 @@ def get_consumable(consumable_id: int, current_user: dict = Depends(require_role
     }
 
 
-@router.patch("/api/consumables/{consumable_id}", tags=["Consumables"])
+@router.patch("/consumables/{consumable_id}", tags=["Consumables"])
 def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update a consumable."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
@@ -716,7 +716,7 @@ def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: 
     return resp
 
 
-@router.delete("/api/consumables/{consumable_id}", tags=["Consumables"])
+@router.delete("/consumables/{consumable_id}", tags=["Consumables"])
 def delete_consumable(consumable_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a consumable."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
@@ -727,7 +727,7 @@ def delete_consumable(consumable_id: int, current_user: dict = Depends(require_r
     return {"success": True}
 
 
-@router.post("/api/consumables/{consumable_id}/adjust", tags=["Consumables"])
+@router.post("/consumables/{consumable_id}/adjust", tags=["Consumables"])
 def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Manual stock adjustment (restock or deduct)."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
@@ -748,7 +748,7 @@ def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_
     return {"success": True, "new_stock": item.current_stock}
 
 
-@router.post("/api/products/{product_id}/consumables", tags=["Products"])
+@router.post("/products/{product_id}/consumables", tags=["Products"])
 def add_product_consumable(product_id: int, data: ProductConsumableCreate,
                            current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Add a consumable to a product's BOM."""
@@ -772,7 +772,7 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
     return resp
 
 
-@router.delete("/api/products/{product_id}/consumables/{consumable_link_id}", tags=["Products"])
+@router.delete("/products/{product_id}/consumables/{consumable_link_id}", tags=["Products"])
 def remove_product_consumable(product_id: int, consumable_link_id: int,
                               current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a consumable from a product's BOM."""

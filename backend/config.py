@@ -1,5 +1,5 @@
 """
-Configuration settings for PrintFarm Scheduler.
+O.D.I.N. — Configuration settings.
 
 Loads from environment variables with sensible defaults.
 """
