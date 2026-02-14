@@ -2,6 +2,73 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.25] - 2026-02-13
+
+### Added
+- **Toast notification system** — react-hot-toast replaces ~30 `alert()`/`confirm()` calls with styled dark-theme toasts; all mutations now surface success/error feedback
+- **React Error Boundary** — wraps Routes in App.jsx; uncaught render errors show a recovery UI instead of a white screen
+- **ConfirmModal component** — shared confirmation dialog with focus management, Escape-to-cancel, backdrop click, and danger/primary variants; used across all destructive actions
+- **Shared utilities** (`utils/shared.js`) — `ONLINE_THRESHOLD_MS`, `getShortName`, `formatDuration` extracted from duplicated code in 4+ files
+- **404 page** — catch-all route with "Page not found" and link to Dashboard
+- **Dashboard clickable printer cards** — cards navigate to Printers page, now show explicit status badge (Printing/Idle/Error/Offline), stat cards link to relevant pages
+- **Dashboard TV Mode button** — quick-access link to `/tv` from Dashboard header
+- **Timeline touch support** — `touchstart`/`touchmove`/`touchend` handlers for tablet drag-to-reschedule
+- **Timeline auto-scroll** — viewport auto-centers on the Now indicator on mount
+- **Models search** — text search input filtering by model name
+- **Upload progress indicator** — XMLHttpRequest with `onprogress` for percentage bar during .3mf uploads
+- **Jobs form improvements** — quantity field and optional printer dropdown added to CreateJobModal
+- **Settings Access tab accordion** — 10 stacked components collapsed into 6 collapsible sections
+- **Admin user search** — text search and role filter on user management table
+- **AuditLogs User column** — who performed the action, plus text search and human-readable detail summaries
+- **Analytics date range selector** — 7/14/30/90 day selector
+- **Order cancellation** — cancel button for pending/in-progress orders with status transition
+- **Order shipping modal** — proper form replacing `prompt()`, with tracking number input and carrier dropdown
+- **Order search and date column** — text search for order#/customer, date column in table
+- **Order line item editing** — line items editable in edit modal (previously locked after creation)
+- **Spool search** — text search by brand/name/material
+- **Spool action labels** — visible text labels on SpoolCard buttons (hidden below lg breakpoint)
+- **Detection bulk review** — checkbox selection with bulk confirm/dismiss action bar
+- **Detection inline actions** — confirm/dismiss buttons directly on pending detection cards
+- **Camera retry/reconnect** — retry button on WebRTC error/disconnect with exponential backoff
+- **Camera snapshot** — capture button on CameraDetail saves video frame as PNG
+- **Camera PiP button** — picture-in-picture accessible from CameraCard hover overlay
+- **Timelapse bulk delete** — checkbox selection with bulk delete
+- **Login UX improvements** — OIDC loading indicator, MFA auto-submit on 6 digits, SSO divider, forgot-password guidance
+- **Setup password strength** — real-time checklist showing which requirements are met as user types
+- **ProGate back navigation** — back button for Community users hitting Pro-gated pages
+
+### Fixed
+- **DryingModal infinite fetch** (CRITICAL) — `useState` misused as `useEffect` caused re-fetch on every render
+- **"Awaiting Approval" badge count** — tab badge showed total job count instead of approval-pending count
+- **Setup password placeholder** — said "Min 6 characters" but validation required 8+ with uppercase/lowercase/number
+- **Printer API key not sent** — Moonraker/PrusaLink API key field value was silently discarded on form submit
+- **Products React key** — missing key on Fragment inside `.map()` causing reconciliation issues
+- **CameraModal fullscreen close** — backdrop click in fullscreen mode no longer closes the modal accidentally
+- **Silent error handling** — replaced empty catch blocks in Alerts, AlertBell, EmergencyStop, WebhookSettings with toast errors
+- **Consumables permission keys** — documented intentional sharing of `models.*` permissions
+- **Utilization stale headers** — module-scope API headers now computed per-request
+- **Utilization time range** — selector now re-queries server instead of only slicing client-side data
+
+### Changed
+- All destructive actions (delete, cancel, disable) now require confirmation via ConfirmModal
+- All mutations surface success/error feedback via toast notifications
+- `fetchAPI` now parses error response body for `detail`/`message` before throwing
+- `users` API namespace refactored from manual fetch to use `fetchAPI`
+- Dashboard maintenance items and alert widgets link to their respective pages
+- Dashboard AlertsWidget uses Lucide icons instead of emoji
+- Timeline refetches every 30s; shows empty state when no jobs exist
+- TVDashboard resets auto-pagination timer on manual navigation; shows loading state
+- Models category filters show count badges; ScheduleModal includes priority/quantity/due date/notes
+- Settings shows disabled Pro tabs with ProBadge for Community users instead of hiding them
+- Cameras Control Room uses CSS class toggle instead of DOM manipulation
+- Camera keyboard shortcut changed from bare `f` to Shift+F
+- Consumables styled with Tailwind classes instead of CSS variables
+- Modal accessibility improved across ~15 modals: Escape key, backdrop click-to-close
+- Products BOM components editable in edit mode (previously locked after creation)
+- Spool filament library material dropdown synced with all supported material types
+
+---
+
 ## [1.3.24] - 2026-02-13
 
 ### Added

@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-13 at v1.3.24.
+Updated 2026-02-13 at v1.3.25.
 
 ## Shipped in v1.2.0
 
@@ -58,6 +58,24 @@ Updated 2026-02-13 at v1.3.24.
 - ~~Timeline click-to-inspect with detail drawer (scheduled job details + MQTT job details)~~
 - ~~CameraModal live print context (info bar in large mode, full sidebar in fullscreen)~~
 - ~~Shared PrinterPanels component (extracted from CameraDetail for reuse)~~
+- ~~Toast notification system (react-hot-toast, replacing all alert/confirm calls)~~
+- ~~React Error Boundary + 404 page~~
+- ~~ConfirmModal + shared utilities (ONLINE_THRESHOLD_MS, getShortName, formatDuration)~~
+- ~~Dashboard clickable printer cards with status badges, clickable stat cards, TV Mode button~~
+- ~~Timeline touch support, auto-scroll to now, refetch interval~~
+- ~~Models search, category count badges, schedule enhancements~~
+- ~~Upload progress indicator~~
+- ~~Jobs form improvements (quantity, printer in create modal), confirmation dialogs on all actions~~
+- ~~Settings Access tab accordion, Pro tab visibility for Community, save scope clarity~~
+- ~~Admin user search/filter, AuditLogs user column + search + readable details~~
+- ~~Analytics date range selector, Utilization time range fix~~
+- ~~Order cancellation, shipping modal, search, date column, line item editing~~
+- ~~Spool search, action labels, DryingModal bug fix, error handling~~
+- ~~Detection bulk review + inline actions~~
+- ~~Camera retry/reconnect, snapshot, PiP button, Control Room CSS fix~~
+- ~~Timelapse bulk delete~~
+- ~~Modal accessibility (Escape, backdrop click) across ~15 modals~~
+- ~~Login UX (OIDC loading, MFA auto-submit, SSO divider), Setup password strength checklist~~
 
 ---
 
