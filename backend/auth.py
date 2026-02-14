@@ -10,8 +10,10 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-# Configuration - change SECRET_KEY in production!
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "odin-dev-secret-change-in-production")
+# Configuration
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET_KEY environment variable is required. Set it or run via entrypoint.sh.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
