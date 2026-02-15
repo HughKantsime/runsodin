@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.28] - 2026-02-14
+
+### Added
+- **Implicit org scoping** — `get_org_scope()` and `check_org_access()` helpers; printers, jobs, spools, and models list/detail endpoints filtered by org_id (superadmins bypass, NULL org_id visible to all)
+- **Upgrade UX** — `UpgradeBanner` (session-dismissible amber banner for Community tier), `UpgradeModal` (friendly limit-hit modal with pricing link), Settings tier info card with upgrade CTA
+- **Compliance docs** — FERPA compliance statement, COPPA compliance for K-12, VPAT 2.5 accessibility template (WCAG 2.1 AA)
+- **Cloudflare Pages deploy config** — SPA routing (`_redirects`), security headers (`_headers`), deployment guide for runsodin.com
+
+### Changed
+- **README rewrite** — Replaced minimal README with badges, feature highlights, comparison table, install instructions, and architecture overview
+- **LicenseContext** — Now exposes `max_printers` and `max_users` for limit-hit detection in Add Printer/Add User flows
+
 ## [1.3.27] - 2026-02-14
 
 ### Added

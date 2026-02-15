@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-14 at v1.3.27.
+Updated 2026-02-14 at v1.3.28.
 
 ## Shipped in v1.2.0
 
@@ -90,15 +90,19 @@ Updated 2026-02-14 at v1.3.27.
 - ~~Branding cleanup: "PrintFarm Scheduler" → "O.D.I.N." across 12 files~~
 - ~~UI industrial polish: status dots, card borders, table striping, theme tokens~~
 - ~~Marketing site: Features page, Install page, updated navigation~~
+- ~~Implicit org scoping: get_org_scope/check_org_access helpers, list/detail endpoint filtering~~
+- ~~Upgrade UX: UpgradeBanner, UpgradeModal, Settings tier card with limit detection~~
+- ~~Compliance docs: FERPA, COPPA, VPAT 2.5 accessibility template~~
+- ~~README rewrite: badges, features, comparison table, install guide~~
+- ~~Cloudflare Pages deploy config for runsodin.com~~
 
 ---
 
 ## Backlog — Deepen Existing Implementations
 
 ### 1. Organizations — Remaining Gaps
-**Effort: Medium** — Resource scoping (org_id filtering, shared printers, org switcher) shipped in v1.3.19. Remaining:
+**Effort: Medium** — Implicit org scoping shipped in v1.3.28 (list/detail filtering on printers, jobs, spools, models). Remaining:
 
-- Org members only see their org's resources by default (implicit scoping, not just filtering)
 - Org-level settings: default filament, notification preferences, branding
 
 ---
