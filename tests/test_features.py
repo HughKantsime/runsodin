@@ -715,13 +715,13 @@ class TestIntegrations:
 
     def test_f47_swagger_docs(self):
         """F47: Swagger/OpenAPI docs page."""
-        r = requests.get(f"{BASE_URL}/api/docs")
+        r = requests.get(f"{BASE_URL}/api/v1/docs")
         assert r.status_code == 200
         assert "swagger" in r.text.lower() or "openapi" in r.text.lower() or "html" in r.text.lower()
 
     def test_f48_redoc(self):
         """F48: ReDoc endpoint."""
-        r = requests.get(f"{BASE_URL}/api/redoc")
+        r = requests.get(f"{BASE_URL}/api/v1/redoc")
         assert r.status_code == 200
 
     def test_f49_health_endpoint(self):
