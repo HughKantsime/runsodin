@@ -9,7 +9,8 @@ import json
 import logging
 
 from deps import (get_db, get_current_user, require_role, log_audit,
-                  _get_org_filter, compute_printer_online)
+                  _get_org_filter, get_org_scope, check_org_access,
+                  compute_printer_online)
 from models import (
     Job, JobStatus, Printer, Model, Spool, SpoolUsage, SpoolStatus,
     SystemConfig, AlertType, AlertSeverity, FilamentType, PrintPreset,
@@ -94,7 +95,7 @@ def list_jobs(
     if printer_id:
         query = query.filter(Job.printer_id == printer_id)
 
-    effective_org = _get_org_filter(current_user, org_id)
+    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if effective_org is not None:
         query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
 
@@ -238,10 +239,12 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
-def get_job(job_id: int, db: Session = Depends(get_db)):
+def get_job(job_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get a specific job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if current_user and not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
@@ -251,6 +254,8 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
     """Update a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     for field, value in updates.model_dump(exclude_unset=True).items():
@@ -266,6 +271,8 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     db.delete(job)

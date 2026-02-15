@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from deps import (
     get_db, get_current_user, require_role, log_audit,
-    _get_org_filter, SessionLocal,
+    _get_org_filter, get_org_scope, check_org_access, SessionLocal,
 )
 from models import (
     Spool, SpoolUsage, SpoolStatus, FilamentSlot, FilamentLibrary,
@@ -440,7 +440,7 @@ def list_spools(
     if printer_id:
         query = query.filter(Spool.location_printer_id == printer_id)
 
-    effective_org = _get_org_filter(current_user, org_id)
+    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if effective_org is not None:
         query = query.filter((Spool.org_id == effective_org) | (Spool.org_id == None))
 
@@ -477,10 +477,12 @@ def list_spools(
 
 
 @router.get("/spools/{spool_id}", tags=["Spools"])
-def get_spool(spool_id: int, db: Session = Depends(get_db)):
+def get_spool(spool_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get a single spool with details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    if current_user and not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     return {
@@ -564,6 +566,8 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
+        raise HTTPException(status_code=404, detail="Spool not found")
 
     update_data = updates.model_dump(exclude_unset=True)
 
@@ -584,6 +588,8 @@ def delete_spool(spool_id: int, current_user: dict = Depends(require_role("opera
     """Delete a spool (or archive it)."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     # Archive instead of delete

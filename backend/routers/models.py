@@ -11,7 +11,7 @@ import re
 import tempfile
 
 from deps import (get_db, get_current_user, require_role, log_audit,
-                  _get_org_filter)
+                  _get_org_filter, get_org_scope, check_org_access)
 from models import (
     Model, Job, JobStatus, SystemConfig, FilamentLibrary, FilamentType,
 )
@@ -119,7 +119,7 @@ def list_models(
     if category:
         query = query.filter(Model.category == category)
 
-    effective_org = _get_org_filter(current_user, org_id)
+    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if effective_org is not None:
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
 
@@ -137,7 +137,7 @@ def list_models_with_pricing(
     query = db.query(Model)
     if category:
         query = query.filter(Model.category == category)
-    effective_org = _get_org_filter(current_user, org_id)
+    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if effective_org is not None:
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
     models = query.order_by(Model.name).all()
@@ -246,10 +246,12 @@ def create_model(model: ModelCreate, current_user: dict = Depends(require_role("
 
 
 @router.get("/models/{model_id}", response_model=ModelResponse, tags=["Models"])
-def get_model(model_id: int, db: Session = Depends(get_db)):
+def get_model(model_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get a specific model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if current_user and not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
     return model
 
@@ -259,6 +261,8 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
     """Update a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     update_data = updates.model_dump(exclude_unset=True)
@@ -280,6 +284,8 @@ def delete_model(model_id: int, current_user: dict = Depends(require_role("opera
     """Delete a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     db.delete(model)

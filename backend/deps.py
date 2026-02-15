@@ -191,6 +191,47 @@ def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[
     return group_id  # Regular user or org-scoped admin
 
 
+def get_org_scope(current_user: dict) -> Optional[int]:
+    """Return the org_id that should implicitly scope all resource access.
+
+    - Superadmin (role=admin, no group_id): returns None (see everything)
+    - Everyone else: returns their group_id (may be None if unassigned)
+
+    For detail endpoints, use ``check_org_access()`` to verify a specific
+    resource belongs to the caller's org.
+    """
+    if not current_user:
+        return None
+    role = current_user.get("role", "viewer")
+    group_id = current_user.get("group_id")
+    if role == "admin" and not group_id:
+        return None  # superadmin bypass
+    return group_id
+
+
+def check_org_access(current_user: dict, resource_org_id: Optional[int]) -> bool:
+    """Check whether the current user may access a resource with the given org_id.
+
+    Rules:
+    - Superadmin (admin + no group_id): always True
+    - Resource has no org_id (NULL): visible to everyone
+    - User's group_id matches resource org_id: True
+    - Otherwise: False  (caller should raise 404 to avoid leaking existence)
+    """
+    if not current_user:
+        return False
+    role = current_user.get("role", "viewer")
+    group_id = current_user.get("group_id")
+    # Superadmin sees everything
+    if role == "admin" and not group_id:
+        return True
+    # Unscoped resources are visible to all authenticated users
+    if resource_org_id is None:
+        return True
+    # User must belong to the resource's org
+    return group_id is not None and group_id == resource_org_id
+
+
 # ──────────────────────────────────────────────
 # Utilities
 # ──────────────────────────────────────────────

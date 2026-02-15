@@ -23,7 +23,8 @@ from sqlalchemy.orm import Session
 
 from deps import (
     get_db, get_current_user, require_role, log_audit,
-    _get_org_filter, compute_printer_online, get_printer_api_key,
+    _get_org_filter, get_org_scope, check_org_access,
+    compute_printer_online, get_printer_api_key,
     mask_api_key, SessionLocal,
 )
 from models import (
@@ -306,8 +307,8 @@ def list_printers(
     if active_only:
         query = query.filter(Printer.is_active == True)
 
-    # Org scoping: show org's printers + shared + unassigned
-    effective_org = _get_org_filter(current_user, org_id)
+    # Org scoping: explicit org_id param takes precedence, else implicit scope
+    effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
     if effective_org is not None:
         query = query.filter(
             (Printer.org_id == effective_org) | (Printer.org_id == None) | (Printer.shared == True)
@@ -403,10 +404,12 @@ def reorder_printers(
 
 
 @router.get("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
-def get_printer(printer_id: int, db: Session = Depends(get_db)):
+def get_printer(printer_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get a specific printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if current_user and not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
     return printer
 
@@ -420,6 +423,8 @@ def update_printer(
     """Update a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     update_data = updates.model_dump(exclude_unset=True)
@@ -464,6 +469,8 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
     """Delete a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     db.delete(printer)
