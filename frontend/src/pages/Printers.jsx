@@ -13,6 +13,7 @@ import { printers, filaments, bulkOps } from '../api'
 import { Video, QrCode, Thermometer, Plug } from 'lucide-react'
 import { canDo } from '../permissions'
 import { useLicense } from '../LicenseContext'
+import UpgradeModal from '../components/UpgradeModal'
 import { useOrg } from '../contexts/OrgContext'
 import CameraModal from '../components/CameraModal'
 
@@ -763,6 +764,7 @@ export default function Printers() {
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [plugStates, setPlugStates] = useState({})
 
   // Load plug states for printers that have plugs
@@ -960,9 +962,9 @@ export default function Printers() {
           <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
         </div>
         {canDo('printers.add') && (atLimit
-          ? <span className="flex items-center gap-2 px-4 py-2 bg-farm-700 text-farm-400 rounded-lg text-sm self-start cursor-not-allowed" title={`Printer limit reached (${lic.max_printers}). Upgrade to Pro for unlimited.`}>
-              <Plus size={16} /> Add Printer (limit: {lic.max_printers})
-            </span>
+          ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 px-4 py-2 bg-farm-700 text-farm-400 hover:text-farm-300 rounded-lg text-sm self-start transition-colors" title={`Printer limit reached (${lic.max_printers || 5}). Upgrade to Pro for unlimited.`}>
+              <Plus size={16} /> Add Printer (limit: {lic.max_printers || 5})
+            </button>
           : <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
               <Plus size={16} /> Add Printer
             </button>
@@ -1095,6 +1097,7 @@ export default function Printers() {
           }}
         />
       )}
+      <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} resource="printers" />
     </div>
   )
 }

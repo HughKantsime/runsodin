@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import usePushNotifications from '../hooks/usePushNotifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye, ChevronDown, ChevronRight } from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye, ChevronDown, ChevronRight, ExternalLink, Zap } from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -19,7 +19,7 @@ import BackupRestore from '../components/BackupRestore'
 import OrgManager from '../components/OrgManager'
 import ReportScheduleManager from '../components/ReportScheduleManager'
 import ChargebackReport from '../components/ChargebackReport'
-import { alertPreferences, smtpConfig, getEducationMode, setEducationMode } from '../api'
+import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
 import ProBadge from '../components/ProBadge'
@@ -916,6 +916,7 @@ export default function Settings() {
 
   const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: () => fetch('/api/stats').then(r => r.json()) })
   const { data: configData } = useQuery({ queryKey: ['config'], queryFn: () => fetch('/api/config').then(r => r.json()) })
+  const { data: usersData } = useQuery({ queryKey: ['users-count'], queryFn: usersApi.list, enabled: !lic.isPro })
   const { data: backups, isLoading: backupsLoading } = useQuery({
     queryKey: ['backups'],
     queryFn: backupsApi.list
@@ -1362,6 +1363,39 @@ export default function Settings() {
 
       {/* ==================== GENERAL TAB ==================== */}
       {activeTab === 'general' && <div className="max-w-4xl">
+
+      {/* Upgrade Card (Community only) */}
+      {!lic.isPro && (
+        <div className="bg-amber-900/20 rounded-lg border border-amber-700/30 p-4 md:p-6 mb-4 md:mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Zap size={18} className="text-amber-400" />
+            <h2 className="text-lg font-display font-semibold text-amber-300">Community Edition</h2>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 text-sm">
+            <div>
+              <span className="text-farm-500">Tier:</span>
+              <span className="ml-2 font-medium text-amber-400 capitalize">{lic.tier}</span>
+            </div>
+            <div>
+              <span className="text-farm-500">Printers:</span>
+              <span className="ml-2 text-farm-200">{statsData?.printers?.total || 0} / {lic.max_printers === -1 ? '\u221E' : (lic.max_printers || 5)}</span>
+            </div>
+            <div>
+              <span className="text-farm-500">Users:</span>
+              <span className="ml-2 text-farm-200">{usersData?.length || 0} / {lic.max_users === -1 ? '\u221E' : (lic.max_users || 1)}</span>
+            </div>
+          </div>
+          <a
+            href="https://runsodin.com/pricing"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg text-sm transition-colors"
+          >
+            Upgrade to Pro <ExternalLink size={14} />
+          </a>
+        </div>
+      )}
+
       {/* Spoolman Integration */}
       <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4 flex-wrap">

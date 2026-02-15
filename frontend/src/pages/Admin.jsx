@@ -6,6 +6,7 @@ import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Searc
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ConfirmModal'
+import UpgradeModal from '../components/UpgradeModal'
 
 const API_BASE = '/api'
 
@@ -270,6 +271,7 @@ export default function Admin() {
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
   const { data: users, isLoading } = useQuery({ queryKey: ['users'], queryFn: fetchUsers })
   const lic = useLicense()
@@ -341,9 +343,9 @@ export default function Admin() {
             <Upload size={16} /> Import CSV
           </button>
           {atUserLimit
-            ? <span className="flex items-center gap-2 bg-farm-700 text-farm-400 px-4 py-2 rounded-lg font-medium text-sm cursor-not-allowed" title={`User limit reached (${lic.max_users}). Upgrade to Pro for unlimited.`}>
-                <Plus size={16} /> Add User (limit: {lic.max_users})
-              </span>
+            ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 bg-farm-700 text-farm-400 hover:text-farm-300 px-4 py-2 rounded-lg font-medium text-sm transition-colors" title={`User limit reached (${lic.maxUsers}). Upgrade to Pro for unlimited.`}>
+                <Plus size={16} /> Add User (limit: {lic.maxUsers})
+              </button>
             : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-print-600 hover:bg-print-500 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
                 <Plus size={16} /> Add User
               </button>
@@ -453,6 +455,7 @@ export default function Admin() {
         message={deleteTarget ? `Delete user "${deleteTarget.username}"? This cannot be undone.` : ''}
         confirmText="Delete"
       />
+      <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} resource="users" />
     </div>
   )
 }

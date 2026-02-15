@@ -59,7 +59,7 @@ export const PRO_SETTINGS_TABS = ['sso', 'webhooks', 'smtp']
 
 export function LicenseProvider({ children }) {
   const [license, setLicense] = useState({
-    tier: 'community', licensee: null, expires: null, loading: true,
+    tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1, loading: true,
   })
 
   const fetchLicense = async () => {
@@ -69,6 +69,8 @@ export function LicenseProvider({ children }) {
         tier: data.tier || 'community',
         licensee: data.licensee || null,
         expires: data.expires || null,
+        max_printers: data.max_printers ?? 5,
+        max_users: data.max_users ?? 1,
         loading: false,
       })
     } catch {

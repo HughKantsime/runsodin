@@ -41,6 +41,7 @@ import ProGate from './components/ProGate'
 import ProBadge from './components/ProBadge'
 import AlertBell from './components/AlertBell'
 import EmergencyStop from './components/EmergencyStop'
+import UpgradeBanner from './components/UpgradeBanner'
 import GlobalSearch from './components/GlobalSearch'
 import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
@@ -514,6 +515,7 @@ export default function App() {
             <ThemeToggle />
             <AlertBell />
           </div>
+          <UpgradeBanner />
           <main id="main-content" className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           <ErrorBoundary>
           <Routes>
