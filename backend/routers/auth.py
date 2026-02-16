@@ -143,7 +143,13 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     qr_b64 = base64.b64encode(buf.getvalue()).decode()
 
     # Store secret temporarily (encrypted) — not enabled until confirmed
-    from crypto import encrypt
+    from crypto import encrypt, get_fernet
+    if not get_fernet():
+        raise HTTPException(
+            status_code=503,
+            detail="Encryption is not configured on this server. "
+            "MFA setup requires ENCRYPTION_KEY to be set."
+        )
     encrypted_secret = encrypt(secret)
     db.execute(text("UPDATE users SET mfa_secret = :secret WHERE id = :id"),
                {"secret": encrypted_secret, "id": current_user["id"]})

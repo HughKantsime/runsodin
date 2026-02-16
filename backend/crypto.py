@@ -66,6 +66,10 @@ def decrypt(ciphertext: str) -> Optional[str]:
     fernet = get_fernet()
     if not fernet:
         # No encryption key configured, return as-is
+        log.warning(
+            "ENCRYPTION_KEY not configured — returning ciphertext as plaintext fallback. "
+            "Encrypted fields will not be decrypted correctly."
+        )
         return ciphertext
     
     try:

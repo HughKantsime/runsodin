@@ -289,14 +289,6 @@ def get_printer_api_key(printer: Printer) -> Optional[str]:
     return crypto.decrypt(printer.api_key)
 
 
-def mask_api_key(api_key: Optional[str]) -> Optional[str]:
-    """Mask an API key for safe display."""
-    if not api_key:
-        return None
-    if len(api_key) <= 6:
-        return "••••••••"
-    return "••••••••" + api_key[-6:]
-
 
 # ──────────────────────────────────────────────
 # Password Validation

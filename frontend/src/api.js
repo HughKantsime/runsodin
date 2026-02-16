@@ -34,7 +34,8 @@ export async function fetchAPI(endpoint, options = {}) {
   }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
-    throw new Error(err.detail || err.message || 'API error: ' + response.status)
+    if (err.detail) console.error('[API] Error detail:', err.detail)
+    throw new Error('Request failed. Please try again.')
   }
   if (response.status === 204) return null
   return response.json()

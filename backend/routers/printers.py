@@ -25,7 +25,7 @@ from deps import (
     get_db, get_current_user, require_role, log_audit,
     _get_org_filter, get_org_scope, check_org_access,
     compute_printer_online, get_printer_api_key,
-    mask_api_key, SessionLocal,
+    SessionLocal,
 )
 from models import (
     Printer, FilamentSlot, FilamentType, FilamentLibrary,

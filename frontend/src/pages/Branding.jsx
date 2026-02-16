@@ -484,7 +484,7 @@ export default function Branding() {
                 }}
               >
                 {draft.logo_url ? (
-                  <img src={draft.logo_url} alt="" className="h-6 object-contain" />
+                  <img src={draft.logo_url} alt="Custom logo" className="h-6 object-contain" />
                 ) : (
                   <div className="w-6 h-6 rounded-lg" style={{ backgroundColor: draft.primary_color }} />
                 )}
@@ -562,7 +562,7 @@ export default function Branding() {
               <div className="rounded-lg p-4" style={{ backgroundColor: draft.content_bg, border: `1px solid ${draft.card_border}` }}>
                 <div className="text-center mb-3" style={{ fontFamily: draft.font_display }}>
                   {draft.logo_url ? (
-                    <img src={draft.logo_url} alt="" className="h-8 mx-auto mb-1" />
+                    <img src={draft.logo_url} alt="Custom logo" className="h-8 mx-auto mb-1" />
                   ) : (
                     <div className="text-lg font-bold" style={{ color: draft.accent_color }}>
                       {draft.app_name.toUpperCase()}

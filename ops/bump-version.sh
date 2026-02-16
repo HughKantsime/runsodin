@@ -120,10 +120,15 @@ sedi "s/ODIN_VERSION=\"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/ODIN_VERSION=\"$V
     "$REPO_ROOT/install/install.sh"
 ok "install/install.sh → $VERSION"
 
+# frontend/public/sw.js cache version
+sedi "s/const CACHE_NAME = 'odin-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'/const CACHE_NAME = 'odin-v$VERSION'/" \
+    "$REPO_ROOT/frontend/public/sw.js"
+ok "frontend/public/sw.js → odin-v$VERSION"
+
 # --- Step 2: Commit ---
 step "Creating version bump commit"
 
-git add VERSION frontend/package.json backend/main.py docker-compose.yml install/install.sh
+git add VERSION frontend/package.json backend/main.py docker-compose.yml install/install.sh frontend/public/sw.js
 git commit -m "release: bump version to $VERSION"
 ok "Committed: release: bump version to $VERSION"
 

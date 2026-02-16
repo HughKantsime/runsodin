@@ -348,7 +348,7 @@ export default function Detections() {
                   {det.frame_path ? (
                     <img
                       src={`/api/vision/frames/${det.frame_path}`}
-                      alt=""
+                      alt="Detection thumbnail"
                       className="w-full h-full object-cover"
                       loading="lazy"
                     />

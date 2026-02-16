@@ -84,9 +84,9 @@ function PipPlayer({ camera, onClose }) {
         </div>
       </div>
       {/* Stream */}
-      <img 
+      <img
         src={streamUrl}
-        alt=""
+        alt="Camera stream"
         className="w-full h-full object-cover"
         style={{ pointerEvents: 'none' }}
       />

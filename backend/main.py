@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import pathlib
+from datetime import datetime, timedelta, timezone
 
 from contextlib import asynccontextmanager
 
@@ -100,6 +101,37 @@ async def ws_broadcaster():
             await ws_manager.broadcast(evt)
 
 
+async def periodic_cleanup():
+    """Background task: hourly cleanup of stale login attempts, sessions, and expired tokens."""
+    while True:
+        await asyncio.sleep(3600)  # every hour
+        try:
+            db = SessionLocal()
+            try:
+                now = datetime.now(timezone.utc)
+                # login_attempts older than 30 minutes
+                db.execute(
+                    text("DELETE FROM login_attempts WHERE attempted_at < :cutoff"),
+                    {"cutoff": (now - timedelta(minutes=30)).timestamp()},
+                )
+                # active_sessions older than 48 hours
+                db.execute(
+                    text("DELETE FROM active_sessions WHERE created_at < :cutoff"),
+                    {"cutoff": (now - timedelta(hours=48)).isoformat()},
+                )
+                # expired token_blacklist entries
+                db.execute(
+                    text("DELETE FROM token_blacklist WHERE expires_at < :now"),
+                    {"now": now.isoformat()},
+                )
+                db.commit()
+                log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens")
+            finally:
+                db.close()
+        except Exception:
+            log.warning("Periodic cleanup failed", exc_info=True)
+
+
 # ──────────────────────────────────────────────
 # Schema Drift Check
 # ──────────────────────────────────────────────
@@ -171,8 +203,10 @@ async def lifespan(app: FastAPI):
     _check_schema_drift()
 
     broadcast_task = asyncio.create_task(ws_broadcaster())
+    cleanup_task = asyncio.create_task(periodic_cleanup())
     yield
     broadcast_task.cancel()
+    cleanup_task.cancel()
 
 
 # ──────────────────────────────────────────────
@@ -189,9 +223,17 @@ app = FastAPI(
 )
 
 # CORS
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if "*" in _cors_origins:
+    log.warning(
+        "CORS origin '*' is incompatible with allow_credentials=True — "
+        "falling back to empty origins list. Set explicit origins in CORS_ORIGINS."
+    )
+    _cors_origins = []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "Accept"],

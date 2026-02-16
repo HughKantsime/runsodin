@@ -19,7 +19,7 @@ import BackupRestore from '../components/BackupRestore'
 import OrgManager from '../components/OrgManager'
 import ReportScheduleManager from '../components/ReportScheduleManager'
 import ChargebackReport from '../components/ChargebackReport'
-import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi } from '../api'
+import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi, gdpr, fetchAPI } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
 import ProBadge from '../components/ProBadge'
@@ -283,6 +283,131 @@ function NetworkTab() {
   )
 }
 
+function PrivacyDataCard() {
+  const [exporting, setExporting] = useState(false)
+  const [erasing, setErasing] = useState(false)
+  const [confirmErase, setConfirmErase] = useState(false)
+  const [message, setMessage] = useState(null)
+
+  const getCurrentUserId = async () => {
+    const token = localStorage.getItem('token')
+    if (!token) return null
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const username = payload.sub
+      const users = await fetchAPI('/users')
+      const me = users.find(u => u.username === username)
+      return me?.id || null
+    } catch {
+      return null
+    }
+  }
+
+  const handleExport = async () => {
+    setExporting(true)
+    setMessage(null)
+    try {
+      const userId = await getCurrentUserId()
+      if (!userId) {
+        setMessage({ type: 'error', text: 'Could not determine user ID' })
+        return
+      }
+      const data = await gdpr.exportData(userId)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `odin-my-data-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setMessage({ type: 'success', text: 'Data exported successfully' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message || 'Export failed' })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleErase = async () => {
+    setErasing(true)
+    setMessage(null)
+    try {
+      const userId = await getCurrentUserId()
+      if (!userId) {
+        setMessage({ type: 'error', text: 'Could not determine user ID' })
+        return
+      }
+      await gdpr.eraseData(userId)
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message || 'Erase failed' })
+    } finally {
+      setErasing(false)
+      setConfirmErase(false)
+    }
+  }
+
+  return (
+    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="flex items-center gap-2 md:gap-3 mb-4">
+        <Shield size={18} className="text-print-400" />
+        <h2 className="text-lg md:text-xl font-display font-semibold">Privacy & Data</h2>
+      </div>
+      <p className="text-sm text-farm-400 mb-4">
+        Export or erase your personal data in compliance with GDPR. Exported data includes your profile, jobs, sessions, and preferences.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+        >
+          {exporting ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}
+          Export My Data
+        </button>
+        {confirmErase ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleErase}
+              disabled={erasing}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+            >
+              {erasing ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+              Confirm Erase
+            </button>
+            <button
+              onClick={() => setConfirmErase(false)}
+              className="px-4 py-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm font-medium transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmErase(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-900/50 hover:bg-red-800/50 text-red-300 border border-red-700/50 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Trash2 size={16} />
+            Erase My Data
+          </button>
+        )}
+      </div>
+      {message && (
+        <div className={`mt-3 text-sm px-3 py-2 rounded-lg ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+          {message.text}
+        </div>
+      )}
+      <p className="text-xs text-farm-500 mt-3">
+        Erasing your data is permanent. Your account will be anonymized and you will be logged out.
+      </p>
+    </div>
+  )
+}
+
 function LicenseTab() {
   const [licenseInfo, setLicenseInfo] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -369,6 +494,10 @@ function LicenseTab() {
           <div>
             <span className="text-farm-500">Tier:</span>
             <span className={`ml-2 font-semibold capitalize ${tierColors[tier] || 'text-farm-300'}`}>{tier}</span>
+          </div>
+          <div>
+            <span className="text-farm-500">License:</span>
+            <span className="ml-2 text-farm-200">BSL 1.1 (converts to Apache 2.0 on 2029-02-07)</span>
           </div>
           {licenseInfo?.licensee && (
             <div>
@@ -1758,6 +1887,9 @@ export default function Settings() {
 
       <InstallAppCard />
       <AuditLogLink />
+
+      {/* Privacy & Data (GDPR) */}
+      <PrivacyDataCard />
 
       {/* License — merged into System tab */}
       <div className="border-t border-farm-700 pt-6 mt-6">
