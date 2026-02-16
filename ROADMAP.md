@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-14 at v1.3.28.
+Updated 2026-02-15 at v1.3.29.
 
 ## Shipped in v1.2.0
 
@@ -95,6 +95,10 @@ Updated 2026-02-14 at v1.3.28.
 - ~~Compliance docs: FERPA, COPPA, VPAT 2.5 accessibility template~~
 - ~~README rewrite: badges, features, comparison table, install guide~~
 - ~~Cloudflare Pages deploy config for runsodin.com~~
+- ~~True light mode: 150+ CSS overrides, all 15 brand variables, status color remapping, card shadows~~
+- ~~BrandingContext specificity fix: inline styles no longer clobber html.light CSS overrides~~
+- ~~Theme toggle reactivity via MutationObserver~~
+- ~~Theme-aware Recharts: CSS variables for chart grid/axis/tooltip across Analytics, EnergyWidget, AmsEnvironmentChart, PrinterTelemetryChart~~
 
 ---
 
