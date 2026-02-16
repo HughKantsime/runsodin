@@ -56,6 +56,18 @@ export function BrandingProvider({ children }) {
       })
   }, [])
 
+  // Re-apply branding when theme toggles (html.light class changes)
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      applyBrandingCSS(branding)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+    return () => observer.disconnect()
+  }, [branding])
+
   return (
     <BrandingContext.Provider value={branding}>
       {children}
@@ -71,37 +83,52 @@ export function useBranding() {
  * Inject CSS custom properties onto :root.
  * Every branded surface reads from these vars so changing
  * them here re-themes the entire app instantly.
+ *
+ * In light mode, only theme-neutral properties (fonts, primary/accent)
+ * are applied as inline styles. Surface colors (backgrounds, text, inputs)
+ * are left to the html.light CSS block in index.css, which would otherwise
+ * be clobbered by inline style specificity.
  */
 function applyBrandingCSS(b) {
   const root = document.documentElement
+  const isLight = root.classList.contains("light")
 
-  // Accent / brand
-  root.style.setProperty("--brand-primary", b.primary_color)
-  root.style.setProperty("--brand-accent", b.accent_color)
+  // Accent / brand — always apply
+  root.style.setProperty("--brand-primary", isLight ? "#b45309" : b.primary_color)
+  root.style.setProperty("--brand-accent", isLight ? "#d97706" : b.accent_color)
 
-  // Sidebar
-  root.style.setProperty("--brand-sidebar-bg", b.sidebar_bg)
-  root.style.setProperty("--brand-sidebar-border", b.sidebar_border)
-  root.style.setProperty("--brand-sidebar-text", b.sidebar_text)
-  root.style.setProperty("--brand-sidebar-active-bg", b.sidebar_active_bg)
-  root.style.setProperty("--brand-sidebar-active-text", b.sidebar_active_text)
-
-  // Content
-  root.style.setProperty("--brand-content-bg", b.content_bg)
-  root.style.setProperty("--brand-card-bg", b.card_bg)
-  root.style.setProperty("--brand-card-border", b.card_border)
-  root.style.setProperty("--brand-text-primary", b.text_primary)
-  root.style.setProperty("--brand-text-secondary", b.text_secondary)
-  root.style.setProperty("--brand-text-muted", b.text_muted)
-
-  // Inputs
-  root.style.setProperty("--brand-input-bg", b.input_bg)
-  root.style.setProperty("--brand-input-border", b.input_border)
-
-  // Fonts
+  // Fonts — always apply
   root.style.setProperty("--brand-font-display", b.font_display)
   root.style.setProperty("--brand-font-body", b.font_body)
   root.style.setProperty("--brand-font-mono", b.font_mono)
+
+  if (isLight) {
+    // In light mode, remove any inline surface overrides so the
+    // html.light {} CSS block takes effect without specificity fights.
+    const surfaceVars = [
+      "--brand-sidebar-bg", "--brand-sidebar-border", "--brand-sidebar-text",
+      "--brand-sidebar-active-bg", "--brand-sidebar-active-text",
+      "--brand-content-bg", "--brand-card-bg", "--brand-card-border",
+      "--brand-text-primary", "--brand-text-secondary", "--brand-text-muted",
+      "--brand-input-bg", "--brand-input-border",
+    ]
+    surfaceVars.forEach(v => root.style.removeProperty(v))
+  } else {
+    // Dark mode — apply all surface properties inline
+    root.style.setProperty("--brand-sidebar-bg", b.sidebar_bg)
+    root.style.setProperty("--brand-sidebar-border", b.sidebar_border)
+    root.style.setProperty("--brand-sidebar-text", b.sidebar_text)
+    root.style.setProperty("--brand-sidebar-active-bg", b.sidebar_active_bg)
+    root.style.setProperty("--brand-sidebar-active-text", b.sidebar_active_text)
+    root.style.setProperty("--brand-content-bg", b.content_bg)
+    root.style.setProperty("--brand-card-bg", b.card_bg)
+    root.style.setProperty("--brand-card-border", b.card_border)
+    root.style.setProperty("--brand-text-primary", b.text_primary)
+    root.style.setProperty("--brand-text-secondary", b.text_secondary)
+    root.style.setProperty("--brand-text-muted", b.text_muted)
+    root.style.setProperty("--brand-input-bg", b.input_bg)
+    root.style.setProperty("--brand-input-border", b.input_border)
+  }
 }
 
 

@@ -212,39 +212,200 @@
   color: #fbbf24;
 }
 
-/* Light mode overrides */
+/* ============================================
+   Light mode overrides — True Light Theme
+   ============================================ */
+
+/* --- CSS variable overrides (all 15 --brand-* vars) --- */
 html.light {
+  --brand-primary: #b45309;
+  --brand-accent: #d97706;
   --brand-sidebar-bg: #f8fafc;
-  --brand-sidebar-text: #1e293b;
-  --brand-sidebar-hover: #e2e8f0;
-  --brand-sidebar-active: #dbeafe;
   --brand-sidebar-border: #e2e8f0;
-  --brand-header-bg: #ffffff;
-  --brand-header-text: #1e293b;
+  --brand-sidebar-text: #1e293b;
+  --brand-sidebar-active-bg: #fff7ed;
+  --brand-sidebar-active-text: #b45309;
+  --brand-content-bg: #f1f5f9;
+  --brand-card-bg: #ffffff;
+  --brand-card-border: #e2e8f0;
+  --brand-text-primary: #0f172a;
+  --brand-text-secondary: #475569;
+  --brand-text-muted: #94a3b8;
+  --brand-input-bg: #f8fafc;
+  --brand-input-border: #cbd5e1;
+  --brand-font-display: inherit;
+  --brand-font-body: inherit;
+  --brand-font-mono: inherit;
 }
+
+/* --- Base surfaces --- */
 html.light body {
   background: #f1f5f9;
   color: #1e293b;
 }
+
+/* --- Farm palette → light equivalents --- */
 html.light .bg-farm-950 { background-color: #f8fafc; }
 html.light .bg-farm-900 { background-color: #ffffff; }
 html.light .bg-farm-800 { background-color: #e2e8f0; }
 html.light .bg-farm-700 { background-color: #cbd5e1; }
+
+/* Opacity variants — farm backgrounds */
+html.light .bg-farm-950\/40 { background-color: rgba(248,250,252,0.4); }
+html.light .bg-farm-950\/90 { background-color: rgba(248,250,252,0.9); }
+html.light .bg-farm-900\/80 { background-color: rgba(255,255,255,0.8); }
+html.light .bg-farm-900\/50 { background-color: rgba(255,255,255,0.8); }
+html.light .bg-farm-800\/20 { background-color: rgba(226,232,240,0.2); }
+html.light .bg-farm-800\/30 { background-color: rgba(226,232,240,0.3); }
+html.light .bg-farm-800\/40 { background-color: rgba(226,232,240,0.4); }
+html.light .bg-farm-800\/50 { background-color: rgba(226,232,240,0.5); }
+html.light .bg-farm-800\/70 { background-color: rgba(226,232,240,0.7); }
+html.light .bg-farm-700\/30 { background-color: rgba(203,213,225,0.3); }
+html.light .bg-farm-700\/50 { background-color: rgba(203,213,225,0.5); }
+html.light .bg-farm-500\/20 { background-color: rgba(100,116,139,0.2); }
+
+/* Text — farm grays inverted */
 html.light .text-farm-100 { color: #0f172a; }
 html.light .text-farm-200 { color: #1e293b; }
 html.light .text-farm-300 { color: #334155; }
 html.light .text-farm-400 { color: #475569; }
 html.light .text-farm-500 { color: #64748b; }
 html.light .text-farm-600 { color: #94a3b8; }
+
+/* Borders */
 html.light .border-farm-800 { border-color: #e2e8f0; }
+html.light .border-farm-800\/50 { border-color: rgba(226,232,240,0.5); }
 html.light .border-farm-700 { border-color: #cbd5e1; }
+html.light .border-farm-600 { border-color: #94a3b8; }
+html.light .border-farm-500 { border-color: #64748b; }
+
+/* Hover states */
 html.light .hover\:bg-farm-800:hover { background-color: #e2e8f0; }
+html.light .hover\:bg-farm-800\/50:hover { background-color: rgba(226,232,240,0.5); }
+html.light .hover\:bg-farm-800\/70:hover { background-color: rgba(226,232,240,0.7); }
+html.light .hover\:bg-farm-800\/30:hover { background-color: rgba(226,232,240,0.3); }
 html.light .hover\:bg-farm-700:hover { background-color: #cbd5e1; }
+html.light .hover\:bg-farm-900:hover { background-color: #f8fafc; }
+
+/* Inputs */
 html.light input, html.light select, html.light textarea {
   background-color: #f8fafc;
   border-color: #cbd5e1;
   color: #1e293b;
 }
-html.light .bg-farm-900\/50 { background-color: rgba(255,255,255,0.8); }
-html.light .bg-farm-800\/30 { background-color: rgba(226,232,240,0.3); }
-html.light .bg-farm-800\/50 { background-color: rgba(226,232,240,0.5); }
+
+/* Card elevation — subtle shadow on white cards */
+html.light .bg-farm-900 {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+}
+
+/* --- Status / semantic color remapping --- */
+
+/* Red — errors, failures */
+html.light .bg-red-900\/30 { background-color: #fef2f2; }
+html.light .bg-red-900\/50 { background-color: #fee2e2; }
+html.light .text-red-400 { color: #dc2626; }
+html.light .text-red-300 { color: #ef4444; }
+html.light .text-red-500 { color: #b91c1c; }
+html.light .border-red-700\/30 { border-color: #fca5a5; }
+html.light .border-red-500\/30 { border-color: #fecaca; }
+html.light .border-red-800 { border-color: #fca5a5; }
+
+/* Green — success, online */
+html.light .bg-green-900\/30 { background-color: #f0fdf4; }
+html.light .bg-green-900\/50 { background-color: #dcfce7; }
+html.light .text-green-400 { color: #16a34a; }
+html.light .text-green-300 { color: #22c55e; }
+html.light .text-green-500 { color: #15803d; }
+html.light .border-green-700\/30 { border-color: #86efac; }
+html.light .border-green-500\/30 { border-color: #bbf7d0; }
+html.light .border-green-800 { border-color: #86efac; }
+
+/* Blue — info, active */
+html.light .bg-blue-900\/30 { background-color: #eff6ff; }
+html.light .bg-blue-900\/50 { background-color: #dbeafe; }
+html.light .text-blue-400 { color: #2563eb; }
+html.light .text-blue-300 { color: #3b82f6; }
+html.light .text-blue-500 { color: #1d4ed8; }
+html.light .border-blue-700\/30 { border-color: #93c5fd; }
+html.light .border-blue-500\/30 { border-color: #bfdbfe; }
+html.light .border-blue-800 { border-color: #93c5fd; }
+
+/* Amber — warnings */
+html.light .bg-amber-900\/30 { background-color: #fef3c7; }
+html.light .bg-amber-900\/50 { background-color: #fde68a; }
+html.light .text-amber-400 { color: #d97706; }
+html.light .text-amber-300 { color: #f59e0b; }
+html.light .text-amber-500 { color: #b45309; }
+html.light .border-amber-700\/30 { border-color: #fcd34d; }
+html.light .border-amber-500\/30 { border-color: #fde68a; }
+
+/* Purple — special states */
+html.light .bg-purple-900\/30 { background-color: #faf5ff; }
+html.light .bg-purple-900\/50 { background-color: #f3e8ff; }
+html.light .text-purple-400 { color: #9333ea; }
+html.light .text-purple-300 { color: #a855f7; }
+html.light .border-purple-700\/30 { border-color: #d8b4fe; }
+
+/* Yellow */
+html.light .bg-yellow-900\/30 { background-color: #fefce8; }
+html.light .bg-yellow-900\/50 { background-color: #fef9c3; }
+html.light .text-yellow-400 { color: #ca8a04; }
+html.light .text-yellow-300 { color: #eab308; }
+
+/* Print accent (brand amber) */
+html.light .text-print-400 { color: #b45309; }
+html.light .text-print-500 { color: #92400e; }
+html.light .bg-print-900\/30 { background-color: #fffbeb; }
+html.light .bg-print-900\/50 { background-color: #fef3c7; }
+html.light .border-print-700\/30 { border-color: #fcd34d; }
+html.light .border-print-500 { border-color: #f59e0b; }
+
+/* --- Non-Tailwind elements --- */
+
+/* Scrollbars */
+html.light ::-webkit-scrollbar-track { background: #f1f5f9; }
+html.light ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+html.light ::-webkit-scrollbar-thumb:hover { background: #b45309; }
+html.light .scrollbar-thin { scrollbar-color: #cbd5e1 transparent; }
+
+/* Focus ring */
+html.light *:focus-visible {
+  outline-color: #b45309;
+}
+
+/* Selection */
+html.light ::selection {
+  background: #fde68a;
+  color: #451a03;
+}
+
+/* Table industrial */
+html.light .table-industrial tbody tr:nth-child(even) {
+  background-color: rgba(241,245,249,0.5);
+}
+html.light .table-industrial tbody tr:hover {
+  background-color: rgba(226,232,240,0.4);
+}
+html.light .table-industrial thead {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+}
+html.light .table-industrial th {
+  color: #475569;
+}
+
+/* Skeleton loader */
+html.light .skeleton {
+  background-color: #e2e8f0;
+}
+
+/* Timeline grid */
+html.light .timeline-grid {
+  background: #e2e8f0;
+}
+
+/* Job card hover */
+html.light .job-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
