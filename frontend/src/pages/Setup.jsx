@@ -628,10 +628,10 @@ export default function Setup() {
   const stepViews = [renderWelcome, renderAdmin, renderPrinter, renderNetwork, renderDone]
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#0f1117' }}>
+    <div className="min-h-screen flex items-center justify-center p-4 bg-farm-950">
       <div className="w-full max-w-lg">
         {stepIndicator()}
-        <div className="rounded-lg p-8 bg-[#1a1c25] border border-white/[0.06] shadow-2xl">
+        <div className="rounded-lg p-8 bg-farm-900 border border-farm-800 shadow-2xl">
           {stepViews[step]()}
         </div>
         <p className="text-center text-white/20 text-xs mt-4">

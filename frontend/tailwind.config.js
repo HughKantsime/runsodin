@@ -9,17 +9,17 @@ export default {
       colors: {
         // O.D.I.N. "Forge" palette — industrial dark with amber accents
         'farm': {
-          50:  '#f4f6f9',
-          100: '#e8ecf2',
-          200: '#d4dae4',
-          300: '#b8c2d0',
-          400: '#8b95a8',
-          500: '#4a5568',
-          600: '#364155',
-          700: '#252d3d',
-          800: '#1a2030',
-          900: '#0f1218',
-          950: '#0a0c10',
+          50:  'rgb(var(--farm-50) / <alpha-value>)',
+          100: 'rgb(var(--farm-100) / <alpha-value>)',
+          200: 'rgb(var(--farm-200) / <alpha-value>)',
+          300: 'rgb(var(--farm-300) / <alpha-value>)',
+          400: 'rgb(var(--farm-400) / <alpha-value>)',
+          500: 'rgb(var(--farm-500) / <alpha-value>)',
+          600: 'rgb(var(--farm-600) / <alpha-value>)',
+          700: 'rgb(var(--farm-700) / <alpha-value>)',
+          800: 'rgb(var(--farm-800) / <alpha-value>)',
+          900: 'rgb(var(--farm-900) / <alpha-value>)',
+          950: 'rgb(var(--farm-950) / <alpha-value>)',
         },
         // Accent — amber/bronze (Odin's forge)
         'print': {

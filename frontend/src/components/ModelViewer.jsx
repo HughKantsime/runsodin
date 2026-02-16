@@ -343,7 +343,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="model-viewer-title">
-      <div className="relative w-[90vw] h-[80vh] max-w-6xl bg-[#1a1a2e] rounded-lg border border-farm-700 overflow-hidden flex flex-col">
+      <div className="relative w-[90vw] h-[80vh] max-w-6xl bg-farm-900 rounded-lg border border-farm-700 overflow-hidden flex flex-col">
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-farm-700 bg-farm-900/80">

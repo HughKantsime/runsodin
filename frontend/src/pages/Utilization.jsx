@@ -145,10 +145,10 @@ export default function Utilization() {
           {utilData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={utilData} layout="vertical" margin={{ left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis type="number" domain={[0, 100]} tickFormatter={v => v + '%'} stroke="#64748b" fontSize={11} />
-                <YAxis type="category" dataKey="name" width={100} stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis type="number" domain={[0, 100]} tickFormatter={v => v + '%'} stroke="var(--chart-axis)" fontSize={11} />
+                <YAxis type="category" dataKey="name" width={100} stroke="var(--chart-axis)" fontSize={11} />
+                <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 8, fontSize: 12 }}
                   formatter={(v, name) => [name === 'utilization' ? v + '%' : v + 'h', name === 'utilization' ? 'Utilization' : 'Hours']} />
                 <Bar dataKey="utilization" fill="#60a5fa" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -162,10 +162,10 @@ export default function Utilization() {
           {dailyData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={dailyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" stroke="#64748b" fontSize={11} />
-                <YAxis stroke="#64748b" fontSize={11} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="date" stroke="var(--chart-axis)" fontSize={11} />
+                <YAxis stroke="var(--chart-axis)" fontSize={11} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 8, fontSize: 12 }} />
                 <Bar dataKey="jobs" fill="#34d399" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

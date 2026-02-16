@@ -150,10 +150,10 @@ export default function EducationReports() {
           {topUsersData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={topUsersData} layout="vertical" margin={{ left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis type="number" stroke="#64748b" fontSize={11} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" width={100} stroke="#64748b" fontSize={11} />
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis type="number" stroke="var(--chart-axis)" fontSize={11} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={100} stroke="var(--chart-axis)" fontSize={11} />
+                <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 8, fontSize: 12 }} />
                 <Bar dataKey="jobs" fill="#60a5fa" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -188,10 +188,10 @@ export default function EducationReports() {
                     <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" stroke="#64748b" fontSize={10} />
-                <YAxis stroke="#64748b" fontSize={10} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                <XAxis dataKey="date" stroke="var(--chart-axis)" fontSize={10} />
+                <YAxis stroke="var(--chart-axis)" fontSize={10} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 8, fontSize: 12 }} />
                 <Area type="monotone" dataKey="submissions" stroke="#3B82F6" fill="url(#gradSubmissions)" strokeWidth={2} dot={false} />
               </AreaChart>
             </ResponsiveContainer>
