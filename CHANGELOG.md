@@ -2,6 +2,11 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.30] - 2026-02-16
+
+### Fixed
+- **Phase 0 supervisor race condition** — Supervisor services still in STARTING state caused false failures when Phase 0B ran immediately after Docker healthcheck passed; now retries up to 15s before failing
+
 ## [1.3.29] - 2026-02-15
 
 ### Added

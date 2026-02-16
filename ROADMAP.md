@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-15 at v1.3.29.
+Updated 2026-02-16 at v1.3.30.
 
 ## Shipped in v1.2.0
 
@@ -99,6 +99,7 @@ Updated 2026-02-15 at v1.3.29.
 - ~~BrandingContext specificity fix: inline styles no longer clobber html.light CSS overrides~~
 - ~~Theme toggle reactivity via MutationObserver~~
 - ~~Theme-aware Recharts: CSS variables for chart grid/axis/tooltip across Analytics, EnergyWidget, AmsEnvironmentChart, PrinterTelemetryChart~~
+- ~~Phase 0 supervisor STARTING race condition fix (retry up to 15s before failing)~~
 
 ---
 
