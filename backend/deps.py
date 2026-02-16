@@ -5,9 +5,9 @@ Extracted from main.py to enable clean router module imports
 without circular dependencies.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from collections import defaultdict
+import hmac
 import time as _time
 import os
 import json
@@ -17,6 +17,7 @@ from fastapi import Depends, HTTPException, status, Header, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import auth as auth_module
 from auth import verify_password, decode_token, has_permission, hash_password, create_access_token
@@ -44,9 +45,8 @@ logger = log  # alias used in some places
 engine = create_engine(
     settings.database_url,
     echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=60,
+    poolclass=StaticPool,
+    connect_args={"check_same_thread": False},
 )
 with engine.connect() as conn:
     conn.execute(text("PRAGMA journal_mode=WAL"))
@@ -101,11 +101,11 @@ async def get_current_user(
                     # Update last_seen_at for session tracking
                     db.execute(
                         text("UPDATE active_sessions SET last_seen_at = :now WHERE token_jti = :jti"),
-                        {"now": datetime.now(), "jti": jti},
+                        {"now": datetime.now(timezone.utc), "jti": jti},
                     )
                     db.commit()
             except Exception:
-                pass
+                log.debug("Failed to update session last_seen_at", exc_info=True)
             user = db.execute(
                 text("SELECT * FROM users WHERE username = :username"),
                 {"username": token_data.username},
@@ -116,9 +116,9 @@ async def get_current_user(
     # Try 2: X-API-Key header — check global key first, then scoped user tokens
     api_key = request.headers.get("X-API-Key")
     if api_key and api_key != "undefined":
-        # 2a: Global API key (legacy)
+        # 2a: Global API key (legacy, constant-time comparison)
         configured_key = os.getenv("API_KEY", "")
-        if configured_key and api_key == configured_key:
+        if configured_key and hmac.compare_digest(api_key, configured_key):
             admin = db.execute(
                 text("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1")
             ).fetchone()
@@ -143,14 +143,14 @@ async def get_current_user(
                                 if isinstance(candidate.expires_at, str)
                                 else candidate.expires_at
                             )
-                            if exp < datetime.now():
+                            if exp < datetime.now(timezone.utc):
                                 continue
                         except Exception:
                             pass
                     # Update last_used_at
                     db.execute(
                         text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
-                        {"now": datetime.now(), "id": candidate.id},
+                        {"now": datetime.now(timezone.utc), "id": candidate.id},
                     )
                     db.commit()
                     # Fetch the user
@@ -257,10 +257,10 @@ def log_audit(
 
 
 def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
-    """Verify API key if authentication is enabled."""
+    """Verify API key if authentication is enabled (constant-time comparison)."""
     if not settings.api_key:
         return None
-    if not x_api_key or x_api_key != settings.api_key:
+    if not x_api_key or not hmac.compare_digest(x_api_key, settings.api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
@@ -274,7 +274,7 @@ def compute_printer_online(printer_dict):
     if printer_dict.get("last_seen"):
         try:
             last = datetime.fromisoformat(str(printer_dict["last_seen"]))
-            printer_dict["is_online"] = (datetime.utcnow() - last).total_seconds() < 90
+            printer_dict["is_online"] = (datetime.now(timezone.utc) - last).total_seconds() < 90
         except Exception:
             printer_dict["is_online"] = False
     else:
@@ -319,31 +319,70 @@ def _validate_password(password: str) -> tuple:
 # Rate Limiting
 # ──────────────────────────────────────────────
 
-_login_attempts = defaultdict(list)  # ip -> [timestamps]
-_account_lockouts = {}               # username -> lockout_until_timestamp
 _LOGIN_RATE_LIMIT = 10               # max attempts per window
 _LOGIN_RATE_WINDOW = 300             # 5 minute window
 _LOCKOUT_THRESHOLD = 5               # failed attempts before lockout
 _LOCKOUT_DURATION = 900              # 15 minute lockout
+_last_login_cleanup = 0              # timestamp of last cleanup
+
+
+def _login_db_path() -> str:
+    return os.environ.get("DATABASE_PATH", "/data/odin.db")
 
 
 def _check_rate_limit(ip: str) -> bool:
-    """Returns True if rate limited."""
-    now = _time.time()
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _LOGIN_RATE_WINDOW]
-    return len(_login_attempts[ip]) >= _LOGIN_RATE_LIMIT
+    """Returns True if rate limited.  Queries login_attempts table."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_login_db_path(), timeout=10)
+        conn.execute("PRAGMA busy_timeout=10000")
+        now = _time.time()
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM login_attempts "
+            "WHERE ip = ? AND success = 0 AND attempted_at > ?",
+            (ip, now - _LOGIN_RATE_WINDOW),
+        )
+        count = cur.fetchone()[0]
+        conn.close()
+        return count >= _LOGIN_RATE_LIMIT
+    except Exception:
+        return False  # fail open on DB errors
 
 
 def _record_login_attempt(ip: str, username: str, success: bool, db=None):
     """Record attempt for rate limiting and audit."""
-    now = _time.time()
+    # Persist to login_attempts table
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_login_db_path(), timeout=10)
+        conn.execute("PRAGMA busy_timeout=10000")
+        conn.execute(
+            "INSERT INTO login_attempts (ip, username, attempted_at, success) "
+            "VALUES (?, ?, ?, ?)",
+            (ip, username, _time.time(), 1 if success else 0),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        log.warning("Failed to persist login attempt", exc_info=True)
 
-    if not success:
-        # Only count failed attempts toward rate limit
-        _login_attempts[ip].append(now)
-        recent_failures = [t for t in _login_attempts[ip] if now - t < _LOGIN_RATE_WINDOW]
-        if len(recent_failures) >= _LOCKOUT_THRESHOLD:
-            _account_lockouts[username] = now + _LOCKOUT_DURATION
+    # Lazy cleanup every hour
+    global _last_login_cleanup
+    now = _time.time()
+    if now - _last_login_cleanup > 3600:
+        _last_login_cleanup = now
+        try:
+            import sqlite3
+            conn = sqlite3.connect(_login_db_path(), timeout=10)
+            conn.execute("PRAGMA busy_timeout=10000")
+            conn.execute(
+                "DELETE FROM login_attempts WHERE attempted_at < ?",
+                (now - _LOCKOUT_DURATION * 2,),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     # Log to audit trail if db available
     if db:
@@ -357,13 +396,23 @@ def _record_login_attempt(ip: str, username: str, success: bool, db=None):
             db.add(audit_entry)
             db.commit()
         except Exception:
-            pass
+            log.warning("Failed to record login audit entry", exc_info=True)
 
 
 def _is_locked_out(username: str) -> bool:
-    """Returns True if account is locked."""
-    if username in _account_lockouts:
-        if _time.time() < _account_lockouts[username]:
-            return True
-        del _account_lockouts[username]
-    return False
+    """Returns True if account is locked (>= LOCKOUT_THRESHOLD failures in window)."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_login_db_path(), timeout=10)
+        conn.execute("PRAGMA busy_timeout=10000")
+        now = _time.time()
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM login_attempts "
+            "WHERE username = ? AND success = 0 AND attempted_at > ?",
+            (username, now - _LOCKOUT_DURATION),
+        )
+        count = cur.fetchone()[0]
+        conn.close()
+        return count >= _LOCKOUT_THRESHOLD
+    except Exception:
+        return False  # fail open on DB errors

@@ -28,6 +28,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 
 from moonraker_adapter import MoonrakerPrinter, MoonrakerState
+from db_utils import get_db
 import printer_events
 
 # WebSocket push (same as mqtt_monitor)
@@ -43,11 +44,6 @@ except ImportError:
     mqtt_republish = None
 
 log = logging.getLogger("moonraker_monitor")
-
-DB_PATH = os.environ.get(
-    "DATABASE_PATH",
-    "/data/odin.db",
-)
 
 POLL_INTERVAL = 3          # seconds between status polls
 RECONNECT_INTERVAL = 30    # seconds between reconnection attempts
@@ -168,7 +164,7 @@ class MoonrakerMonitor:
         # Update telemetry + heartbeat (throttled to every 10 seconds)
         if now - getattr(self, '_last_heartbeat', 0) >= 10:
             try:
-                conn = sqlite3.connect(DB_PATH)
+              with get_db() as conn:
                 bed_t = bed_tt = noz_t = noz_tt = None
                 gstate = None
                 stage = 'Idle'
@@ -274,7 +270,6 @@ class MoonrakerMonitor:
                     except Exception as e:
                         log.debug(f"[{self.name}] Env telemetry insert: {e}")
 
-                conn.close()
                 self._last_heartbeat = now
             except Exception as e:
                 log.warning(f"Failed to update telemetry for {self.name}: {e}")
@@ -348,32 +343,31 @@ class MoonrakerMonitor:
         nozzle_target = status.nozzle_target
         
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO print_jobs 
-                (printer_id, job_id, filename, job_name, started_at, status,
-                 total_layers, bed_temp_target, nozzle_temp_target)
-                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
-            """, (
-                self.printer_id,
-                f"mk_{int(time.time())}",
-                filename,
-                filename,
-                datetime.now().isoformat(),
-                total_layers,
-                bed_target,
-                nozzle_target,
-            ))
-            self._current_job_db_id = cur.lastrowid
-            self._last_filename = filename
-            conn.commit()
-            conn.close()
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO print_jobs
+                    (printer_id, job_id, filename, job_name, started_at, status,
+                     total_layers, bed_temp_target, nozzle_temp_target)
+                    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
+                """, (
+                    self.printer_id,
+                    f"mk_{int(time.time())}",
+                    filename,
+                    filename,
+                    datetime.now().isoformat(),
+                    total_layers,
+                    bed_target,
+                    nozzle_target,
+                ))
+                self._current_job_db_id = cur.lastrowid
+                self._last_filename = filename
+                conn.commit()
             log.info(f"[{self.name}] Job started: {filename} (DB id: {self._current_job_db_id})")
-            
+
             # Attempt auto-link to scheduled job (same logic as Bambu monitor)
             self._try_auto_link(filename, total_layers)
-            
+
         except Exception as e:
             log.error(f"[{self.name}] Failed to record job start: {e}")
     
@@ -384,48 +378,46 @@ class MoonrakerMonitor:
             return
         
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE print_jobs 
-                SET ended_at = ?, status = ?
-                WHERE id = ?
-            """, (datetime.now().isoformat(), end_status, self._current_job_db_id))
-            
-            # If linked to a scheduled job, update it too
-            cur.execute("""
-                SELECT scheduled_job_id FROM print_jobs WHERE id = ?
-            """, (self._current_job_db_id,))
-            row = cur.fetchone()
-            if row and row[0]:
-                sched_status = "COMPLETED" if end_status == "completed" else "FAILED"
+            with get_db() as conn:
+                cur = conn.cursor()
                 cur.execute("""
-                    UPDATE jobs SET status = ? WHERE id = ?
-                """, (sched_status, row[0]))
-                log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")
-                
-                # Auto-deduct filament if completed
-                if end_status == "completed":
-                    self._auto_deduct_filament(cur, row[0])
-            
-            conn.commit()
-            conn.close()
+                    UPDATE print_jobs
+                    SET ended_at = ?, status = ?
+                    WHERE id = ?
+                """, (datetime.now().isoformat(), end_status, self._current_job_db_id))
+
+                # If linked to a scheduled job, update it too
+                cur.execute("""
+                    SELECT scheduled_job_id FROM print_jobs WHERE id = ?
+                """, (self._current_job_db_id,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    sched_status = "COMPLETED" if end_status == "completed" else "FAILED"
+                    cur.execute("""
+                        UPDATE jobs SET status = ? WHERE id = ?
+                    """, (sched_status, row[0]))
+                    log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")
+
+                    # Auto-deduct filament if completed
+                    if end_status == "completed":
+                        self._auto_deduct_filament(cur, row[0])
+
+                conn.commit()
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
-            
+
             # Increment care counters on successful completion
             if end_status == "completed":
                 try:
-                    conn2 = sqlite3.connect(DB_PATH)
-                    cur2 = conn2.cursor()
-                    cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (self._current_job_db_id,))
-                    pj_row = cur2.fetchone()
-                    if pj_row and pj_row[0] and pj_row[1]:
-                        from datetime import datetime as dt
-                        started = dt.fromisoformat(pj_row[0])
-                        ended = dt.fromisoformat(pj_row[1])
-                        duration_sec = (ended - started).total_seconds()
-                        printer_events.increment_care_counters(self.printer_id, duration_sec / 3600.0, 1)
-                    conn2.close()
+                    with get_db() as conn2:
+                        cur2 = conn2.cursor()
+                        cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (self._current_job_db_id,))
+                        pj_row = cur2.fetchone()
+                        if pj_row and pj_row[0] and pj_row[1]:
+                            from datetime import datetime as dt
+                            started = dt.fromisoformat(pj_row[0])
+                            ended = dt.fromisoformat(pj_row[1])
+                            duration_sec = (ended - started).total_seconds()
+                            printer_events.increment_care_counters(self.printer_id, duration_sec / 3600.0, 1)
                 except Exception as ce:
                     log.warning(f"[{self.name}] Failed to update care counters: {ce}")
             
@@ -471,20 +463,19 @@ class MoonrakerMonitor:
         self._last_progress_write = now
         
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE print_jobs
-                SET progress_percent = ?, current_layer = ?, remaining_minutes = ?
-                WHERE id = ?
-            """, (
-                status.progress_percent,
-                status.current_layer,
-                round(status.print_duration * (100.0 - status.progress_percent) / max(status.progress_percent, 0.1) / 60.0) if status.print_duration and status.progress_percent and status.progress_percent > 1 else None,
-                self._current_job_db_id,
-            ))
-            conn.commit()
-            conn.close()
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE print_jobs
+                    SET progress_percent = ?, current_layer = ?, remaining_minutes = ?
+                    WHERE id = ?
+                """, (
+                    status.progress_percent,
+                    status.current_layer,
+                    round(status.print_duration * (100.0 - status.progress_percent) / max(status.progress_percent, 0.1) / 60.0) if status.print_duration and status.progress_percent and status.progress_percent > 1 else None,
+                    self._current_job_db_id,
+                ))
+                conn.commit()
         except Exception as e:
             log.warning(f"[{self.name}] Progress update failed: {e}")
     
@@ -493,40 +484,39 @@ class MoonrakerMonitor:
     def _sync_filament_slots(self, slots):
         """Sync MMU/ACE gate data to filament_slots DB table."""
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
+            with get_db() as conn:
+                cur = conn.cursor()
 
-            for slot in slots:
-                slot_num = slot.gate + 1  # DB uses 1-based slot numbers
-                material_key = (slot.material or "").upper()
-                filament_type = _MATERIAL_MAP.get(material_key, material_key or "EMPTY")
-                color_hex = slot.color_hex[:6] if slot.color_hex else None
-                color_name = slot.name or slot.material or None
+                for slot in slots:
+                    slot_num = slot.gate + 1  # DB uses 1-based slot numbers
+                    material_key = (slot.material or "").upper()
+                    filament_type = _MATERIAL_MAP.get(material_key, material_key or "EMPTY")
+                    color_hex = slot.color_hex[:6] if slot.color_hex else None
+                    color_name = slot.name or slot.material or None
 
-                # Check if slot exists
-                cur.execute(
-                    "SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?",
-                    (self.printer_id, slot_num))
-                existing = cur.fetchone()
-
-                if existing:
+                    # Check if slot exists
                     cur.execute(
-                        "UPDATE filament_slots SET filament_type=?, color=?, color_hex=?, loaded_at=datetime('now') WHERE id=?",
-                        (filament_type, color_name, color_hex, existing[0]))
-                else:
+                        "SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?",
+                        (self.printer_id, slot_num))
+                    existing = cur.fetchone()
+
+                    if existing:
+                        cur.execute(
+                            "UPDATE filament_slots SET filament_type=?, color=?, color_hex=?, loaded_at=datetime('now') WHERE id=?",
+                            (filament_type, color_name, color_hex, existing[0]))
+                    else:
+                        cur.execute(
+                            "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                            (self.printer_id, slot_num, filament_type, color_name, color_hex))
+
+                # Remove stale slots beyond current gate count
+                max_slot = len(slots)
+                if max_slot > 0:
                     cur.execute(
-                        "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-                        (self.printer_id, slot_num, filament_type, color_name, color_hex))
+                        "DELETE FROM filament_slots WHERE printer_id=? AND slot_number>?",
+                        (self.printer_id, max_slot))
 
-            # Remove stale slots beyond current gate count
-            max_slot = len(slots)
-            if max_slot > 0:
-                cur.execute(
-                    "DELETE FROM filament_slots WHERE printer_id=? AND slot_number>?",
-                    (self.printer_id, max_slot))
-
-            conn.commit()
-            conn.close()
+                conn.commit()
         except Exception as e:
             log.debug(f"[{self.name}] Filament slot sync: {e}")
 
@@ -540,64 +530,58 @@ class MoonrakerMonitor:
           2. Layer count fingerprint
         """
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            
-            # Get candidates: scheduled/pending jobs for this printer
-            cur.execute("""
-                SELECT j.id as job_id, j.status, pf.filename, pf.original_filename,
-                       pf.layer_count, m.name as model_name
-                FROM jobs j
-                JOIN print_files pf ON j.print_file_id = pf.id
-                JOIN models m ON pf.model_id = m.id
-                WHERE j.printer_id = ?
-                  AND j.status IN ('SCHEDULED', 'PENDING')
-            """, (self.printer_id,))
-            
-            candidates = cur.fetchall()
-            if not candidates:
-                conn.close()
-                return
-            
-            # Strategy 1: Name match
-            fname_lower = filename.lower() if filename else ""
-            for c in candidates:
-                match_names = [
-                    (c["filename"] or "").lower(),
-                    (c["original_filename"] or "").lower(),
-                    (c["model_name"] or "").lower(),
-                ]
-                if fname_lower and any(fname_lower in n or n in fname_lower for n in match_names if n):
-                    self._link_job(cur, c["job_id"])
-                    conn.commit()
-                    conn.close()
-                    log.info(f"[{self.name}] Auto-linked to job #{c['job_id']} (name match)")
+            with get_db(row_factory=sqlite3.Row) as conn:
+                cur = conn.cursor()
+
+                # Get candidates: scheduled/pending jobs for this printer
+                cur.execute("""
+                    SELECT j.id as job_id, j.status, pf.filename, pf.original_filename,
+                           pf.layer_count, m.name as model_name
+                    FROM jobs j
+                    JOIN print_files pf ON j.print_file_id = pf.id
+                    JOIN models m ON pf.model_id = m.id
+                    WHERE j.printer_id = ?
+                      AND j.status IN ('SCHEDULED', 'PENDING')
+                """, (self.printer_id,))
+
+                candidates = cur.fetchall()
+                if not candidates:
                     return
-            
-            # Strategy 2: Layer count fingerprint
-            if total_layers and total_layers > 0:
-                # Deduplicate by job_id
-                layer_matches = {}
+
+                # Strategy 1: Name match
+                fname_lower = filename.lower() if filename else ""
                 for c in candidates:
-                    if c["layer_count"] == total_layers and c["job_id"] not in layer_matches:
-                        layer_matches[c["job_id"]] = c
-                
-                if len(layer_matches) == 1:
-                    job_id = list(layer_matches.keys())[0]
-                    self._link_job(cur, job_id)
-                    conn.commit()
-                    conn.close()
-                    log.info(f"[{self.name}] Auto-linked to job #{job_id} (layer count: {total_layers})")
-                    return
-                elif len(layer_matches) > 1:
-                    log.warning(
-                        f"[{self.name}] Ambiguous layer match ({total_layers} layers) "
-                        f"— {len(layer_matches)} candidates, skipping auto-link"
-                    )
-            
-            conn.close()
-            
+                    match_names = [
+                        (c["filename"] or "").lower(),
+                        (c["original_filename"] or "").lower(),
+                        (c["model_name"] or "").lower(),
+                    ]
+                    if fname_lower and any(fname_lower in n or n in fname_lower for n in match_names if n):
+                        self._link_job(cur, c["job_id"])
+                        conn.commit()
+                        log.info(f"[{self.name}] Auto-linked to job #{c['job_id']} (name match)")
+                        return
+
+                # Strategy 2: Layer count fingerprint
+                if total_layers and total_layers > 0:
+                    # Deduplicate by job_id
+                    layer_matches = {}
+                    for c in candidates:
+                        if c["layer_count"] == total_layers and c["job_id"] not in layer_matches:
+                            layer_matches[c["job_id"]] = c
+
+                    if len(layer_matches) == 1:
+                        job_id = list(layer_matches.keys())[0]
+                        self._link_job(cur, job_id)
+                        conn.commit()
+                        log.info(f"[{self.name}] Auto-linked to job #{job_id} (layer count: {total_layers})")
+                        return
+                    elif len(layer_matches) > 1:
+                        log.warning(
+                            f"[{self.name}] Ambiguous layer match ({total_layers} layers) "
+                            f"— {len(layer_matches)} candidates, skipping auto-link"
+                        )
+
         except Exception as e:
             log.warning(f"[{self.name}] Auto-link failed: {e}")
     
@@ -652,13 +636,11 @@ def start_moonraker_monitors():
     """Load Moonraker printers from DB and start monitors."""
     monitors = []
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, name, api_host, api_key FROM printers "
-            "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active=1"
-        ).fetchall()
-        conn.close()
+        with get_db(row_factory=sqlite3.Row) as conn:
+            rows = conn.execute(
+                "SELECT id, name, api_host, api_key FROM printers "
+                "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active=1"
+            ).fetchall()
 
         for row in rows:
             printer_id = row["id"]

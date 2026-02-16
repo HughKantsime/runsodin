@@ -1,4 +1,3 @@
-import os
 """
 Smart Plug Controller for O.D.I.N.
 Supports: Tasmota (HTTP), Home Assistant (REST API), Generic MQTT
@@ -17,9 +16,10 @@ import time
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
+from db_utils import get_db
+
 log = logging.getLogger("smart_plug")
 
-DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 # ---- HTTP helper (no requests dependency — use urllib) ----
 
@@ -149,20 +149,19 @@ def mqtt_power(topic: str, action: str = "TOGGLE") -> Optional[bool]:
 
 def get_plug_config(printer_id: int) -> Optional[Dict]:
     """Get smart plug config for a printer."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT plug_type, plug_host, plug_entity_id, plug_auth_token,
-                  plug_auto_on, plug_auto_off, plug_cooldown_minutes, plug_power_state
-           FROM printers WHERE id = ?""",
-        (printer_id,)
-    )
-    row = cur.fetchone()
-    conn.close()
-    
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT plug_type, plug_host, plug_entity_id, plug_auth_token,
+                      plug_auto_on, plug_auto_off, plug_cooldown_minutes, plug_power_state
+               FROM printers WHERE id = ?""",
+            (printer_id,)
+        )
+        row = cur.fetchone()
+
     if not row or not row[0]:
         return None
-    
+
     return {
         "type": row[0],
         "host": row[1],
@@ -284,11 +283,10 @@ def get_power_state(printer_id: int) -> Optional[bool]:
 def _update_power_state(printer_id: int, state: bool):
     """Update cached power state in database."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute("UPDATE printers SET plug_power_state = ? WHERE id = ?", (state, printer_id))
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE printers SET plug_power_state = ? WHERE id = ?", (state, printer_id))
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to update power state: {e}")
 
@@ -355,29 +353,28 @@ def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
         return
     
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        
-        # Get energy cost rate
-        cur.execute("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")
-        row = cur.fetchone()
-        rate = float(row[0]) if row else 0.12
-        
-        cost = round(consumed * rate, 4)
-        
-        cur.execute(
-            "UPDATE jobs SET energy_kwh = ?, energy_cost = ? WHERE id = ?",
-            (round(consumed, 4), cost, job_id)
-        )
-        
-        # Update printer cumulative
-        cur.execute(
-            "UPDATE printers SET plug_energy_kwh = plug_energy_kwh + ? WHERE id = ?",
-            (round(consumed, 4), printer_id)
-        )
-        
-        conn.commit()
-        conn.close()
-        log.info(f"Energy recorded for job {job_id}: {consumed:.4f} kWh (${cost:.4f})")
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Get energy cost rate
+            cur.execute("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")
+            row = cur.fetchone()
+            rate = float(row[0]) if row else 0.12
+
+            cost = round(consumed * rate, 4)
+
+            cur.execute(
+                "UPDATE jobs SET energy_kwh = ?, energy_cost = ? WHERE id = ?",
+                (round(consumed, 4), cost, job_id)
+            )
+
+            # Update printer cumulative
+            cur.execute(
+                "UPDATE printers SET plug_energy_kwh = plug_energy_kwh + ? WHERE id = ?",
+                (round(consumed, 4), printer_id)
+            )
+
+            conn.commit()
+            log.info(f"Energy recorded for job {job_id}: {consumed:.4f} kWh (${cost:.4f})")
     except Exception as e:
         log.error(f"Failed to record energy: {e}")

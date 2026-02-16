@@ -15,10 +15,9 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
+from db_utils import get_db
 
 log = logging.getLogger("quiet_hours")
-
-DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 _config_cache: Optional[Dict] = None
 _config_ts: float = 0
@@ -34,11 +33,9 @@ def _get_config() -> Dict[str, Any]:
         return _config_cache
 
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'")
-        rows = {r["key"]: r["value"] for r in cur.fetchall()}
-        conn.close()
+        with get_db(row_factory=sqlite3.Row) as conn:
+            cur = conn.execute("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'")
+            rows = {r["key"]: r["value"] for r in cur.fetchall()}
 
         _config_cache = {
             "enabled": rows.get("quiet_hours_enabled", "false").lower() in ("true", "1"),
@@ -110,16 +107,14 @@ def get_queued_alerts_for_digest() -> list:
         if quiet_start >= quiet_end:
             quiet_start -= timedelta(days=1)
 
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("""
-            SELECT alert_type, severity, title, message, created_at
-            FROM alerts
-            WHERE created_at BETWEEN ? AND ?
-            ORDER BY created_at DESC
-        """, (quiet_start.isoformat(), quiet_end.isoformat()))
-        alerts = [dict(r) for r in cur.fetchall()]
-        conn.close()
+        with get_db(row_factory=sqlite3.Row) as conn:
+            cur = conn.execute("""
+                SELECT alert_type, severity, title, message, created_at
+                FROM alerts
+                WHERE created_at BETWEEN ? AND ?
+                ORDER BY created_at DESC
+            """, (quiet_start.isoformat(), quiet_end.isoformat()))
+            alerts = [dict(r) for r in cur.fetchall()]
 
         return alerts
 

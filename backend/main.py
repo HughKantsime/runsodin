@@ -13,13 +13,14 @@ import pathlib
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from config import settings
 from deps import engine, SessionLocal, Base
+from auth import decode_token
 from routers import (
     alerts,
     analytics,
@@ -82,23 +83,74 @@ ws_manager = ConnectionManager()
 
 
 async def ws_broadcaster():
-    """Background task: read events from hub file, broadcast to WebSocket clients."""
+    """Background task: read events from ws_events table, broadcast to WebSocket clients."""
     from ws_hub import read_events_since
-    import time
 
-    last_ts = time.time()
+    last_id = 0
 
     while True:
         await asyncio.sleep(1)
 
         if not ws_manager.active:
-            last_ts = time.time()
             continue
 
-        events, last_ts = read_events_since(last_ts)
+        events, last_id = read_events_since(last_id)
 
         for evt in events:
             await ws_manager.broadcast(evt)
+
+
+# ──────────────────────────────────────────────
+# Schema Drift Check
+# ──────────────────────────────────────────────
+
+_DUAL_SCHEMA_TABLES = [
+    "vision_detections", "vision_settings", "vision_models",
+    "timelapses", "nozzle_lifecycle",
+    "consumables", "product_consumables", "consumable_usage",
+]
+
+
+def _check_schema_drift():
+    """Compare SQLAlchemy column definitions against live PRAGMA table_info.
+
+    Runs once at startup for dual-schema tables.  Logs warnings for any
+    columns present in one source but missing from the other so operators
+    notice schema drift before it causes runtime errors.
+    """
+    try:
+        with engine.connect() as conn:
+            for table_name in _DUAL_SCHEMA_TABLES:
+                # SQLAlchemy knows about this table?
+                sa_table = Base.metadata.tables.get(table_name)
+                if sa_table is None:
+                    continue
+
+                sa_cols = {c.name for c in sa_table.columns}
+
+                rows = conn.execute(
+                    text(f"PRAGMA table_info({table_name})")
+                ).fetchall()
+                if not rows:
+                    continue  # table not yet created
+
+                db_cols = {r[1] for r in rows}  # column name is index 1
+
+                only_sa = sa_cols - db_cols
+                only_db = db_cols - sa_cols
+
+                if only_sa:
+                    log.warning(
+                        f"Schema drift [{table_name}]: columns in models.py "
+                        f"but not in DB: {sorted(only_sa)}"
+                    )
+                if only_db:
+                    log.warning(
+                        f"Schema drift [{table_name}]: columns in DB "
+                        f"but not in models.py: {sorted(only_db)}"
+                    )
+    except Exception:
+        log.debug("Schema drift check skipped", exc_info=True)
 
 
 # ──────────────────────────────────────────────
@@ -109,6 +161,15 @@ async def ws_broadcaster():
 async def lifespan(app: FastAPI):
     """Initialize database on startup, start WebSocket broadcaster."""
     Base.metadata.create_all(bind=engine)
+
+    # Ensure ws_events table exists for IPC between monitors and FastAPI
+    from ws_hub import ensure_table as _ws_ensure
+    _ws_ensure()
+
+    # Schema drift check: compare SQLAlchemy columns vs live PRAGMA table_info
+    # for dual-schema tables (defined in both models.py and entrypoint.sh)
+    _check_schema_drift()
+
     broadcast_task = asyncio.create_task(ws_broadcaster())
     yield
     broadcast_task.cancel()
@@ -158,12 +219,12 @@ _CSP_DIRECTIVES = "; ".join([
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    """Attach CSP (report-only) and other security headers to every response."""
+    """Attach CSP and other security headers to every response."""
     response = await call_next(request)
 
     # CSP — skip Swagger/ReDoc (they load external scripts)
     if not any(request.url.path.startswith(p) for p in _CSP_SKIP_PREFIXES):
-        response.headers["Content-Security-Policy-Report-Only"] = _CSP_DIRECTIVES
+        response.headers["Content-Security-Policy"] = _CSP_DIRECTIVES
 
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -244,9 +305,10 @@ async def authenticate_request(request: Request, call_next):
     if not settings.api_key:
         return await call_next(request)
 
-    # Check the API key
+    # Check the API key (constant-time comparison)
+    import hmac
     api_key = request.headers.get("X-API-Key")
-    if not api_key or api_key != settings.api_key:
+    if not api_key or not hmac.compare_digest(api_key, settings.api_key):
         from fastapi.responses import JSONResponse
 
         return JSONResponse(
@@ -272,15 +334,38 @@ async def health_root():
 # ──────────────────────────────────────────────
 
 @app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
+async def websocket_endpoint(ws: WebSocket, token: str = Query(default=None)):
     """
     WebSocket endpoint for real-time printer telemetry and job updates.
+
+    Requires a valid JWT token passed as a query parameter (?token=...) or
+    a valid API key (?token=<api_key>). Rejects unauthenticated connections.
 
     Pushes events:
     - printer_telemetry: {printer_id, bed_temp, nozzle_temp, state, progress, ...}
     - job_update: {printer_id, job_name, status, progress, layer, ...}
     - alert_new: {count} (new unread alert count)
     """
+    import hmac
+
+    # Authenticate: accept JWT or global API key
+    authenticated = False
+    if token:
+        # Try JWT first
+        if decode_token(token):
+            authenticated = True
+        # Fall back to API key
+        elif settings.api_key and hmac.compare_digest(token, settings.api_key):
+            authenticated = True
+
+    # If auth is disabled (no API key configured), allow connections
+    if not settings.api_key and not authenticated:
+        authenticated = True
+
+    if not authenticated:
+        await ws.close(code=4001, reason="Authentication required")
+        return
+
     await ws_manager.connect(ws)
     try:
         while True:

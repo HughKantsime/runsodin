@@ -26,7 +26,7 @@ import signal
 import logging
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, List, Any, Tuple
 
@@ -47,6 +47,7 @@ except ImportError:
     ort = None
 
 import printer_events
+from db_utils import get_db
 try:
     from ws_hub import push_event as ws_push
 except ImportError:
@@ -60,7 +61,6 @@ logging.basicConfig(
 )
 log = logging.getLogger('vision_monitor')
 
-DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 GO2RTC_BASE = 'http://127.0.0.1:1984'
 VISION_FRAMES_DIR = '/data/vision_frames'
 VISION_MODELS_DIR = '/data/vision_models'
@@ -88,15 +88,13 @@ class VisionInferenceEngine:
             return
 
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT id, name, detection_type, filename, input_size "
-                "FROM vision_models WHERE is_active = 1"
-            )
-            rows = cur.fetchall()
-            conn.close()
+            with get_db(row_factory=sqlite3.Row) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id, name, detection_type, filename, input_size "
+                    "FROM vision_models WHERE is_active = 1"
+                )
+                rows = cur.fetchall()
         except Exception as e:
             log.error(f"Failed to load model registry: {e}")
             return
@@ -497,7 +495,7 @@ class PrinterVisionThread(threading.Thread):
 
     def _save_detection_frame(self, frame: np.ndarray, detection_type: str) -> str:
         """Save frame JPEG and return relative path."""
-        ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
         rel_dir = f"{self.printer_id}"
         abs_dir = os.path.join(VISION_FRAMES_DIR, rel_dir)
         os.makedirs(abs_dir, exist_ok=True)
@@ -508,7 +506,7 @@ class PrinterVisionThread(threading.Thread):
 
     def _save_training_frame(self, frame: np.ndarray):
         """Save frame for training data collection."""
-        ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')
         abs_dir = os.path.join(VISION_FRAMES_DIR, str(self.printer_id), 'training')
         os.makedirs(abs_dir, exist_ok=True)
         filepath = os.path.join(abs_dir, f"{ts}.jpg")
@@ -520,26 +518,25 @@ class PrinterVisionThread(threading.Thread):
     ) -> Optional[int]:
         """Insert detection record into vision_detections table."""
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cur = conn.cursor()
-            cur.execute(
-                """INSERT INTO vision_detections
-                    (printer_id, print_job_id, detection_type, confidence,
-                     status, frame_path, bbox_json, created_at)
-                VALUES (?, ?, ?, ?, 'pending', ?, ?, datetime('now'))""",
-                (
-                    self.printer_id,
-                    self.print_job_id,
-                    detection_type,
-                    confidence,
-                    frame_path,
-                    json.dumps(bbox),
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO vision_detections
+                        (printer_id, print_job_id, detection_type, confidence,
+                         status, frame_path, bbox_json, created_at)
+                    VALUES (?, ?, ?, ?, 'pending', ?, ?, datetime('now'))""",
+                    (
+                        self.printer_id,
+                        self.print_job_id,
+                        detection_type,
+                        confidence,
+                        frame_path,
+                        json.dumps(bbox),
+                    )
                 )
-            )
-            detection_id = cur.lastrowid
-            conn.commit()
-            conn.close()
-            return detection_id
+                detection_id = cur.lastrowid
+                conn.commit()
+                return detection_id
         except Exception as e:
             log.error(f"Failed to insert detection: {e}")
             return None
@@ -547,15 +544,13 @@ class PrinterVisionThread(threading.Thread):
     def _auto_pause(self):
         """Pause the printer using the appropriate adapter."""
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT api_type, api_host, api_key FROM printers WHERE id = ?",
-                (self.printer_id,)
-            )
-            row = cur.fetchone()
-            conn.close()
+            with get_db(row_factory=sqlite3.Row) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT api_type, api_host, api_key FROM printers WHERE id = ?",
+                    (self.printer_id,)
+                )
+                row = cur.fetchone()
             if not row:
                 return
 
@@ -583,15 +578,14 @@ class PrinterVisionThread(threading.Thread):
                 from prusalink_adapter import PrusaLinkPrinter
                 adapter = PrusaLinkPrinter(api_host, api_key=api_key or '')
                 # PrusaLink pause requires job_id; try current running job
-                conn2 = sqlite3.connect(DB_PATH)
-                cur2 = conn2.cursor()
-                cur2.execute(
-                    "SELECT job_id FROM print_jobs WHERE printer_id = ? AND status = 'running' "
-                    "ORDER BY id DESC LIMIT 1",
-                    (self.printer_id,)
-                )
-                jrow = cur2.fetchone()
-                conn2.close()
+                with get_db() as conn2:
+                    cur2 = conn2.cursor()
+                    cur2.execute(
+                        "SELECT job_id FROM print_jobs WHERE printer_id = ? AND status = 'running' "
+                        "ORDER BY id DESC LIMIT 1",
+                        (self.printer_id,)
+                    )
+                    jrow = cur2.fetchone()
                 if jrow and jrow[0]:
                     success = adapter.pause_print(int(jrow[0]))
 
@@ -603,20 +597,19 @@ class PrinterVisionThread(threading.Thread):
             if success:
                 log.info(f"[{self.printer_name}] Auto-paused printer")
                 # Update gcode_state in DB
-                conn3 = sqlite3.connect(DB_PATH)
-                conn3.execute(
-                    "UPDATE printers SET gcode_state = 'PAUSED' WHERE id = ?",
-                    (self.printer_id,)
-                )
-                # Update detection status
-                conn3.execute(
-                    """UPDATE vision_detections SET status = 'auto_paused'
-                    WHERE printer_id = ? AND status = 'pending'
-                    ORDER BY id DESC LIMIT 1""",
-                    (self.printer_id,)
-                )
-                conn3.commit()
-                conn3.close()
+                with get_db() as conn3:
+                    conn3.execute(
+                        "UPDATE printers SET gcode_state = 'PAUSED' WHERE id = ?",
+                        (self.printer_id,)
+                    )
+                    # Update detection status
+                    conn3.execute(
+                        """UPDATE vision_detections SET status = 'auto_paused'
+                        WHERE printer_id = ? AND status = 'pending'
+                        ORDER BY id DESC LIMIT 1""",
+                        (self.printer_id,)
+                    )
+                    conn3.commit()
             else:
                 log.error(f"[{self.printer_name}] Auto-pause failed")
 
@@ -678,30 +671,28 @@ class VisionMonitorDaemon:
     def _scan_printers(self):
         """Query DB for printers that should have vision monitoring."""
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
+            with get_db(row_factory=sqlite3.Row) as conn:
+                cur = conn.cursor()
 
-            # Find printers: active, camera enabled, camera URL set, currently printing
-            cur.execute("""
-                SELECT p.id, p.name, p.nickname, p.gcode_state,
-                       pj.id as print_job_id, pj.current_layer,
-                       vs.enabled, vs.spaghetti_enabled, vs.spaghetti_threshold,
-                       vs.first_layer_enabled, vs.first_layer_threshold,
-                       vs.detachment_enabled, vs.detachment_threshold,
-                       vs.auto_pause, vs.capture_interval_sec,
-                       vs.collect_training_data
-                FROM printers p
-                LEFT JOIN vision_settings vs ON vs.printer_id = p.id
-                LEFT JOIN print_jobs pj ON pj.printer_id = p.id
-                    AND pj.status = 'running'
-                WHERE p.is_active = 1
-                  AND p.camera_enabled = 1
-                  AND p.camera_url IS NOT NULL
-                  AND p.gcode_state = 'RUNNING'
-            """)
-            rows = cur.fetchall()
-            conn.close()
+                # Find printers: active, camera enabled, camera URL set, currently printing
+                cur.execute("""
+                    SELECT p.id, p.name, p.nickname, p.gcode_state,
+                           pj.id as print_job_id, pj.current_layer,
+                           vs.enabled, vs.spaghetti_enabled, vs.spaghetti_threshold,
+                           vs.first_layer_enabled, vs.first_layer_threshold,
+                           vs.detachment_enabled, vs.detachment_threshold,
+                           vs.auto_pause, vs.capture_interval_sec,
+                           vs.collect_training_data
+                    FROM printers p
+                    LEFT JOIN vision_settings vs ON vs.printer_id = p.id
+                    LEFT JOIN print_jobs pj ON pj.printer_id = p.id
+                        AND pj.status = 'running'
+                    WHERE p.is_active = 1
+                      AND p.camera_enabled = 1
+                      AND p.camera_url IS NOT NULL
+                      AND p.gcode_state = 'RUNNING'
+                """)
+                rows = cur.fetchall()
         except Exception as e:
             log.error(f"Failed to scan printers: {e}")
             return
@@ -757,48 +748,45 @@ class VisionMonitorDaemon:
     def _cleanup_old_frames(self):
         """Delete detection frames older than retention period."""
         try:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
+            with get_db(row_factory=sqlite3.Row) as conn:
+                cur = conn.cursor()
 
-            # Get retention days from global settings (default 30)
-            cur.execute(
-                "SELECT value FROM system_config WHERE key = 'vision_retention_days'"
-            )
-            row = cur.fetchone()
-            retention_days = 30
-            if row:
-                try:
-                    retention_days = int(json.loads(row['value']))
-                except (ValueError, TypeError):
-                    pass
-
-            # Find old detections with frame paths
-            cur.execute(
-                """SELECT id, frame_path FROM vision_detections
-                WHERE created_at < datetime('now', ? || ' days')
-                  AND frame_path IS NOT NULL""",
-                (f"-{retention_days}",)
-            )
-            old_rows = cur.fetchall()
-
-            deleted = 0
-            for old in old_rows:
-                fpath = os.path.join(VISION_FRAMES_DIR, old['frame_path'])
-                if os.path.isfile(fpath):
-                    os.remove(fpath)
-                    deleted += 1
-
-            # Clear frame_path on old records (keep detection metadata)
-            if old_rows:
-                ids = [str(r['id']) for r in old_rows]
+                # Get retention days from global settings (default 30)
                 cur.execute(
-                    f"UPDATE vision_detections SET frame_path = NULL "
-                    f"WHERE id IN ({','.join(ids)})"
+                    "SELECT value FROM system_config WHERE key = 'vision_retention_days'"
                 )
-                conn.commit()
+                row = cur.fetchone()
+                retention_days = 30
+                if row:
+                    try:
+                        retention_days = int(json.loads(row['value']))
+                    except (ValueError, TypeError):
+                        pass
 
-            conn.close()
+                # Find old detections with frame paths
+                cur.execute(
+                    """SELECT id, frame_path FROM vision_detections
+                    WHERE created_at < datetime('now', ? || ' days')
+                      AND frame_path IS NOT NULL""",
+                    (f"-{retention_days}",)
+                )
+                old_rows = cur.fetchall()
+
+                deleted = 0
+                for old in old_rows:
+                    fpath = os.path.join(VISION_FRAMES_DIR, old['frame_path'])
+                    if os.path.isfile(fpath):
+                        os.remove(fpath)
+                        deleted += 1
+
+                # Clear frame_path on old records (keep detection metadata)
+                if old_rows:
+                    ids = [str(r['id']) for r in old_rows]
+                    cur.execute(
+                        f"UPDATE vision_detections SET frame_path = NULL "
+                        f"WHERE id IN ({','.join(ids)})"
+                    )
+                    conn.commit()
 
             if deleted:
                 log.info(f"Cleaned up {deleted} old vision frames (>{retention_days} days)")

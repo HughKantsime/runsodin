@@ -1,4 +1,3 @@
-import os
 """
 Universal Printer Event Handler
 
@@ -12,8 +11,10 @@ their own DB logic. This ensures consistent behavior across printer brands.
 import sqlite3
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
+
+from db_utils import get_db
 
 log = logging.getLogger("printer_events")
 
@@ -37,95 +38,92 @@ try:
 except ImportError:
     def ws_push(*a, **kw): pass
 
-DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
-
 
 # =============================================================================
 # TELEMETRY EVENTS
 # =============================================================================
 
-def send_push_notification(user_id: int, alert_type: str, title: str, message: str, 
+def send_push_notification(user_id: int, alert_type: str, title: str, message: str,
                            alert_id: int = None, printer_id: int = None, job_id: int = None):
     """Send push notification to user's subscribed devices."""
     import json
-    
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    
-    try:
-        # Get user's push subscriptions
-        cur.execute("SELECT endpoint, p256dh_key, auth_key FROM push_subscriptions WHERE user_id = ?", (user_id,))
-        subscriptions = cur.fetchall()
-        
-        if not subscriptions:
-            return
-        
-        # Get VAPID keys
-        cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
-        vapid_row = cur.fetchone()
-        if not vapid_row:
-            log.warning("VAPID keys not configured, skipping push")
-            return
-        
-        vapid_keys = json.loads(vapid_row[0])
-        
-        # Build notification payload
-        payload = json.dumps({
-            "title": title,
-            "body": message,
-            "alert_type": alert_type,
-            "alert_id": alert_id,
-            "printer_id": printer_id,
-            "job_id": job_id,
-            "url": "/alerts"
-        })
-        
-        # Send to each subscription
+
+    with get_db() as conn:
+        cur = conn.cursor()
+
         try:
-            from pywebpush import webpush, WebPushException
-            
-            for endpoint, p256dh, auth in subscriptions:
-                try:
-                    webpush(
-                        subscription_info={
-                            "endpoint": endpoint,
-                            "keys": {"p256dh": p256dh, "auth": auth}
-                        },
-                        data=payload,
-                        vapid_private_key=vapid_keys["private_key"],
-                        vapid_claims={"sub": "mailto:admin@runsodin.com"}
-                    )
-                    log.info(f"Push sent to user {user_id}")
-                except WebPushException as e:
-                    if e.response and e.response.status_code in (404, 410):
-                        # Subscription expired, remove it
-                        cur.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
-                        conn.commit()
-                        log.info(f"Removed expired push subscription")
-                    else:
-                        log.error(f"Push failed: {e}")
-                except Exception as e:
-                    log.error(f"Push error: {e}")
-        except ImportError:
-            log.debug("pywebpush not installed, skipping push notifications")
-    
-    finally:
-        conn.close()
+            # Get user's push subscriptions
+            cur.execute("SELECT endpoint, p256dh_key, auth_key FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            subscriptions = cur.fetchall()
+
+            if not subscriptions:
+                return
+
+            # Get VAPID keys
+            cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
+            vapid_row = cur.fetchone()
+            if not vapid_row:
+                log.warning("VAPID keys not configured, skipping push")
+                return
+
+            vapid_keys = json.loads(vapid_row[0])
+
+            # Build notification payload
+            payload = json.dumps({
+                "title": title,
+                "body": message,
+                "alert_type": alert_type,
+                "alert_id": alert_id,
+                "printer_id": printer_id,
+                "job_id": job_id,
+                "url": "/alerts"
+            })
+
+            # Send to each subscription
+            try:
+                from pywebpush import webpush, WebPushException
+
+                for endpoint, p256dh, auth in subscriptions:
+                    try:
+                        webpush(
+                            subscription_info={
+                                "endpoint": endpoint,
+                                "keys": {"p256dh": p256dh, "auth": auth}
+                            },
+                            data=payload,
+                            vapid_private_key=vapid_keys["private_key"],
+                            vapid_claims={"sub": "mailto:admin@runsodin.com"}
+                        )
+                        log.info(f"Push sent to user {user_id}")
+                    except WebPushException as e:
+                        if e.response and e.response.status_code in (404, 410):
+                            # Subscription expired, remove it
+                            cur.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+                            conn.commit()
+                            log.info(f"Removed expired push subscription")
+                        else:
+                            log.error(f"Push failed: {e}")
+                    except Exception as e:
+                        log.error(f"Push error: {e}")
+            except ImportError:
+                log.debug("pywebpush not installed, skipping push notifications")
+
+        except Exception as e:
+            log.error(f"Failed to send push notification: {e}")
 
 
 def send_webhook(alert_type: str, title: str, message: str, severity: str = "info",
                  printer_id: int = None, job_id: int = None):
     """Send alert to configured webhooks."""
     import json
-    
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    
-    try:
+
+    with get_db() as conn:
+        cur = conn.cursor()
+
         # Get enabled webhooks that match this alert type
         cur.execute("SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled = 1")
         webhooks = cur.fetchall()
-        
+
         for webhook_id, url, webhook_type, alert_types_json in webhooks:
             # Check if this webhook wants this alert type
             if alert_types_json:
@@ -135,15 +133,15 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                         continue
                 except:
                     pass
-            
+
             # Build payload based on webhook type
             try:
                 import httpx
-                
+
                 # Color based on severity
                 colors = {"info": 0x3498db, "warning": 0xf39c12, "error": 0xe74c3c, "critical": 0x9b59b6}
                 color = colors.get(severity, 0x3498db)
-                
+
                 if webhook_type == "discord":
                     payload = {
                         "embeds": [{
@@ -151,7 +149,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                             "description": message,
                             "color": color,
                             "footer": {"text": "O.D.I.N."},
-                            "timestamp": datetime.utcnow().isoformat() + "Z"
+                            "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
                         }]
                     }
                 else:  # slack
@@ -162,15 +160,12 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                             {"type": "section", "text": {"type": "mrkdwn", "text": message}}
                         ]
                     }
-                
+
                 httpx.post(url, json=payload, timeout=5)
                 log.debug(f"Webhook sent to {webhook_type}")
-                
+
             except Exception as e:
                 log.error(f"Webhook failed: {e}")
-    
-    finally:
-        conn.close()
 
 
 def send_email(user_id: int, alert_type: str, title: str, message: str,
@@ -180,40 +175,40 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
-    
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    
+
     try:
-        # Get SMTP config
-        cur.execute("SELECT value FROM system_config WHERE key = 'smtp_config'")
-        smtp_row = cur.fetchone()
-        if not smtp_row:
-            log.debug("SMTP not configured, skipping email")
-            return
-        
-        smtp_config = json.loads(smtp_row[0])
-        if not smtp_config.get("enabled"):
-            return
-        
-        # Get user email
-        cur.execute("SELECT email FROM users WHERE id = ?", (user_id,))
-        user_row = cur.fetchone()
-        if not user_row or not user_row[0]:
-            log.debug(f"No email for user {user_id}")
-            return
-        
-        user_email = user_row[0]
-        
-        # Build email
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Get SMTP config
+            cur.execute("SELECT value FROM system_config WHERE key = 'smtp_config'")
+            smtp_row = cur.fetchone()
+            if not smtp_row:
+                log.debug("SMTP not configured, skipping email")
+                return
+
+            smtp_config = json.loads(smtp_row[0])
+            if not smtp_config.get("enabled"):
+                return
+
+            # Get user email
+            cur.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+            user_row = cur.fetchone()
+            if not user_row or not user_row[0]:
+                log.debug(f"No email for user {user_id}")
+                return
+
+            user_email = user_row[0]
+
+        # Build email (outside DB context — no longer need conn)
         msg = MIMEMultipart('alternative')
         msg['Subject'] = f"🖨️ O.D.I.N.: {title}"
         msg['From'] = smtp_config.get("from_address", smtp_config.get("username"))
         msg['To'] = user_email
-        
+
         # Plain text version
         text_body = f"{title}\n\n{message}\n\n--\nO.D.I.N."
-        
+
         # HTML version
         html_body = f"""
         <html>
@@ -227,29 +222,26 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
         </body>
         </html>
         """
-        
+
         msg.attach(MIMEText(text_body, 'plain'))
         msg.attach(MIMEText(html_body, 'html'))
-        
+
         # Send email
         host = smtp_config.get("host", "localhost")
         port = int(smtp_config.get("port", 587))
         username = smtp_config.get("username", "")
         password = smtp_config.get("password", "")
-        
+
         with smtplib.SMTP(host, port, timeout=10) as server:
             server.starttls()
             if username and password:
                 server.login(username, password)
             server.send_message(msg)
-        
+
         log.info(f"Email sent to {user_email} for alert {alert_type}")
-        
+
     except Exception as e:
         log.error(f"Failed to send email: {e}")
-    
-    finally:
-        conn.close()
 
 
 def update_telemetry(
@@ -277,7 +269,7 @@ def update_telemetry(
     """
     updates = ["last_seen = datetime('now')"]
     params = []
-    
+
     field_map = {
         "bed_temp": bed_temp,
         "bed_target_temp": bed_target,
@@ -290,23 +282,22 @@ def update_telemetry(
         "nozzle_diameter": nozzle_diameter,
         "hms_errors": hms_errors,
     }
-    
+
     for col, val in field_map.items():
         if val is not None:
             updates.append(f"{col} = ?")
             params.append(val)
-    
+
     params.append(printer_id)
-    
+
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            f"UPDATE printers SET {', '.join(updates)} WHERE id = ?",
-            params
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f"UPDATE printers SET {', '.join(updates)} WHERE id = ?",
+                params
+            )
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to update telemetry for printer {printer_id}: {e}")
 
@@ -314,14 +305,13 @@ def update_telemetry(
 def mark_online(printer_id: int):
     """Mark printer as online (update last_seen)."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE printers SET last_seen = datetime('now') WHERE id = ?",
-            (printer_id,)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE printers SET last_seen = datetime('now') WHERE id = ?",
+                (printer_id,)
+            )
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to mark printer {printer_id} online: {e}")
 
@@ -329,17 +319,16 @@ def mark_online(printer_id: int):
 def mark_offline(printer_id: int):
     """Mark printer as offline (clear state)."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            """UPDATE printers SET 
-                gcode_state = 'offline',
-                print_stage = NULL
-            WHERE id = ?""",
-            (printer_id,)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE printers SET
+                    gcode_state = 'offline',
+                    print_stage = NULL
+                WHERE id = ?""",
+                (printer_id,)
+            )
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to mark printer {printer_id} offline: {e}")
 
@@ -354,33 +343,31 @@ def discover_camera(printer_id: int, rtsp_url: str):
     Called when Bambu X1C broadcasts ipcam.rtsp_url in MQTT.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        
-        # Check if camera_url is already set
-        cur.execute("SELECT camera_url, camera_discovered FROM printers WHERE id = ?", (printer_id,))
-        row = cur.fetchone()
-        
-        if row and not row[0]:  # camera_url is empty
-            cur.execute(
-                """UPDATE printers SET 
-                    camera_url = ?,
-                    camera_discovered = 1
-                WHERE id = ?""",
-                (rtsp_url, printer_id)
-            )
-            conn.commit()
-            log.info(f"Auto-discovered camera for printer {printer_id}: {rtsp_url}")
-            
-            # Regenerate go2rtc config so the new camera stream is available
-            try:
-                from main import sync_go2rtc_config_standalone
-                sync_go2rtc_config_standalone()
-                log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
-            except Exception as e2:
-                log.warning(f"Could not sync go2rtc config: {e2}")
-        
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Check if camera_url is already set
+            cur.execute("SELECT camera_url, camera_discovered FROM printers WHERE id = ?", (printer_id,))
+            row = cur.fetchone()
+
+            if row and not row[0]:  # camera_url is empty
+                cur.execute(
+                    """UPDATE printers SET
+                        camera_url = ?,
+                        camera_discovered = 1
+                    WHERE id = ?""",
+                    (rtsp_url, printer_id)
+                )
+                conn.commit()
+                log.info(f"Auto-discovered camera for printer {printer_id}: {rtsp_url}")
+
+                # Regenerate go2rtc config so the new camera stream is available
+                try:
+                    from main import sync_go2rtc_config_standalone
+                    sync_go2rtc_config_standalone()
+                    log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
+                except Exception as e2:
+                    log.warning(f"Could not sync go2rtc config: {e2}")
     except Exception as e:
         log.error(f"Failed to discover camera for printer {printer_id}: {e}")
 
@@ -395,19 +382,18 @@ def increment_care_counters(printer_id: int, print_hours: float, print_count: in
     Called by all monitors when a print finishes successfully.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            """UPDATE printers SET
-                total_print_hours = COALESCE(total_print_hours, 0) + ?,
-                total_print_count = COALESCE(total_print_count, 0) + ?,
-                hours_since_maintenance = COALESCE(hours_since_maintenance, 0) + ?,
-                prints_since_maintenance = COALESCE(prints_since_maintenance, 0) + ?
-            WHERE id = ?""",
-            (print_hours, print_count, print_hours, print_count, printer_id)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE printers SET
+                    total_print_hours = COALESCE(total_print_hours, 0) + ?,
+                    total_print_count = COALESCE(total_print_count, 0) + ?,
+                    hours_since_maintenance = COALESCE(hours_since_maintenance, 0) + ?,
+                    prints_since_maintenance = COALESCE(prints_since_maintenance, 0) + ?
+                WHERE id = ?""",
+                (print_hours, print_count, print_hours, print_count, printer_id)
+            )
+            conn.commit()
         log.debug(f"Incremented care counters for printer {printer_id}: +{print_hours:.2f}h, +{print_count} prints")
         # Also increment nozzle lifecycle counters
         increment_nozzle_lifecycle(printer_id, print_hours, print_count)
@@ -418,17 +404,16 @@ def increment_care_counters(printer_id: int, print_hours: float, print_count: in
 def increment_nozzle_lifecycle(printer_id: int, print_hours: float, print_count: int = 1):
     """Increment the current (active) nozzle's usage counters after job completion."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            """UPDATE nozzle_lifecycle SET
-                print_hours_accumulated = print_hours_accumulated + ?,
-                print_count = print_count + ?
-            WHERE printer_id = ? AND removed_at IS NULL""",
-            (print_hours, print_count, printer_id)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE nozzle_lifecycle SET
+                    print_hours_accumulated = print_hours_accumulated + ?,
+                    print_count = print_count + ?
+                WHERE printer_id = ? AND removed_at IS NULL""",
+                (print_hours, print_count, printer_id)
+            )
+            conn.commit()
     except Exception as e:
         log.debug(f"Nozzle lifecycle update for printer {printer_id}: {e}")
 
@@ -439,17 +424,16 @@ def reset_maintenance_counters(printer_id: int):
     Called from maintenance API endpoint.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            """UPDATE printers SET
-                hours_since_maintenance = 0,
-                prints_since_maintenance = 0
-            WHERE id = ?""",
-            (printer_id,)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE printers SET
+                    hours_since_maintenance = 0,
+                    prints_since_maintenance = 0
+                WHERE id = ?""",
+                (printer_id,)
+            )
+            conn.commit()
         log.info(f"Reset maintenance counters for printer {printer_id}")
     except Exception as e:
         log.error(f"Failed to reset maintenance counters for printer {printer_id}: {e}")
@@ -473,28 +457,27 @@ def record_error(
     Optionally creates an alert for users.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        
-        # Update printer's last error
-        cur.execute(
-            """UPDATE printers SET
-                last_error_code = ?,
-                last_error_message = ?,
-                last_error_at = datetime('now')
-            WHERE id = ?""",
-            (error_code, error_message, printer_id)
-        )
-        
-        # Get printer name for alert
-        cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
-        row = cur.fetchone()
-        printer_name = row[1] or row[0] if row else f"Printer {printer_id}"
-        
-        conn.commit()
-        conn.close()
-        
-        # Create alert if requested
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Update printer's last error
+            cur.execute(
+                """UPDATE printers SET
+                    last_error_code = ?,
+                    last_error_message = ?,
+                    last_error_at = datetime('now')
+                WHERE id = ?""",
+                (error_code, error_message, printer_id)
+            )
+
+            # Get printer name for alert
+            cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
+            row = cur.fetchone()
+            printer_name = row[1] or row[0] if row else f"Printer {printer_id}"
+
+            conn.commit()
+
+        # Create alert if requested (outside DB context)
         if create_alert:
             dispatch_alert(
                 alert_type="printer_error",
@@ -504,9 +487,9 @@ def record_error(
                 printer_id=printer_id,
                 metadata={"source": source, "code": error_code}
             )
-        
+
         log.warning(f"Printer {printer_id} error [{source}:{error_code}]: {error_message}")
-        
+
     except Exception as e:
         log.error(f"Failed to record error for printer {printer_id}: {e}")
 
@@ -514,18 +497,17 @@ def record_error(
 def clear_error(printer_id: int):
     """Clear the last error after it's resolved."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            """UPDATE printers SET
-                last_error_code = NULL,
-                last_error_message = NULL,
-                last_error_at = NULL
-            WHERE id = ?""",
-            (printer_id,)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE printers SET
+                    last_error_code = NULL,
+                    last_error_message = NULL,
+                    last_error_at = NULL
+                WHERE id = ?""",
+                (printer_id,)
+            )
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to clear error for printer {printer_id}: {e}")
 
@@ -540,26 +522,26 @@ def parse_hms_errors(hms_data: list) -> list:
     Returns list of {code, module, severity, message} dicts.
     """
     errors = []
-    
+
     # HMS severity levels
     SEVERITY_MAP = {
         1: "info",
-        2: "warning",  
+        2: "warning",
         3: "error",
         4: "critical",
     }
-    
+
     for item in hms_data or []:
         attr = item.get("attr", 0)
         code = item.get("code", 0)
-        
+
         # Extract severity from attr (bits 24-27)
         severity_bits = (attr >> 24) & 0xF
         severity = SEVERITY_MAP.get(severity_bits, "warning")
-        
+
         # Format code as hex string for lookup
         full_code = f"{attr:08X}_{code:08X}"
-        
+
         errors.append({
             "code": full_code,
             "attr": attr,
@@ -567,7 +549,7 @@ def parse_hms_errors(hms_data: list) -> list:
             "severity": severity,
             "message": lookup_hms_code(full_code),
         })
-    
+
     return errors
 
 
@@ -577,25 +559,24 @@ def process_hms_errors(printer_id: int, hms_data: list):
     Creates alerts for new errors.
     """
     errors = parse_hms_errors(hms_data)
-    
+
     if not errors:
         # No errors - clear any existing
         clear_error(printer_id)
         return
-    
+
     # Store JSON in hms_errors column
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE printers SET hms_errors = ? WHERE id = ?",
-            (json.dumps(errors), printer_id)
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE printers SET hms_errors = ? WHERE id = ?",
+                (json.dumps(errors), printer_id)
+            )
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to store HMS errors for printer {printer_id}: {e}")
-    
+
     # Create alert for most severe error
     worst = max(errors, key=lambda e: {"info": 0, "warning": 1, "error": 2, "critical": 3}.get(e["severity"], 0))
     record_error(
@@ -623,20 +604,19 @@ def job_started(
     Returns the print_jobs.id for tracking.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            """INSERT INTO print_jobs 
-                (printer_id, job_name, started_at, status, total_layers, scheduled_job_id)
-            VALUES (?, ?, datetime('now'), 'running', ?, ?)""",
-            (printer_id, job_name, total_layers, scheduled_job_id)
-        )
-        job_id = cur.lastrowid
-        conn.commit()
-        conn.close()
-        
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO print_jobs
+                    (printer_id, job_name, started_at, status, total_layers, scheduled_job_id)
+                VALUES (?, ?, datetime('now'), 'running', ?, ?)""",
+                (printer_id, job_name, total_layers, scheduled_job_id)
+            )
+            job_id = cur.lastrowid
+            conn.commit()
+
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")
-        
+
         # Smart plug: auto power-on
         if smart_plug:
             try:
@@ -649,7 +629,7 @@ def job_started(
             "print_job_id": job_id,
         })
         return job_id
-        
+
     except Exception as e:
         log.error(f"Failed to record job start for printer {printer_id}: {e}")
         return None
@@ -668,49 +648,48 @@ def job_completed(
     Creates alerts for completion/failure.
     """
     status = "completed" if success else "failed"
-    
+
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        
-        # Update print_jobs record
-        cur.execute(
-            """UPDATE print_jobs SET
-                status = ?,
-                ended_at = datetime('now')
-            WHERE id = ?""",
-            (status, print_job_id)
-        )
-        
-        # Get job details for alert
-        cur.execute(
-            "SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?",
-            (print_job_id,)
-        )
-        row = cur.fetchone()
-        job_name = row[0] if row else "Unknown"
-        scheduled_job_id = row[1] if row else None
-        
-        # Get printer name
-        cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
-        prow = cur.fetchone()
-        printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
-        
-        # Update scheduled job status if linked
-        if scheduled_job_id:
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Update print_jobs record
             cur.execute(
-                "UPDATE jobs SET status = ? WHERE id = ?",
-                (status, scheduled_job_id)
+                """UPDATE print_jobs SET
+                    status = ?,
+                    ended_at = datetime('now')
+                WHERE id = ?""",
+                (status, print_job_id)
             )
-        
-        conn.commit()
-        conn.close()
-        
+
+            # Get job details for alert
+            cur.execute(
+                "SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?",
+                (print_job_id,)
+            )
+            row = cur.fetchone()
+            job_name = row[0] if row else "Unknown"
+            scheduled_job_id = row[1] if row else None
+
+            # Get printer name
+            cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
+            prow = cur.fetchone()
+            printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
+
+            # Update scheduled job status if linked
+            if scheduled_job_id:
+                cur.execute(
+                    "UPDATE jobs SET status = ? WHERE id = ?",
+                    (status, scheduled_job_id)
+                )
+
+            conn.commit()
+
         # Increment care counters if successful
         if success and duration_seconds:
             print_hours = duration_seconds / 3600.0
             increment_care_counters(printer_id, print_hours, 1)
-        
+
         # Create alert
         if success:
             dispatch_alert(
@@ -730,7 +709,7 @@ def job_completed(
                 printer_id=printer_id,
                 job_id=scheduled_job_id,
             )
-            
+
             # Also record as error
             record_error(
                 printer_id=printer_id,
@@ -740,9 +719,9 @@ def job_completed(
                 severity="error",
                 create_alert=False,  # Already created above
             )
-        
+
         log.info(f"Job {status} on printer {printer_id}: {job_name}")
-        
+
         # Smart plug: auto power-off (with cooldown)
         if smart_plug and success:
             try:
@@ -756,7 +735,7 @@ def job_completed(
             "print_job_id": print_job_id,
             "scheduled_job_id": scheduled_job_id,
         })
-        
+
     except Exception as e:
         log.error(f"Failed to record job completion for printer {printer_id}: {e}")
 
@@ -770,7 +749,7 @@ def update_job_progress(
     """Update progress for an active print job."""
     updates = []
     params = []
-    
+
     if progress_percent is not None:
         updates.append("progress_percent = ?")
         params.append(progress_percent)
@@ -780,21 +759,20 @@ def update_job_progress(
     if current_layer is not None:
         updates.append("current_layer = ?")
         params.append(current_layer)
-    
+
     if not updates:
         return
 
     params.append(print_job_id)
 
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        cur.execute(
-            f"UPDATE print_jobs SET {', '.join(updates)} WHERE id = ?",
-            params
-        )
-        conn.commit()
-        conn.close()
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                f"UPDATE print_jobs SET {', '.join(updates)} WHERE id = ?",
+                params
+            )
+            conn.commit()
     except Exception as e:
         log.error(f"Failed to update job progress for {print_job_id}: {e}")
 
@@ -885,54 +863,51 @@ def dispatch_alert(
     Handles deduplication for repeated alerts.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        # Get all users who have this alert type enabled
-        cur.execute("""
-            SELECT DISTINCT ap.user_id
-            FROM alert_preferences ap
-            WHERE UPPER(ap.alert_type) = ? AND ap.in_app = 1
-        """, (alert_type.upper(),))
-        users = [row['user_id'] for row in cur.fetchall()]
-        
-        # If no preferences exist, alert all users (default on)
-        if not users:
-            cur.execute("SELECT id FROM users")
-            users = [row['id'] for row in cur.fetchall()]
-        
-        # Check for duplicate (same type, printer, title in last 5 minutes)
-        cur.execute("""
-            SELECT id FROM alerts
-            WHERE alert_type = ?
-              AND printer_id IS ?
-              AND title = ?
-              AND created_at > datetime('now', '-5 minutes')
-            LIMIT 1
-        """, (alert_type.upper(), printer_id, title))
-        
-        if cur.fetchone():
-            conn.close()
-            return  # Duplicate, skip
-        
-        # Create alert for each user
-        metadata_json = json.dumps(metadata) if metadata else None
-        
-        for user_id in users:
+        with get_db(row_factory=sqlite3.Row) as conn:
+            cur = conn.cursor()
+
+            # Get all users who have this alert type enabled
             cur.execute("""
-                INSERT INTO alerts (user_id, alert_type, severity, title, message,
-                                    printer_id, job_id, spool_id, metadata_json,
-                                    is_read, is_dismissed, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))
-            """, (user_id, alert_type.upper(), severity.upper(), title, message,
-                  printer_id, job_id, spool_id, metadata_json))
-        
-        conn.commit()
-        conn.close()
-        
+                SELECT DISTINCT ap.user_id
+                FROM alert_preferences ap
+                WHERE UPPER(ap.alert_type) = ? AND ap.in_app = 1
+            """, (alert_type.upper(),))
+            users = [row['user_id'] for row in cur.fetchall()]
+
+            # If no preferences exist, alert all users (default on)
+            if not users:
+                cur.execute("SELECT id FROM users")
+                users = [row['id'] for row in cur.fetchall()]
+
+            # Check for duplicate (same type, printer, title in last 5 minutes)
+            cur.execute("""
+                SELECT id FROM alerts
+                WHERE alert_type = ?
+                  AND printer_id IS ?
+                  AND title = ?
+                  AND created_at > datetime('now', '-5 minutes')
+                LIMIT 1
+            """, (alert_type.upper(), printer_id, title))
+
+            if cur.fetchone():
+                return  # Duplicate, skip
+
+            # Create alert for each user
+            metadata_json = json.dumps(metadata) if metadata else None
+
+            for user_id in users:
+                cur.execute("""
+                    INSERT INTO alerts (user_id, alert_type, severity, title, message,
+                                        printer_id, job_id, spool_id, metadata_json,
+                                        is_read, is_dismissed, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))
+                """, (user_id, alert_type.upper(), severity.upper(), title, message,
+                      printer_id, job_id, spool_id, metadata_json))
+
+            conn.commit()
+
         log.debug(f"Dispatched alert '{title}' to {len(users)} users")
-        
+
         # Push to WebSocket
         ws_push("alert_new", {
             "alert_type": alert_type,
@@ -943,7 +918,7 @@ def dispatch_alert(
             "job_id": job_id,
             "count": len(users),
         })
-        
+
     except Exception as e:
         log.error(f"Failed to dispatch alert: {e}")
 
@@ -964,34 +939,30 @@ def check_low_spool(
     """
     if remaining_grams is None or remaining_grams >= threshold_grams:
         return
-    
+
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
-        # Get printer and slot info
-        cur.execute("""
-            SELECT p.name, p.nickname, fs.id as slot_id, s.id as spool_id, 
-                   fl.brand, fl.material, s.color
-            FROM printers p
-            LEFT JOIN filament_slots fs ON fs.printer_id = p.id AND fs.slot_number = ?
-            LEFT JOIN spools s ON s.id = fs.assigned_spool_id
-            LEFT JOIN filament_library fl ON fl.id = s.filament_id
-            WHERE p.id = ?
-        """, (slot_number, printer_id))
-        
-        row = cur.fetchone()
-        if not row:
-            conn.close()
-            return
-        
-        printer_name = row['nickname'] or row['name']
-        spool_desc = f"{row['brand'] or ''} {row['material'] or ''} {row['color'] or ''}".strip() or "Unknown"
-        spool_id = row['spool_id']
-        
-        conn.close()
-        
+        with get_db(row_factory=sqlite3.Row) as conn:
+            cur = conn.cursor()
+
+            # Get printer and slot info
+            cur.execute("""
+                SELECT p.name, p.nickname, fs.id as slot_id, s.id as spool_id,
+                       fl.brand, fl.material, s.color
+                FROM printers p
+                LEFT JOIN filament_slots fs ON fs.printer_id = p.id AND fs.slot_number = ?
+                LEFT JOIN spools s ON s.id = fs.assigned_spool_id
+                LEFT JOIN filament_library fl ON fl.id = s.filament_id
+                WHERE p.id = ?
+            """, (slot_number, printer_id))
+
+            row = cur.fetchone()
+            if not row:
+                return
+
+            printer_name = row['nickname'] or row['name']
+            spool_desc = f"{row['brand'] or ''} {row['material'] or ''} {row['color'] or ''}".strip() or "Unknown"
+            spool_id = row['spool_id']
+
         dispatch_alert(
             alert_type="spool_low",
             severity="warning",
@@ -1001,6 +972,6 @@ def check_low_spool(
             spool_id=spool_id,
             metadata={"slot": slot_number, "remaining_g": remaining_grams}
         )
-        
+
     except Exception as e:
         log.error(f"Failed to check low spool for printer {printer_id}: {e}")

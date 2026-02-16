@@ -400,6 +400,15 @@ conn.execute("""CREATE TABLE IF NOT EXISTS oidc_config (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )""")
+conn.execute("""CREATE TABLE IF NOT EXISTS oidc_pending_states (
+    state TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL
+)""")
+conn.execute("""CREATE TABLE IF NOT EXISTS oidc_auth_codes (
+    code TEXT PRIMARY KEY,
+    access_token TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+)""")
 conn.commit()
 conn.close()
 print("  ✓ OIDC config table ready")
@@ -434,7 +443,7 @@ conn.close()
 print("  ✓ Webhooks and AMS telemetry tables ready")
 WEBHOOKSEOF
 
-# ── Create telemetry expansion tables ──
+# ── Create telemetry expansion tables (DUAL SCHEMA for nozzle_lifecycle, timelapses: also in backend/models.py) ──
 python3 << 'TELEMETRYEOF'
 import sqlite3
 conn = sqlite3.connect("/data/odin.db")
@@ -524,7 +533,7 @@ conn.close()
 print("  ✓ Telemetry expansion tables ready")
 TELEMETRYEOF
 
-# ── Create consumables tables ──
+# ── Create consumables tables (DUAL SCHEMA: also in backend/models.py Consumable/ProductConsumable/ConsumableUsage) ──
 python3 << 'CONSUMABLESEOF'
 import sqlite3
 conn = sqlite3.connect("/data/odin.db")
@@ -569,7 +578,7 @@ conn.close()
 print("  ✓ Consumables tables ready")
 CONSUMABLESEOF
 
-# ── Create vision AI tables ──
+# ── Create vision AI tables (DUAL SCHEMA: also in backend/models.py VisionDetection/VisionSettings/VisionModel) ──
 python3 << 'VISIONEOF'
 import sqlite3
 conn = sqlite3.connect("/data/odin.db")
@@ -647,6 +656,25 @@ else:
     print("  ✓ Vigil models already registered")
 conn.close()
 VISIONMODELSEOF
+
+# ── Create login_attempts table (rate limiting / account lockout) ──
+python3 << 'LOGINATTEMPTSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT NOT NULL,
+    username TEXT NOT NULL,
+    attempted_at REAL NOT NULL,
+    success INTEGER NOT NULL DEFAULT 0
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(username)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_at ON login_attempts(attempted_at)")
+conn.commit()
+conn.close()
+print("  ✓ Login attempts table ready")
+LOGINATTEMPTSEOF
 
 # ── Enable SQLite WAL mode ──
 python3 -c "

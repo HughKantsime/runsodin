@@ -6,6 +6,26 @@ Core entities:
 - FilamentSlot: What's loaded in each AMS slot
 - Model: Print model definitions with color/filament requirements
 - Job: Individual print jobs in the queue
+
+SCHEMA SPLIT:
+  Tables defined ONLY here (via SQLAlchemy Base.metadata.create_all):
+    printers, filament_slots, spools, spool_usage, drying_logs, models, jobs,
+    scheduler_runs, filament_library, maintenance_tasks, maintenance_logs,
+    products, product_components, orders, order_items, system_config,
+    audit_logs, alerts, alert_preferences, push_subscriptions, print_presets
+
+  Tables defined ONLY in docker/entrypoint.sh (raw SQL, not in SQLAlchemy):
+    users, api_tokens, active_sessions, token_blacklist, quota_usage,
+    model_revisions, groups, report_schedules, print_jobs, print_files,
+    oidc_config, oidc_pending_states, oidc_auth_codes, webhooks,
+    ams_telemetry, printer_telemetry, hms_error_history, login_attempts
+
+  DUAL SCHEMA — defined in BOTH places (keep in sync!):
+    vision_detections, vision_settings, vision_models, timelapses,
+    nozzle_lifecycle, consumables, product_consumables, consumable_usage
+
+  The main.py lifespan includes a drift check that logs warnings if
+  SQLAlchemy columns diverge from the live PRAGMA table_info schema.
 """
 
 from datetime import datetime
@@ -531,7 +551,8 @@ class SchedulerRun(Base):
 
 
 class Timelapse(Base):
-    """A timelapse video generated from camera frames during a print."""
+    """A timelapse video generated from camera frames during a print.
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (TELEMETRYEOF). Keep in sync."""
     __tablename__ = "timelapses"
 
     id = Column(Integer, primary_key=True)
@@ -631,7 +652,8 @@ class MaintenanceLog(Base):
 
 
 class NozzleLifecycle(Base):
-    """Track nozzle installs, retirements, and accumulated usage."""
+    """Track nozzle installs, retirements, and accumulated usage.
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (TELEMETRYEOF). Keep in sync."""
     __tablename__ = "nozzle_lifecycle"
 
     id = Column(Integer, primary_key=True)
@@ -784,7 +806,8 @@ class OrderItem(Base):
 # ============================================================
 
 class Consumable(Base):
-    """Non-printed item in inventory (hardware, packaging, labels, etc.)."""
+    """Non-printed item in inventory (hardware, packaging, labels, etc.).
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (CONSUMABLESEOF). Keep in sync."""
     __tablename__ = "consumables"
 
     id = Column(Integer, primary_key=True)
@@ -805,7 +828,8 @@ class Consumable(Base):
 
 
 class ProductConsumable(Base):
-    """BOM entry linking a consumable to a product (parallel to ProductComponent)."""
+    """BOM entry linking a consumable to a product (parallel to ProductComponent).
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (CONSUMABLESEOF). Keep in sync."""
     __tablename__ = "product_consumables"
 
     id = Column(Integer, primary_key=True)
@@ -819,7 +843,8 @@ class ProductConsumable(Base):
 
 
 class ConsumableUsage(Base):
-    """Audit trail for consumable stock changes."""
+    """Audit trail for consumable stock changes.
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (CONSUMABLESEOF). Keep in sync."""
     __tablename__ = "consumable_usage"
 
     id = Column(Integer, primary_key=True)
@@ -847,7 +872,8 @@ class SystemConfig(Base):
 # ============================================================
 
 class VisionDetection(Base):
-    """AI print failure detection record."""
+    """AI print failure detection record.
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (VISIONEOF). Keep in sync."""
     __tablename__ = "vision_detections"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -867,7 +893,8 @@ class VisionDetection(Base):
 
 
 class VisionSettings(Base):
-    """Per-printer vision monitoring settings."""
+    """Per-printer vision monitoring settings.
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (VISIONEOF). Keep in sync."""
     __tablename__ = "vision_settings"
 
     printer_id = Column(Integer, ForeignKey("printers.id"), primary_key=True)
@@ -885,7 +912,8 @@ class VisionSettings(Base):
 
 
 class VisionModel(Base):
-    """Registered ONNX model for vision detection."""
+    """Registered ONNX model for vision detection.
+    DUAL SCHEMA: also defined in docker/entrypoint.sh (VISIONEOF). Keep in sync."""
     __tablename__ = "vision_models"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

@@ -1,4 +1,3 @@
-import os
 """
 MQTT Republish Module — Publishes O.D.I.N. events to an external MQTT broker.
 
@@ -24,10 +23,9 @@ import logging
 import threading
 import sqlite3
 from typing import Optional, Dict, Any
+from db_utils import get_db
 
 log = logging.getLogger("mqtt_republish")
-
-DB_PATH = os.environ.get('DATABASE_PATH', '/data/odin.db')
 
 # Lazy-loaded paho client
 _client = None
@@ -46,11 +44,9 @@ def _get_config() -> Optional[Dict[str, Any]]:
         return _config_cache
 
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT key, value FROM system_config WHERE key LIKE 'mqtt_republish_%'")
-        rows = {r["key"]: r["value"] for r in cur.fetchall()}
-        conn.close()
+        with get_db(row_factory=sqlite3.Row) as conn:
+            cur = conn.execute("SELECT key, value FROM system_config WHERE key LIKE 'mqtt_republish_%'")
+            rows = {r["key"]: r["value"] for r in cur.fetchall()}
 
         if rows.get("mqtt_republish_enabled", "").lower() not in ("true", "1", "yes"):
             _config_cache = None

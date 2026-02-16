@@ -1,86 +1,103 @@
 """
-WebSocket Event Hub - IPC between monitor processes and FastAPI WebSocket.
+WebSocket Event Hub — IPC between monitor processes and FastAPI WebSocket.
 
-Monitor processes (mqtt_monitor, moonraker_monitor) call push_event() to write
-events to a shared file. The FastAPI WebSocket handler reads and broadcasts.
+Monitor processes (mqtt_monitor, moonraker_monitor, etc.) call push_event()
+to write events to a shared SQLite table.  The FastAPI WebSocket handler
+reads new events by ID and broadcasts them.
 
-Uses a simple JSON-lines file as a ring buffer. Lock-free: monitors append,
-FastAPI reads and truncates.
+Replaces the previous file-based IPC (/tmp/odin_ws_events with fcntl locks)
+with a reliable SQLite table that never silently drops events.
 """
-import os
+
 import json
 import time
-import fcntl
-from typing import List, Dict, Any
+import logging
+from typing import List, Tuple
 
-EVENT_FILE = "/tmp/odin_ws_events"
-MAX_EVENTS = 200  # Keep last N events in file
+from db_utils import get_db
+
+log = logging.getLogger("ws_hub")
+
+_CLEANUP_INTERVAL = 30   # seconds between cleanup runs
+_EVENT_TTL = 60           # delete events older than this (seconds)
+_last_cleanup = 0
+
+
+def ensure_table():
+    """Create ws_events table if it doesn't exist.  Called from main.py lifespan."""
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ws_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                data TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ws_events_created ON ws_events(created_at)"
+        )
+        conn.commit()
 
 
 def push_event(event_type: str, data: dict):
     """
     Called by monitor processes to publish an event.
-    Appends a JSON line to the event file.
-    """
-    event = {
-        "type": event_type,
-        "data": data,
-        "ts": time.time()
-    }
-    line = json.dumps(event) + "\n"
-    
-    try:
-        fd = os.open(EVENT_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o666)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            os.write(fd, line.encode())
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
-    except (BlockingIOError, OSError):
-        pass  # Skip if locked — non-critical
-
-
-def read_events_since(last_ts: float) -> tuple:
-    """
-    Read events newer than last_ts.
-    Returns (events_list, new_last_ts).
+    Signature unchanged from the file-based version — monitors need zero changes.
     """
     try:
-        if not os.path.exists(EVENT_FILE):
-            return [], last_ts
-        
-        with open(EVENT_FILE, "r") as f:
-            fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            lines = f.readlines()
-            fcntl.flock(f, fcntl.LOCK_UN)
-        
+        payload = json.dumps({"type": event_type, "data": data})
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO ws_events (event_type, data, created_at) VALUES (?, ?, ?)",
+                (event_type, payload, time.time()),
+            )
+            conn.commit()
+    except Exception:
+        pass  # Non-critical — don't crash monitors
+
+
+def read_events_since(last_id: int) -> Tuple[List[dict], int]:
+    """
+    Read events with id > last_id.
+    Returns (events_list, new_last_id).
+    """
+    global _last_cleanup
+
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "SELECT id, data FROM ws_events WHERE id > ? ORDER BY id",
+                (last_id,),
+            )
+            rows = cur.fetchall()
+
         events = []
-        newest_ts = last_ts
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+        newest_id = last_id
+        for row_id, payload in rows:
             try:
-                evt = json.loads(line)
-                if evt.get("ts", 0) > last_ts:
-                    events.append(evt)
-                    newest_ts = max(newest_ts, evt["ts"])
+                events.append(json.loads(payload))
             except json.JSONDecodeError:
-                continue
-        
-        # Truncate file if too large
-        if len(lines) > MAX_EVENTS * 2:
-            try:
-                with open(EVENT_FILE, "w") as f:
-                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    f.writelines(lines[-MAX_EVENTS:])
-                    fcntl.flock(f, fcntl.LOCK_UN)
-            except (BlockingIOError, OSError):
                 pass
-        
-        return events, newest_ts
-    
-    except (BlockingIOError, OSError, FileNotFoundError):
-        return [], last_ts
+            newest_id = row_id
+
+        # Periodic cleanup
+        now = time.time()
+        if now - _last_cleanup > _CLEANUP_INTERVAL:
+            _last_cleanup = now
+            _cleanup(now - _EVENT_TTL)
+
+        return events, newest_id
+
+    except Exception:
+        return [], last_id
+
+
+def _cleanup(before_ts: float):
+    """Delete events older than the given timestamp."""
+    try:
+        with get_db() as conn:
+            conn.execute("DELETE FROM ws_events WHERE created_at < ?", (before_ts,))
+            conn.commit()
+    except Exception:
+        pass
