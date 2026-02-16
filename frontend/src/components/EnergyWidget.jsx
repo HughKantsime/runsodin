@@ -96,11 +96,11 @@ export default function EnergyWidget({ jobs }) {
       {chartData.length > 0 ? (
         <ResponsiveContainer width="100%" height={150}>
           <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="day" tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-            <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+            <XAxis dataKey="day" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} />
+            <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} />
             <Tooltip
-              contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }}
+              contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '8px', fontSize: '12px' }}
               formatter={(val, name) => [name === 'kwh' ? `${val} kWh` : `$${val}`, name === 'kwh' ? 'Energy' : 'Cost']}
             />
             <Bar dataKey="kwh" fill="#F59E0B" radius={[4, 4, 0, 0]} />

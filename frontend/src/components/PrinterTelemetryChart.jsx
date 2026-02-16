@@ -57,13 +57,13 @@ export default function PrinterTelemetryChart({ printerId, onClose }) {
       ) : (
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="time" tick={{ fill: '#9CA3AF', fontSize: 10 }} interval="preserveStartEnd" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+            <XAxis dataKey="time" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} interval="preserveStartEnd" />
             <YAxis yAxisId="temp" tick={{ fill: '#EF4444', fontSize: 10 }} domain={['auto', 'auto']} label={{ value: '°C', position: 'insideLeft', fill: '#EF4444', fontSize: 10 }} />
             <YAxis yAxisId="fan" orientation="right" tick={{ fill: '#22C55E', fontSize: 10 }} domain={[0, 'auto']} label={{ value: 'RPM', position: 'insideRight', fill: '#22C55E', fontSize: 10 }} />
             <Tooltip
-              contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px', fontSize: '12px' }}
-              labelStyle={{ color: '#9CA3AF' }}
+              contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '8px', fontSize: '12px' }}
+              labelStyle={{ color: 'var(--chart-axis)' }}
             />
             <Legend wrapperStyle={{ fontSize: '11px' }} />
             <Line yAxisId="temp" type="monotone" dataKey="bed" stroke="#F59E0B" strokeWidth={2} dot={false} name="Bed (°C)" />

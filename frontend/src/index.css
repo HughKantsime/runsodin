@@ -21,6 +21,14 @@
   --brand-text-muted: #364155;
   --brand-input-bg: #1a2030;
   --brand-input-border: #252d3d;
+  /* Chart theming */
+  --chart-card-bg: rgba(17,24,39,0.8);
+  --chart-grid: #1F2937;
+  --chart-axis: #6B7280;
+  --chart-axis-line: #374151;
+  --chart-tooltip-bg: #111827;
+  --chart-tooltip-border: #374151;
+  --chart-tooltip-shadow: 0 10px 25px rgba(0,0,0,0.5);
   /* Brand fonts — IBM Plex */
   --brand-font-display: 'IBM Plex Mono', ui-monospace, monospace;
   --brand-font-body: 'IBM Plex Sans', system-ui, sans-serif;
@@ -233,6 +241,14 @@ html.light {
   --brand-text-muted: #94a3b8;
   --brand-input-bg: #f8fafc;
   --brand-input-border: #cbd5e1;
+  /* Chart theming */
+  --chart-card-bg: #ffffff;
+  --chart-grid: #E2E8F0;
+  --chart-axis: #64748b;
+  --chart-axis-line: #CBD5E1;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #E2E8F0;
+  --chart-tooltip-shadow: 0 4px 12px rgba(0,0,0,0.1);
   --brand-font-display: inherit;
   --brand-font-body: inherit;
   --brand-font-mono: inherit;

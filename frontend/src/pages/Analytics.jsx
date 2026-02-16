@@ -16,11 +16,11 @@ const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'
 
 function HeroStat({ title, value, subtitle, icon: Icon, color, trend }) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-farm-800 p-4 md:p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="relative overflow-hidden rounded-xl border border-farm-800 p-4 md:p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium text-farm-400 uppercase tracking-wider">{title}</p>
-          <p className={`text-2xl md:text-3xl font-display font-bold mt-1 ${color || 'text-white'}`}>{value}</p>
+          <p className={`text-2xl md:text-3xl font-display font-bold mt-1 ${color || 'text-farm-100'}`}>{value}</p>
           {subtitle && <p className="text-xs text-farm-500 mt-1">{subtitle}</p>}
         </div>
         {Icon && (
@@ -42,7 +42,7 @@ function HeroStat({ title, value, subtitle, icon: Icon, color, trend }) {
 function JobsOverTimeChart({ data }) {
   if (!data || Object.keys(data).length === 0) {
     return (
-      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
         <div className="flex items-center gap-2 mb-4">
           <Activity size={18} className="text-blue-400" />
           <h3 className="font-display font-semibold">Job Activity</h3>
@@ -61,7 +61,7 @@ function JobsOverTimeChart({ data }) {
     }))
   
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Activity size={18} className="text-blue-400" />
@@ -81,12 +81,12 @@ function JobsOverTimeChart({ data }) {
               <stop offset="95%" stopColor="#22C55E" stopOpacity={0}/>
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="date" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={{ stroke: 'var(--chart-axis-line)' }} tickLine={false} />
+          <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <Tooltip 
-            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
-            labelStyle={{ color: '#9CA3AF', marginBottom: '4px' }}
+            contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '12px', fontSize: '12px', boxShadow: 'var(--chart-tooltip-shadow)' }}
+            labelStyle={{ color: 'var(--chart-axis)', marginBottom: '4px' }}
           />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
           <Area type="monotone" dataKey="created" stroke="#3B82F6" fill="url(#gradCreated)" strokeWidth={2} name="Created" dot={false} />
@@ -101,7 +101,7 @@ function PrinterUtilization({ data }) {
   const sorted = [...data].sort((a, b) => (b.utilization_pct || 0) - (a.utilization_pct || 0))
   
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center gap-2 mb-4">
         <Printer size={18} className="text-purple-400" />
         <h3 className="font-display font-semibold">Printer Utilization</h3>
@@ -175,7 +175,7 @@ function ModelRankings({ topData, worstData }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={18} className="text-green-400" />
           <h3 className="font-display font-semibold">Top Performers</h3>
@@ -186,7 +186,7 @@ function ModelRankings({ topData, worstData }) {
           {topData.length === 0 && <div className="text-center text-farm-500 py-6 text-sm">No data yet</div>}
         </div>
       </div>
-      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
         <div className="flex items-center gap-2 mb-3">
           <TrendingDown size={18} className="text-red-400" />
           <h3 className="font-display font-semibold">Needs Improvement</h3>
@@ -203,7 +203,7 @@ function ModelRankings({ topData, worstData }) {
 
 function FleetOverview({ summary }) {
   const stats = [
-    { label: 'Total Jobs', value: summary.total_jobs, color: 'text-white' },
+    { label: 'Total Jobs', value: summary.total_jobs, color: 'text-farm-100' },
     { label: 'Completed', value: summary.completed_jobs, color: 'text-green-400', icon: CheckCircle },
     { label: 'Pending', value: summary.pending_jobs, color: 'text-yellow-400', icon: Clock },
     { label: 'Models', value: summary.total_models, color: 'text-blue-400', icon: BarChart3 },
@@ -214,7 +214,7 @@ function FleetOverview({ summary }) {
     : 0
 
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <BarChart3 size={18} className="text-cyan-400" />
@@ -255,7 +255,7 @@ function CostRevenueChart({ data }) {
   if (chartData.length === 0) return null
 
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <DollarSign size={18} className="text-green-400" />
@@ -265,11 +265,11 @@ function CostRevenueChart({ data }) {
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="date" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={{ stroke: 'var(--chart-axis-line)' }} tickLine={false} />
+          <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
           <Tooltip 
-            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+            contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '12px', fontSize: '12px', boxShadow: 'var(--chart-tooltip-shadow)' }}
             formatter={(value) => [`$${value.toFixed(2)}`, undefined]}
           />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
@@ -289,7 +289,7 @@ function FailureRateByPrinterChart({ data }) {
     failed: p.failed,
   }))
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Printer size={18} className="text-red-400" />
@@ -299,10 +299,10 @@ function FailureRateByPrinterChart({ data }) {
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData} barCategoryGap="20%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="name" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="name" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '12px', fontSize: '12px', boxShadow: 'var(--chart-tooltip-shadow)' }} />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
           <Bar dataKey="completed" stackId="a" fill="#22C55E" name="Completed" radius={[0, 0, 0, 0]} />
           <Bar dataKey="failed" stackId="a" fill="#EF4444" name="Failed" radius={[3, 3, 0, 0]} />
@@ -315,7 +315,7 @@ function FailureRateByPrinterChart({ data }) {
 function TopFailureReasons({ data }) {
   if (!data?.top_failure_reasons?.length) return null
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center gap-2 mb-4">
         <XCircle size={18} className="text-red-400" />
         <h3 className="font-display font-semibold">Top Failure Reasons</h3>
@@ -341,7 +341,7 @@ function TopFailureReasons({ data }) {
 function TimeAccuracyChart({ data }) {
   if (!data || data.by_printer?.length === 0) {
     return (
-      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+      <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
         <div className="flex items-center gap-2 mb-4">
           <Clock size={18} className="text-cyan-400" />
           <h3 className="font-display font-semibold">Est vs Actual Print Time</h3>
@@ -358,7 +358,7 @@ function TimeAccuracyChart({ data }) {
   }))
 
   return (
-    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+    <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Clock size={18} className="text-cyan-400" />
@@ -368,11 +368,11 @@ function TimeAccuracyChart({ data }) {
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData} barCategoryGap="20%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="name" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+          <XAxis dataKey="name" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
           <Tooltip
-            contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+            contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '12px', fontSize: '12px', boxShadow: 'var(--chart-tooltip-shadow)' }}
             formatter={(value) => [`${value.toFixed(1)}h`, undefined]}
           />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
@@ -548,7 +548,7 @@ export default function Analytics() {
 
       {/* Failure Analytics */}
       {failureLoading ? (
-        <div className="rounded-xl border border-farm-800 p-5 animate-pulse" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+        <div className="rounded-xl border border-farm-800 p-5 animate-pulse" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
           <div className="h-6 bg-farm-800 rounded w-48 mb-4"></div>
           <div className="h-48 bg-farm-800/50 rounded"></div>
         </div>
@@ -563,7 +563,7 @@ export default function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <PrinterUtilization data={printer_stats} />
         {timeAccuracyLoading ? (
-          <div className="rounded-xl border border-farm-800 p-5 animate-pulse" style={{ backgroundColor: 'rgba(17,24,39,0.8)' }}>
+          <div className="rounded-xl border border-farm-800 p-5 animate-pulse" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
             <div className="h-6 bg-farm-800 rounded w-48 mb-4"></div>
             <div className="h-48 bg-farm-800/50 rounded"></div>
           </div>
