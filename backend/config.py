@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     encryption_key: Optional[str] = None
     
     # Frontend - comma-separated list in .env, e.g. CORS_ORIGINS=http://localhost:3000,http://example.com
-    cors_origins: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
+    # Default is empty (no cross-origin). Set via CORS_ORIGINS env var in dev/prod.
+    cors_origins: str = ""
     
     class Config:
         env_file = ".env"

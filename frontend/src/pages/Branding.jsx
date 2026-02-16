@@ -82,21 +82,21 @@ const MONO_FONTS = [
 const DEFAULTS = {
   app_name: "O.D.I.N.",
   app_subtitle: "Scheduler",
-  primary_color: "#22c55e",
-  accent_color: "#4ade80",
-  sidebar_bg: "#1a1917",
-  sidebar_border: "#3b3934",
-  sidebar_text: "#8a8679",
-  sidebar_active_bg: "#3b3934",
-  sidebar_active_text: "#4ade80",
-  content_bg: "#1a1917",
-  card_bg: "#33312d",
-  card_border: "#3b3934",
-  text_primary: "#e5e4e1",
-  text_secondary: "#8a8679",
-  text_muted: "#58554a",
-  input_bg: "#3b3934",
-  input_border: "#47453d",
+  primary_color: "#d97706",
+  accent_color: "#f59e0b",
+  sidebar_bg: "#0a0c10",
+  sidebar_border: "#1a2030",
+  sidebar_text: "#8b95a8",
+  sidebar_active_bg: "#1a203040",
+  sidebar_active_text: "#f59e0b",
+  content_bg: "#0a0c10",
+  card_bg: "#0f1218",
+  card_border: "#1a2030",
+  text_primary: "#e8ecf2",
+  text_secondary: "#8b95a8",
+  text_muted: "#364155",
+  input_bg: "#1a2030",
+  input_border: "#252d3d",
   font_display: "system-ui, -apple-system, sans-serif",
   font_body: "system-ui, -apple-system, sans-serif",
   font_mono: "ui-monospace, monospace",
@@ -114,6 +114,9 @@ function getAuthHeaders(contentType = 'application/json') {
   return headers
 }
 
+// Google Fonts URL for branding font picker — loaded on-demand
+const BRANDING_FONTS_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Raleway:wght@300;400;500;600;700&family=Nunito:wght@300;400;600;700&family=Source+Sans+3:wght@300;400;600;700&family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Urbanist:wght@300;400;500;600;700&family=Oswald:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=Source+Serif+4:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Inconsolata:wght@400;500;600;700&display=swap'
+
 export default function Branding() {
   const [branding, setBranding] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -124,6 +127,18 @@ export default function Branding() {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const logoInputRef = useRef(null)
   const faviconInputRef = useRef(null)
+
+  // Lazy-load Google Fonts when Branding page mounts
+  useEffect(() => {
+    const id = 'branding-google-fonts'
+    if (!document.getElementById(id)) {
+      const link = document.createElement('link')
+      link.id = id
+      link.rel = 'stylesheet'
+      link.href = BRANDING_FONTS_URL
+      document.head.appendChild(link)
+    }
+  }, [])
 
   useEffect(() => {
     fetch(`${API_BASE}/branding`)
@@ -604,29 +619,66 @@ export default function Branding() {
 }
 
 // Apply CSS vars live (called after save)
+// Mirrors BrandingContext.applyBrandingCSS: in light mode, only apply
+// theme-neutral vars (primary, accent, fonts) and remove surface overrides
+// so the html.light CSS block in index.css takes effect.
 function applyLiveCSS(b) {
   const root = document.documentElement
-  const vars = {
-    "--brand-primary": b.primary_color,
-    "--brand-accent": b.accent_color,
-    "--brand-sidebar-bg": b.sidebar_bg,
-    "--brand-sidebar-border": b.sidebar_border,
-    "--brand-sidebar-text": b.sidebar_text,
-    "--brand-sidebar-active-bg": b.sidebar_active_bg,
-    "--brand-sidebar-active-text": b.sidebar_active_text,
-    "--brand-content-bg": b.content_bg,
-    "--brand-card-bg": b.card_bg,
-    "--brand-card-border": b.card_border,
-    "--brand-text-primary": b.text_primary,
-    "--brand-text-secondary": b.text_secondary,
-    "--brand-text-muted": b.text_muted,
-    "--brand-input-bg": b.input_bg,
-    "--brand-input-border": b.input_border,
-    "--brand-font-display": b.font_display,
-    "--brand-font-body": b.font_body,
-    "--brand-font-mono": b.font_mono,
+  const isLight = root.classList.contains("light")
+
+  // Darken a hex color until it meets WCAG contrast against white
+  const ensureContrast = (hex, minRatio = 4.5) => {
+    const lum = (h) => {
+      const r = parseInt(h.slice(1,3),16)/255, g = parseInt(h.slice(3,5),16)/255, bl = parseInt(h.slice(5,7),16)/255
+      const toL = c => c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4)
+      return 0.2126*toL(r) + 0.7152*toL(g) + 0.0722*toL(bl)
+    }
+    const cr = (a, b) => { const l1 = Math.max(lum(a),lum(b)), l2 = Math.min(lum(a),lum(b)); return (l1+0.05)/(l2+0.05) }
+    let c = hex
+    for (let i = 0; i < 20; i++) {
+      if (cr(c, "#ffffff") >= minRatio) return c
+      const r = Math.max(0,parseInt(c.slice(1,3),16)-15), g = Math.max(0,parseInt(c.slice(3,5),16)-15), bl = Math.max(0,parseInt(c.slice(5,7),16)-15)
+      c = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${bl.toString(16).padStart(2,'0')}`
+    }
+    return c
   }
-  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v))
+
+  // Primary / accent — always apply (darken for contrast in light mode)
+  const primary = isLight ? ensureContrast(b.primary_color) : b.primary_color
+  root.style.setProperty("--brand-primary", primary)
+  root.style.setProperty("--brand-accent", b.accent_color)
+
+  // Fonts — always apply
+  root.style.setProperty("--brand-font-display", b.font_display)
+  root.style.setProperty("--brand-font-body", b.font_body)
+  root.style.setProperty("--brand-font-mono", b.font_mono)
+
+  if (isLight) {
+    // Remove surface overrides so html.light CSS block takes effect
+    const surfaceVars = [
+      "--brand-sidebar-bg", "--brand-sidebar-border", "--brand-sidebar-text",
+      "--brand-sidebar-active-bg", "--brand-sidebar-active-text",
+      "--brand-content-bg", "--brand-card-bg", "--brand-card-border",
+      "--brand-text-primary", "--brand-text-secondary", "--brand-text-muted",
+      "--brand-input-bg", "--brand-input-border",
+    ]
+    surfaceVars.forEach(v => root.style.removeProperty(v))
+  } else {
+    // Dark mode — apply all surface properties inline
+    root.style.setProperty("--brand-sidebar-bg", b.sidebar_bg)
+    root.style.setProperty("--brand-sidebar-border", b.sidebar_border)
+    root.style.setProperty("--brand-sidebar-text", b.sidebar_text)
+    root.style.setProperty("--brand-sidebar-active-bg", b.sidebar_active_bg)
+    root.style.setProperty("--brand-sidebar-active-text", b.sidebar_active_text)
+    root.style.setProperty("--brand-content-bg", b.content_bg)
+    root.style.setProperty("--brand-card-bg", b.card_bg)
+    root.style.setProperty("--brand-card-border", b.card_border)
+    root.style.setProperty("--brand-text-primary", b.text_primary)
+    root.style.setProperty("--brand-text-secondary", b.text_secondary)
+    root.style.setProperty("--brand-text-muted", b.text_muted)
+    root.style.setProperty("--brand-input-bg", b.input_bg)
+    root.style.setProperty("--brand-input-border", b.input_border)
+  }
 
   document.title = b.app_subtitle ? `${b.app_name} ${b.app_subtitle}` : b.app_name
 }

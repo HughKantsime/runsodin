@@ -631,8 +631,8 @@ export default function Jobs() {
   const runScheduler = useMutation({
     mutationFn: scheduler.run,
     onSuccess: () => {
-      queryClient.invalidateQueries(['jobs'])
-      queryClient.invalidateQueries(['stats'])
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      queryClient.invalidateQueries({ queryKey: ['stats'] })
       toast.success('Scheduler run complete')
     },
     onError: (err) => toast.error('Scheduler failed: ' + (err.message || 'Unknown error')),
@@ -660,7 +660,7 @@ export default function Jobs() {
   const bulkAction = useMutation({
     mutationFn: ({ action, extra }) => bulkOps.jobs([...selectedJobs], action, extra),
     onSuccess: (_, vars) => {
-      queryClient.invalidateQueries(['jobs'])
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setSelectedJobs(new Set())
       toast.success(`Bulk ${vars.action} completed`)
     },
@@ -732,55 +732,55 @@ export default function Jobs() {
 
   const schedulePreset = useMutation({
     mutationFn: presets.schedule,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Preset scheduled') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Preset scheduled') },
     onError: (err) => toast.error('Schedule preset failed: ' + err.message),
   })
 
   const deletePreset = useMutation({
     mutationFn: presets.delete,
-    onSuccess: () => { queryClient.invalidateQueries(['presets']); toast.success('Preset deleted') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['presets'] }); toast.success('Preset deleted') },
     onError: (err) => toast.error('Delete preset failed: ' + err.message),
   })
 
   const createPreset = useMutation({
     mutationFn: presets.create,
-    onSuccess: () => { queryClient.invalidateQueries(['presets']); toast.success('Preset saved') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['presets'] }); toast.success('Preset saved') },
     onError: (err) => toast.error('Save preset failed: ' + err.message),
   })
 
   const updateJob = useMutation({
     mutationFn: ({ id, data }) => jobs.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job updated') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job updated') },
     onError: (err) => toast.error('Update job failed: ' + err.message),
   })
 
   const createJob = useMutation({
     mutationFn: jobs.create,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job created') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job created') },
     onError: (err) => toast.error('Create job failed: ' + err.message),
   })
 
   const startJob = useMutation({
     mutationFn: jobs.start,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job started') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job started') },
     onError: (err) => toast.error('Start job failed: ' + err.message),
   })
 
   const completeJob = useMutation({
     mutationFn: jobs.complete,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job completed') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job completed') },
     onError: (err) => toast.error('Complete job failed: ' + err.message),
   })
 
   const cancelJob = useMutation({
     mutationFn: jobs.cancel,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job cancelled') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job cancelled') },
     onError: (err) => toast.error('Cancel job failed: ' + err.message),
   })
 
   const deleteJob = useMutation({
     mutationFn: jobs.delete,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); toast.success('Job deleted') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job deleted') },
     onError: (err) => toast.error('Delete job failed: ' + err.message),
   })
 

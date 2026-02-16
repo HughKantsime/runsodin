@@ -1,4 +1,4 @@
-const API_BASE = '/api/v1'
+const API_BASE = '/api'
 
 // API Key for authentication - leave empty if auth is disabled
 const API_KEY = import.meta.env.VITE_API_KEY

@@ -12,6 +12,7 @@ import os
 import pytest
 import requests
 import uuid
+from helpers import login as _shared_login, auth_headers as _make_headers
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
@@ -23,17 +24,11 @@ ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 # ---------------------------------------------------------------------------
 
 def _login(username, password):
-    r = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        data={"username": username, "password": password},
-    )
-    if r.status_code == 200:
-        return r.json().get("access_token")
-    return None
+    return _shared_login(BASE_URL, username, password)
 
 
 def _headers(token):
-    return {"Authorization": f"Bearer {token}"}
+    return _make_headers(token)
 
 
 # ---------------------------------------------------------------------------

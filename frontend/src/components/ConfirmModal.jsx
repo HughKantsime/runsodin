@@ -3,12 +3,26 @@ import { AlertTriangle } from 'lucide-react'
 
 export default function ConfirmModal({ open, onConfirm, onCancel, title, message, confirmText = 'Confirm', confirmVariant = 'danger' }) {
   const confirmRef = useRef(null)
+  const modalRef = useRef(null)
 
   useEffect(() => {
     if (!open) return
     confirmRef.current?.focus()
     const handleKey = (e) => {
       if (e.key === 'Escape') onCancel()
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
@@ -30,6 +44,7 @@ export default function ConfirmModal({ open, onConfirm, onCancel, title, message
       onClick={onCancel}
     >
       <div
+        ref={modalRef}
         className="bg-farm-950 border border-farm-700 rounded-lg shadow-2xl w-full max-w-sm mx-4 p-6"
         onClick={e => e.stopPropagation()}
       >

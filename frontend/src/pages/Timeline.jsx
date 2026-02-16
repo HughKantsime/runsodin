@@ -186,8 +186,8 @@ export default function Timeline() {
     mutationFn: ({ jobId, printerId, scheduledStart }) =>
       jobActions.move(jobId, printerId, scheduledStart),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries(['timeline'])
-      queryClient.invalidateQueries(['jobs'])
+      queryClient.invalidateQueries({ queryKey: ['timeline'] })
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
       const newTime = new Date(variables.scheduledStart)
       toast.success(`Moved job to ${format(newTime, 'MMM d HH:mm')}`)
     },

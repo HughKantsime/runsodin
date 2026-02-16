@@ -20,6 +20,7 @@ import uuid
 import pytest
 import requests
 from pathlib import Path
+from helpers import login as _shared_login
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -54,14 +55,7 @@ TEST_ADMIN_PASS = os.environ.get("TEST_ADMIN_PASSWORD", "AdminTestPass1!")
 # ---------------------------------------------------------------------------
 
 def _login(username, password):
-    resp = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        data={"username": username, "password": password},
-        headers={"X-API-Key": API_KEY} if API_KEY else {},
-    )
-    if resp.status_code == 200:
-        return resp.json().get("access_token")
-    return None
+    return _shared_login(BASE_URL, username, password, api_key=API_KEY or None)
 
 
 def make_request(method, path, auth_mode, token=None, body=None):

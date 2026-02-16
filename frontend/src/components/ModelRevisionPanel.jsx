@@ -19,7 +19,7 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }) {
   const createRevision = useMutation({
     mutationFn: () => modelRevisions.create(modelId, changelog, file),
     onSuccess: () => {
-      queryClient.invalidateQueries(['model-revisions', modelId])
+      queryClient.invalidateQueries({ queryKey: ['model-revisions', modelId] })
       setShowUpload(false)
       setChangelog('')
       setFile(null)
@@ -28,7 +28,7 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }) {
 
   const revertRevision = useMutation({
     mutationFn: (revNumber) => modelRevisions.revert(modelId, revNumber),
-    onSuccess: () => queryClient.invalidateQueries(['model-revisions', modelId]),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['model-revisions', modelId] }),
   })
 
   return (

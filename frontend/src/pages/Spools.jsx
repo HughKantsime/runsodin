@@ -972,7 +972,7 @@ function FilamentLibraryView() {
   const createMutation = useMutation({
     mutationFn: filamentApi.create,
     onSuccess: () => {
-      queryClient.invalidateQueries(['filaments'])
+      queryClient.invalidateQueries({ queryKey: ['filaments'] })
       setShowAddModal(false)
     }
   })
@@ -980,7 +980,7 @@ function FilamentLibraryView() {
   const updateMutation = useMutation({
     mutationFn: filamentApi.update,
     onSuccess: () => {
-      queryClient.invalidateQueries(['filaments'])
+      queryClient.invalidateQueries({ queryKey: ['filaments'] })
       setEditingFilament(null)
     }
   })
@@ -988,7 +988,7 @@ function FilamentLibraryView() {
   const deleteMutation = useMutation({
     mutationFn: filamentApi.remove,
     onSuccess: () => {
-      queryClient.invalidateQueries(['filaments'])
+      queryClient.invalidateQueries({ queryKey: ['filaments'] })
       setDeleteConfirm(null)
     }
   })
@@ -1181,7 +1181,7 @@ export default function Spools() {
   const createMutation = useMutation({
     mutationFn: spoolsApi.create,
     onSuccess: () => {
-      queryClient.invalidateQueries(['spools'])
+      queryClient.invalidateQueries({ queryKey: ['spools'] })
       setShowCreateModal(false)
       toast.success('Spool created')
     },
@@ -1191,8 +1191,8 @@ export default function Spools() {
   const loadMutation = useMutation({
     mutationFn: spoolsApi.load,
     onSuccess: () => {
-      queryClient.invalidateQueries(['spools'])
-      queryClient.invalidateQueries(['printers'])
+      queryClient.invalidateQueries({ queryKey: ['spools'] })
+      queryClient.invalidateQueries({ queryKey: ['printers'] })
       setLoadingSpool(null)
       toast.success('Spool loaded')
     },
@@ -1202,8 +1202,8 @@ export default function Spools() {
   const unloadMutation = useMutation({
     mutationFn: spoolsApi.unload,
     onSuccess: () => {
-      queryClient.invalidateQueries(['spools'])
-      queryClient.invalidateQueries(['printers'])
+      queryClient.invalidateQueries({ queryKey: ['spools'] })
+      queryClient.invalidateQueries({ queryKey: ['printers'] })
       toast.success('Spool unloaded')
     },
     onError: (err) => toast.error(err.message || 'Failed to unload spool')
@@ -1212,7 +1212,7 @@ export default function Spools() {
   const useMutation2 = useMutation({
     mutationFn: spoolsApi.use,
     onSuccess: () => {
-      queryClient.invalidateQueries(['spools'])
+      queryClient.invalidateQueries({ queryKey: ['spools'] })
       setUsingSpool(null)
       toast.success('Usage recorded')
     },
@@ -1222,7 +1222,7 @@ export default function Spools() {
   const archiveMutation = useMutation({
     mutationFn: spoolsApi.archive,
     onSuccess: () => {
-      queryClient.invalidateQueries(['spools'])
+      queryClient.invalidateQueries({ queryKey: ['spools'] })
       toast.success('Spool archived')
     },
     onError: (err) => toast.error(err.message || 'Failed to archive spool')
@@ -1240,7 +1240,7 @@ export default function Spools() {
   }
   const bulkSpoolAction = useMutation({
     mutationFn: ({ action }) => bulkOps.spools([...selectedSpools], action),
-    onSuccess: () => { queryClient.invalidateQueries(['spools']); setSelectedSpools(new Set()) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['spools'] }); setSelectedSpools(new Set()) },
   })
 
   const [confirmAction, setConfirmAction] = useState(null)
@@ -1256,7 +1256,7 @@ export default function Spools() {
   const handleEditSpool = async (data) => {
     try {
       await spoolsApi.update(data);
-      queryClient.invalidateQueries(["spools"]);
+      queryClient.invalidateQueries({ queryKey: ["spools"] });
       setEditingSpool(null);
       toast.success('Spool updated')
     } catch (err) {

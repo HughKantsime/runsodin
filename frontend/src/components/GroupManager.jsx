@@ -71,17 +71,17 @@ export default function GroupManager() {
 
   const createGroup = useMutation({
     mutationFn: (data) => groups.create(data),
-    onSuccess: () => { queryClient.invalidateQueries(['groups']); setShowModal(false) }
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['groups'] }); setShowModal(false) }
   })
 
   const updateGroup = useMutation({
     mutationFn: ({ id, ...data }) => groups.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries(['groups']); setShowModal(false); setEditingGroup(null) }
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['groups'] }); setShowModal(false); setEditingGroup(null) }
   })
 
   const deleteGroup = useMutation({
     mutationFn: (id) => groups.delete(id),
-    onSuccess: () => queryClient.invalidateQueries(['groups'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['groups'] })
   })
 
   const handleSave = (formData) => {

@@ -136,7 +136,7 @@ def list_cameras(db: Session = Depends(get_db)):
     except Exception:
         pass
 
-    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
+    printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
     cameras = []
     for p in printers:
         if p.id in active_streams:

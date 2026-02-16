@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel as PydanticBaseModel
 import json
 import logging
@@ -330,7 +330,7 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
         raise HTTPException(status_code=400, detail=f"Cannot start job in {job.status} status")
 
     job.status = JobStatus.PRINTING
-    job.actual_start = datetime.utcnow()
+    job.actual_start = datetime.now(timezone.utc)
     job.is_locked = True
 
     db.commit()
@@ -346,7 +346,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         raise HTTPException(status_code=404, detail="Job not found")
 
     job.status = JobStatus.COMPLETED
-    job.actual_end = datetime.utcnow()
+    job.actual_end = datetime.now(timezone.utc)
     job.is_locked = True
 
     # Update printer's loaded colors based on this job
@@ -439,7 +439,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
         raise HTTPException(status_code=404, detail="Job not found")
 
     job.status = JobStatus.FAILED
-    job.actual_end = datetime.utcnow()
+    job.actual_end = datetime.now(timezone.utc)
     job.is_locked = True
     if notes:
         job.notes = f"{job.notes or ''}\nFailed: {notes}".strip()
@@ -508,7 +508,7 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
 
     job.status = JobStatus.PENDING
     job.approved_by = current_user["id"]
-    job.approved_at = datetime.utcnow()
+    job.approved_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(job)
 

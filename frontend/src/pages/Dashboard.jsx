@@ -449,17 +449,17 @@ export default function Dashboard() {
 
   const startJob = useMutation({
     mutationFn: jobs.start,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }) },
   })
 
   const completeJob = useMutation({
     mutationFn: jobs.complete,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }) },
   })
 
   const cancelJob = useMutation({
     mutationFn: jobs.cancel,
-    onSuccess: () => { queryClient.invalidateQueries(['jobs']); queryClient.invalidateQueries(['stats']) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }) },
   })
 
   // Calculate currently printing count (scheduled jobs + MQTT running)

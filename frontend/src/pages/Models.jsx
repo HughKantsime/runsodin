@@ -571,23 +571,23 @@ export default function Models() {
   }, [searchParams, modelsData])
   const createModel = useMutation({
     mutationFn: models.create,
-    onSuccess: () => { queryClient.invalidateQueries(['models']); toast.success('Model created') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['models'] }); toast.success('Model created') },
     onError: (err) => toast.error('Create model failed: ' + err.message),
   })
   const updateModel = useMutation({
     mutationFn: ({ id, data }) => models.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries(['models']); toast.success('Model updated') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['models'] }); toast.success('Model updated') },
     onError: (err) => toast.error('Update model failed: ' + err.message),
   })
   const deleteModel = useMutation({
     mutationFn: models.delete,
-    onSuccess: () => { queryClient.invalidateQueries(['models']); toast.success('Model deleted') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['models'] }); toast.success('Model deleted') },
     onError: (err) => toast.error('Delete model failed: ' + err.message),
   })
   const scheduleMutation = useMutation({
     mutationFn: ({ modelId, printerId }) => models.schedule(modelId, printerId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['jobs'])
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
       setScheduleModel(null)
       toast.success('Print job scheduled')
     },

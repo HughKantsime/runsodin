@@ -80,8 +80,9 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_role("adm
 
     # Unlink members
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :id"), {"id": org_id})
-    # Unlink resources
-    for tbl in ["printers", "models", "spools"]:
+    # Unlink resources (table names from constant allowlist, not user input)
+    _ORG_RESOURCE_TABLES = ("printers", "models", "spools")
+    for tbl in _ORG_RESOURCE_TABLES:
         db.execute(text(f"UPDATE {tbl} SET org_id = NULL WHERE org_id = :id"), {"id": org_id})
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": org_id})
     db.commit()

@@ -31,22 +31,22 @@ export default function Consumables() {
 
   const createMutation = useMutation({
     mutationFn: (data) => consumables.create(data),
-    onSuccess: () => { queryClient.invalidateQueries(['consumables']); handleCloseModal() },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); handleCloseModal() },
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => consumables.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries(['consumables']); handleCloseModal() },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); handleCloseModal() },
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id) => consumables.delete(id),
-    onSuccess: () => queryClient.invalidateQueries(['consumables']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['consumables'] }),
   })
 
   const adjustMutation = useMutation({
     mutationFn: ({ id, data }) => consumables.adjust(id, data),
-    onSuccess: () => { queryClient.invalidateQueries(['consumables']); setShowAdjustModal(null) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); setShowAdjustModal(null) },
   })
 
   const handleCloseModal = () => {

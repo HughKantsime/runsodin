@@ -87,15 +87,30 @@ export default function CameraModal({ printer, onClose }) {
     }
   }, [startWebRTC])
 
+  const containerRef = useRef(null)
+
   useEffect(() => {
-    const handleEsc = (e) => {
+    const handleKey = (e) => {
       if (e.key === 'Escape') {
         if (size === 'fullscreen') setSize('large')
         else onClose()
       }
+      if (e.key === 'Tab' && containerRef.current) {
+        const focusable = containerRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
     }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
   }, [size, onClose])
 
   if (!printer) return null
@@ -124,7 +139,7 @@ export default function CameraModal({ printer, onClose }) {
 
   return (
     <div className={sizeClasses} role="dialog" aria-modal={size !== 'small' ? 'true' : undefined} aria-label={`Camera feed for ${p.name}`} onClick={size === 'large' ? onClose : undefined}>
-      <div className={containerClasses} onClick={e => e.stopPropagation()}>
+      <div ref={containerRef} className={containerClasses} onClick={e => e.stopPropagation()}>
         {/* Video section */}
         <div className={size === 'fullscreen' ? 'flex-1 flex flex-col min-w-0' : 'flex flex-col'}>
           <div className={size === 'fullscreen' ? 'flex-1 relative bg-black' : 'relative aspect-video bg-black rounded-t-xl overflow-hidden'}>

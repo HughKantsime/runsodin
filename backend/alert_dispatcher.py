@@ -27,7 +27,7 @@ except ImportError:
     def should_suppress_notification(): return False
 import smtplib
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
@@ -96,7 +96,7 @@ def _should_deduplicate(db, user_id, alert_type, printer_id, spool_id, job_id):
         return existing is not None
     
     if alert_type == AlertType.MAINTENANCE_OVERDUE and printer_id:
-        cutoff = datetime.utcnow() - timedelta(hours=24)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         existing = db.query(Alert).filter(
             Alert.user_id == user_id,
             Alert.alert_type == AlertType.MAINTENANCE_OVERDUE,

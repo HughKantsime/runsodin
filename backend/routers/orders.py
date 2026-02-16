@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, R
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 
@@ -504,7 +504,7 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
                 continue
             total_needed = pc.quantity_per_product * item.quantity
             consumable.current_stock = max(0, consumable.current_stock - total_needed)
-            consumable.updated_at = datetime.utcnow()
+            consumable.updated_at = datetime.now(timezone.utc)
             usage = ConsumableUsage(
                 consumable_id=consumable.id,
                 order_id=order.id,
@@ -578,7 +578,7 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
 
     order.status = OrderStatus.SHIPPED
     order.tracking_number = data.tracking_number
-    order.shipped_date = data.shipped_date or datetime.utcnow()
+    order.shipped_date = data.shipped_date or datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(order)
@@ -708,7 +708,7 @@ def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: 
         raise HTTPException(status_code=404, detail="Consumable not found")
     for key, val in data.model_dump(exclude_unset=True).items():
         setattr(item, key, val)
-    item.updated_at = datetime.utcnow()
+    item.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(item)
     resp = ConsumableResponse.model_validate(item)
@@ -743,7 +743,7 @@ def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_
         notes=data.notes or f"Manual {data.type}"
     )
     db.add(usage)
-    item.updated_at = datetime.utcnow()
+    item.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"success": True, "new_stock": item.current_stock}
 

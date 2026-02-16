@@ -107,7 +107,7 @@ def get_timeline(
     slot_duration = 30  # minutes
 
     # Get printers
-    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
     printer_summaries = [
         PrinterSummary(
             id=p.id,

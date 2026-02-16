@@ -83,7 +83,10 @@ function ApprovalToggle() {
 
   return (
     <label className="flex items-center gap-3 cursor-pointer">
-      <div
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
         onClick={() => !isLoading && toggleMutation.mutate(!enabled)}
         className={`relative w-11 h-6 rounded-full transition-colors ${
           enabled ? "bg-print-600" : "bg-farm-700"
@@ -92,7 +95,7 @@ function ApprovalToggle() {
         <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
           enabled ? "translate-x-[22px]" : "translate-x-0.5"
         }`} />
-      </div>
+      </button>
       <span className="text-sm">
         {enabled ? "Approval required for viewer-role users" : "Approval disabled — all users create jobs directly"}
       </span>
@@ -120,7 +123,10 @@ function EducationModeToggle() {
 
   return (
     <label className="flex items-center gap-3 cursor-pointer">
-      <div
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
         onClick={() => !isLoading && toggleMutation.mutate(!enabled)}
         className={`relative w-11 h-6 rounded-full transition-colors ${
           enabled ? "bg-blue-600" : "bg-farm-700"
@@ -129,7 +135,7 @@ function EducationModeToggle() {
         <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
           enabled ? "translate-x-[22px]" : "translate-x-0.5"
         }`} />
-      </div>
+      </button>
       <span className="text-sm">
         {enabled ? "Education mode enabled — Orders, Products hidden" : "Education mode disabled — all features visible"}
       </span>
@@ -951,20 +957,20 @@ export default function Settings() {
   }
   const saveSettings = useMutation({
     mutationFn: (data) => fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
-    onSuccess: () => { queryClient.invalidateQueries(['config']); queryClient.invalidateQueries(['stats']); setSaved(true); setTimeout(() => setSaved(false), 3000) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['config'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }); setSaved(true); setTimeout(() => setSaved(false), 3000) },
   })
 
   const testSpoolman = useMutation({ mutationFn: () => fetch('/api/spoolman/test').then(r => r.json()) })
 
   const createBackup = useMutation({
     mutationFn: backupsApi.create,
-    onSuccess: () => queryClient.invalidateQueries(['backups'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backups'] })
   })
 
   const deleteBackup = useMutation({
     mutationFn: backupsApi.remove,
     onSuccess: () => {
-      queryClient.invalidateQueries(['backups'])
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
       setDeleteConfirm(null)
     }
   })
@@ -1145,6 +1151,9 @@ export default function Settings() {
                       <div className="flex md:justify-center items-center gap-4 md:gap-0 mt-2 md:mt-0 ml-6 md:ml-0">
                         <span className="text-xs text-farm-500 md:hidden mr-1">In-App</span>
                         <button
+                          type="button"
+                          role="switch"
+                          aria-checked={pref.in_app}
                           onClick={() => toggleAlertPref(pref.alert_type, 'in_app')}
                           className={`w-10 h-5 rounded-full transition-colors relative ${pref.in_app ? 'bg-print-600' : 'bg-farm-600'}`}
                         >
@@ -1155,6 +1164,9 @@ export default function Settings() {
                       <div className="flex md:justify-center items-center gap-4 md:gap-0 mt-1 md:mt-0 ml-6 md:ml-0">
                         <span className="text-xs text-farm-500 md:hidden mr-1">Push</span>
                         <button
+                          type="button"
+                          role="switch"
+                          aria-checked={pref.browser_push}
                           onClick={() => toggleAlertPref(pref.alert_type, 'browser_push')}
                           className={`w-10 h-5 rounded-full transition-colors relative ${pref.browser_push ? 'bg-print-600' : 'bg-farm-600'}`}
                           title="Requires browser push setup"
@@ -1166,6 +1178,9 @@ export default function Settings() {
                       <div className="flex md:justify-center items-center gap-4 md:gap-0 mt-1 md:mt-0 ml-6 md:ml-0">
                         <span className="text-xs text-farm-500 md:hidden mr-1">Email</span>
                         <button
+                          type="button"
+                          role="switch"
+                          aria-checked={pref.email}
                           onClick={() => toggleAlertPref(pref.alert_type, 'email')}
                           className={`w-10 h-5 rounded-full transition-colors relative ${pref.email ? 'bg-print-600' : 'bg-farm-600'}`}
                           title="Requires SMTP configuration"
@@ -1232,6 +1247,9 @@ export default function Settings() {
           <Mail size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Email Notifications (SMTP)</h2>
           <button
+            type="button"
+            role="switch"
+            aria-checked={smtp.enabled}
             onClick={() => setSmtp(s => ({ ...s, enabled: !s.enabled }))}
             className={`ml-auto w-10 h-5 rounded-full transition-colors relative ${smtp.enabled ? 'bg-print-600' : 'bg-farm-600'}`}
           >

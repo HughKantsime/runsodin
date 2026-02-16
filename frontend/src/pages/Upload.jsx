@@ -231,7 +231,7 @@ function RecentUploads() {
   const queryClient = useQueryClient()
   const deleteMutation = useMutation({
     mutationFn: (id) => printFiles.delete(id),
-    onSuccess: () => { queryClient.invalidateQueries(["print-files"]); toast.success('Upload deleted') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["print-files"] }); toast.success('Upload deleted') },
     onError: (err) => toast.error('Delete failed: ' + err.message),
   })
   const { data: files } = useQuery({ queryKey: ['print-files'], queryFn: () => printFiles.list() })
@@ -339,8 +339,8 @@ export default function Upload() {
     onSuccess: (data) => {
       setUploadedFile(data)
       setUploadProgress(null)
-      queryClient.invalidateQueries(['print-files'])
-      queryClient.invalidateQueries(['models'])
+      queryClient.invalidateQueries({ queryKey: ['print-files'] })
+      queryClient.invalidateQueries({ queryKey: ['models'] })
       toast.success('File uploaded successfully')
     },
     onError: (err) => {

@@ -5,7 +5,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import csv, io, json, logging, os, re
 
 from deps import (get_db, get_current_user, require_role, log_audit,
@@ -73,7 +73,7 @@ def _record_session(db, user_id, access_token, ip, user_agent):
                        {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
             db.commit()
     except Exception:
-        pass
+        log.warning("Failed to record session", exc_info=True)
 
 
 # =============================================================================
@@ -826,8 +826,8 @@ async def oidc_callback(
         # Exchange code for tokens
         tokens = await handler.exchange_code(code)
 
-        # Parse ID token to get user info
-        id_token_claims = handler.parse_id_token(tokens["id_token"])
+        # Parse and validate ID token signature
+        id_token_claims = await handler.parse_id_token(tokens["id_token"])
 
         # Also get user info for more details
         user_info = await handler.get_user_info(tokens["access_token"])
@@ -853,7 +853,7 @@ async def oidc_callback(
             user_id = existing[0]
             db.execute(
                 text("UPDATE users SET last_login = :now, email = :email WHERE id = :id"),
-                {"now": datetime.utcnow().isoformat(), "email": email, "id": user_id}
+                {"now": datetime.now(timezone.utc).isoformat(), "email": email, "id": user_id}
             )
             db.commit()
             user_role = existing._mapping.get("role", "operator")
@@ -880,7 +880,7 @@ async def oidc_callback(
                     "role": default_role,
                     "sub": oidc_subject,
                     "provider": oidc_provider,
-                    "now": datetime.utcnow().isoformat(),
+                    "now": datetime.now(timezone.utc).isoformat(),
                 }
             )
             db.commit()
@@ -900,16 +900,63 @@ async def oidc_callback(
             }
         )
 
-        # Redirect to frontend with token
-        # Frontend will store this and complete login
+        # Store a short-lived one-time code that the frontend can exchange for the JWT.
+        # This avoids leaking the JWT in the redirect URL (browser history, Referer header, logs).
+        import secrets as _secrets
+        oidc_code = _secrets.token_urlsafe(48)
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
+        db.execute(text(
+            "INSERT INTO oidc_auth_codes (code, access_token, expires_at) VALUES (:code, :token, :exp)"
+        ), {"code": oidc_code, "token": access_token, "exp": expires_at})
+        db.commit()
+
         return RedirectResponse(
-            url=f"/?token={access_token}",
+            url=f"/?oidc_code={oidc_code}",
             status_code=302
         )
 
     except Exception as e:
         log.error(f"OIDC callback error: {e}", exc_info=True)
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
+
+
+@router.post("/auth/oidc/exchange", tags=["Auth"])
+async def oidc_exchange_code(body: dict, db: Session = Depends(get_db)):
+    """Exchange a one-time OIDC auth code for a JWT access token.
+
+    The OIDC callback redirects the browser with a short-lived code instead of
+    the JWT itself, so the token never appears in browser history or server logs.
+    """
+    code = body.get("code", "")
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+
+    row = db.execute(
+        text("SELECT access_token, expires_at FROM oidc_auth_codes WHERE code = :code"),
+        {"code": code},
+    ).fetchone()
+
+    # Always delete the code (one-time use)
+    db.execute(text("DELETE FROM oidc_auth_codes WHERE code = :code"), {"code": code})
+    # Also clean up expired codes
+    db.execute(
+        text("DELETE FROM oidc_auth_codes WHERE expires_at < :now"),
+        {"now": datetime.now(timezone.utc).isoformat()},
+    )
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    expires_at = row.expires_at
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Code expired")
+
+    return {"access_token": row.access_token, "token_type": "bearer"}
 
 
 @router.get("/admin/oidc", tags=["Admin"])
@@ -1232,7 +1279,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
             raise HTTPException(status_code=400, detail="Group owner must be an operator or admin")
 
     if updates:
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates["id"] = group_id
         db.execute(text(f"UPDATE groups SET {set_clause} WHERE id = :id"), updates)

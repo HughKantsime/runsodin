@@ -7,7 +7,7 @@ order response data (items, P&L, customer info).
 """
 
 from fpdf import FPDF
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _hex_to_rgb(hex_color: str) -> tuple:
@@ -71,7 +71,7 @@ class InvoiceGenerator:
             if order_date:
                 pdf.cell(0, 6, f"Date: {order_date.strftime('%B %d, %Y')}", new_x="LMARGIN", new_y="NEXT")
 
-        generated = datetime.utcnow().strftime("%B %d, %Y")
+        generated = datetime.now(timezone.utc).strftime("%B %d, %Y")
         pdf.cell(0, 6, f"Generated: {generated}", new_x="LMARGIN", new_y="NEXT")
 
         platform = self.order.get("platform")

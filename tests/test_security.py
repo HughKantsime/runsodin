@@ -26,6 +26,7 @@ import time
 import uuid
 import os
 from dotenv import load_dotenv
+from helpers import login as _shared_login
 
 # Load test env
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env.test"))
@@ -52,49 +53,8 @@ def _no_auth_headers():
 
 
 def _login(username, password):
-    """Login and return JWT token, or None on failure.
-    Tries both JSON and form-data since FastAPI OAuth2 uses form encoding.
-    """
-    # Try 1: JSON body (custom login endpoint)
-    r = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        json={"username": username, "password": password},
-        headers=_headers(),
-        timeout=10,
-    )
-    if r.status_code == 200:
-        data = r.json()
-        token = data.get("access_token") or data.get("token")
-        if token:
-            return token
-
-    # Try 2: Form-encoded (OAuth2PasswordRequestForm)
-    r2 = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        data={"username": username, "password": password},
-        timeout=10,
-    )
-    if r2.status_code == 200:
-        data = r2.json()
-        token = data.get("access_token") or data.get("token")
-        if token:
-            return token
-
-    # Try 3: With API key header + form data
-    h = {}
-    if API_KEY:
-        h["X-API-Key"] = API_KEY
-    r3 = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        data={"username": username, "password": password},
-        headers=h,
-        timeout=10,
-    )
-    if r3.status_code == 200:
-        data = r3.json()
-        return data.get("access_token") or data.get("token")
-
-    return None
+    """Login and return JWT token, or None on failure."""
+    return _shared_login(BASE_URL, username, password, api_key=API_KEY)
 
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────────
@@ -133,34 +93,62 @@ def operator_token():
 
 @pytest.fixture(scope="session")
 def test_user_id(admin_token):
-    """Find an existing test user for column whitelist / password tests.
-    Uses rbac_temp_user or test_viewer_rbac (created by conftest).
-    Cannot create new users due to Community tier license limit.
+    """Get or create a disposable test user for column whitelist / password tests.
+
+    Self-contained: creates its own user if none exists, instead of depending
+    on RBAC test artifacts.
     """
+    username = f"security_test_{uuid.uuid4().hex[:6]}"
+    created_id = None
+
+    # Try to find an existing disposable test user first
     r = requests.get(
         f"{BASE_URL}/api/users",
         headers=_headers(admin_token),
         timeout=10,
     )
-    if r.status_code != 200:
-        pytest.skip(f"Cannot list users: {r.status_code}")
-    
-    users = r.json()
-    # Prefer rbac_temp_user, then test_viewer_rbac — disposable test accounts
-    for preferred in ["rbac_temp_user", "test_viewer_rbac"]:
+    if r.status_code == 200:
+        users = r.json()
+        for preferred in ["rbac_temp_user", "test_viewer_rbac"]:
+            for u in users:
+                if u.get("username") == preferred:
+                    yield u["id"]
+                    return
         for u in users:
-            if u.get("username") == preferred:
+            name = u.get("username", "")
+            if name.startswith("test_") and u.get("role") != "admin":
                 yield u["id"]
                 return
-    
-    # Fallback: any non-admin test user
-    for u in users:
-        name = u.get("username", "")
-        if name.startswith("test_") and u.get("role") != "admin":
-            yield u["id"]
+
+    # No existing test user found — create one
+    create_resp = requests.post(
+        f"{BASE_URL}/api/users",
+        json={
+            "username": username,
+            "email": f"{username}@test.local",
+            "password": "SecurityTestPass1!",
+            "role": "viewer",
+        },
+        headers=_headers(admin_token),
+        timeout=10,
+    )
+    if create_resp.status_code == 200:
+        created_id = create_resp.json().get("id")
+        if created_id:
+            yield created_id
+            # Cleanup
+            requests.delete(
+                f"{BASE_URL}/api/users/{created_id}",
+                headers=_headers(admin_token),
+                timeout=10,
+            )
             return
-    
-    pytest.skip("No suitable test user found — run RBAC test suite first to create test users")
+
+    # License limit or other issue — cannot create
+    pytest.skip(
+        f"No test user found and cannot create one (status {create_resp.status_code}). "
+        f"Community license may limit user count."
+    )
 
 
 @pytest.fixture(scope="session")

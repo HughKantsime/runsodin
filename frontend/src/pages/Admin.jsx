@@ -290,7 +290,7 @@ export default function Admin() {
       }
       return response.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries(['users']); setShowModal(false) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['users'] }); setShowModal(false) },
     onError: (err) => toast.error(err.message),
   })
 
@@ -304,7 +304,7 @@ export default function Admin() {
       }
       return response.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries(['users']); setShowModal(false); setEditingUser(null) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['users'] }); setShowModal(false); setEditingUser(null) },
     onError: (err) => toast.error(err.message),
   })
 
@@ -314,7 +314,7 @@ export default function Admin() {
       const response = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': import.meta.env.VITE_API_KEY } })
       if (!response.ok) throw new Error('Failed to delete user')
     },
-    onSuccess: () => queryClient.invalidateQueries(['users'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })
   })
 
   const handleSave = (formData) => { if (editingUser) { updateUser.mutate({ id: editingUser.id, ...formData }) } else { createUser.mutate(formData) } }
@@ -443,7 +443,7 @@ export default function Admin() {
       {showImportModal && (
         <ImportUsersModal
           onClose={() => setShowImportModal(false)}
-          onImported={() => queryClient.invalidateQueries(['users'])}
+          onImported={() => queryClient.invalidateQueries({ queryKey: ['users'] })}
         />
       )}
 

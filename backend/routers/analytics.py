@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import csv
@@ -29,7 +29,7 @@ router = APIRouter()
 async def get_stats(db: Session = Depends(get_db)):
     """Get dashboard statistics."""
     total_printers = db.query(Printer).count()
-    active_printers = db.query(Printer).filter(Printer.is_active == True).count()
+    active_printers = db.query(Printer).filter(Printer.is_active.is_(True)).count()
 
     pending_jobs = db.query(Job).filter(Job.status == JobStatus.PENDING).count()
     scheduled_jobs = db.query(Job).filter(Job.status == JobStatus.SCHEDULED).count()
@@ -61,7 +61,7 @@ async def get_stats(db: Session = Depends(get_db)):
 
     # --- Printer utilization stats for Utilization page ---
     printer_stats = []
-    all_printers = db.query(Printer).filter(Printer.is_active == True).all()
+    all_printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
     for p in all_printers:
         # Count completed and failed jobs for this printer
         completed_jobs = db.query(Job).filter(
@@ -208,10 +208,10 @@ def get_analytics(db: Session = Depends(get_db)):
             projected_cost += job.estimated_cost * job.quantity
 
     # Printer utilization
-    printers = db.query(Printer).filter(Printer.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
     printer_stats = []
     # Calculate time window for utilization (since first completed job or 30 days)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for printer in printers:
         printer_jobs = [j for j in completed_jobs if j.printer_id == printer.id]
         hours = sum(j.duration_hours or 0 for j in printer_jobs)
@@ -243,7 +243,7 @@ def get_analytics(db: Session = Depends(get_db)):
         })
 
     # Jobs over time (last 30 days)
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     recent_jobs = db.query(Job).filter(Job.created_at >= thirty_days_ago).all()
 
     # Group by date
@@ -297,7 +297,7 @@ def get_failure_analytics(
     db: Session = Depends(get_db),
 ):
     """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # All completed + failed jobs in window
     jobs = (
@@ -410,7 +410,7 @@ def get_time_accuracy(
     """Estimated vs actual print time accuracy stats."""
     from sqlalchemy import func as fn
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     completed = (
         db.query(Job)
         .filter(
@@ -492,7 +492,7 @@ def get_education_usage_report(
     """Education usage report — per-user job metrics and summary stats."""
     require_feature("usage_reports")
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Get all users
     users_rows = db.execute(
@@ -779,7 +779,7 @@ def export_audit_logs_csv(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.utcnow().strftime('%Y%m%d')}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"}
     )
 
 

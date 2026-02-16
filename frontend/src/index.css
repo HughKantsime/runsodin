@@ -2,7 +2,7 @@
 
 /* Fonts — IBM Plex for that technical/industrial feel */
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Raleway:wght@300;400;500;600;700&family=Nunito:wght@300;400;600;700&family=Source+Sans+3:wght@300;400;600;700&family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Urbanist:wght@300;400;500;600;700&family=Oswald:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=Source+Serif+4:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Inconsolata:wght@400;500;600;700&display=swap');
+/* Branding font families — loaded on-demand by Branding page (see Branding.jsx) */
 
 :root {
   /* Brand colors — Forge palette defaults */
@@ -273,7 +273,7 @@ html.light {
   --farm-200: 30 41 59;
   --farm-300: 51 65 85;
   --farm-400: 71 85 105;
-  --farm-500: 100 116 139;
+  --farm-500: 75 85 99;
   --farm-600: 148 163 184;
   --farm-700: 203 213 225;
   --farm-800: 226 232 240;
@@ -463,6 +463,10 @@ html.light .bg-gradient-to-l.text-white { color: #fff !important; }
 html.light .relative > .absolute .text-white,
 html.light .relative > .absolute.text-white { color: #fff !important; }
 
+/* Control room — bg-black full overlay keeps white text */
+html.light .bg-black .text-white,
+html.light .bg-black.text-white { color: #fff !important; }
+
 /* Inline-styled colored backgrounds (branding preview buttons etc.) */
 html.light [style*="backgroundColor"] .text-white,
 html.light [style*="background-color"] .text-white { color: #fff !important; }
@@ -499,3 +503,40 @@ html.light .rounded-full.bg-white {
 
 html.light .placeholder-white\/30::placeholder { color: rgb(var(--farm-500) / 0.5); }
 html.light .placeholder-white\/50::placeholder { color: rgb(var(--farm-500) / 0.5); }
+
+/* ============================================
+   Setup wizard — force dark palette in light mode
+   The wizard uses farm colors and text-white directly;
+   restoring dark-mode values prevents inversion.
+   ============================================ */
+
+html.light .setup-wizard {
+  --farm-50: 244 246 249;
+  --farm-100: 232 236 242;
+  --farm-200: 212 218 228;
+  --farm-300: 184 194 208;
+  --farm-400: 139 149 168;
+  --farm-500: 74 85 104;
+  --farm-600: 54 65 85;
+  --farm-700: 37 45 61;
+  --farm-800: 26 32 48;
+  --farm-900: 15 18 24;
+  --farm-950: 10 12 16;
+}
+html.light .setup-wizard .text-white { color: #fff !important; }
+html.light .setup-wizard .text-white\/90 { color: rgba(255,255,255,0.9) !important; }
+html.light .setup-wizard .text-white\/80 { color: rgba(255,255,255,0.8) !important; }
+html.light .setup-wizard .text-white\/70 { color: rgba(255,255,255,0.7) !important; }
+html.light .setup-wizard .text-white\/30 { color: rgba(255,255,255,0.3) !important; }
+html.light .setup-wizard .text-white\/20 { color: rgba(255,255,255,0.2) !important; }
+html.light .setup-wizard .bg-white\/5 { background-color: rgba(255,255,255,0.05) !important; }
+html.light .setup-wizard .bg-white\/10 { background-color: rgba(255,255,255,0.1) !important; }
+html.light .setup-wizard .border-white\/10 { border-color: rgba(255,255,255,0.1) !important; }
+html.light .setup-wizard .placeholder-white\/30::placeholder { color: rgba(255,255,255,0.3) !important; }
+html.light .setup-wizard input,
+html.light .setup-wizard select,
+html.light .setup-wizard textarea {
+  background-color: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+  color: #fff;
+}

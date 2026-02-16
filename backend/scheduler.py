@@ -237,7 +237,7 @@ class Scheduler:
         total_slots = self.config.horizon_days * 24 * (60 // self.slot_minutes)
 
         # Load printers
-        printers = db.query(Printer).filter(Printer.is_active == True).all()
+        printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
         if not printers:
             result.success = False
             result.errors.append("No active printers found")

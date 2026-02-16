@@ -18,17 +18,17 @@ export default function ReportScheduleManager() {
 
   const createSchedule = useMutation({
     mutationFn: (data) => reportSchedules.create(data),
-    onSuccess: () => { queryClient.invalidateQueries(['report-schedules']); setShowCreate(false); setForm({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' }) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['report-schedules'] }); setShowCreate(false); setForm({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' }) },
   })
 
   const deleteSchedule = useMutation({
     mutationFn: (id) => reportSchedules.delete(id),
-    onSuccess: () => queryClient.invalidateQueries(['report-schedules']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-schedules'] }),
   })
 
   const toggleSchedule = useMutation({
     mutationFn: ({ id, is_active }) => reportSchedules.update(id, { is_active }),
-    onSuccess: () => queryClient.invalidateQueries(['report-schedules']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-schedules'] }),
   })
 
   const handleCreate = () => {

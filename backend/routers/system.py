@@ -17,6 +17,7 @@ import httpx
 from deps import (
     get_db, get_current_user, require_role, log_audit, _validate_password, SessionLocal,
 )
+from datetime import timezone
 from models import (
     Printer, FilamentSlot, FilamentType, SystemConfig, MaintenanceTask, MaintenanceLog,
     Model, Job, Spool, FilamentLibrary,
@@ -32,13 +33,17 @@ log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
-# Read version from VERSION file
+# Read version from VERSION file (same logic as main.py)
 import pathlib as _pathlib
 _version_file = _pathlib.Path(__file__).parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:
-    __version__ = "1.3.25"
+    # Import from main.py so there's a single fallback value
+    try:
+        from main import __version__  # noqa: F811
+    except ImportError:
+        __version__ = "0.0.0"
 
 
 # ============== Health Check ==============
@@ -52,8 +57,8 @@ async def health_check():
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
                 spoolman_ok = resp.status_code == 200
-        except:
-            pass
+        except Exception:
+            pass  # Spoolman connectivity is optional — failure is not an error
 
     return HealthCheck(
         status="ok",
@@ -278,8 +283,14 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
 
 
 @router.post("/setup/printer", tags=["Setup"])
-def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get_db)):
+def setup_create_printer(
+    request: SetupPrinterRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Create a printer during setup. Requires JWT from admin creation step."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
     if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     # Encrypt api_key if provided
@@ -314,8 +325,13 @@ def setup_create_printer(request: SetupPrinterRequest, db: Session = Depends(get
 
 
 @router.post("/setup/complete", tags=["Setup"])
-def setup_mark_complete(db: Session = Depends(get_db)):
+def setup_mark_complete(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Mark setup as complete. Prevents wizard from showing again."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
     if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     existing = db.execute(text(
@@ -688,7 +704,7 @@ async def prometheus_metrics(db: Session = Depends(get_db)):
     error_count = 0
 
     from datetime import datetime, timedelta
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     for p in printers_all:
         pm = dict(p._mapping)
@@ -993,7 +1009,7 @@ async def update_branding(data: dict, current_user: dict = Depends(require_role(
     for key, value in data.items():
         if key in UPDATABLE_FIELDS:
             setattr(branding, key, value)
-    branding.updated_at = datetime.utcnow()
+    branding.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(branding)
     return branding_to_dict(branding)
@@ -1067,7 +1083,7 @@ def create_backup(current_user: dict = Depends(require_role("admin")), db: Sessi
     if not os.path.isabs(db_path):
         db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", db_path)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_name = f"odin_backup_{timestamp}.db"
     backup_path = str(backup_dir / backup_name)
 
@@ -1086,7 +1102,7 @@ def create_backup(current_user: dict = Depends(require_role("admin")), db: Sessi
         "filename": backup_name,
         "size_bytes": size,
         "size_mb": round(size / 1048576, 2),
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
 
 
@@ -1357,8 +1373,8 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
 @router.get("/maintenance/status", tags=["Maintenance"])
 def get_maintenance_status(db: Session = Depends(get_db)):
     """Get maintenance status for all active printers. Returns per-printer task health."""
-    printers = db.query(Printer).filter(Printer.is_active == True).order_by(Printer.name).all()
-    tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active == True).all()
+    printers = db.query(Printer).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
+    tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active.is_(True)).all()
 
     # Total print hours per printer (from care counters, updated by monitors)
     # Note: Previously calculated from jobs table, now using real-time counter
@@ -1372,7 +1388,7 @@ def get_maintenance_status(db: Session = Depends(get_db)):
         if key not in log_map or (mlog.performed_at and log_map[key].performed_at and mlog.performed_at > log_map[key].performed_at):
             log_map[key] = mlog
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = []
 
     for printer in printers:

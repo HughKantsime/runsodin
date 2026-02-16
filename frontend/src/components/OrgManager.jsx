@@ -41,22 +41,22 @@ export default function OrgManager() {
 
   const createOrg = useMutation({
     mutationFn: (data) => orgs.create(data),
-    onSuccess: () => { queryClient.invalidateQueries(['orgs']); setShowCreate(false); setName('') },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orgs'] }); setShowCreate(false); setName('') },
   })
 
   const deleteOrg = useMutation({
     mutationFn: (id) => orgs.delete(id),
-    onSuccess: () => queryClient.invalidateQueries(['orgs']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
   })
 
   const addMember = useMutation({
     mutationFn: ({ orgId, userId }) => orgs.addMember(orgId, userId),
-    onSuccess: () => queryClient.invalidateQueries(['orgs']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
   })
 
   const assignPrinter = useMutation({
     mutationFn: ({ orgId, printerId }) => orgs.assignPrinter(orgId, printerId),
-    onSuccess: () => queryClient.invalidateQueries(['orgs']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
   })
 
   if (!canDo('settings.edit')) return null

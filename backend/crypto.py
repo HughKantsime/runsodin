@@ -5,10 +5,13 @@ Uses Fernet symmetric encryption. Keys are encrypted at rest
 and decrypted only when needed.
 """
 
+import logging
 import os
 import base64
 from typing import Optional
 from cryptography.fernet import Fernet, InvalidToken
+
+log = logging.getLogger("odin.crypto")
 
 
 def get_fernet() -> Optional[Fernet]:
@@ -19,6 +22,7 @@ def get_fernet() -> Optional[Fernet]:
     try:
         return Fernet(key.encode())
     except Exception:
+        log.error("ENCRYPTION_KEY is set but invalid — cannot initialize Fernet")
         return None
 
 
@@ -27,25 +31,28 @@ def generate_key() -> str:
     return Fernet.generate_key().decode()
 
 
-def encrypt(plaintext: str) -> Optional[str]:
+def encrypt(plaintext: str) -> str:
     """
     Encrypt a string. Returns base64-encoded ciphertext.
-    Returns None if encryption is not configured.
+    Raises RuntimeError if encryption is not configured.
     """
     if not plaintext:
         return plaintext
-    
+
     fernet = get_fernet()
     if not fernet:
-        # No encryption key configured, return as-is
-        # (for backwards compatibility)
-        return plaintext
-    
+        log.error("ENCRYPTION_KEY not configured — refusing to store plaintext secret")
+        raise RuntimeError(
+            "ENCRYPTION_KEY is not configured. Cannot store sensitive data without encryption. "
+            "Generate a key with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+
     try:
         encrypted = fernet.encrypt(plaintext.encode())
         return encrypted.decode()
     except Exception:
-        return plaintext
+        log.error("Fernet encryption failed", exc_info=True)
+        raise RuntimeError("Encryption failed — check ENCRYPTION_KEY configuration")
 
 
 def decrypt(ciphertext: str) -> Optional[str]:

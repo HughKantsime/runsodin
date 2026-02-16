@@ -560,15 +560,18 @@ def test_rbac(method, path_template, role, expected_status, body, notes, tokens,
         return
 
     # Acceptable alternatives when we expected success (200/201/204)
+    # Auth passed but downstream issue (missing data, conflict) — not an RBAC bug
     if expected_status in (200, 201, 204):
-        if actual in (200, 201, 204, 404, 422, 409, 400):
-            return  # Auth passed, downstream issue
+        if actual in (200, 201, 204, 404, 409):
+            import warnings
+            warnings.warn(f"RBAC soft pass: {method} {path} [{role}] expected {expected_status}, got {actual}")
+            return
 
-    # Expected 403 but got 422 (setup endpoints — validation before lock check)
+    # Expected 403 but got 422 (setup endpoints — validation runs before lock check)
     if expected_status == 403 and actual == 422 and "/api/setup/" in path:
         return
 
-    # Expected 401 but got 403 (some middleware returns 403 instead)
+    # Expected 401 but got 403 (some middleware returns 403 instead of 401)
     if expected_status == 401 and actual == 403:
         return
 
@@ -576,16 +579,12 @@ def test_rbac(method, path_template, role, expected_status, body, notes, tokens,
     if expected_status == 403 and actual == 401 and role == "api_key_only":
         return  # api_key_only has no JWT, so 401 is acceptable for "must be operator+"
 
-    # Expected 200 for api_key_only but got 401 (endpoint requires JWT)
-    # This is NOT a failure for write endpoints — they should require JWT
-    # But for read endpoints, this means the endpoint requires JWT even with API key
-    if expected_status == 200 and actual == 401 and role == "api_key_only":
-        return  # Stricter than expected but not a security issue
-
-    # 500 on mutating endpoints with test data that may not exist
-    if actual == 500 and expected_status in (200, 201, 204):
-        # Log but don't fail — server error is a bug but not RBAC
-        pytest.skip(f"Server error 500 on {method} {path} [{role}] — likely data issue, not RBAC")
+    # 500 on privileged endpoints is a server bug, not a skip
+    if actual == 500:
+        pytest.fail(
+            f"Server error 500 on {method} {path} [{role}] — "
+            f"expected {expected_status}. Server errors are bugs, not data issues."
+        )
 
     pytest.fail(
         f"\n{'='*60}\n"

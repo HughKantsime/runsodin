@@ -25,6 +25,7 @@ import os
 import uuid
 import csv
 import io
+from helpers import login as _shared_login, auth_headers as _make_headers
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -46,19 +47,13 @@ _TEST_TAG = f"phase3_{uuid.uuid4().hex[:6]}"
 # ---------------------------------------------------------------------------
 
 def _login(username, password):
-    """Login and return JWT token. Uses form-data (not JSON)."""
-    r = requests.post(
-        f"{BASE_URL}/api/auth/login",
-        data={"username": username, "password": password},
-    )
-    if r.status_code == 200:
-        return r.json().get("access_token")
-    return None
+    """Login and return JWT token."""
+    return _shared_login(BASE_URL, username, password)
 
 
 def _headers(token):
     """Return auth headers dict."""
-    return {"Authorization": f"Bearer {token}"}
+    return _make_headers(token)
 
 
 # ---------------------------------------------------------------------------
@@ -238,15 +233,13 @@ class TestMonitoringControl:
         assert isinstance(data, dict)
 
     def test_f3_emergency_stop_endpoint(self, admin_headers, first_printer_id):
-        """F3: Emergency stop — endpoint exists and responds.
-        Note: 500 when printer offline is a known issue (handler doesn't gracefully
-        handle disconnected printers). Endpoint EXISTS, which is what we're verifying."""
+        """F3: Emergency stop — endpoint exists and responds."""
         r = requests.post(
             f"{BASE_URL}/api/printers/{first_printer_id}/stop",
             headers=admin_headers,
         )
-        # 500 = printer offline crash (known issue, not a missing feature)
-        assert r.status_code in (200, 400, 404, 422, 500, 503), f"Unexpected: {r.status_code}"
+        # 200=success, 400=invalid state, 404=not found, 422=validation, 503=printer offline
+        assert r.status_code in (200, 400, 404, 422, 503), f"Unexpected: {r.status_code}"
 
     def test_f4_light_toggle_endpoint(self, admin_headers, first_printer_id):
         """F4: Light toggle — endpoint exists and responds."""
@@ -261,8 +254,8 @@ class TestMonitoringControl:
                 headers=admin_headers,
                 json={"on": True},
             )
-        # 405 = endpoint exists but method not allowed (still counts as "feature exists")
-        assert r.status_code in (200, 400, 404, 405, 422, 500, 503), f"Unexpected: {r.status_code}"
+        # 200=toggled, 400=invalid state, 404=not found, 405=wrong method, 422=validation, 503=printer offline
+        assert r.status_code in (200, 400, 404, 405, 422, 503), f"Unexpected: {r.status_code}"
 
     def test_f5_smart_plug_on(self, admin_headers, first_printer_id):
         """F5: Smart plug on — endpoint exists."""
@@ -633,13 +626,9 @@ class TestNotifications:
     """F39-F43: Alerts, webhooks, push, quiet hours."""
 
     def test_f39_alerts_list(self, admin_headers):
-        """F39: Alerts list endpoint.
-        NOTE: 500 is a known bug — alerts endpoint crashes. Log as issue."""
+        """F39: Alerts list endpoint."""
         r = requests.get(f"{BASE_URL}/api/alerts", headers=admin_headers)
-        if r.status_code == 500:
-            import warnings
-            warnings.warn("KNOWN BUG: GET /api/alerts returns 500 — needs investigation")
-        assert r.status_code in (200, 500), f"Unexpected: {r.status_code}"
+        assert r.status_code == 200, f"GET /api/alerts failed: {r.status_code}"
 
     def test_f40_mark_alert_read(self, admin_headers, first_alert_id):
         """F40: Mark alert as read."""

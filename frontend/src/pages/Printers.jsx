@@ -391,9 +391,9 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
   )
 }
 function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
-  const [formData, setFormData] = useState({ 
-    name: '', 
-    model: '', 
+  const [formData, setFormData] = useState({
+    name: '',
+    model: '',
     slot_count: 4,
     api_type: '',
     api_host: '',
@@ -402,6 +402,29 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
   })
   const [testStatus, setTestStatus] = useState(null)
   const [testMessage, setTestMessage] = useState('')
+  const modalRef = useRef(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
 
   useEffect(() => {
     if (printer) {
@@ -515,7 +538,7 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="printer-modal-title">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
+      <div ref={modalRef} className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 id="printer-modal-title" className="text-lg sm:text-xl font-display font-semibold">{isEditing ? 'Edit Printer' : 'Add New Printer'}</h2>
           <button onClick={onClose} className="text-farm-500 hover:text-farm-300" aria-label="Close printer form"><X size={20} /></button>
@@ -803,11 +826,11 @@ export default function Printers() {
     return res.json()
   }})
   
-  const createPrinter = useMutation({ mutationFn: printers.create, onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false) } })
-  const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries(['printers']); setShowModal(false); setEditingPrinter(null) } })
-  const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries(['printers']) })
-  const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries(['printers']) })
-  const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries(['printers']) })
+  const createPrinter = useMutation({ mutationFn: printers.create, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false) } })
+  const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false); setEditingPrinter(null) } })
+  const deletePrinter = useMutation({ mutationFn: printers.delete, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }) })
+  const updateSlot = useMutation({ mutationFn: ({ printerId, slotNumber, data }) => printers.updateSlot(printerId, slotNumber, data), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }) })
+  const reorderPrinters = useMutation({ mutationFn: printers.reorder, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['printers'] }) })
 
   // Bulk selection
   const [selectedPrinters, setSelectedPrinters] = useState(new Set())
@@ -821,7 +844,7 @@ export default function Printers() {
   }
   const bulkPrinterAction = useMutation({
     mutationFn: ({ action, extra }) => bulkOps.printers([...selectedPrinters], action, extra),
-    onSuccess: () => { queryClient.invalidateQueries(['printers']); setSelectedPrinters(new Set()) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setSelectedPrinters(new Set()) },
   })
 
   useEffect(() => {
@@ -945,7 +968,7 @@ export default function Printers() {
       })
       const result = await response.json()
       if (response.ok) {
-        queryClient.invalidateQueries(['printers'])
+        queryClient.invalidateQueries({ queryKey: ['printers'] })
       } else {
         alert(result.detail || 'Sync failed')
       }
@@ -1093,7 +1116,7 @@ export default function Printers() {
           preselectedPrinter={scannerPrinterId}
           onAssigned={() => {
             setShowScanner(false);
-            queryClient.invalidateQueries(['printers']);
+            queryClient.invalidateQueries({ queryKey: ['printers'] });
           }}
         />
       )}

@@ -5,7 +5,7 @@ live status, printer commands (stop/pause/resume), lights,
 smart plug control, AMS environment, telemetry, and nozzle lifecycle.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 import json
@@ -159,7 +159,7 @@ def _get_lan_ip():
 
 def sync_go2rtc_config(db: Session):
     """Regenerate go2rtc config from printer camera URLs."""
-    printers = db.query(Printer).filter(Printer.is_active == True, Printer.camera_enabled == True).all()
+    printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
     streams = {}
     for p in printers:
         url = get_camera_url(p)
@@ -215,6 +215,21 @@ def sync_go2rtc_config_standalone():
 # Printer command helpers
 # ====================================================================
 
+# Allowlist of adapter methods that may be invoked via command dispatch.
+# Prevents arbitrary method execution through getattr.
+_ALLOWED_COMMANDS = frozenset({"pause", "resume", "stop", "start"})
+
+
+def _call_adapter_method(adapter, action: str, *args):
+    """Dispatch an allowed command to an adapter via explicit allowlist."""
+    if action not in _ALLOWED_COMMANDS:
+        raise ValueError(f"Unknown printer command: {action}")
+    method = getattr(adapter, action, None)
+    if method is None:
+        raise ValueError(f"Adapter {type(adapter).__name__} does not support '{action}'")
+    return method(*args)
+
+
 def _bambu_command(printer, action: str) -> bool:
     """Send a command to a Bambu printer via a short-lived MQTT connection.
 
@@ -231,7 +246,7 @@ def _bambu_command(printer, action: str) -> bool:
             client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
         )
         if adapter.connect():
-            success = getattr(adapter, action)()
+            success = _call_adapter_method(adapter, action)
             _time.sleep(0.3)  # let the ACK settle
             adapter.disconnect()
             return success
@@ -255,7 +270,7 @@ def _prusalink_command(printer, action: str) -> bool:
         if not status or not status.job_id:
             log.error(f"PrusaLink {action}: no active job_id for printer {printer.id}")
             return False
-        return getattr(adapter, action)(status.job_id)
+        return _call_adapter_method(adapter, action, status.job_id)
     except Exception as e:
         log.error(f"PrusaLink {action} failed for printer {printer.id}: {e}")
     return False
@@ -268,7 +283,7 @@ def _elegoo_command(printer, action: str) -> bool:
         mainboard_id = crypto.decrypt(printer.api_key) if printer.api_key else ""
         adapter = ElegooPrinter(printer.api_host, mainboard_id=mainboard_id)
         if adapter.connect():
-            success = getattr(adapter, action)()
+            success = _call_adapter_method(adapter, action)
             adapter.disconnect()
             return success
     except Exception as e:
@@ -278,10 +293,13 @@ def _elegoo_command(printer, action: str) -> bool:
 
 def _send_printer_command(printer, action: str) -> bool:
     """Route a command to the correct adapter based on printer type."""
+    if action not in _ALLOWED_COMMANDS:
+        log.error(f"Rejected unknown printer command: {action}")
+        return False
     if printer.api_type == "moonraker":
         from moonraker_adapter import MoonrakerPrinter
         adapter = MoonrakerPrinter(printer.api_host)
-        return getattr(adapter, action)()
+        return _call_adapter_method(adapter, action)
     elif printer.api_type == "prusalink":
         return _prusalink_command(printer, action)
     elif printer.api_type == "elegoo":
@@ -305,7 +323,7 @@ def list_printers(
     """List all printers, optionally filtered by tag and org."""
     query = db.query(Printer)
     if active_only:
-        query = query.filter(Printer.is_active == True)
+        query = query.filter(Printer.is_active.is_(True))
 
     # Org scoping: explicit org_id param takes precedence, else implicit scope
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
@@ -517,7 +535,7 @@ def update_filament_slot(
         slot.assigned_spool_id = None
         slot.spool_confirmed = False
 
-    slot.loaded_at = datetime.utcnow()
+    slot.loaded_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(slot)
     return slot
@@ -602,7 +620,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 db_slot.filament_type = ftype
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
-                db_slot.loaded_at = datetime.utcnow()
+                db_slot.loaded_at = datetime.now(timezone.utc)
                 updated_slots.append({
                     "slot": slot_num, "type": ftype.value, "color": color_name,
                     "color_hex": color_hex, "matched": "mmu_gate"})
@@ -852,7 +870,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 db_slot.color_hex = color_hex
                 db_slot.assigned_spool_id = rfid_match.id
                 db_slot.spool_confirmed = True
-                db_slot.loaded_at = datetime.utcnow()
+                db_slot.loaded_at = datetime.now(timezone.utc)
 
                 # Update spool location
                 rfid_match.location_printer_id = printer_id
@@ -929,7 +947,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 db_slot.color_hex = color_hex
                 db_slot.assigned_spool_id = new_spool.id
                 db_slot.spool_confirmed = True
-                db_slot.loaded_at = datetime.utcnow()
+                db_slot.loaded_at = datetime.now(timezone.utc)
 
                 updated_slots.append({
                     "slot": ams_slot.slot_number,
@@ -952,7 +970,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
                 db_slot.spoolman_spool_id = None
-                db_slot.loaded_at = datetime.utcnow()
+                db_slot.loaded_at = datetime.now(timezone.utc)
                 updated_slots.append({
                     "slot": ams_slot.slot_number,
                     "type": ftype.value,
@@ -978,7 +996,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 db_slot.color = color_name
                 db_slot.color_hex = color_hex
                 db_slot.spoolman_spool_id = spoolman_id
-                db_slot.loaded_at = datetime.utcnow()
+                db_slot.loaded_at = datetime.now(timezone.utc)
                 updated_slots.append({
                     "slot": ams_slot.slot_number,
                     "type": ftype.value,
@@ -996,7 +1014,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
             db_slot.color = color_name
             db_slot.color_hex = color_hex
             db_slot.spoolman_spool_id = None
-            db_slot.loaded_at = datetime.utcnow()
+            db_slot.loaded_at = datetime.now(timezone.utc)
             updated_slots.append({
                 "slot": ams_slot.slot_number,
                 "type": ftype.value,
@@ -1120,7 +1138,7 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
 
         # Update DB immediately + set cooldown so monitor doesn't overwrite
         printer.lights_on = turn_on
-        printer.lights_toggled_at = datetime.utcnow()
+        printer.lights_toggled_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(printer)
 
@@ -1353,7 +1371,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
         else:
             db_slot.color_hex = slot_info.color_hex
             db_slot.color = slot_info.color_name or slot_info.brand
-        db_slot.loaded_at = datetime.utcnow()
+        db_slot.loaded_at = datetime.now(timezone.utc)
 
         if slot_info.matched_filament:
             db_slot.spoolman_id = slot_info.matched_filament.get('id')
@@ -1420,7 +1438,7 @@ async def manual_slot_assignment(
         if assignment.color_hex:
             slot.color_hex = assignment.color_hex
 
-    slot.loaded_at = datetime.utcnow()
+    slot.loaded_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(slot)
 
@@ -1937,7 +1955,7 @@ def install_nozzle(printer_id: int, data: NozzleInstall,
         NozzleLifecycle.removed_at.is_(None),
     ).first()
     if current:
-        current.removed_at = datetime.utcnow()
+        current.removed_at = datetime.now(timezone.utc)
     # Install new nozzle
     nozzle = NozzleLifecycle(
         printer_id=printer_id,
@@ -1963,7 +1981,7 @@ def retire_nozzle(printer_id: int, nozzle_id: int,
         raise HTTPException(status_code=404, detail="Nozzle not found")
     if nozzle.removed_at:
         raise HTTPException(status_code=400, detail="Nozzle already retired")
-    nozzle.removed_at = datetime.utcnow()
+    nozzle.removed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(nozzle)
     return NozzleLifecycleResponse.model_validate(nozzle)
