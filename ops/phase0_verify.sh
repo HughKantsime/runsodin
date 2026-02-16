@@ -214,10 +214,17 @@ phase_0b() {
         fail "Restart count: ${restarts} — possible crash loop"
     fi
 
-    # Supervisor status — required services
+    # Supervisor status — required services (retry STARTING up to 15s)
     for svc in "${REQUIRED_SERVICES[@]}"; do
-        local svc_status
-        svc_status=$(docker exec "${CONTAINER_NAME}" supervisorctl status "$svc" 2>/dev/null | awk '{print $2}' || echo "UNKNOWN")
+        local svc_status retries=5
+        while [[ $retries -gt 0 ]]; do
+            svc_status=$(docker exec "${CONTAINER_NAME}" supervisorctl status "$svc" 2>/dev/null | awk '{print $2}' || echo "UNKNOWN")
+            if [[ "$svc_status" != "STARTING" ]]; then
+                break
+            fi
+            sleep 3
+            ((retries--))
+        done
         if [[ "$svc_status" == "RUNNING" ]]; then
             pass "Supervisor: ${svc} is RUNNING"
         elif [[ "$svc_status" == "FATAL" ]]; then
