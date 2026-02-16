@@ -25,6 +25,7 @@ services:
     volumes:
       - ./odin-data:/data
       - ./odin-data/go2rtc:/app/go2rtc
+      - ./tests/fixtures/odin_test.license:/data/odin.license:ro
     environment:
       # REQUIRED on first run — generate with:
       #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
