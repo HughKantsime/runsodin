@@ -217,7 +217,7 @@ def sync_go2rtc_config_standalone():
 
 # Allowlist of adapter methods that may be invoked via command dispatch.
 # Prevents arbitrary method execution through getattr.
-_ALLOWED_COMMANDS = frozenset({"pause", "resume", "stop", "start"})
+_ALLOWED_COMMANDS = frozenset({"pause_print", "resume_print", "stop_print", "cancel_print"})
 
 
 def _call_adapter_method(adapter, action: str, *args):
@@ -1627,7 +1627,7 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
         db.execute(text("UPDATE printers SET gcode_state = 'IDLE', print_stage = 'Idle' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print stopped"}
-    raise HTTPException(status_code=500, detail="Failed to stop print")
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
 
 @router.post("/printers/{printer_id}/pause", tags=["Printers"])
@@ -1641,7 +1641,7 @@ async def pause_printer(printer_id: int, current_user: dict = Depends(require_ro
         db.execute(text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print paused"}
-    raise HTTPException(status_code=500, detail="Failed to pause print")
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
 
 @router.post("/printers/{printer_id}/resume", tags=["Printers"])
@@ -1655,7 +1655,7 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
         db.execute(text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print resumed"}
-    raise HTTPException(status_code=500, detail="Failed to resume print")
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
 
 # ====================================================================

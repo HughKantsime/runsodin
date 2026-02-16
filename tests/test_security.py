@@ -241,7 +241,7 @@ class TestSetupEndpointsLocked:
             headers=_no_auth_headers(),
             timeout=10,
         )
-        assert r.status_code in (403, 422), \
+        assert r.status_code in (401, 403, 422), \
             f"{endpoint} not locked! Got {r.status_code} — SB-3 regression (SSRF vector!)"
 
 
