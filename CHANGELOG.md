@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.29] - 2026-02-15
+
+### Added
+- **True light mode** — Complete light theme with 150+ CSS overrides: all 15 `--brand-*` variables, farm palette opacity variants, status color remapping (red-50/green-50/blue-50 tints for light surfaces), scrollbars, focus rings, selection highlighting, table rows, skeleton loaders, card elevation shadows
+- **Chart CSS variables** — `--chart-card-bg`, `--chart-grid`, `--chart-axis`, `--chart-tooltip-bg/border/shadow` for theme-aware Recharts rendering
+
+### Fixed
+- **BrandingContext specificity bug** — `applyBrandingCSS()` inline styles clobbered `html.light` CSS overrides; light mode now removes surface variable inline styles so the stylesheet wins
+- **Theme toggle reactivity** — MutationObserver on `document.documentElement.classList` reapplies branding when user switches between light/dark mode
+- **Analytics page dark-on-light** — Replaced hardcoded `rgba(17,24,39,0.8)` card backgrounds and `#111827`/`#1F2937`/`#374151` Recharts colors with CSS variable references across Analytics, EnergyWidget, AmsEnvironmentChart, and PrinterTelemetryChart
+- **Invisible text in light mode** — `text-white` fallbacks on Analytics stat values changed to `text-farm-100` (resolves to near-black on light backgrounds)
+
 ## [1.3.28] - 2026-02-14
 
 ### Added
