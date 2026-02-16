@@ -308,7 +308,7 @@ Upon termination:
 
 [ATTORNEY REVIEW RECOMMENDED: Specify state jurisdiction based on company registration.]
 
-This Agreement is governed by the laws of the United States and the State of [STATE], without regard to conflict of law principles. Any disputes arising under this Agreement shall be resolved in the state or federal courts located in [COUNTY], [STATE].
+This Agreement is governed by the laws of the United States and the State of Delaware, without regard to conflict of law principles. Any disputes arising under this Agreement shall be resolved in the state or federal courts located in New Castle County, Delaware.
 
 ### 15.2 Export Compliance
 

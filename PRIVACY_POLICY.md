@@ -157,9 +157,9 @@ If you store personal data in O.D.I.N. (e.g., user accounts, customer names in o
 
 O.D.I.N. includes tools to assist with data protection compliance:
 
-- **GDPR data export:** Full JSON export of all user data (Enterprise tier)
-- **Anonymization:** Anonymize user records while preserving analytics (Enterprise tier)
-- **Data retention policies:** Configurable TTL per data type (Enterprise tier)
+- **GDPR data export:** Full JSON export of all user data (all tiers)
+- **Anonymization:** Anonymize user records while preserving analytics (all tiers)
+- **Data retention policies:** Configurable TTL per data type (all tiers)
 - **Audit log:** Searchable history of administrative actions
 
 ---
@@ -187,7 +187,7 @@ For data stored on your O.D.I.N. instance, you have full control. You can:
 - Export all data at any time (database backups, CSV exports, GDPR data export)
 - Delete any data at any time
 - Uninstall the Software and retain your database
-- Anonymize user records (Enterprise tier)
+- Anonymize user records (all tiers)
 
 No request to Sublab 3DP is needed — you control the server.
 
