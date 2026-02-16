@@ -708,7 +708,7 @@ function FontSelector({ label, desc, value, options, onChange }) {
           </option>
         ))}
       </select>
-      <div className="mt-2 text-lg" style={{ fontFamily: value, color: "#e5e4e1" }}>
+      <div className="mt-2 text-lg" style={{ fontFamily: value, color: "var(--brand-text-primary)" }}>
         Aa Bb Cc 0123456789
       </div>
     </div>

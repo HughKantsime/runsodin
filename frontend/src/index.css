@@ -241,7 +241,7 @@
 
 html.light {
   /* Brand surface variables */
-  --brand-primary: #b45309;
+  --brand-primary: #92400e;
   --brand-accent: #d97706;
   --brand-sidebar-bg: #f8fafc;
   --brand-sidebar-border: #e2e8f0;
@@ -372,3 +372,130 @@ html.light ::selection {
 html.light .job-card:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
+
+/* ============================================
+   Light mode — text-white blanket override
+   Remaps text-white to dark text so it's visible
+   on white/light backgrounds.
+   ============================================ */
+
+html.light .text-white { color: rgb(var(--farm-100)); }
+html.light .text-white\/90 { color: rgb(var(--farm-100) / 0.9); }
+html.light .text-white\/80 { color: rgb(var(--farm-100) / 0.8); }
+html.light .text-white\/70 { color: rgb(var(--farm-100) / 0.7); }
+html.light .text-white\/60 { color: rgb(var(--farm-100) / 0.6); }
+html.light .text-white\/50 { color: rgb(var(--farm-100) / 0.5); }
+html.light .text-white\/40 { color: rgb(var(--farm-100) / 0.4); }
+html.light .text-white\/30 { color: rgb(var(--farm-100) / 0.3); }
+
+/* --- Exceptions: keep white text on colored backgrounds --- */
+/* Brand buttons */
+html.light .bg-print-500 .text-white,
+html.light .bg-print-600 .text-white,
+html.light .bg-print-700 .text-white,
+html.light .bg-print-500.text-white,
+html.light .bg-print-600.text-white,
+html.light .bg-print-700.text-white { color: #fff !important; }
+
+/* Status badges — red */
+html.light .bg-red-500 .text-white,
+html.light .bg-red-600 .text-white,
+html.light .bg-red-700 .text-white,
+html.light .bg-red-500.text-white,
+html.light .bg-red-600.text-white,
+html.light .bg-red-700.text-white { color: #fff !important; }
+
+/* Status badges — green */
+html.light .bg-green-500 .text-white,
+html.light .bg-green-600 .text-white,
+html.light .bg-green-700 .text-white,
+html.light .bg-green-500.text-white,
+html.light .bg-green-600.text-white,
+html.light .bg-green-700.text-white { color: #fff !important; }
+
+/* Status badges — blue */
+html.light .bg-blue-500 .text-white,
+html.light .bg-blue-600 .text-white,
+html.light .bg-blue-700 .text-white,
+html.light .bg-blue-500.text-white,
+html.light .bg-blue-600.text-white,
+html.light .bg-blue-700.text-white { color: #fff !important; }
+
+/* Status badges — amber */
+html.light .bg-amber-500 .text-white,
+html.light .bg-amber-600 .text-white,
+html.light .bg-amber-700 .text-white,
+html.light .bg-amber-500.text-white,
+html.light .bg-amber-600.text-white,
+html.light .bg-amber-700.text-white { color: #fff !important; }
+
+/* Status badges — purple */
+html.light .bg-purple-500 .text-white,
+html.light .bg-purple-600 .text-white,
+html.light .bg-purple-700 .text-white,
+html.light .bg-purple-500.text-white,
+html.light .bg-purple-600.text-white,
+html.light .bg-purple-700.text-white { color: #fff !important; }
+
+/* Status indicators */
+html.light .bg-status-printing .text-white,
+html.light .bg-status-completed .text-white,
+html.light .bg-status-failed .text-white,
+html.light .bg-status-pending .text-white,
+html.light .bg-status-scheduled .text-white,
+html.light .bg-status-printing.text-white,
+html.light .bg-status-completed.text-white,
+html.light .bg-status-failed.text-white,
+html.light .bg-status-pending.text-white,
+html.light .bg-status-scheduled.text-white { color: #fff !important; }
+
+/* Gradient overlays (image/video backgrounds) */
+html.light .bg-gradient-to-t .text-white,
+html.light .bg-gradient-to-b .text-white,
+html.light .bg-gradient-to-r .text-white,
+html.light .bg-gradient-to-l .text-white,
+html.light .bg-gradient-to-t.text-white,
+html.light .bg-gradient-to-b.text-white,
+html.light .bg-gradient-to-r.text-white,
+html.light .bg-gradient-to-l.text-white { color: #fff !important; }
+
+/* Camera overlays — text over dark video feeds */
+html.light .relative > .absolute .text-white,
+html.light .relative > .absolute.text-white { color: #fff !important; }
+
+/* Inline-styled colored backgrounds (branding preview buttons etc.) */
+html.light [style*="backgroundColor"] .text-white,
+html.light [style*="background-color"] .text-white { color: #fff !important; }
+
+/* ============================================
+   Light mode — bg-white/* opacity remapping
+   On white backgrounds, white tints are invisible.
+   Remap to dark tints for visible contrast.
+   ============================================ */
+
+html.light .bg-white\/5 { background-color: rgb(var(--farm-500) / 0.05); }
+html.light .bg-white\/10 { background-color: rgb(var(--farm-500) / 0.1); }
+html.light .bg-white\/20 { background-color: rgb(var(--farm-500) / 0.2); }
+
+/* ============================================
+   Light mode — border-white/* remapping
+   ============================================ */
+
+html.light .border-white\/10 { border-color: rgb(var(--farm-500) / 0.1); }
+html.light .border-white\/20 { border-color: rgb(var(--farm-500) / 0.2); }
+
+/* ============================================
+   Light mode — toggle switch handles
+   Solid bg-white knobs disappear on white cards.
+   ============================================ */
+
+html.light .rounded-full.bg-white {
+  box-shadow: 0 0 0 1px rgb(var(--farm-600) / 0.3), 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* ============================================
+   Light mode — placeholder overrides
+   ============================================ */
+
+html.light .placeholder-white\/30::placeholder { color: rgb(var(--farm-500) / 0.5); }
+html.light .placeholder-white\/50::placeholder { color: rgb(var(--farm-500) / 0.5); }

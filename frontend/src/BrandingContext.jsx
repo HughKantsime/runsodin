@@ -80,6 +80,44 @@ export function useBranding() {
 }
 
 /**
+ * WCAG relative luminance of a hex color.
+ */
+function relativeLuminance(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255
+  const g = parseInt(hex.slice(3, 5), 16) / 255
+  const b = parseInt(hex.slice(5, 7), 16) / 255
+  const toLinear = (c) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
+}
+
+function contrastRatio(hex1, hex2) {
+  const l1 = relativeLuminance(hex1)
+  const l2 = relativeLuminance(hex2)
+  const lighter = Math.max(l1, l2)
+  const darker = Math.min(l1, l2)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function darkenHex(hex, amount) {
+  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - amount)
+  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - amount)
+  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - amount)
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
+
+/**
+ * Darken a hex color until it has at least `minRatio` contrast against white.
+ */
+function ensureContrast(hex, minRatio = 4.5) {
+  let color = hex
+  for (let i = 0; i < 20; i++) {
+    if (contrastRatio(color, "#ffffff") >= minRatio) return color
+    color = darkenHex(color, 15)
+  }
+  return color
+}
+
+/**
  * Inject CSS custom properties onto :root.
  * Every branded surface reads from these vars so changing
  * them here re-themes the entire app instantly.
@@ -93,9 +131,10 @@ function applyBrandingCSS(b) {
   const root = document.documentElement
   const isLight = root.classList.contains("light")
 
-  // Accent / brand — always apply
-  root.style.setProperty("--brand-primary", isLight ? "#b45309" : b.primary_color)
-  root.style.setProperty("--brand-accent", isLight ? "#d97706" : b.accent_color)
+  // Accent / brand — always apply (darken for contrast in light mode)
+  const primary = isLight ? ensureContrast(b.primary_color) : b.primary_color
+  root.style.setProperty("--brand-primary", primary)
+  root.style.setProperty("--brand-accent", b.accent_color)
 
   // Fonts — always apply
   root.style.setProperty("--brand-font-display", b.font_display)
