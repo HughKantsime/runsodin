@@ -626,9 +626,12 @@ export default function Models() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div>
-          <h1 className="text-xl md:text-2xl font-display font-bold">Models</h1>
-          <p className="text-farm-500 text-sm mt-1">Print model library</p>
+        <div className="flex items-center gap-3">
+          <Box className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Models</h1>
+            <p className="text-farm-500 text-sm mt-1">Print model library</p>
+          </div>
         </div>
         {canDo('models.create') && <button onClick={() => { setEditingModel(null); setShowModal(true) }} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
           <Plus size={16} /> Add Model

@@ -107,8 +107,13 @@ export default function Consumables() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-farm-100">Consumables</h1>
-          <p className="text-sm text-farm-400 mt-1">Non-printed inventory items for product assembly</p>
+          <div className="flex items-center gap-3">
+            <Package className="text-print-400" size={24} />
+            <div>
+              <h1 className="text-xl md:text-2xl font-display font-bold">Consumables</h1>
+              <p className="text-farm-500 text-sm mt-1">Non-printed inventory items for product assembly</p>
+            </div>
+          </div>
         </div>
         {/* Consumables share models.* permissions — no separate consumables RBAC tier */}
         {canDo('models.create') && (

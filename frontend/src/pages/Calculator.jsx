@@ -268,11 +268,11 @@ export default function CalculatorPage() {
       <div className="mb-4 md:mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold flex items-center gap-2">
-              <Calculator className="text-print-400" size={22} />
-              Pricing Calculator
-            </h1>
-            <p className="text-farm-400 text-sm">Calculate the true cost and recommended price for your prints</p>
+            <div className="flex items-center gap-3">
+              <Calculator className="text-print-400" size={24} />
+              <h1 className="text-xl md:text-2xl font-display font-bold">Pricing Calculator</h1>
+            </div>
+            <p className="text-farm-500 text-sm mt-1">Calculate the true cost and recommended price for your prints</p>
           </div>
           <div className="flex gap-2">
             {hasChanges && (

@@ -334,9 +334,12 @@ export default function Admin() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 md:mb-8">
-        <div>
-          <h1 className="text-xl md:text-2xl font-display font-bold">Admin</h1>
-          <p className="text-farm-500 text-sm mt-1">Manage users and permissions</p>
+        <div className="flex items-center gap-3">
+          <Users className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Admin</h1>
+            <p className="text-farm-500 text-sm mt-1">Manage users and permissions</p>
+          </div>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-farm-700 hover:bg-farm-600 px-4 py-2 rounded-lg font-medium transition-colors text-sm">

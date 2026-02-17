@@ -72,13 +72,13 @@ export default function Utilization() {
   if (isLoading) return <div className="text-center py-12 text-farm-500">Loading utilization data...</div>
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <BarChart3 className="text-print-400" size={24} />
           <div>
-            <h1 className="text-xl font-bold text-farm-100">Printer Utilization Report</h1>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Printer Utilization Report</h1>
             <p className="text-sm text-farm-500">Fleet performance and efficiency metrics</p>
           </div>
         </div>

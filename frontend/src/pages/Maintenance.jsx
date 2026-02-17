@@ -343,12 +343,12 @@ export default function Maintenance() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Wrench className="text-print-400" size={24} />
-          <h1 className="text-2xl font-display font-bold text-farm-50">Maintenance</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold">Maintenance</h1>
         </div>
         <div className="flex items-center gap-3">
           {overdueCount > 0 && (

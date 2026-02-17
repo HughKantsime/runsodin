@@ -354,8 +354,13 @@ export default function Upload() {
   return (
     <div className="p-4 md:p-6">
       <div className="mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-display font-bold">Upload Print File</h1>
-        <p className="text-farm-500 text-sm mt-1">Upload .3mf files to add to your model library</p>
+        <div className="flex items-center gap-3">
+          <UploadIcon className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Upload Print File</h1>
+            <p className="text-farm-500 text-sm mt-1">Upload .3mf files to add to your model library</p>
+          </div>
+        </div>
       </div>
 
       {uploadedFile ? (

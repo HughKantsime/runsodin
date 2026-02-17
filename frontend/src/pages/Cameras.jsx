@@ -346,11 +346,14 @@ export default function Cameras() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div>
-          <h2 className="text-xl md:text-2xl font-display font-bold">Cameras</h2>
-          <p className="text-xs md:text-sm text-farm-500 mt-1">
-            {filteredCameras.length} camera{filteredCameras.length !== 1 ? 's' : ''} available
-          </p>
+        <div className="flex items-center gap-3">
+          <Video className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Cameras</h1>
+            <p className="text-xs md:text-sm text-farm-500 mt-1">
+              {filteredCameras.length} camera{filteredCameras.length !== 1 ? 's' : ''} available
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2 md:gap-3">
           <input

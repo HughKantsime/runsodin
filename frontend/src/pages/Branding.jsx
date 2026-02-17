@@ -258,11 +258,13 @@ export default function Branding() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold text-farm-100 flex items-center gap-3">
-            <Palette size={28} style={{ color: 'var(--brand-accent)' }} />
-            White-Label Branding
-          </h1>
-          <p className="text-farm-400 mt-1">Customize every aspect of your deployment's look and feel</p>
+          <div className="flex items-center gap-3">
+            <Palette className="text-print-400" size={24} />
+            <div>
+              <h1 className="text-xl md:text-2xl font-display font-bold">White-Label Branding</h1>
+              <p className="text-farm-500 text-sm mt-1">Customize every aspect of your deployment's look and feel</p>
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button

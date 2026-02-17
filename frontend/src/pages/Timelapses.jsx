@@ -90,8 +90,8 @@ export default function Timelapses() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Film className="text-amber-400" size={24} />
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--brand-text-primary)' }}>Timelapses</h1>
+          <Film className="text-print-400" size={24} />
+          <h1 className="text-xl md:text-2xl font-display font-bold">Timelapses</h1>
           <span className="text-sm px-2 py-0.5 rounded-full bg-farm-700 text-farm-300">{total}</span>
         </div>
       </div>

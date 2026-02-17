@@ -243,13 +243,15 @@ export default function Detections() {
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-xl md:text-2xl font-display font-bold flex items-center gap-2">
-            <Eye size={24} />
-            Vigil AI Detections
-          </h2>
-          <p className="text-xs md:text-sm text-farm-500 mt-1">
-            AI-detected print failures from camera feeds
-          </p>
+          <div className="flex items-center gap-3">
+            <Eye className="text-print-400" size={24} />
+            <div>
+              <h1 className="text-xl md:text-2xl font-display font-bold">Vigil AI Detections</h1>
+              <p className="text-xs md:text-sm text-farm-500 mt-1">
+                AI-detected print failures from camera feeds
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 

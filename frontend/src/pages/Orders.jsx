@@ -338,10 +338,10 @@ export default function Orders() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2 text-farm-100">
-          <ShoppingCart className="w-5 h-5 md:w-6 md:h-6" />
-          Orders
-        </h1>
+        <div className="flex items-center gap-3">
+          <ShoppingCart className="text-print-400" size={24} />
+          <h1 className="text-xl md:text-2xl font-display font-bold">Orders</h1>
+        </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 w-full sm:w-auto">
           <select
             value={statusFilter}

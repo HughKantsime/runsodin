@@ -1032,8 +1032,13 @@ export default function Settings() {
   return (
     <div className="p-4 md:p-6">
       <div className="mb-4 md:mb-6">
-        <h1 className="text-2xl md:text-3xl font-display font-bold">Settings</h1>
-        <p className="text-farm-500 text-sm mt-1">Configure your print farm</p>
+        <div className="flex items-center gap-3">
+          <SettingsIcon className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Settings</h1>
+            <p className="text-farm-500 text-sm mt-1">Configure your print farm</p>
+          </div>
+        </div>
       </div>
 
       {/* Tab Bar */}

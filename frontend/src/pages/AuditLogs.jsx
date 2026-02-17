@@ -99,7 +99,7 @@ export default function AuditLogs() {
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <FileText size={24} className="text-print-400" />
-        <h1 className="text-2xl font-display font-bold">Audit Log</h1>
+        <h1 className="text-xl md:text-2xl font-display font-bold">Audit Log</h1>
         <span className="text-sm text-farm-500 ml-auto">{total.toLocaleString()} entries</span>
       </div>
 

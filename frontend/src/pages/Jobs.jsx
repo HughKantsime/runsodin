@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical, Briefcase } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps, modelRevisions } from '../api'
@@ -902,9 +902,12 @@ export default function Jobs() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-display font-bold">Jobs</h1>
-          <p className="text-farm-500 text-sm mt-1">Manage print queue</p>
+        <div className="flex items-center gap-3">
+          <Briefcase className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Jobs</h1>
+            <p className="text-farm-500 text-sm mt-1">Manage print queue</p>
+          </div>
         </div>
         <div className="flex items-center gap-2 self-start">
           <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}

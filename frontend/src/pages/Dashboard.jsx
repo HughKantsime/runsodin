@@ -13,6 +13,7 @@ import {
   Wrench,
   Monitor,
   Loader2,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
@@ -478,9 +479,12 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 gap-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-display font-bold">Dashboard</h1>
-          <p className="text-farm-500 mt-1 text-sm md:text-base">Print farm overview</p>
+        <div className="flex items-center gap-3">
+          <LayoutDashboard className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Dashboard</h1>
+            <p className="text-farm-500 mt-1 text-sm md:text-base">Print farm overview</p>
+          </div>
         </div>
         <button
           onClick={() => navigate('/tv')}

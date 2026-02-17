@@ -250,12 +250,12 @@ export default function Permissions() {
   const saving = saveMutation.isPending || resetMutation.isPending
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Shield className="text-print-400" size={24} />
-          <h1 className="text-2xl font-display font-bold text-farm-50">Permissions</h1>
+          <h1 className="text-xl md:text-2xl font-display font-bold">Permissions</h1>
         </div>
         <div className="flex items-center gap-2">
           {saveMsg && (

@@ -146,8 +146,8 @@ export default function Alerts() {
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Bell size={24} style={{ color: 'var(--brand-accent)' }} />
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--brand-text-primary)' }}>Alerts</h1>
+          <Bell className="text-print-400" size={24} />
+          <h1 className="text-xl md:text-2xl font-display font-bold">Alerts</h1>
           {unreadCount > 0 && (
             <span className="bg-red-500/20 text-red-400 text-xs font-medium px-2 py-0.5 rounded-full">
               {unreadCount} unread

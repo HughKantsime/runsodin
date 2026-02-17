@@ -1,7 +1,7 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug, Printer as PrinterIcon } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
@@ -931,9 +931,12 @@ export default function Printers() {
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div>
-          <h1 className="text-xl md:text-2xl font-display font-bold">Printers</h1>
-          <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
+        <div className="flex items-center gap-3">
+          <PrinterIcon className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Printers</h1>
+            <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
+          </div>
         </div>
         {canDo('printers.add') && (atLimit
           ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 px-4 py-2 bg-farm-700 text-farm-400 hover:text-farm-300 rounded-lg text-sm self-start transition-colors" title={`Printer limit reached (${lic.max_printers || 5}). Upgrade to Pro for unlimited.`}>

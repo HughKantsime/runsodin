@@ -1165,9 +1165,12 @@ export default function Spools() {
     <div className="p-4 md:p-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-3">
-        <div>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-farm-100">Spools</h1>
-          <p className="text-farm-400 mt-1 text-sm">Track your filament inventory</p>
+        <div className="flex items-center gap-3">
+          <Package className="text-print-400" size={24} />
+          <div>
+            <h1 className="text-xl md:text-2xl font-display font-bold">Spools</h1>
+            <p className="text-farm-500 text-sm mt-1">Track your filament inventory</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {/* View toggle */}
