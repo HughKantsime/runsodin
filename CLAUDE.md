@@ -86,7 +86,7 @@ Production compose: `/opt/odin/runsodin/runsodin/docker-compose.yml`. Production
 
 ### Backend (`backend/`)
 
-- **main.py** — Monolithic FastAPI app (~11400 lines, 300+ routes under `/api/`). All API routes, middleware, and core logic live here.
+- **main.py** — FastAPI app entry point (lifespan, middleware, CORS). Routes split into 13 modules under `routers/`.
 - **models.py** — SQLAlchemy ORM: Printer, Job, Model, Spool, FilamentSlot, etc.
 - **schemas.py** — Pydantic request/response models
 - **auth.py** — JWT (HS256, 24h expiry) + bcrypt password hashing
