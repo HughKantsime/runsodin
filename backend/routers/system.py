@@ -713,6 +713,8 @@ async def prometheus_metrics(db: Session = Depends(get_db)):
         if last_seen:
             try:
                 ls = datetime.fromisoformat(str(last_seen).replace("Z", ""))
+                if ls.tzinfo is None:
+                    ls = ls.replace(tzinfo=timezone.utc)
                 is_online = (now - ls).total_seconds() < 90
             except Exception:
                 pass
@@ -1406,12 +1408,18 @@ def get_maintenance_status(db: Session = Depends(get_db)):
 
             if last_log and last_log.performed_at:
                 hours_since = total_hours - (last_log.print_hours_at_service or 0)
-                days_since = (now - last_log.performed_at).days
+                performed_at = last_log.performed_at
+                if performed_at.tzinfo is None:
+                    performed_at = performed_at.replace(tzinfo=timezone.utc)
+                days_since = (now - performed_at).days
                 last_serviced = last_log.performed_at.isoformat()
                 last_by = last_log.performed_by
             else:
                 hours_since = total_hours
-                days_since = (now - printer.created_at).days if printer.created_at else 0
+                created = printer.created_at
+                if created and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                days_since = (now - created).days if created else 0
                 last_serviced = None
                 last_by = None
 

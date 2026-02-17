@@ -218,6 +218,8 @@ def get_analytics(db: Session = Depends(get_db)):
         # Utilization = print hours / available hours (since printer's first job, max 30 days)
         if printer_jobs:
             earliest = min(j.created_at for j in printer_jobs if j.created_at)
+            if earliest.tzinfo is None:
+                earliest = earliest.replace(tzinfo=timezone.utc)
             available_hours = min((now - earliest).total_seconds() / 3600, 30 * 24)
             utilization_pct = round((hours / available_hours * 100), 1) if available_hours > 0 else 0
         else:
