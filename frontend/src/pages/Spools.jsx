@@ -5,120 +5,8 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import { canDo } from '../permissions'
 import { useOrg } from '../contexts/OrgContext'
-import { bulkOps } from '../api'
+import { bulkOps, spools as spoolsApi, filaments as filamentApi, printers as printersApi } from '../api'
 import ConfirmModal from '../components/ConfirmModal'
-
-const API_KEY = import.meta.env.VITE_API_KEY
-const API_BASE = '/api'
-
-const apiHeaders = {
-  'Content-Type': 'application/json',
-  'X-API-Key': API_KEY
-}
-
-// API functions
-async function checkedFetch(url, options) {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || `Request failed (${res.status})`)
-  }
-  return res.json()
-}
-
-const spoolsApi = {
-  list: async (filters = {}) => {
-    const params = new URLSearchParams()
-    if (filters.status) params.append('status', filters.status)
-    if (filters.printer_id) params.append('printer_id', filters.printer_id)
-    if (filters.org_id != null) params.append('org_id', filters.org_id)
-    return checkedFetch(`${API_BASE}/spools?${params}`, { headers: apiHeaders })
-  },
-  get: async (id) => {
-    return checkedFetch(`${API_BASE}/spools/${id}`, { headers: apiHeaders })
-  },
-  create: async (data) => {
-    return checkedFetch(`${API_BASE}/spools`, {
-      method: 'POST',
-      headers: apiHeaders,
-      body: JSON.stringify(data)
-    })
-  },
-  update: async ({ id, ...data }) => {
-    return checkedFetch(`${API_BASE}/spools/${id}`, {
-      method: 'PATCH',
-      headers: apiHeaders,
-      body: JSON.stringify(data)
-    })
-  },
-  load: async ({ id, printer_id, slot_number }) => {
-    return checkedFetch(`${API_BASE}/spools/${id}/load`, {
-      method: 'POST',
-      headers: apiHeaders,
-      body: JSON.stringify({ printer_id, slot_number })
-    })
-  },
-  unload: async ({ id, storage_location }) => {
-    return checkedFetch(`${API_BASE}/spools/${id}/unload?storage_location=${storage_location || ''}`, {
-      method: 'POST',
-      headers: apiHeaders
-    })
-  },
-  use: async ({ id, weight_used_g, notes }) => {
-    return checkedFetch(`${API_BASE}/spools/${id}/use`, {
-      method: 'POST',
-      headers: apiHeaders,
-      body: JSON.stringify({ weight_used_g, notes })
-    })
-  },
-  archive: async (id) => {
-    return checkedFetch(`${API_BASE}/spools/${id}`, {
-      method: 'DELETE',
-      headers: apiHeaders
-    })
-  }
-}
-
-const filamentApi = {
-  list: async () => {
-    const res = await fetch(`${API_BASE}/filaments`, { headers: apiHeaders })
-    return res.json()
-  },
-  create: async (data) => {
-    const res = await fetch(`${API_BASE}/filaments`, {
-      method: 'POST',
-      headers: apiHeaders,
-      body: JSON.stringify(data)
-    })
-    return res.json()
-  },
-  update: async ({ id, ...data }) => {
-    const res = await fetch(`${API_BASE}/filaments/${id}`, {
-      method: 'PATCH',
-      headers: apiHeaders,
-      body: JSON.stringify(data)
-    })
-    return res.json()
-  },
-  remove: async (id) => {
-    const res = await fetch(`${API_BASE}/filaments/${id}`, {
-      method: 'DELETE',
-      headers: apiHeaders
-    })
-    if (!res.ok) {
-      const err = await res.json()
-      throw new Error(err.detail || 'Delete failed')
-    }
-    return true
-  }
-}
-
-const printersApi = {
-  list: async () => {
-    const res = await fetch(`${API_BASE}/printers`, { headers: apiHeaders })
-    return res.json()
-  }
-}
 
 // ==================== Spool Components ====================
 
@@ -231,7 +119,7 @@ function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, onEdit, onDry, p
           </button>
         ) : null}
         <a
-          href={`${API_BASE}/spools/${spool.id}/label`}
+          href={`/api/spools/${spool.id}/label`}
           target="_blank"
           rel="noopener noreferrer"
           className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
@@ -613,11 +501,7 @@ function DryingModal({ spool, onClose, onSubmit }) {
 
   useEffect(() => {
     if (spool) {
-      const token = localStorage.getItem('token')
-      const headers = { 'Authorization': `Bearer ${token}` }
-      if (API_KEY) headers['X-API-Key'] = API_KEY
-      fetch(`${API_BASE}/spools/${spool.id}/drying-history`, { headers })
-        .then(r => r.json())
+      spoolsApi.dryingHistory(spool.id)
         .then(setHistory)
         .catch(() => {})
         .finally(() => setLoading(false))
@@ -1549,15 +1433,7 @@ export default function Spools() {
           onSubmit={async (data) => {
             try {
               const { id, ...rest } = data
-              const token = localStorage.getItem('token')
-              const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-              if (API_KEY) headers['X-API-Key'] = API_KEY
-              const res = await fetch(`${API_BASE}/spools/${id}/dry`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(rest)
-              })
-              if (!res.ok) throw new Error('Failed to log drying session')
+              await spoolsApi.logDrying(id, rest)
               toast.success('Drying session logged')
               setDryingSpool(null)
             } catch (err) {

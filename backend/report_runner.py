@@ -10,7 +10,7 @@ import time
 import json
 import logging
 import smtplib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -305,7 +305,7 @@ GENERATORS = {
 
 def process_due_reports(session):
     """Find and execute all due report schedules."""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     rows = session.execute(text("""
         SELECT id, name, report_type, frequency, recipients, filters
         FROM report_schedules
@@ -386,7 +386,7 @@ def process_quiet_hours_digest(session):
     if is_quiet_time():
         return
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     end_h, end_m = map(int, config["end"].split(":"))
 
     # Check if we're within POLL_INTERVAL of quiet hours ending

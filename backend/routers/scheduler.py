@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from deps import get_db, get_current_user, require_role
@@ -101,7 +101,7 @@ def get_timeline(
 ):
     """Get timeline view data for the scheduler."""
     if start_date is None:
-        start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
     end_date = start_date + timedelta(days=days)
     slot_duration = 30  # minutes
@@ -169,7 +169,7 @@ def get_timeline(
         if not printer:
             continue
         start_time = datetime.fromisoformat(row["started_at"])
-        end_time = datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else datetime.now()
+        end_time = datetime.fromisoformat(row["ended_at"]) if row["ended_at"] else datetime.now(timezone.utc)
         mqtt_status = row["status"]
         if mqtt_status == "running":
             job_status = JobStatus.PRINTING

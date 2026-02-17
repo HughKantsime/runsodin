@@ -572,7 +572,7 @@ async def get_vapid_key(db: Session = Depends(get_db)):
     try:
         keys = json.loads(row[0])
         return {"public_key": keys.get("public_key"), "enabled": True}
-    except:
+    except Exception:
         return {"public_key": None, "enabled": False}
 
 

@@ -7,7 +7,7 @@ while optimizing for minimal filament changes.
 Ported from the Google Apps Script logic with improvements.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
@@ -198,7 +198,7 @@ class Scheduler:
     
     def _cleanup_stale_schedules(self, db: Session) -> int:
         """Reset SCHEDULED jobs whose time window has passed (>2hrs past scheduled_start)."""
-        cutoff = datetime.now() - timedelta(hours=2)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
         stale = db.query(Job).filter(
             Job.status == JobStatus.SCHEDULED,
             Job.scheduled_start < cutoff
@@ -228,7 +228,7 @@ class Scheduler:
 
         # Default start to now, rounded up to next slot
         if start_date is None:
-            start_date = self._round_up_to_next_slot(datetime.now())
+            start_date = self._round_up_to_next_slot(datetime.now(timezone.utc))
 
         # Proactive stale schedule cleanup — reset SCHEDULED jobs past their window
         self._cleanup_stale_schedules(db)

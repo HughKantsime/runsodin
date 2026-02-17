@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { orders, products } from '../api'
+import { orders, products, orderInvoice } from '../api'
 import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil, RefreshCw, Search, Ban } from 'lucide-react'
 import { canDo } from '../permissions'
 import toast from 'react-hot-toast'
@@ -290,20 +290,7 @@ export default function Orders() {
 
   const handleDownloadInvoice = async (order) => {
     try {
-      const token = localStorage.getItem('token')
-      const API_KEY = import.meta.env.VITE_API_KEY
-      const headers = {}
-      if (token) headers['Authorization'] = `Bearer ${token}`
-      if (API_KEY) headers['X-API-Key'] = API_KEY
-      const res = await fetch(`/api/orders/${order.id}/invoice.pdf`, { headers })
-      if (!res.ok) throw new Error('Failed to generate invoice')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `invoice_${order.order_number || order.id}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
+      await orderInvoice(order.id, order.order_number)
     } catch (err) {
       console.error('Invoice download failed:', err)
       toast.error('Failed to download invoice')

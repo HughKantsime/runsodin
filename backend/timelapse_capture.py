@@ -11,7 +11,7 @@ import time
 import logging
 import subprocess
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -69,7 +69,7 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int) -> int:
         return row[0]
 
     # Create new timelapse
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"printer_{printer_id}/{ts}.mp4"
     session.execute(text("""
         INSERT INTO timelapses (printer_id, print_job_id, filename, frame_count, status, created_at)

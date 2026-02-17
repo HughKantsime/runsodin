@@ -157,7 +157,7 @@ def generate_single_label(spool, width, height):
         font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
         font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-    except:
+    except Exception:
         font_large = font_medium = font_small = ImageFont.load_default()
 
     text_x = qr_size + 30
@@ -174,7 +174,7 @@ def generate_single_label(spool, width, height):
         try:
             rgb = tuple(int(hex_clean[i:i+2], 16) for i in (0, 2, 4))
             draw.rectangle([text_x, y, text_x + 40, y + 40], fill=rgb, outline="black")
-        except:
+        except Exception:
             pass
         title_x = text_x + 50
     else:
@@ -331,7 +331,7 @@ async def get_combined_filaments(db: Session = Depends(get_db)):
                             "remaining_weight": spool.get("remaining_weight"),
                             "display_name": f"{filament.get('name')} ({filament.get('material')}) - {int(spool.get('remaining_weight', 0))}g",
                         })
-        except:
+        except Exception:
             pass
 
     library = db.query(FilamentLibrary).all()
@@ -841,7 +841,7 @@ def generate_spool_label(
         font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
         font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-    except:
+    except Exception:
         font_large = ImageFont.load_default()
         font_medium = font_large
         font_small = font_large
@@ -861,7 +861,7 @@ def generate_spool_label(
         try:
             rgb = tuple(int(hex_clean[i:i+2], 16) for i in (0, 2, 4))
             draw.rectangle([swatch_x, swatch_y, swatch_x + swatch_size, swatch_y + swatch_size], fill=rgb, outline="black")
-        except:
+        except Exception:
             pass
         text_start_x = swatch_x + swatch_size + 10
     else:

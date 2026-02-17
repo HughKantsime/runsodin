@@ -10,7 +10,7 @@ import logging
 
 from deps import (get_db, get_current_user, require_role, log_audit,
                   _get_org_filter, get_org_scope, check_org_access,
-                  compute_printer_online)
+                  compute_printer_online, _get_period_key, _get_quota_usage)
 from models import (
     Job, JobStatus, Printer, Model, Spool, SpoolUsage, SpoolStatus,
     SystemConfig, AlertType, AlertSeverity, FilamentType, PrintPreset,
@@ -25,36 +25,6 @@ log = logging.getLogger("odin.api")
 logger = log
 
 router = APIRouter()
-
-
-# ──────────────────────────────────────────────
-# Helpers (used only by jobs)
-# ──────────────────────────────────────────────
-
-def _get_period_key(period: str) -> str:
-    """Generate a period key like '2026-02' for monthly, '2026-W07' for weekly."""
-    now = datetime.now()
-    if period == "daily":
-        return now.strftime("%Y-%m-%d")
-    elif period == "weekly":
-        return now.strftime("%Y-W%W")
-    elif period == "semester":
-        return f"{now.year}-S{'1' if now.month <= 6 else '2'}"
-    else:  # monthly
-        return now.strftime("%Y-%m")
-
-
-def _get_quota_usage(db, user_id, period):
-    """Get or create quota usage row for current period."""
-    key = _get_period_key(period)
-    row = db.execute(text("SELECT * FROM quota_usage WHERE user_id = :uid AND period_key = :pk"),
-                     {"uid": user_id, "pk": key}).fetchone()
-    if row:
-        return dict(row._mapping)
-    db.execute(text("INSERT INTO quota_usage (user_id, period_key) VALUES (:uid, :pk)"),
-               {"uid": user_id, "pk": key})
-    db.commit()
-    return {"user_id": user_id, "period_key": key, "grams_used": 0, "hours_used": 0, "jobs_used": 0}
 
 
 FAILURE_REASONS = [
@@ -814,7 +784,7 @@ def get_print_jobs(
                 start = dt.fromisoformat(job['started_at'])
                 end = dt.fromisoformat(job['ended_at'])
                 job['duration_minutes'] = round((end - start).total_seconds() / 60, 1)
-            except:
+            except Exception:
                 job['duration_minutes'] = None
         else:
             job['duration_minutes'] = None

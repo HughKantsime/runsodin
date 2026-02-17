@@ -13,11 +13,11 @@ import os
 import json
 import logging
 
-from fastapi import Depends, HTTPException, status, Header, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 
 import auth as auth_module
 from auth import verify_password, decode_token, has_permission, hash_password, create_access_token
@@ -29,7 +29,6 @@ from models import (
     PushSubscription, MaintenanceTask, MaintenanceLog, SystemConfig,
     NozzleLifecycle, DryingLog, HYGROSCOPIC_TYPES, PrintPreset, Timelapse,
     VisionDetection, VisionSettings, VisionModel,
-    init_db,
 )
 from config import settings
 import crypto
@@ -45,7 +44,7 @@ logger = log  # alias used in some places
 engine = create_engine(
     settings.database_url,
     echo=settings.debug,
-    poolclass=StaticPool,
+    poolclass=NullPool,
     connect_args={"check_same_thread": False},
 )
 with engine.connect() as conn:
@@ -256,19 +255,6 @@ def log_audit(
     db.commit()
 
 
-def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
-    """Verify API key if authentication is enabled (constant-time comparison)."""
-    if not settings.api_key:
-        return None
-    if not x_api_key or not hmac.compare_digest(x_api_key, settings.api_key):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-    return x_api_key
-
-
 def compute_printer_online(printer_dict):
     """Add is_online field based on last_seen within 90 seconds."""
     if printer_dict.get("last_seen"):
@@ -408,3 +394,33 @@ def _is_locked_out(username: str) -> bool:
         return count >= _LOCKOUT_THRESHOLD
     except Exception:
         return False  # fail open on DB errors
+
+
+# ──────────────────────────────────────────────
+# Quota Helpers
+# ──────────────────────────────────────────────
+
+def _get_period_key(period: str) -> str:
+    """Generate a period key like '2026-02' for monthly, '2026-W07' for weekly."""
+    now = datetime.now(timezone.utc)
+    if period == "daily":
+        return now.strftime("%Y-%m-%d")
+    elif period == "weekly":
+        return now.strftime("%Y-W%W")
+    elif period == "semester":
+        return f"{now.year}-S{'1' if now.month <= 6 else '2'}"
+    else:  # monthly
+        return now.strftime("%Y-%m")
+
+
+def _get_quota_usage(db, user_id, period):
+    """Get or create quota usage row for current period."""
+    key = _get_period_key(period)
+    row = db.execute(text("SELECT * FROM quota_usage WHERE user_id = :uid AND period_key = :pk"),
+                     {"uid": user_id, "pk": key}).fetchone()
+    if row:
+        return dict(row._mapping)
+    db.execute(text("INSERT INTO quota_usage (user_id, period_key) VALUES (:uid, :pk)"),
+               {"uid": user_id, "pk": key})
+    db.commit()
+    return {"user_id": user_id, "period_key": key, "grams_used": 0, "hours_used": 0, "jobs_used": 0}

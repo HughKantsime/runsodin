@@ -600,7 +600,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
         config.update(val)
 
     deleted = {}
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
 
     if config["completed_jobs_days"] > 0:
         cutoff = now - timedelta(days=config["completed_jobs_days"])
@@ -610,7 +610,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
 
     if config["audit_logs_days"] > 0:
         cutoff = now - timedelta(days=config["audit_logs_days"])
-        r = db.execute(text("DELETE FROM audit_log WHERE created_at < :cutoff"), {"cutoff": cutoff})
+        r = db.execute(text("DELETE FROM audit_logs WHERE created_at < :cutoff"), {"cutoff": cutoff})
         deleted["audit_logs"] = r.rowcount
 
     if config["alert_history_days"] > 0:
@@ -672,7 +672,7 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
     db_path = "/data/odin.db"
     backup_dir = "/data/backups"
     os.makedirs(backup_dir, exist_ok=True)
-    pre_restore_name = f"pre-restore-{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
+    pre_restore_name = f"pre-restore-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.db"
     shutil.copy2(db_path, os.path.join(backup_dir, pre_restore_name))
 
     # Replace the DB file

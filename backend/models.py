@@ -33,7 +33,7 @@ from enum import Enum
 from typing import Optional, List
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean, 
-    ForeignKey, Enum as SQLEnum, Text, JSON, create_engine
+    ForeignKey, Enum as SQLEnum, Text, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base, Session
 from sqlalchemy.sql import func
@@ -589,13 +589,6 @@ class PrintPreset(Base):
     model = relationship("Model")
 
 
-# Database initialization helper
-def init_db(database_url: str = "sqlite:///./odin.db"):
-    """Create all tables and return engine."""
-    engine = create_engine(database_url, echo=False)
-    Base.metadata.create_all(engine)
-    return engine
-
 class FilamentLibrary(Base):
     """Built-in filament library for users without Spoolman."""
     __tablename__ = "filament_library"
@@ -607,7 +600,7 @@ class FilamentLibrary(Base):
     color_hex = Column(String(6))
     cost_per_gram = Column(Float, nullable=True)  # Per-material pricing ($/g)
     is_custom = Column(Boolean, default=False)  # User-added vs built-in
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
     spools = relationship("Spool", back_populates="filament")

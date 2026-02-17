@@ -1,30 +1,22 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown,
-} from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug } from 'lucide-react'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
 import PrinterTelemetryChart from '../components/PrinterTelemetryChart'
 import NozzleStatusCard from '../components/NozzleStatusCard'
 import HmsHistoryPanel from '../components/HmsHistoryPanel'
+import ConfirmModal from '../components/ConfirmModal'
 import { getPlugState, plugPowerOn, plugPowerOff } from '../api'
-import { printers, filaments, bulkOps } from '../api'
-import { Video, QrCode, Thermometer, Plug } from 'lucide-react'
+import { printers, filaments, bulkOps, spools as spoolsApi, fetchAPI } from '../api'
 import { canDo } from '../permissions'
 import { useLicense } from '../LicenseContext'
 import UpgradeModal from '../components/UpgradeModal'
 import { useOrg } from '../contexts/OrgContext'
 import CameraModal from '../components/CameraModal'
-
-const API_KEY = import.meta.env.VITE_API_KEY
-function getApiHeaders() {
-  const h = { 'Content-Type': 'application/json' }
-  if (API_KEY) h['X-API-Key'] = API_KEY
-  const token = localStorage.getItem('token')
-  if (token) h['Authorization'] = 'Bearer ' + token
-  return h
-}
+import { getShortName } from '../utils/shared'
 
 function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -48,10 +40,7 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   })) || []
   
   const handleSelectSpool = async (spool) => {
-    await fetch(`/api/printers/${printerId}/slots/${slot.slot_number}/assign?spool_id=${spool.id}`, {
-      method: "POST",
-      headers: getApiHeaders()
-    })
+    await printers.assignSlotSpool(printerId, slot.slot_number, spool.id)
     onSave({
       color: `${spool.filament_brand} ${spool.filament_name}`,
       color_hex: spool.filament_color_hex,
@@ -80,22 +69,6 @@ function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
 
   const colorHex = slot.color_hex
 
-  const getShortName = (slot) => {
-    const color = typeof slot === 'string' ? slot : slot?.color
-    const ft = typeof slot === 'string' ? '' : (slot?.filament_type || '')
-    const fallback = (!ft || ft === 'empty') ? 'Empty' : ft
-    if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return fallback
-    const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
-    let short = color
-    for (const brand of brands) {
-      if (color.startsWith(brand + ' ')) {
-        short = color.slice(brand.length + 1)
-        break
-      }
-    }
-    if (short.length > 12) return short.slice(0, 10) + '...'
-    return short
-  }
   return (
     <>
       <div 
@@ -477,23 +450,18 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
     setTestMessage('Connecting to printer...')
     
     try {
-      const response = await fetch('/api/printers/test-connection', {
-        method: 'POST',
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          api_type: formData.api_type || 'bambu',
-          plug_type: formData.plug_type || null,
-          plug_host: formData.plug_host || null,
-          plug_topic: formData.plug_topic || null,
-          plug_entity: formData.plug_entity || null,
-          plug_token: formData.plug_token || null,
-          api_host: formData.api_host,
-          serial: formData.serial,
-          access_code: formData.access_code
-        })
+      const result = await printers.testConnection({
+        api_type: formData.api_type || 'bambu',
+        plug_type: formData.plug_type || null,
+        plug_host: formData.plug_host || null,
+        plug_topic: formData.plug_topic || null,
+        plug_entity: formData.plug_entity || null,
+        plug_token: formData.plug_token || null,
+        api_host: formData.api_host,
+        serial: formData.serial,
+        access_code: formData.access_code
       })
-      const result = await response.json()
-      
+
       if (result.success) {
         setTestStatus('success')
         setTestMessage(`Connected! State: ${result.state}, Bed: ${result.bed_temp}°C, ${result.ams_slots || 0} AMS slots`)
@@ -772,17 +740,11 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
 }
 
 export default function Printers() {
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const [cameraTarget, setCameraTarget] = useState(null)
   const { data: activeCameras } = useQuery({
     queryKey: ['cameras'],
-    queryFn: async () => {
-      const token = localStorage.getItem('token')
-      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
-      const response = await fetch('/api/cameras', { headers })
-      if (!response.ok) return []
-      return response.json()
-    }
+    queryFn: () => printers.getCameras().catch(() => [])
   })
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
   const queryClient = useQueryClient()
@@ -821,10 +783,7 @@ export default function Printers() {
   const lic = useLicense()
   const atLimit = !lic.isPro && (printersData?.length || 0) >= 5
   const { data: filamentsData } = useQuery({ queryKey: ['filaments-combined'], queryFn: () => filaments.combined() })
-  const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: async () => {
-    const res = await fetch('/api/spools?status=active', { headers: getApiHeaders()})
-    return res.json()
-  }})
+  const { data: spoolsData } = useQuery({ queryKey: ['spools'], queryFn: () => spoolsApi.list({ status: 'active' }) })
   
   const createPrinter = useMutation({ mutationFn: printers.create, onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false) } })
   const updatePrinter = useMutation({ mutationFn: ({ id, data }) => printers.update(id, data), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['printers'] }); setShowModal(false); setEditingPrinter(null) } })
@@ -962,18 +921,10 @@ export default function Printers() {
 
   const handleSyncAms = async (printerId) => {
     try {
-      const response = await fetch(`/api/printers/${printerId}/sync-ams`, {
-        method: 'POST',
-        headers: getApiHeaders()
-      })
-      const result = await response.json()
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['printers'] })
-      } else {
-        alert(result.detail || 'Sync failed')
-      }
+      await printers.syncAms(printerId)
+      queryClient.invalidateQueries({ queryKey: ['printers'] })
     } catch (err) {
-      alert('Failed to sync AMS')
+      toast.error('Failed to sync AMS')
     }
   }
 
@@ -1082,7 +1033,7 @@ export default function Printers() {
                 printer={printer}
                 allFilaments={filamentsData}
                 spools={spoolsData}
-                onDelete={(id) => { if (confirm('Delete this printer?')) deletePrinter.mutate(id) }}
+                onDelete={(id) => setDeleteConfirmId(id)}
                 onToggleActive={(id, active) => updatePrinter.mutate({ id, data: { is_active: active } })}
                 onUpdateSlot={(pid, slot, data) => updateSlot.mutate({ printerId: pid, slotNumber: slot, data })}
                 onEdit={handleEdit}
@@ -1121,6 +1072,15 @@ export default function Printers() {
         />
       )}
       <UpgradeModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} resource="printers" />
+      <ConfirmModal
+        open={!!deleteConfirmId}
+        onConfirm={() => { deletePrinter.mutate(deleteConfirmId); setDeleteConfirmId(null) }}
+        onCancel={() => setDeleteConfirmId(null)}
+        title="Delete Printer"
+        message="Permanently delete this printer? This cannot be undone."
+        confirmText="Delete"
+        confirmVariant="danger"
+      />
     </div>
   )
 }

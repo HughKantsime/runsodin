@@ -13,7 +13,7 @@ import sqlite3
 import time
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
 from db_utils import get_db
 
@@ -60,7 +60,7 @@ def is_quiet_time() -> bool:
         return False
 
     try:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         current_minutes = now.hour * 60 + now.minute
 
         start_h, start_m = map(int, config["start"].split(":"))
@@ -92,7 +92,7 @@ def get_queued_alerts_for_digest() -> list:
         return []
 
     try:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         end_h, end_m = map(int, config["end"].split(":"))
         start_h, start_m = map(int, config["start"].split(":"))
 

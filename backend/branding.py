@@ -9,6 +9,7 @@ Admin-only PUT/POST/DELETE endpoints for updates.
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy.sql import func
 from datetime import datetime
 import os
 
@@ -61,7 +62,7 @@ class Branding(Base):
     support_url = Column(String(500), nullable=True)
 
     # ---- Metadata ----
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 def get_or_create_branding(db: Session) -> "Branding":

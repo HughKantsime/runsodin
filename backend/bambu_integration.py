@@ -213,8 +213,8 @@ class BambuMQTTClient:
             if 'print' in payload:
                 self.printer_data = payload['print']
                 self._response_received = True
-        except: pass
-            
+        except Exception: pass
+
     def connect(self) -> bool:
         try:
             self.client = mqtt.Client(client_id=f"printfarm_{int(time.time())}", protocol=mqtt.MQTTv5)

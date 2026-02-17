@@ -19,52 +19,10 @@ import BackupRestore from '../components/BackupRestore'
 import OrgManager from '../components/OrgManager'
 import ReportScheduleManager from '../components/ReportScheduleManager'
 import ChargebackReport from '../components/ChargebackReport'
-import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi, gdpr, fetchAPI } from '../api'
+import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi, gdpr, fetchAPI, backups as backupsApi, config as configApi, pricingConfig, printers, vision, license as licenseApi, downloadBlob } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
 import ProBadge from '../components/ProBadge'
-
-const API_KEY = import.meta.env.VITE_API_KEY
-const getApiHeaders = () => ({
-  'Content-Type': 'application/json',
-  'X-API-Key': API_KEY,
-  'Authorization': `Bearer ${localStorage.getItem('token')}`
-})
-
-const backupsApi = {
-  list: async () => {
-    const res = await fetch('/api/backups', { headers: getApiHeaders() })
-    if (!res.ok) throw new Error('Failed to list backups')
-    return res.json()
-  },
-  create: async () => {
-    const res = await fetch('/api/backups', { method: 'POST', headers: getApiHeaders() })
-    if (!res.ok) throw new Error('Failed to create backup')
-    return res.json()
-  },
-  remove: async (filename) => {
-    const res = await fetch(`/api/backups/${filename}`, { method: 'DELETE', headers: getApiHeaders() })
-    if (!res.ok) throw new Error('Failed to delete backup')
-    return true
-  },
-  download: (filename) => {
-    // Create a temporary link with the API key as a query param for download
-    const a = document.createElement('a')
-    a.href = `/api/backups/${filename}`
-    a.download = filename
-    // Use fetch + blob to include auth header
-    return fetch(`/api/backups/${filename}`, { headers: { 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
-      .then(res => res.blob())
-      .then(blob => {
-        const url = URL.createObjectURL(blob)
-        a.href = url
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      })
-  }
-}
 
 
 function ApprovalToggle() {
@@ -203,9 +161,7 @@ function NetworkTab() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const headers = { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    fetch('/api/setup/network', { headers })
-      .then(r => r.json())
+    configApi.getNetwork()
       .then(data => {
         setDetectedIp(data.detected_ip || '')
         // Show configured IP if available, otherwise show detected
@@ -215,7 +171,7 @@ function NetworkTab() {
       })
       .catch(() => {})
     // Also fetch from system_config
-    fetch('/api/admin/oidc', { headers }).catch(() => {})
+    fetchAPI('/admin/oidc').catch(() => {})
   }, [])
 
 
@@ -224,12 +180,7 @@ function NetworkTab() {
     setSaving(true)
     setSaved(false)
     try {
-      const headers = { 'Content-Type': 'application/json', 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      const resp = await fetch('/api/setup/network', { method: 'POST', headers, body: JSON.stringify({ host_ip: hostIp }) })
-      if (!resp.ok) {
-        const data = await resp.json()
-        throw new Error(data.detail || 'Failed to save')
-      }
+      await configApi.saveNetwork({ host_ip: hostIp })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
@@ -415,13 +366,13 @@ function LicenseTab() {
   const fileInputRef = useRef(null)
 
   useEffect(() => {
-    fetchLicense()
+    loadLicense()
   }, [])
 
-  const fetchLicense = async () => {
+  const loadLicense = async () => {
     try {
-      const res = await fetch('/api/license', { headers: { 'X-API-Key': localStorage.getItem('api_key') || '', 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
-      if (res.ok) setLicenseInfo(await res.json())
+      const data = await licenseApi.get()
+      setLicenseInfo(data)
     } catch (e) { console.error('Failed to fetch license:', e) }
   }
 
@@ -431,23 +382,9 @@ function LicenseTab() {
     setUploading(true)
     setMessage(null)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch('/api/license/upload', {
-        method: 'POST',
-        headers: {
-          'X-API-Key': localStorage.getItem('api_key') || '',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: formData,
-      })
-      const data = await res.json()
-      if (res.ok) {
-        setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
-        fetchLicense()
-      } else {
-        setMessage({ type: 'error', text: data.detail || 'Upload failed' })
-      }
+      const data = await licenseApi.upload(file)
+      setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
+      loadLicense()
     } catch (err) {
       setMessage({ type: 'error', text: 'Upload failed: ' + err.message })
     } finally {
@@ -459,17 +396,9 @@ function LicenseTab() {
   const handleRemove = async () => {
     if (!confirm('Remove license and revert to Community tier?')) return
     try {
-      const res = await fetch('/api/license', {
-        method: 'DELETE',
-        headers: {
-          'X-API-Key': localStorage.getItem('api_key') || '',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      })
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'License removed. Reverted to Community tier.' })
-        fetchLicense()
-      }
+      await licenseApi.remove()
+      setMessage({ type: 'success', text: 'License removed. Reverted to Community tier.' })
+      loadLicense()
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to remove license' })
     }
@@ -568,19 +497,18 @@ function VisionSettingsTab() {
   const [models, setModels] = useState([])
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
-  const headers = getApiHeaders()
 
   useEffect(() => {
     // Load global settings
-    fetch('/api/vision/settings', { headers }).then(r => r.json()).then(setGlobalSettings).catch(() => {})
+    vision.getSettings().then(setGlobalSettings).catch(() => {})
     // Load models
-    fetch('/api/vision/models', { headers }).then(r => r.json()).then(setModels).catch(() => {})
+    vision.getModels().then(setModels).catch(() => {})
     // Load printers with vision settings
-    fetch('/api/printers', { headers }).then(r => r.json()).then(async (printers) => {
+    printers.list().then(async (printerList) => {
       const withVision = await Promise.all(
-        printers.filter(p => p.camera_url).map(async (p) => {
+        printerList.filter(p => p.camera_url).map(async (p) => {
           try {
-            const vs = await fetch(`/api/printers/${p.id}/vision`, { headers }).then(r => r.json())
+            const vs = await vision.getPrinterSettings(p.id)
             return { ...p, vision: vs }
           } catch { return { ...p, vision: null } }
         })
@@ -592,7 +520,7 @@ function VisionSettingsTab() {
   const saveGlobal = async () => {
     setSaving(true)
     try {
-      await fetch('/api/vision/settings', { method: 'PATCH', headers, body: JSON.stringify(globalSettings) })
+      await vision.updateSettings(globalSettings)
       setMsg('Settings saved')
       setTimeout(() => setMsg(''), 2000)
     } catch { setMsg('Save failed') }
@@ -601,7 +529,7 @@ function VisionSettingsTab() {
 
   const savePrinterVision = async (printerId, data) => {
     try {
-      await fetch(`/api/printers/${printerId}/vision`, { method: 'PATCH', headers, body: JSON.stringify(data) })
+      await vision.updatePrinterSettings(printerId, data)
       setPrinterSettings(prev => prev.map(p =>
         p.id === printerId ? { ...p, vision: { ...p.vision, ...data } } : p
       ))
@@ -610,14 +538,11 @@ function VisionSettingsTab() {
 
   const activateModel = async (modelId) => {
     try {
-      const res = await fetch(`/api/vision/models/${modelId}/activate`, { method: 'PATCH', headers })
-      if (res.ok) {
-        const data = await res.json()
-        setModels(prev => prev.map(m => ({
-          ...m,
-          is_active: m.detection_type === data.detection_type ? (m.id === modelId ? 1 : 0) : m.is_active
-        })))
-      }
+      const data = await vision.activateModel(modelId)
+      setModels(prev => prev.map(m => ({
+        ...m,
+        is_active: m.detection_type === data.detection_type ? (m.id === modelId ? 1 : 0) : m.is_active
+      })))
     } catch (e) { console.error('Failed to activate model:', e) }
   }
 
@@ -809,14 +734,14 @@ function VisionSettingsTab() {
 
         {/* Upload */}
         <div className="mt-3">
-          <ModelUpload headers={headers} onUploaded={(m) => setModels(prev => [m, ...prev])} />
+          <ModelUpload onUploaded={(m) => setModels(prev => [m, ...prev])} />
         </div>
       </div>
     </div>
   )
 }
 
-function ModelUpload({ headers, onUploaded }) {
+function ModelUpload({ onUploaded }) {
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef(null)
 
@@ -825,20 +750,11 @@ function ModelUpload({ headers, onUploaded }) {
     if (!file) return
     setUploading(true)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
       const name = file.name.replace('.onnx', '')
       const dt = name.includes('spaghetti') ? 'spaghetti' : name.includes('first') ? 'first_layer' : name.includes('detach') ? 'detachment' : 'spaghetti'
-      const res = await fetch(`/api/vision/models?name=${encodeURIComponent(name)}&detection_type=${dt}&input_size=640`, {
-        method: 'POST',
-        headers: { 'X-API-Key': headers['X-API-Key'], 'Authorization': headers['Authorization'] },
-        body: formData,
-      })
-      if (res.ok) {
-        const data = await res.json()
-        onUploaded(data)
-        fileRef.current.value = ''
-      }
+      const data = await vision.uploadModel(file, name, dt)
+      onUploaded(data)
+      fileRef.current.value = ''
     } catch (e) { console.error('Upload failed:', e) }
     setUploading(false)
   }
@@ -876,27 +792,9 @@ function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }) {
 }
 
 function downloadExport(endpoint, filename) {
-  const token = localStorage.getItem('token')
-  const apiKey = import.meta.env.VITE_API_KEY
-  const headers = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  if (apiKey) headers['X-API-Key'] = apiKey
-  fetch(endpoint, { headers })
-    .then(res => {
-      if (!res.ok) throw new Error('Export failed')
-      return res.blob()
-    })
-    .then(blob => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    })
-    .catch(() => {})
+  // endpoint comes in as '/api/...' — strip the /api prefix for downloadBlob
+  const path = endpoint.startsWith('/api') ? endpoint.slice(4) : endpoint
+  downloadBlob(path, filename).catch(() => {})
 }
 
 export default function Settings() {
@@ -1049,8 +947,8 @@ export default function Settings() {
     }
   }
 
-  const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: () => fetch('/api/stats').then(r => r.json()) })
-  const { data: configData } = useQuery({ queryKey: ['config'], queryFn: () => fetch('/api/config').then(r => r.json()) })
+  const { data: statsData } = useQuery({ queryKey: ['stats'], queryFn: () => fetchAPI('/stats') })
+  const { data: configData } = useQuery({ queryKey: ['config'], queryFn: configApi.get })
   const { data: usersData } = useQuery({ queryKey: ['users-count'], queryFn: usersApi.list, enabled: !lic.isPro })
   const { data: backups, isLoading: backupsLoading } = useQuery({
     queryKey: ['backups'],
@@ -1069,27 +967,23 @@ export default function Settings() {
 
   // Fetch UI mode
   useEffect(() => {
-    fetch('/api/pricing-config', { headers: { 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
-      .then(r => r.json()).then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
+    pricingConfig.get()
+      .then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
   }, [])
   const toggleUiMode = async (mode) => {
     setUiMode(mode)
     try {
-      const current = await fetch('/api/pricing-config', { headers: { 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` } }).then(r => r.json())
-      await fetch('/api/pricing-config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY, 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ ...current, ui_mode: mode })
-      })
+      const current = await pricingConfig.get()
+      await pricingConfig.update({ ...current, ui_mode: mode })
       window.dispatchEvent(new CustomEvent('ui-mode-changed', { detail: mode }))
     } catch (e) { console.error('Failed to save UI mode:', e) }
   }
   const saveSettings = useMutation({
-    mutationFn: (data) => fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+    mutationFn: (data) => configApi.update(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['config'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }); setSaved(true); setTimeout(() => setSaved(false), 3000) },
   })
 
-  const testSpoolman = useMutation({ mutationFn: () => fetch('/api/spoolman/test').then(r => r.json()) })
+  const testSpoolman = useMutation({ mutationFn: () => configApi.testSpoolman() })
 
   const createBackup = useMutation({
     mutationFn: backupsApi.create,

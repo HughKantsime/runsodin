@@ -36,11 +36,11 @@ async def get_stats(db: Session = Depends(get_db)):
     printing_jobs = db.query(Job).filter(Job.status == JobStatus.PRINTING).count()
     completed_today = db.query(Job).filter(
         Job.status == JobStatus.COMPLETED,
-        Job.actual_end >= datetime.now().replace(hour=0, minute=0, second=0)
+        Job.actual_end >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
     ).count()
 
     # Include MQTT-tracked jobs
-    today_start = datetime.now().replace(hour=0, minute=0, second=0).isoformat()
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
     mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
     mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed' AND ended_at >= :today"), {"today": today_start}).scalar() or 0
 
@@ -56,7 +56,7 @@ async def get_stats(db: Session = Depends(get_db)):
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=3)
                 spoolman_connected = resp.status_code == 200
-        except:
+        except Exception:
             pass
 
     # --- Printer utilization stats for Utilization page ---
@@ -902,7 +902,7 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
         raise HTTPException(status_code=400, detail="Frequency must be daily, weekly, or monthly")
 
     # Calculate next run
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     if frequency == "daily":
         next_run = now + timedelta(days=1)
     elif frequency == "weekly":

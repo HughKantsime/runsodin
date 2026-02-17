@@ -10,7 +10,8 @@ import csv, io, json, logging, os, re
 
 from deps import (get_db, get_current_user, require_role, log_audit,
                   _validate_password, _check_rate_limit, _record_login_attempt,
-                  _is_locked_out, SessionLocal, oauth2_scheme)
+                  _is_locked_out, SessionLocal, oauth2_scheme,
+                  _get_period_key, _get_quota_usage)
 import auth as auth_module
 from auth import hash_password, create_access_token, verify_password, decode_token, UserCreate, UserResponse
 from models import SystemConfig
@@ -45,7 +46,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     _record_login_attempt(client_ip, form_data.username, True, db)
 
     db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"),
-               {"now": datetime.now(), "id": user.id})
+               {"now": datetime.now(timezone.utc), "id": user.id})
     db.commit()
 
     # Check MFA
@@ -313,7 +314,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
         created = parse_dt(row.created_at) if isinstance(row.created_at, str) else row.created_at
         expires_at = created + timedelta(hours=24)
     except Exception:
-        expires_at = datetime.now() + timedelta(hours=24)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
     db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
                {"jti": row.token_jti, "exp": expires_at})
@@ -348,7 +349,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
             created = parse_dt(r.created_at) if isinstance(r.created_at, str) else r.created_at
             expires_at = created + timedelta(hours=24)
         except Exception:
-            expires_at = datetime.now() + timedelta(hours=24)
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
         db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
                    {"jti": r.token_jti, "exp": expires_at})
         count += 1
@@ -386,7 +387,7 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
         created = parse_dt(row.created_at) if isinstance(row.created_at, str) else row.created_at
         expires_at = created + timedelta(hours=24)
     except Exception:
-        expires_at = datetime.now() + timedelta(hours=24)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
     db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
                {"jti": row.token_jti, "exp": expires_at})
@@ -444,7 +445,7 @@ async def create_api_token(body: dict, current_user: dict = Depends(require_role
 
     expires_at = None
     if expires_days and int(expires_days) > 0:
-        expires_at = datetime.now() + timedelta(days=int(expires_days))
+        expires_at = datetime.now(timezone.utc) + timedelta(days=int(expires_days))
 
     db.execute(text("""INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
                        VALUES (:user_id, :name, :token_hash, :prefix, :scopes, :expires_at)"""),
@@ -463,7 +464,7 @@ async def create_api_token(body: dict, current_user: dict = Depends(require_role
         "prefix": token_prefix,
         "scopes": scopes,
         "expires_at": expires_at.isoformat() if expires_at else None,
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -505,32 +506,6 @@ async def revoke_api_token(token_id: int, current_user: dict = Depends(require_r
 # =============================================================================
 # Print Quotas
 # =============================================================================
-
-def _get_period_key(period: str) -> str:
-    """Generate a period key like '2026-02' for monthly, '2026-W07' for weekly."""
-    now = datetime.now()
-    if period == "daily":
-        return now.strftime("%Y-%m-%d")
-    elif period == "weekly":
-        return now.strftime("%Y-W%W")
-    elif period == "semester":
-        return f"{now.year}-S{'1' if now.month <= 6 else '2'}"
-    else:  # monthly
-        return now.strftime("%Y-%m")
-
-
-def _get_quota_usage(db, user_id, period):
-    """Get or create quota usage row for current period."""
-    key = _get_period_key(period)
-    row = db.execute(text("SELECT * FROM quota_usage WHERE user_id = :uid AND period_key = :pk"),
-                     {"uid": user_id, "pk": key}).fetchone()
-    if row:
-        return dict(row._mapping)
-    db.execute(text("INSERT INTO quota_usage (user_id, period_key) VALUES (:uid, :pk)"),
-               {"uid": user_id, "pk": key})
-    db.commit()
-    return {"user_id": user_id, "period_key": key, "grams_used": 0, "hours_used": 0, "jobs_used": 0}
-
 
 @router.get("/quotas", tags=["Quotas"])
 async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
@@ -616,7 +591,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     jobs = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM jobs WHERE submitted_by = :uid"), {"uid": user_id}).fetchall()]
     audit = [dict(r._mapping) for r in db.execute(
-        text("SELECT * FROM audit_log WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1000"),
+        text("SELECT * FROM audit_logs WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
     sessions_data = [dict(r._mapping) for r in db.execute(
         text("SELECT id, ip_address, user_agent, created_at, last_seen_at FROM active_sessions WHERE user_id = :uid"),
@@ -625,7 +600,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         text("SELECT * FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id}).fetchall()]
 
     export = {
-        "exported_at": datetime.now().isoformat(),
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
         "jobs_submitted": jobs,
         "audit_log_entries": audit,
@@ -719,7 +694,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
         config.update(val)
 
     deleted = {}
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
 
     if config["completed_jobs_days"] > 0:
         cutoff = now - timedelta(days=config["completed_jobs_days"])
@@ -729,7 +704,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
 
     if config["audit_logs_days"] > 0:
         cutoff = now - timedelta(days=config["audit_logs_days"])
-        r = db.execute(text("DELETE FROM audit_log WHERE created_at < :cutoff"), {"cutoff": cutoff})
+        r = db.execute(text("DELETE FROM audit_logs WHERE created_at < :cutoff"), {"cutoff": cutoff})
         deleted["audit_logs"] = r.rowcount
 
     if config["alert_history_days"] > 0:

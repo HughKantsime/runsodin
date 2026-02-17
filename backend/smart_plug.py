@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
 from db_utils import get_db
+import crypto
 
 log = logging.getLogger("smart_plug")
 
@@ -62,7 +63,7 @@ def tasmota_power(host: str, action: str = "TOGGLE") -> Optional[bool]:
             data = json.loads(body)
             power = data.get("POWER", data.get("Power", ""))
             return power == "ON"
-        except:
+        except Exception:
             pass
     return None
 
@@ -84,7 +85,7 @@ def tasmota_energy(host: str) -> Optional[Dict]:
                 "voltage": energy.get("Voltage", 0),
                 "current": energy.get("Current", 0),
             }
-        except:
+        except Exception:
             pass
     return None
 
@@ -121,7 +122,7 @@ def ha_get_state(ha_url: str, entity_id: str, token: str) -> Optional[bool]:
         try:
             data = json.loads(body)
             return data.get("state") == "on"
-        except:
+        except Exception:
             pass
     return None
 
@@ -162,11 +163,18 @@ def get_plug_config(printer_id: int) -> Optional[Dict]:
     if not row or not row[0]:
         return None
 
+    auth_token = row[3]
+    if auth_token:
+        try:
+            auth_token = crypto.decrypt(auth_token)
+        except Exception:
+            pass  # Fall back to raw value if decryption fails (pre-encryption data)
+
     return {
         "type": row[0],
         "host": row[1],
         "entity_id": row[2],
-        "auth_token": row[3],
+        "auth_token": auth_token,
         "auto_on": bool(row[4]),
         "auto_off": bool(row[5]),
         "cooldown_minutes": row[6] or 5,

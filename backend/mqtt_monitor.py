@@ -227,12 +227,12 @@ class PrinterMonitor:
                             try:
                                 if (_dt.utcnow() - _dt.fromisoformat(cooldown_row[0])).total_seconds() < 20:
                                     lights_on = None
-                            except: pass
+                            except Exception: pass
                         noz_type = self._state.get('nozzle_type')
                         noz_dia = self._state.get('nozzle_diameter')
                         if isinstance(noz_dia, str):
                             try: noz_dia = float(noz_dia)
-                            except: noz_dia = None
+                            except Exception: noz_dia = None
                         fan_speed_val = self._state.get('cooling_fan_speed')
                         conn.execute(
                             "UPDATE printers SET last_seen=datetime('now'),"
@@ -1034,7 +1034,7 @@ class MQTTMonitorDaemon:
                 log.info(f"[{monitor.name}] Connection dead, reconnecting...")
                 try:
                     monitor.disconnect()
-                except:
+                except Exception:
                     pass
                 time.sleep(1)  # let old TLS socket fully tear down
 
@@ -1076,7 +1076,7 @@ class MQTTMonitorDaemon:
                     log.info(f"[{monitor.name}] Moonraker stale, reconnecting...")
                     try:
                         monitor.disconnect()
-                    except:
+                    except Exception:
                         pass
                     new_mon = MoonrakerMonitor(
                         printer_id=p['id'],

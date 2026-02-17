@@ -77,7 +77,7 @@ echo "  ✓ Supervisor environment written"
 # ── Initialize database (creates tables if needed) ──
 cd /app/backend
 python3 -c "
-from models import Base, init_db
+from models import Base
 from sqlalchemy import create_engine
 engine = create_engine('${DATABASE_URL:-sqlite:////data/odin.db}')
 Base.metadata.create_all(bind=engine)

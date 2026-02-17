@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { analytics } from '../api'
+import { analytics, printJobs } from '../api'
 import { useState } from 'react'
 import { 
   TrendingUp, TrendingDown, DollarSign, Clock, Printer, 
@@ -408,14 +408,7 @@ export default function Analytics() {
   })
   const { data: energyJobs, isLoading: energyLoading } = useQuery({
     queryKey: ['energy-jobs'],
-    queryFn: async () => {
-      const token = localStorage.getItem('token')
-      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
-      const res = await fetch('/api/print-jobs?limit=200', { headers })
-      if (!res.ok) return []
-      return res.json()
-    }
+    queryFn: () => printJobs.list({ limit: 200 }).catch(() => [])
   })
   if (isLoading) {
     return (

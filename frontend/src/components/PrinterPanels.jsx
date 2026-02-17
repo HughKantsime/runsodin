@@ -1,4 +1,5 @@
 import { Thermometer, Wind, Activity } from 'lucide-react'
+import { getShortName } from '../utils/shared'
 
 export function PrinterInfoPanel({ printer }) {
   const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
@@ -56,18 +57,6 @@ export function PrinterInfoPanel({ printer }) {
 export function FilamentSlotsPanel({ printer }) {
   const slots = printer.filament_slots || []
   if (!slots.length) return null
-
-  const getShortName = (slot) => {
-    const color = slot?.color
-    if (!color || color.startsWith('#') || /^[0-9a-fA-F]{6}$/.test(color)) return slot?.filament_type || 'Empty'
-    const brands = ['Bambu Lab', 'Polymaker', 'Hatchbox', 'eSun', 'Prusament', 'Overture', 'Generic']
-    let short = color
-    for (const brand of brands) {
-      if (color.startsWith(brand + ' ')) { short = color.slice(brand.length + 1); break }
-    }
-    if (short.length > 14) return short.slice(0, 12) + '...'
-    return short
-  }
 
   return (
     <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">

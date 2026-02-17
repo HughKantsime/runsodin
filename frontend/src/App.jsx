@@ -90,7 +90,7 @@ import Detections from './pages/Detections'
 import EducationReports from './pages/EducationReports'
 import AuditLogs from './pages/AuditLogs'
 import Timelapses from './pages/Timelapses'
-import { stats, printers, getEducationMode } from './api'
+import { stats, printers, getEducationMode, pricingConfig, setup } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
@@ -150,9 +150,8 @@ function Sidebar({ mobileOpen, onMobileClose }) {
   const [uiMode, setUiMode] = useState('advanced')
   const [educationMode, setEducationMode] = useState(false)
   useEffect(() => {
-    const key = localStorage.getItem('pf_api_key') || ''
-    fetch('/api/pricing-config', { headers: { 'X-API-Key': key } })
-      .then(r => r.json()).then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
+    pricingConfig.get()
+      .then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
     const handler = (e) => setUiMode(e.detail)
     window.addEventListener('ui-mode-changed', handler)
     return () => window.removeEventListener('ui-mode-changed', handler)
@@ -483,11 +482,7 @@ export default function App() {
   // Check if first-time setup is needed
   useEffect(() => {
     if (location.pathname === '/setup' || location.pathname === '/login' || location.pathname === '/tv') return
-    const API_KEY = import.meta.env.VITE_API_KEY
-    const headers = { 'Content-Type': 'application/json' }
-    if (API_KEY) headers['X-API-Key'] = API_KEY
-    fetch('/api/setup/status', { headers })
-      .then(r => r.json())
+    setup.status()
       .then(data => {
         if (data.needs_setup) {
           window.location.href = '/setup'

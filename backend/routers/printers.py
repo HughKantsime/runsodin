@@ -710,7 +710,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 resp = client.get(f"{settings.spoolman_url}/api/v1/spool")
                 if resp.status_code == 200:
                     spoolman_spools = resp.json()
-        except:
+        except Exception:
             pass  # Spoolman not available, continue without it
 
     def find_library_match(hex_code, filament_type):
@@ -836,7 +836,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
             # Default to hex if we can't determine
             return f"#{hex_code.upper()}"
 
-        except:
+        except Exception:
             return f"#{hex_code.upper()}"
 
     # Update slots from AMS state
@@ -1057,7 +1057,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                         if distance > 60:  # Threshold for "different color"
                             mismatch = True
                             mismatch_reason.append(f"Color: spool={spool_hex}, slot={slot_hex}")
-                    except:
+                    except Exception:
                         pass
 
                 if mismatch and not spool.rfid_tag:
@@ -1293,7 +1293,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
         if len(parts) != 2:
             raise ValueError()
         serial_number, access_code = parts; ip_address = printer.api_host
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid Bambu config. Expected: ip|serial|access_code")
 
     library_filaments = db.query(FilamentLibrary).all()
@@ -1317,7 +1317,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
                             "material": filament.get("material", "PLA"),
                             "color_hex": filament.get("color_hex"),
                         })
-        except:
+        except Exception:
             pass
 
     result = sync_ams_filaments(
@@ -1360,7 +1360,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
         except ValueError:
             try:
                 db_slot.filament_type = FilamentType.from_bambu_code(slot_info.filament_type)
-            except:
+            except Exception:
                 db_slot.filament_type = FilamentType.OTHER
             unmatched_slots.append(slot_info.slot_number)
 
@@ -1374,7 +1374,7 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
         db_slot.loaded_at = datetime.now(timezone.utc)
 
         if slot_info.matched_filament:
-            db_slot.spoolman_id = slot_info.matched_filament.get('id')
+            db_slot.spoolman_spool_id = slot_info.matched_filament.get('id')
 
         slots_updated += 1
 
@@ -1426,7 +1426,7 @@ async def manual_slot_assignment(
             slot.filament_type = FilamentType.OTHER
         slot.color = lib_entry.name
         slot.color_hex = lib_entry.color_hex
-        slot.spoolman_id = f"lib_{lib_entry.id}"
+        slot.spoolman_spool_id = f"lib_{lib_entry.id}"
     else:
         if assignment.filament_type:
             try:
@@ -1504,7 +1504,7 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
         if len(parts) != 2:
             return {"error": "Invalid credentials format"}
         serial, access_code = parts
-    except:
+    except Exception:
         return {"error": "Could not decrypt credentials"}
 
     # Quick MQTT connection to get status
@@ -1597,11 +1597,13 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
         if not tag:
             raise HTTPException(status_code=400, detail="Tag is required")
         for pid in printer_ids:
-            existing = db.execute(text("SELECT 1 FROM printer_tags WHERE printer_id = :pid AND tag = :tag"),
-                                  {"pid": pid, "tag": tag}).fetchone()
-            if not existing:
-                db.execute(text("INSERT INTO printer_tags (printer_id, tag) VALUES (:pid, :tag)"),
-                           {"pid": pid, "tag": tag})
+            printer = db.query(Printer).filter(Printer.id == pid).first()
+            if not printer:
+                continue
+            current_tags = printer.tags if isinstance(printer.tags, list) else json.loads(printer.tags or "[]")
+            if tag not in current_tags:
+                current_tags.append(tag)
+                printer.tags = current_tags
             count += 1
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
@@ -1800,7 +1802,7 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
         "plug_type": plug_type,
         "plug_host": data.get("host"),
         "plug_entity_id": data.get("entity_id"),
-        "plug_auth_token": data.get("auth_token"),
+        "plug_auth_token": crypto.encrypt(data.get("auth_token")) if data.get("auth_token") else None,
         "plug_auto_on": data.get("auto_on", True),
         "plug_auto_off": data.get("auto_off", True),
         "plug_cooldown_minutes": data.get("cooldown_minutes", 5),

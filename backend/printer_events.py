@@ -131,7 +131,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                     allowed_types = json.loads(alert_types_json)
                     if alert_type not in allowed_types:
                         continue
-                except:
+                except Exception:
                     pass
 
             # Build payload based on webhook type

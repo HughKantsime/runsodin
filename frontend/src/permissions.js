@@ -82,10 +82,6 @@ function getActionAccess() {
   return cached?.action_access || DEFAULT_ACTION_ACCESS
 }
 
-// Exported for backward compatibility (some components may import these directly)
-export const PAGE_ACCESS = getPageAccess()
-export const ACTION_ACCESS = getActionAccess()
-
 export function getCurrentUser() {
   const token = localStorage.getItem('token')
   if (!token) return null

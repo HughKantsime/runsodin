@@ -50,8 +50,12 @@ export const printers = {
   delete: (id) => fetchAPI('/printers/' + id, { method: 'DELETE' }),
   reorder: (ids) => fetchAPI('/printers/reorder', { method: 'POST', body: JSON.stringify({ printer_ids: ids }) }),
   toggleLights: (id) => fetchAPI(`/printers/${id}/lights`, { method: 'POST' }),
-  updateSlot: (printerId, slotNumber, data) => 
+  updateSlot: (printerId, slotNumber, data) =>
     fetchAPI('/printers/' + printerId + '/slots/' + slotNumber, { method: 'PATCH', body: JSON.stringify(data) }),
+  testConnection: (data) => fetchAPI('/printers/test-connection', { method: 'POST', body: JSON.stringify(data) }),
+  syncAms: (printerId) => fetchAPI(`/printers/${printerId}/sync-ams`, { method: 'POST' }),
+  assignSlotSpool: (printerId, slotNumber, spoolId) => fetchAPI(`/printers/${printerId}/slots/${slotNumber}/assign?spool_id=${spoolId}`, { method: 'POST' }),
+  getCameras: () => fetchAPI('/cameras'),
 }
 
 export const jobs = {
@@ -92,15 +96,13 @@ export const stats = {
   get: () => fetchAPI('/stats'),
 }
 
-export const spoolman = {
-  getSpools: () => fetchAPI('/spoolman/spools'),
-  getFilaments: () => fetchAPI('/spoolman/filaments'),
-}
-
 export const filaments = {
   list: () => fetchAPI('/filaments'),
   combined: () => fetchAPI('/filaments/combined'),
   add: (data) => fetchAPI('/filaments', { method: 'POST', body: JSON.stringify(data) }),
+  create: (data) => fetchAPI('/filaments', { method: 'POST', body: JSON.stringify(data) }),
+  update: ({ id, ...data }) => fetchAPI(`/filaments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: (id) => fetchAPI(`/filaments/${id}`, { method: 'DELETE' }),
 }
 
 export const analytics = {
@@ -450,8 +452,26 @@ export const search = {
 }
 
 
-// QR code spool scanning
+// QR code spool scanning + full CRUD
 export const spools = {
+  list: (filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.status) params.append('status', filters.status)
+    if (filters.printer_id) params.append('printer_id', filters.printer_id)
+    if (filters.org_id != null) params.append('org_id', filters.org_id)
+    return fetchAPI(`/spools?${params}`)
+  },
+  get: (id) => fetchAPI(`/spools/${id}`),
+  create: (data) => fetchAPI('/spools', { method: 'POST', body: JSON.stringify(data) }),
+  update: ({ id, ...data }) => fetchAPI(`/spools/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  load: ({ id, printer_id, slot_number }) => fetchAPI(`/spools/${id}/load`, {
+    method: 'POST', body: JSON.stringify({ printer_id, slot_number }),
+  }),
+  unload: ({ id, storage_location }) => fetchAPI(`/spools/${id}/unload?storage_location=${storage_location || ''}`, { method: 'POST' }),
+  use: ({ id, weight_used_g, notes }) => fetchAPI(`/spools/${id}/use`, {
+    method: 'POST', body: JSON.stringify({ weight_used_g, notes }),
+  }),
+  archive: (id) => fetchAPI(`/spools/${id}`, { method: 'DELETE' }),
   lookup: (qrCode) => fetchAPI(`/spools/lookup/${qrCode}`),
   scanAssign: (qrCode, printerId, slot) => fetchAPI('/spools/scan-assign', {
     method: 'POST',
@@ -589,23 +609,6 @@ export async function updateJobFailure(jobId, failReason, failNotes) {
   });
 }
 
-// License
-export const licenseApi = {
-  get: () => fetchAPI('/license'),
-  upload: (formData) => {
-    const h = {}
-    if (API_KEY) h['X-API-Key'] = API_KEY
-    const tk = localStorage.getItem('token')
-    if (tk) h['Authorization'] = 'Bearer ' + tk
-    return fetch('/api/license/upload', {
-      method: 'POST',
-      headers: h,
-      body: formData,
-    }).then(r => r.json())
-  },
-  remove: () => fetchAPI('/license', { method: 'DELETE' }),
-}
-
 
 
 // ---- Smart Plug ----
@@ -680,5 +683,89 @@ export const vision = {
   updatePrinterSettings: (id, data) => fetchAPI(`/printers/${id}/vision`, { method: 'PATCH', body: JSON.stringify(data) }),
   getModels: () => fetchAPI('/vision/models'),
   activateModel: (id) => fetchAPI(`/vision/models/${id}/activate`, { method: 'PATCH' }),
+  uploadModel: async (file, name, detectionType, inputSize = 640) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const token = localStorage.getItem('token')
+    const headers = {}
+    if (API_KEY) headers['X-API-Key'] = API_KEY
+    if (token) headers['Authorization'] = 'Bearer ' + token
+    const response = await fetch(`${API_BASE}/vision/models?name=${encodeURIComponent(name)}&detection_type=${detectionType}&input_size=${inputSize}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+    if (!response.ok) throw new Error('Failed to upload model')
+    return response.json()
+  },
   getStats: (days) => fetchAPI('/vision/stats?days=' + (days || 7)),
+}
+
+// Backups
+export const backups = {
+  list: () => fetchAPI('/backups'),
+  create: () => fetchAPI('/backups', { method: 'POST' }),
+  remove: (filename) => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
+  download: async (filename) => {
+    const token = localStorage.getItem('token')
+    const headers = {}
+    if (API_KEY) headers['X-API-Key'] = API_KEY
+    if (token) headers['Authorization'] = 'Bearer ' + token
+    const res = await fetch(`${API_BASE}/backups/${filename}`, { headers })
+    if (!res.ok) throw new Error('Download failed')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+}
+
+// Config
+export const config = {
+  get: () => fetchAPI('/config'),
+  update: (data) => fetchAPI('/config', { method: 'PUT', body: JSON.stringify(data) }),
+  getNetwork: () => fetchAPI('/setup/network'),
+  saveNetwork: (data) => fetchAPI('/setup/network', { method: 'POST', body: JSON.stringify(data) }),
+  testSpoolman: () => fetchAPI('/spoolman/test'),
+}
+
+// Orders invoice (blob download)
+export const orderInvoice = async (orderId, orderNumber) => {
+  const token = localStorage.getItem('token')
+  const headers = {}
+  if (API_KEY) headers['X-API-Key'] = API_KEY
+  if (token) headers['Authorization'] = 'Bearer ' + token
+  const res = await fetch(`${API_BASE}/orders/${orderId}/invoice.pdf`, { headers })
+  if (!res.ok) throw new Error('Failed to generate invoice')
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `invoice_${orderNumber || orderId}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// Generic blob download helper (for exports)
+export const downloadBlob = async (endpoint, filename) => {
+  const token = localStorage.getItem('token')
+  const headers = {}
+  if (API_KEY) headers['X-API-Key'] = API_KEY
+  if (token) headers['Authorization'] = 'Bearer ' + token
+  const res = await fetch(`${API_BASE}${endpoint}`, { headers })
+  if (!res.ok) throw new Error('Export failed')
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }

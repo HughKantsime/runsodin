@@ -24,7 +24,7 @@ import sqlite3
 import time
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from moonraker_adapter import MoonrakerPrinter, MoonrakerState
@@ -355,7 +355,7 @@ class MoonrakerMonitor:
                     f"mk_{int(time.time())}",
                     filename,
                     filename,
-                    datetime.now().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     total_layers,
                     bed_target,
                     nozzle_target,
@@ -384,7 +384,7 @@ class MoonrakerMonitor:
                     UPDATE print_jobs
                     SET ended_at = ?, status = ?
                     WHERE id = ?
-                """, (datetime.now().isoformat(), end_status, self._current_job_db_id))
+                """, (datetime.now(timezone.utc).isoformat(), end_status, self._current_job_db_id))
 
                 # If linked to a scheduled job, update it too
                 cur.execute("""
@@ -621,7 +621,7 @@ class MoonrakerMonitor:
                     INSERT INTO spool_usage (spool_id, job_id, printer_id, grams_used, created_at)
                     VALUES (?, ?, ?, ?, ?)
                 """, (spool_id, scheduled_job_id, self.printer_id, grams_used,
-                      datetime.now().isoformat()))
+                      datetime.now(timezone.utc).isoformat()))
                 
                 log.info(f"[{self.name}] Deducted {grams_used}g from spool #{spool_id}")
                 
