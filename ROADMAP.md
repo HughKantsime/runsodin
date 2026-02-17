@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-16 at v1.3.30.
+Updated 2026-02-16 at v1.3.34.
 
 ## Shipped in v1.2.0
 
@@ -100,6 +100,8 @@ Updated 2026-02-16 at v1.3.30.
 - ~~Theme toggle reactivity via MutationObserver~~
 - ~~Theme-aware Recharts: CSS variables for chart grid/axis/tooltip across Analytics, EnergyWidget, AmsEnvironmentChart, PrinterTelemetryChart~~
 - ~~Phase 0 supervisor STARTING race condition fix (retry up to 15s before failing)~~
+- ~~Legal/compliance audit remediation: self-hosted fonts (GDPR), CORS hardening, MFA encryption guard, periodic session cleanup, error sanitization, alt text fixes, cache versioning, referrer policy, GDPR data export/erase UI, license type display, third-party notices~~
+- ~~LICENSE file version reference fix (v0.17.0 → v1.0.0)~~
 
 ---
 

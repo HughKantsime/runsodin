@@ -34,11 +34,11 @@ The self-hosted licensing model yields ~95% gross margins with near-zero infrast
 
 ### Product Weaknesses (Honest Assessment)
 
-1. **11,500-line monolithic `main.py`** — Single biggest technical risk. Limits team scalability, code review, and onboarding. Must be split before any commercial push.
+1. ~~**11,500-line monolithic `main.py`**~~ — **Resolved (v1.3.30).** Split into 13 router modules + deps.py.
 
 2. **SQLite ceiling** — Perfect for 5-30 printers. Write contention becomes noticeable at 50+. No horizontal scaling path without PostgreSQL migration.
 
-3. **No migration framework** — Schema evolution via `ALTER TABLE ... ADD COLUMN` in shell scripts. Fragile for frequent releases.
+3. ~~**No migration framework**~~ — **Resolved (v1.3.27).** Alembic with initial schema (27 tables, SQLite batch mode).
 
 4. **No marketplace integrations** — Can't pull Etsy/Amazon orders automatically. Manual order entry only.
 
@@ -48,7 +48,7 @@ The self-hosted licensing model yields ~95% gross margins with near-zero infrast
 
 7. **Solo developer bus factor** — Extraordinary velocity (v0.1 to v1.3 in 18 days) but the codebase reflects one person's mental model.
 
-8. **No legal documents** — No Privacy Policy, EULA, Terms of Service, DPA, or safety disclaimers. Cannot launch commercially without these.
+8. ~~**No legal documents**~~ — **Resolved (v1.3.27-v1.3.34).** TOS, Privacy Policy, Vigil AI disclaimers, THIRD_PARTY_NOTICES, FERPA/COPPA/VPAT all shipped. Lawyer review still pending.
 
 ---
 
@@ -170,10 +170,10 @@ The economics of self-hosted licensing are exceptionally favorable:
 
 These are **launch blockers**. Cannot sell commercially without them.
 
-- [ ] Fix LICENSE file — references "PrintFarm Scheduler v0.17.0," not "O.D.I.N."
-- [ ] Create Terms of Service / EULA for each tier
-- [ ] Create Privacy Policy
-- [ ] Create safety disclaimers for Vigil AI (in-app + legal docs)
+- [x] Fix LICENSE file — updated to "O.D.I.N." and v1.0.0 (v1.3.34)
+- [x] Create Terms of Service / EULA for each tier (v1.3.27)
+- [x] Create Privacy Policy (v1.3.27, GDPR tier claims fixed v1.3.34)
+- [x] Create safety disclaimers for Vigil AI (in-app + legal docs) (v1.3.27)
 - [ ] Engage a lawyer to review all documents
 - [ ] File trademark applications: O.D.I.N., Vigil AI, Sublab 3DP
 - [ ] File BIS encryption notification (one-time email to crypt@bis.doc.gov)
@@ -225,10 +225,10 @@ These are **launch blockers**. Cannot sell commercially without them.
 5. Convert to case studies: "How [School] Manages 8 Bambu Printers with O.D.I.N."
 
 **Product gaps to close for education:**
-- Bulk user import via CSV (class rosters)
-- "Education mode" toggle that hides orders/products/BOM from UI
-- FERPA/COPPA compliance documentation (policy docs, not code)
-- VPAT for accessibility procurement
+- ~~Bulk user import via CSV (class rosters)~~ *(shipped v1.3.28)*
+- ~~"Education mode" toggle that hides orders/products/BOM from UI~~ *(shipped v1.3.28)*
+- ~~FERPA/COPPA compliance documentation (policy docs, not code)~~ *(shipped v1.3.28)*
+- ~~VPAT for accessibility procurement~~ *(shipped v1.3.28)*
 
 **Distribution:**
 - Apply for ISTE Seal of Alignment (standards validation)
@@ -283,12 +283,12 @@ These are **launch blockers**. Cannot sell commercially without them.
 
 | Investment | Why | Effort |
 |-----------|-----|--------|
-| Break up main.py into FastAPI route modules | Maintainability, team scaling, code review | Medium (mechanical refactoring) |
-| Unify database access (eliminate raw sqlite3 in routes) | Consistency, connection safety | Medium |
-| Add Alembic migrations | Reliable upgrades, schema evolution | Low-Medium |
-| Remove JWT secret fallback string | Security (trivially forgeable JWT if env var unset) | Trivial |
-| Add API versioning (/api/v1/) | Prevents breaking third-party integrations | Low |
-| Fix CORS (scope methods/headers, add CSP) | Security hardening | Low |
+| ~~Break up main.py into FastAPI route modules~~ | Maintainability, team scaling, code review | ~~Done (v1.3.30)~~ |
+| ~~Unify database access (eliminate raw sqlite3 in routes)~~ | Consistency, connection safety | ~~Done (v1.3.27)~~ |
+| ~~Add Alembic migrations~~ | Reliable upgrades, schema evolution | ~~Done (v1.3.27)~~ |
+| ~~Remove JWT secret fallback string~~ | Security (trivially forgeable JWT if env var unset) | ~~Done (v1.3.26)~~ |
+| ~~Add API versioning (/api/v1/)~~ | Prevents breaking third-party integrations | ~~Done (v1.3.27)~~ |
+| ~~Fix CORS (scope methods/headers, add CSP)~~ | Security hardening | ~~Done (v1.3.27 + v1.3.34)~~ |
 
 ### Tier 2 — For Scale and Team Growth
 
