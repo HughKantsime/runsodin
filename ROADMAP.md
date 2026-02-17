@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-16 at v1.3.34.
+Updated 2026-02-16 at v1.3.36.
 
 ## Shipped in v1.2.0
 
@@ -102,6 +102,8 @@ Updated 2026-02-16 at v1.3.34.
 - ~~Phase 0 supervisor STARTING race condition fix (retry up to 15s before failing)~~
 - ~~Legal/compliance audit remediation: self-hosted fonts (GDPR), CORS hardening, MFA encryption guard, periodic session cleanup, error sanitization, alt text fixes, cache versioning, referrer policy, GDPR data export/erase UI, license type display, third-party notices~~
 - ~~LICENSE file version reference fix (v0.17.0 → v1.0.0)~~
+- ~~Code smell remediation: fix spoolman_spool_id attribute, audit_logs table name, bulk add_tag JSON logic, encrypt plug_auth_token, deduplicate quota helpers, normalize datetime.now(timezone.utc) across 12 files, replace deprecated utcnow(), remove dead code (verify_api_key, init_db), StaticPool→NullPool, bare except→except Exception (25 sites)~~
+- ~~Frontend API consolidation: all pages migrated to centralized fetchAPI (Settings, Spools, Printers, Analytics, Orders, App.jsx), removed 6 local API layers (~200 lines), fixed auth header bugs, deduplicated getShortName, replaced alert/confirm with toast/ConfirmModal, SW cache cleanup~~
 
 ---
 
