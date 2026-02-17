@@ -481,7 +481,7 @@ export default function App() {
 
   // Check if first-time setup is needed
   useEffect(() => {
-    if (location.pathname === '/setup' || location.pathname === '/login' || location.pathname === '/tv') return
+    if (location.pathname === '/setup' || location.pathname === '/tv') return
     setup.status()
       .then(data => {
         if (data.needs_setup) {
