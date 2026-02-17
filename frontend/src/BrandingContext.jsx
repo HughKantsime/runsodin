@@ -44,8 +44,32 @@ export function BrandingProvider({ children }) {
         if (res.ok) return res.json()
         throw new Error("Branding fetch failed")
       })
-      .then(data => {
-        const merged = { ...DEFAULT_BRANDING, ...data }
+      .then(async (data) => {
+        let merged = { ...DEFAULT_BRANDING, ...data }
+
+        // Overlay org-level branding if user belongs to an org
+        const token = localStorage.getItem('token')
+        if (token) {
+          try {
+            const meRes = await fetch(`${API_BASE}/auth/me`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (meRes.ok) {
+              const me = await meRes.json()
+              if (me.group_id) {
+                const settingsRes = await fetch(`${API_BASE}/orgs/${me.group_id}/settings`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+                })
+                if (settingsRes.ok) {
+                  const orgSettings = await settingsRes.json()
+                  if (orgSettings.branding_app_name) merged.app_name = orgSettings.branding_app_name
+                  if (orgSettings.branding_logo_url) merged.logo_url = orgSettings.branding_logo_url
+                }
+              }
+            }
+          } catch { /* org branding overlay is best-effort */ }
+        }
+
         setBranding(merged)
         applyBrandingCSS(merged)
         applyBrandingMeta(merged)

@@ -119,6 +119,17 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         if latest_rev:
             model_revision_id = latest_rev.id
 
+    # Apply org default filament if not explicitly set
+    effective_filament_type = job.filament_type
+    effective_colors = job.colors_required
+    if current_user and current_user.get("group_id") and not effective_filament_type:
+        from routers.orgs import _get_org_settings
+        org_settings = _get_org_settings(db, current_user["group_id"])
+        if org_settings.get("default_filament_type"):
+            effective_filament_type = org_settings["default_filament_type"]
+        if not effective_colors and org_settings.get("default_filament_color"):
+            effective_colors = org_settings["default_filament_color"]
+
     db_job = Job(
         item_name=job.item_name,
         model_id=job.model_id,
@@ -126,8 +137,8 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         quantity=job.quantity,
         priority=job.priority,
         duration_hours=job.duration_hours,
-        colors_required=job.colors_required,
-        filament_type=job.filament_type,
+        colors_required=effective_colors,
+        filament_type=effective_filament_type,
         notes=job.notes,
         hold=job.hold,
         status=initial_status,
@@ -178,6 +189,12 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
     """Create multiple jobs at once."""
     from routers.models import calculate_job_cost
 
+    # Pre-load org settings for default filament
+    org_settings = {}
+    if current_user and current_user.get("group_id"):
+        from routers.orgs import _get_org_settings
+        org_settings = _get_org_settings(db, current_user["group_id"])
+
     db_jobs = []
     for job in jobs:
         # Calculate cost if model is linked
@@ -185,14 +202,21 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
         if job.model_id:
             estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=job.model_id)
 
+        effective_filament_type = job.filament_type
+        effective_colors = job.colors_required
+        if not effective_filament_type and org_settings.get("default_filament_type"):
+            effective_filament_type = org_settings["default_filament_type"]
+        if not effective_colors and org_settings.get("default_filament_color"):
+            effective_colors = org_settings["default_filament_color"]
+
         db_job = Job(
             item_name=job.item_name,
             model_id=job.model_id,
             quantity=job.quantity,
             priority=job.priority,
             duration_hours=job.duration_hours,
-            colors_required=job.colors_required,
-            filament_type=job.filament_type,
+            colors_required=effective_colors,
+            filament_type=effective_filament_type,
             notes=job.notes,
             hold=job.hold,
             status=JobStatus.PENDING,

@@ -249,6 +249,7 @@ except Exception:
 for col, coldef in [
     ("is_org", "BOOLEAN DEFAULT 0"),
     ("branding_json", "TEXT"),
+    ("settings_json", "TEXT"),
 ]:
     try:
         conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {coldef}")

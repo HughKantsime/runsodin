@@ -80,8 +80,43 @@ def is_quiet_time() -> bool:
         return False
 
 
-def should_suppress_notification() -> bool:
-    """Returns True if real-time notifications should be suppressed."""
+def _is_quiet_time_for_config(config: Dict) -> bool:
+    """Check if current time falls within the given quiet hours config."""
+    if not config.get("enabled", False):
+        return False
+    try:
+        now = datetime.now(timezone.utc)
+        current_minutes = now.hour * 60 + now.minute
+        start_h, start_m = map(int, config.get("start", "22:00").split(":"))
+        end_h, end_m = map(int, config.get("end", "07:00").split(":"))
+        start_minutes = start_h * 60 + start_m
+        end_minutes = end_h * 60 + end_m
+        if start_minutes <= end_minutes:
+            return start_minutes <= current_minutes < end_minutes
+        else:
+            return current_minutes >= start_minutes or current_minutes < end_minutes
+    except Exception:
+        return False
+
+
+def should_suppress_notification(org_id: int = None) -> bool:
+    """Returns True if real-time notifications should be suppressed.
+    Checks org-level quiet hours first (if org_id given), then system-level."""
+    if org_id:
+        try:
+            with get_db(row_factory=sqlite3.Row) as conn:
+                row = conn.execute("SELECT settings_json FROM groups WHERE id = ?", (org_id,)).fetchone()
+                if row and row["settings_json"]:
+                    settings = json.loads(row["settings_json"])
+                    org_qh = {
+                        "enabled": settings.get("quiet_hours_enabled", False),
+                        "start": settings.get("quiet_hours_start", "22:00"),
+                        "end": settings.get("quiet_hours_end", "07:00"),
+                    }
+                    if org_qh["enabled"]:
+                        return _is_quiet_time_for_config(org_qh)
+        except Exception as e:
+            log.debug(f"Error checking org quiet hours: {e}")
     return is_quiet_time()
 
 

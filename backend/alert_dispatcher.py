@@ -24,7 +24,7 @@ import logging
 try:
     from quiet_hours import should_suppress_notification
 except ImportError:
-    def should_suppress_notification(): return False
+    def should_suppress_notification(org_id=None): return False
 import smtplib
 import threading
 from datetime import datetime, timedelta, timezone
@@ -300,8 +300,18 @@ def dispatch_alert(
 
     Handles dedup, creates in-app records, sends push + email.
     """
+    # Resolve printer's org for org-level quiet hours + webhook
+    _printer_org_id = None
+    if printer_id:
+        try:
+            row = db.execute(text("SELECT org_id FROM printers WHERE id = :id"), {"id": printer_id}).fetchone()
+            if row and row.org_id:
+                _printer_org_id = row.org_id
+        except Exception:
+            pass
+
     # Quiet hours: save alert to DB but suppress external notifications
-    _suppress_external = should_suppress_notification()
+    _suppress_external = should_suppress_notification(org_id=_printer_org_id)
 
     preferences = db.query(AlertPreference).filter(
         AlertPreference.alert_type == alert_type
@@ -351,6 +361,73 @@ def dispatch_alert(
         pass
     except Exception as e:
         logger.error(f"Webhook dispatch error: {e}")
-    
+
+    # Org-level webhook dispatch
+    if _printer_org_id:
+        try:
+            from routers.orgs import _get_org_settings
+            org_settings = _get_org_settings(db, _printer_org_id)
+            org_webhook_url = org_settings.get("webhook_url")
+            if org_webhook_url:
+                _send_org_webhook(
+                    org_webhook_url, org_settings.get("webhook_type", "generic"),
+                    alert_type.value, title, message, severity.value
+                )
+        except Exception as e:
+            logger.error(f"Org webhook dispatch error: {e}")
+
     logger.info(f"Dispatched {alert_type.value} alert to {alerts_created} users: {title}")
     return alerts_created
+
+
+def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
+                      title: str, message: str, severity: str):
+    """Send alert to an org's configured webhook URL in a background thread."""
+    import httpx
+
+    severity_colors = {"critical": 0xef4444, "warning": 0xf59e0b, "info": 0x3b82f6}
+    severity_emoji = {"critical": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}
+    emoji = severity_emoji.get(severity, "\U0001f535")
+    color = severity_colors.get(severity, 0x3b82f6)
+
+    def _send():
+        try:
+            if wtype == "discord":
+                httpx.post(url, json={
+                    "embeds": [{"title": f"{emoji} {title}", "description": message or "",
+                                "color": color, "footer": {"text": "O.D.I.N."}}]
+                }, timeout=10)
+            elif wtype == "slack":
+                httpx.post(url, json={
+                    "blocks": [
+                        {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
+                    ]
+                }, timeout=10)
+            elif wtype == "ntfy":
+                priority_map = {"critical": "urgent", "warning": "high", "info": "default"}
+                httpx.post(url, content=message or title, headers={
+                    "Title": title, "Priority": priority_map.get(severity, "default"), "Tags": "printer",
+                }, timeout=10)
+            elif wtype == "telegram":
+                if "|" in url:
+                    bot_token, chat_id = url.split("|", 1)
+                    api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
+                else:
+                    api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
+                    chat_id = ""
+                if chat_id:
+                    httpx.post(api_url, json={
+                        "chat_id": chat_id.strip(), "text": f"{emoji} *{title}*\n{message or ''}",
+                        "parse_mode": "Markdown"
+                    }, timeout=10)
+            else:
+                httpx.post(url, json={
+                    "event": alert_type_value, "title": title,
+                    "message": message or "", "severity": severity
+                }, timeout=10)
+        except Exception as e:
+            logger.error(f"Org webhook dispatch failed ({wtype}): {e}")
+
+    thread = threading.Thread(target=_send, daemon=True)
+    thread.start()

@@ -116,31 +116,20 @@ Updated 2026-02-16 at v1.3.36.
 
 ---
 
-### 2. Scheduled Reports — Remaining Gaps
-**Effort: Low** — Report runner daemon shipped in v1.3.19. Remaining:
-
-- Render as HTML email with inline charts (or PDF attachment)
-- Send via existing email infrastructure (currently generates but doesn't email)
+### ~~2. Scheduled Reports — Email Delivery~~ ✅ Shipped
+SMTP email delivery with HTML body implemented in `report_runner.py`.
 
 ---
 
-### 5. Bulk Operations — Printers & Spools
-**Effort: Low** — Jobs bulk UI done. Printers/Spools bulk API exists but no UI.
-
-- Checkbox column on Printers and Spools tables
-- Bulk action toolbar: enable/disable printers, add tag, archive spools
+### ~~5. Bulk Operations — Printers & Spools~~ ✅ Shipped
+Checkbox selection + bulk action toolbars on both Printers and Spools pages.
 
 ---
 
-## Backlog — Small Fixes
+## ~~Backlog — Small Fixes~~ (all shipped)
 
-### 6. Fix Frontend Password Validation Mismatch
-**Effort: Trivial** — Backend enforces 8-char + uppercase + lowercase + digit. `Setup.jsx` only checks 6-char minimum.
-
-- Update `Setup.jsx` to match backend validation rules
-- Single line change
-
----
+### ~~6. Fix Frontend Password Validation Mismatch~~ ✅ Shipped
+Setup.jsx now enforces 8-char + uppercase + lowercase + digit with live strength checklist.
 
 ---
 

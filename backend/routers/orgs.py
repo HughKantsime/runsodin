@@ -4,12 +4,36 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
 from datetime import datetime
+import json
 import logging
 
 from deps import get_db, require_role, log_audit
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+# Org-level settings defaults and allowed keys
+DEFAULT_ORG_SETTINGS = {
+    "default_filament_type": None,
+    "default_filament_color": None,
+    "quiet_hours_enabled": False,
+    "quiet_hours_start": "22:00",
+    "quiet_hours_end": "07:00",
+    "webhook_url": None,
+    "webhook_type": "generic",
+    "branding_app_name": None,
+    "branding_logo_url": None,
+}
+
+ALLOWED_SETTINGS_KEYS = set(DEFAULT_ORG_SETTINGS.keys())
+
+
+def _get_org_settings(db, org_id: int) -> dict:
+    """Load org settings from groups.settings_json, merged with defaults."""
+    row = db.execute(text("SELECT settings_json FROM groups WHERE id = :id"), {"id": org_id}).fetchone()
+    if row and row.settings_json:
+        return {**DEFAULT_ORG_SETTINGS, **json.loads(row.settings_json)}
+    return dict(DEFAULT_ORG_SETTINGS)
 
 
 # =============================================================================
@@ -20,13 +44,14 @@ router = APIRouter()
 async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """List all organizations."""
     rows = db.execute(text(
-        "SELECT g.*, "
+        "SELECT g.*, g.settings_json, "
         "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
         "FROM groups g WHERE g.is_org = 1 ORDER BY g.name")).fetchall()
     return [{
         "id": r.id, "name": r.name, "description": r.description,
         "owner_id": r.owner_id, "member_count": r.member_count,
         "created_at": r.created_at,
+        "has_settings": bool(r.settings_json),
     } for r in rows]
 
 
@@ -115,3 +140,36 @@ async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = De
                {"oid": org_id, "pid": printer_id})
     db.commit()
     return {"status": "ok"}
+
+
+# =============================================================================
+# Organization Settings
+# =============================================================================
+
+@router.get("/orgs/{org_id}/settings", tags=["Organizations"])
+async def get_org_settings(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Get org-level settings (default filament, notifications, branding)."""
+    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return _get_org_settings(db, org_id)
+
+
+@router.put("/orgs/{org_id}/settings", tags=["Organizations"])
+async def update_org_settings(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Update org-level settings. Only known keys are accepted."""
+    org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    current = json.loads(org.settings_json) if org.settings_json else {}
+    for key in ALLOWED_SETTINGS_KEYS:
+        if key in body:
+            current[key] = body[key]
+
+    db.execute(text("UPDATE groups SET settings_json = :s, updated_at = CURRENT_TIMESTAMP WHERE id = :id"),
+               {"s": json.dumps(current), "id": org_id})
+    db.commit()
+
+    log_audit(db, "org_settings_updated", "org", org_id, f"Settings updated for org '{org.name}'")
+    return {**DEFAULT_ORG_SETTINGS, **current}

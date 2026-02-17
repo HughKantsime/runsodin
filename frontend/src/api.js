@@ -285,6 +285,10 @@ export const orgs = {
   assignPrinter: (orgId, printerId) => fetchAPI(`/orgs/${orgId}/printers`, {
     method: 'POST', body: JSON.stringify({ printer_id: printerId })
   }),
+  getSettings: (orgId) => fetchAPI(`/orgs/${orgId}/settings`),
+  updateSettings: (orgId, data) => fetchAPI(`/orgs/${orgId}/settings`, {
+    method: 'PUT', body: JSON.stringify(data)
+  }),
 }
 
 // Chargebacks
