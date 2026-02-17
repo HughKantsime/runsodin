@@ -15,7 +15,7 @@ This file lists third-party software packages used by O.D.I.N. and their respect
 | python-multipart | 0.0.18 | Apache-2.0 |
 | SQLAlchemy | 2.0.36 | MIT |
 | Alembic | 1.14.1 | MIT |
-| python-jose | 3.3.0 | MIT |
+| PyJWT | 2.9.0 | MIT |
 | Passlib | 1.7.4 | BSD-3-Clause |
 | cryptography | 44.0.0 | Apache-2.0 / BSD-3-Clause |
 | Pydantic | 2.10.4 | MIT |

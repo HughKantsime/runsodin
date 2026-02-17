@@ -9,7 +9,7 @@ sqlalchemy==2.0.36
 alembic==1.14.1
 
 # Auth
-python-jose[cryptography]==3.3.0
+PyJWT==2.9.0
 passlib[bcrypt]==1.7.4
 cryptography==44.0.0
 

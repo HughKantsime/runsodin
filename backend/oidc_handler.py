@@ -240,50 +240,32 @@ class OIDCHandler:
     async def parse_id_token(self, id_token: str) -> Dict[str, Any]:
         """
         Parse and validate ID token signature against the provider's JWKS endpoint.
-        Falls back to unverified decode if jose is unavailable.
+        Uses PyJWT's PyJWKClient for JWKS fetching and key resolution.
         """
+        import jwt as _jwt
+        from jwt import PyJWKClient
+
+        config = await self._get_oidc_config()
+        jwks_uri = config.get("jwks_uri")
+        if not jwks_uri:
+            raise ValueError("No jwks_uri in OIDC config")
+
         try:
-            from jose import jwt as jose_jwt, jwk
-            from jose.utils import base64url_decode
+            jwk_client = PyJWKClient(jwks_uri)
+            signing_key = jwk_client.get_signing_key_from_jwt(id_token)
 
-            config = await self._get_oidc_config()
-            jwks_uri = config.get("jwks_uri")
-            if not jwks_uri:
-                raise ValueError("No jwks_uri in OIDC config")
-
-            # Fetch JWKS
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(jwks_uri, timeout=10)
-                resp.raise_for_status()
-                jwks = resp.json()
-
-            # Decode and verify
-            claims = jose_jwt.decode(
+            claims = _jwt.decode(
                 id_token,
-                jwks,
+                signing_key.key,
                 algorithms=["RS256"],
                 audience=self.client_id,
                 options={"verify_exp": True, "verify_aud": True},
             )
             return claims
 
-        except ImportError:
-            log.warning("python-jose not available — falling back to unverified ID token decode")
         except Exception as e:
             log.error(f"ID token signature validation failed: {e}", exc_info=True)
             raise ValueError(f"ID token validation failed: {e}")
-
-        # Fallback: unverified decode (only reached if jose not installed)
-        import base64
-        parts = id_token.split(".")
-        if len(parts) != 3:
-            raise ValueError("Invalid ID token format")
-        payload = parts[1]
-        padding = 4 - len(payload) % 4
-        if padding != 4:
-            payload += "=" * padding
-        decoded = base64.urlsafe_b64decode(payload)
-        return json.loads(decoded)
 
 
 def create_handler_from_config(config: Dict[str, Any], redirect_uri: str) -> OIDCHandler:

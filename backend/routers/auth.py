@@ -64,9 +64,9 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
 def _record_session(db, user_id, access_token, ip, user_agent):
     """Record an active session from a JWT token."""
-    from jose import jwt as jose_jwt
+    import jwt as _jwt
     try:
-        payload = jose_jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+        payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
         jti = payload.get("jti")
         if jti:
             db.execute(text("""INSERT OR IGNORE INTO active_sessions (user_id, token_jti, ip_address, user_agent)
@@ -96,8 +96,8 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
         raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
 
     # Decode raw payload to check mfa_pending flag
-    from jose import jwt as jose_jwt
-    payload = jose_jwt.decode(mfa_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+    import jwt as _jwt
+    payload = _jwt.decode(mfa_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
     if not payload.get("mfa_pending"):
         raise HTTPException(status_code=400, detail="Token is not an MFA challenge token")
 
@@ -284,8 +284,8 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         try:
-            from jose import jwt as jose_jwt
-            payload = jose_jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+            import jwt as _jwt
+            payload = _jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             current_jti = payload.get("jti")
         except Exception:
             pass
@@ -332,8 +332,8 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         try:
-            from jose import jwt as jose_jwt
-            payload = jose_jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+            import jwt as _jwt
+            payload = _jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             current_jti = payload.get("jti")
         except Exception:
             pass

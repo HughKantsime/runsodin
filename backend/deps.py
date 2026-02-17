@@ -80,9 +80,9 @@ async def get_current_user(
     if token:
         token_data = decode_token(token)
         if token_data:
-            from jose import jwt as jose_jwt
+            import jwt as _jwt
             try:
-                payload = jose_jwt.decode(
+                payload = _jwt.decode(
                     token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
                 )
                 # Reject mfa_pending tokens from normal routes

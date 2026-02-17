@@ -7,7 +7,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from passlib.context import CryptContext
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import PyJWTError
 from pydantic import BaseModel
 
 # Configuration
@@ -79,7 +80,7 @@ def decode_token(token: str) -> Optional[TokenData]:
         if username is None:
             return None
         return TokenData(username=username, role=role)
-    except JWTError:
+    except PyJWTError:
         return None
 
 
