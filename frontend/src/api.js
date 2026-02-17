@@ -27,7 +27,7 @@ export async function fetchAPI(endpoint, options = {}) {
   if (response.status === 401) {
     localStorage.removeItem("token")
     localStorage.removeItem("user")
-    if (window.location.pathname !== "/login") {
+    if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"
     }
     return
@@ -149,7 +149,7 @@ export const printFiles = {
     if (response.status === 401) {
     localStorage.removeItem("token")
     localStorage.removeItem("user")
-    if (window.location.pathname !== "/login") {
+    if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"
     }
     return
@@ -185,7 +185,7 @@ export const auth = {
     if (response.status === 401) {
     localStorage.removeItem("token")
     localStorage.removeItem("user")
-    if (window.location.pathname !== "/login") {
+    if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"
     }
     return
