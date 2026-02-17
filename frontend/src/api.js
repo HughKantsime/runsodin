@@ -93,7 +93,7 @@ export const timeline = {
 }
 
 export const stats = {
-  get: () => fetchAPI('/stats'),
+  get: (days) => fetchAPI('/stats' + (days ? `?days=${days}` : '')),
 }
 
 export const filaments = {

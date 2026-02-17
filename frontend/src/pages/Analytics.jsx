@@ -239,10 +239,7 @@ function FleetOverview({ summary }) {
 
 
 function CostRevenueChart({ data }) {
-  if (!data || Object.keys(data).length === 0) return null
-  
-  // Build cumulative revenue/cost data from jobs_by_date
-  const chartData = Object.entries(data)
+  const chartData = data ? Object.entries(data)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, counts]) => ({
       date: new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -250,9 +247,7 @@ function CostRevenueChart({ data }) {
       cost: counts.cost || 0,
       profit: (counts.revenue || 0) - (counts.cost || 0),
     }))
-    .filter(d => d.revenue > 0 || d.cost > 0)
-  
-  if (chartData.length === 0) return null
+    .filter(d => d.revenue > 0 || d.cost > 0) : []
 
   return (
     <div className="rounded-xl border border-farm-800 p-5" style={{ backgroundColor: 'var(--chart-card-bg)' }}>
@@ -263,20 +258,24 @@ function CostRevenueChart({ data }) {
         </div>
         <span className="text-xs text-farm-500">Last 30 days</span>
       </div>
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-          <XAxis dataKey="date" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={{ stroke: 'var(--chart-axis-line)' }} tickLine={false} />
-          <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
-          <Tooltip 
-            contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '12px', fontSize: '12px', boxShadow: 'var(--chart-tooltip-shadow)' }}
-            formatter={(value) => [`$${value.toFixed(2)}`, undefined]}
-          />
-          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-          <Bar dataKey="revenue" fill="#22C55E" name="Revenue" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="cost" fill="#EF4444" name="Cost" radius={[3, 3, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+      {chartData.length > 0 ? (
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+            <XAxis dataKey="date" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={{ stroke: 'var(--chart-axis-line)' }} tickLine={false} />
+            <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+            <Tooltip
+              contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '12px', fontSize: '12px', boxShadow: 'var(--chart-tooltip-shadow)' }}
+              formatter={(value) => [`$${value.toFixed(2)}`, undefined]}
+            />
+            <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+            <Bar dataKey="revenue" fill="#22C55E" name="Revenue" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="cost" fill="#EF4444" name="Cost" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <div className="text-center py-12 text-farm-500 text-sm">No cost/revenue data yet</div>
+      )}
     </div>
   )
 }
