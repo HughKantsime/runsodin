@@ -10,7 +10,7 @@ Run: pytest tests/security/test_secrets_leakage.py -v --tb=short
 import pytest
 import requests
 
-from .conftest import BASE_URL, _headers, _no_auth_headers, API_KEY
+from .conftest import BASE_URL, _headers, _no_auth_headers, API_KEY, TEST_DUMMY_PASSWORD
 
 
 # Patterns that should never appear in API responses
@@ -86,7 +86,7 @@ class TestUserEnumerationPrevention:
         # Nonexistent user
         r1 = requests.post(
             f"{BASE_URL}/api/auth/login",
-            data={"username": "definitely_not_a_real_user_xyz", "password": "SomePass1!"},
+            data={"username": "definitely_not_a_real_user_xyz", "password": TEST_DUMMY_PASSWORD},
             headers=h,
             timeout=10,
         )

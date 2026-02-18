@@ -10,7 +10,7 @@ Run: pytest tests/security/test_license_gating.py -v --tb=short
 import pytest
 import requests
 
-from .conftest import BASE_URL, _headers
+from .conftest import BASE_URL, _headers, TEST_DUMMY_PASSWORD
 
 
 @pytest.fixture(scope="module")
@@ -71,7 +71,7 @@ class TestCommunityTierRestrictions:
             json={
                 "username": "license_limit_test",
                 "email": "limit@test.local",
-                "password": "LimitTestPass1!",
+                "password": TEST_DUMMY_PASSWORD,
                 "role": "viewer",
             },
             headers=_headers(admin_token),

@@ -10,7 +10,7 @@ Run: pytest tests/security/test_tenant_isolation.py -v --tb=short
 import pytest
 import requests
 
-from .conftest import BASE_URL, _headers
+from .conftest import BASE_URL, _headers, TEST_DUMMY_PASSWORD
 
 
 class TestOperatorCannotAccessAdminRoutes:
@@ -47,7 +47,7 @@ class TestViewerCannotMutate:
             json={
                 "username": "idor_test_viewer_create",
                 "email": "idor@test.local",
-                "password": "IdorTestPass1!",
+                "password": TEST_DUMMY_PASSWORD,
                 "role": "viewer",
             },
             headers=_headers(viewer_token),

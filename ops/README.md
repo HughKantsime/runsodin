@@ -29,7 +29,7 @@ Single-command verification that a deployment is healthy. Runs on local, sandbox
 **Auth smoke (0F/0G) requires credentials:**
 
 ```bash
-export ODIN_ADMIN_PASSWORD="YourAdminPassword"
+export ODIN_ADMIN_PASSWORD="<your-password>"
 ./ops/phase0_verify.sh
 ```
 

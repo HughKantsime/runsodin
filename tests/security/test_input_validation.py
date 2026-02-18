@@ -10,7 +10,7 @@ Run: pytest tests/security/test_input_validation.py -v --tb=short
 import pytest
 import requests
 
-from .conftest import BASE_URL, _headers
+from .conftest import BASE_URL, _headers, TEST_DUMMY_PASSWORD
 
 
 class TestNegativeAndInvalidIDs:
@@ -95,7 +95,7 @@ class TestExtremeLengths:
             json={
                 "username": long_name,
                 "email": "long@test.local",
-                "password": "LongTestPass1!",
+                "password": TEST_DUMMY_PASSWORD,
                 "role": "viewer",
             },
             headers=_headers(admin_token),

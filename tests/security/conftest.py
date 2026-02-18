@@ -35,9 +35,12 @@ ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
 ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 TEST_VIEWER_USER = os.environ.get("TEST_VIEWER_USERNAME", "test_viewer_rbac")
-TEST_VIEWER_PASS = os.environ.get("TEST_VIEWER_PASSWORD", "ViewerTestPass1!")
+TEST_VIEWER_PASS = os.environ.get("TEST_VIEWER_PASSWORD", ADMIN_PASSWORD)
 TEST_OPERATOR_USER = os.environ.get("TEST_OPERATOR_USERNAME", "test_operator_rbac")
-TEST_OPERATOR_PASS = os.environ.get("TEST_OPERATOR_PASSWORD", "OperatorTestPass1!")
+TEST_OPERATOR_PASS = os.environ.get("TEST_OPERATOR_PASSWORD", ADMIN_PASSWORD)
+
+# Shared password for throwaway test users created during tests
+TEST_DUMMY_PASSWORD = ADMIN_PASSWORD
 
 
 # ---------------------------------------------------------------------------

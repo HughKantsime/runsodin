@@ -24,9 +24,9 @@ ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 # Test users — will be created via API if they don't exist
 TEST_USERS = {
-    "viewer": {"username": "e2e_viewer", "password": os.environ.get("E2E_VIEWER_PASSWORD", "ViewerE2EPass1!"), "role": "viewer"},
-    "operator": {"username": "e2e_operator", "password": os.environ.get("E2E_OPERATOR_PASSWORD", "OperatorE2EPass1!"), "role": "operator"},
-    "admin": {"username": "e2e_admin", "password": os.environ.get("E2E_ADMIN_PASSWORD", "AdminE2EPass1!"), "role": "admin"},
+    "viewer": {"username": "e2e_viewer", "password": os.environ.get("E2E_VIEWER_PASSWORD", ADMIN_PASSWORD), "role": "viewer"},
+    "operator": {"username": "e2e_operator", "password": os.environ.get("E2E_OPERATOR_PASSWORD", ADMIN_PASSWORD), "role": "operator"},
+    "admin": {"username": "e2e_admin", "password": os.environ.get("E2E_ADMIN_PASSWORD", ADMIN_PASSWORD), "role": "admin"},
 }
 
 

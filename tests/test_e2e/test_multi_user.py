@@ -38,7 +38,7 @@ class TestAdminUserManagement:
         r = api.post("/api/users", json={
             "username": username,
             "email": f"{username}@test.local",
-            "password": "MultiUserPass1!",
+            "password": os.environ["ADMIN_PASSWORD"],
             "role": "viewer",
         })
         if r.status_code in (403, 402):
