@@ -4,9 +4,9 @@
 
 **Self-hosted 3D print farm management**
 
-[![Version](https://img.shields.io/badge/version-1.3.27-blue)](https://github.com/HughKantsime/runsodin/releases)
+[![Version](https://img.shields.io/badge/version-1.3.46-blue)](https://github.com/HughKantsime/runsodin/releases)
 [![License](https://img.shields.io/badge/license-BSL%201.1-orange)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-23%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-965%20passing-brightgreen)](#)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED)](https://github.com/HughKantsime/runsodin/pkgs/container/odin)
 [![Website](https://img.shields.io/badge/web-runsodin.com-black)](https://runsodin.com)
 
@@ -47,7 +47,11 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 
 ## Screenshots
 
-<!-- Add screenshots: Dashboard, Printers, Timeline, Camera, Jobs -->
+### Fleet Overview
+![Printers page showing Bambu, Klipper, and Elegoo printers with AMS filament slots, temperatures, and status](docs/screenshots/dashboard.png)
+
+### Camera Streaming
+![Camera grid with live WebRTC feeds, Control Room and TV Mode buttons](docs/screenshots/cameras.png)
 
 ## Comparison
 
