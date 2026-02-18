@@ -2,6 +2,119 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.45] - 2026-02-17
+
+### Added
+- **Org-level settings** — `settings_json` column on groups table; `GET/PUT /api/v1/orgs/{id}/settings` endpoints; default filament type/color applied on job creation; org-level quiet hours; org webhook dispatch; branding overlay (app name, logo URL); OrgManager settings panel UI
+
+---
+
+## [1.3.44] - 2026-02-17
+
+### Fixed
+- **JWT library migration** — Replaced `python-jose` with `PyJWT` (python-jose is unmaintained; PyJWT is the actively maintained standard)
+
+---
+
+## [1.3.43] - 2026-02-17
+
+### Fixed
+- **Setup page 401 redirect loop** — Prevented auth redirect when accessing setup page before any users exist
+
+---
+
+## [1.3.42] - 2026-02-17
+
+### Fixed
+- **Setup wizard redirect** — Fixed redirect logic when no users exist in the database
+
+---
+
+## [1.3.41] - 2026-02-17
+
+### Changed
+- **Standardized page headers** — All 23 pages now use consistent header pattern: `text-xl md:text-2xl font-display font-bold`, icon at 24px with `text-print-400`, subtitle in `text-farm-500 text-sm mt-1`
+
+---
+
+## [1.3.40] - 2026-02-16
+
+### Fixed
+- **Analytics page styling** — Restyled Analytics to match app-wide design system (card borders, stat cards, spacing)
+
+---
+
+## [1.3.39] - 2026-02-16
+
+### Fixed
+- **Analytics/Utilization styling** — Unified Analytics and Utilization page styling with consistent card and chart patterns
+
+---
+
+## [1.3.38] - 2026-02-16
+
+### Fixed
+- **Datetime mismatch** — Fixed naive/aware datetime comparison bugs in analytics date filtering and maintenance status checks
+
+---
+
+## [1.3.37] - 2026-02-16
+
+### Changed
+- Documentation updates for router split and FastAPI architecture (no code changes)
+
+---
+
+## [1.3.36] - 2026-02-16
+
+### Fixed
+- **Code smell remediation** — Fixed spoolman_spool_id attribute access, audit_logs table name, bulk add_tag JSON logic, encrypt plug_auth_token, deduplicate quota helpers, normalize `datetime.now(timezone.utc)` across 12 files, replace deprecated `utcnow()`, remove dead code (`verify_api_key`, `init_db`), `StaticPool→NullPool`, bare `except→except Exception` at 25 sites
+- **Frontend API consolidation** — All pages migrated to centralized `fetchAPI` (Settings, Spools, Printers, Analytics, Orders, App.jsx), removed 6 local API layers (~200 lines), fixed auth header bugs, deduplicated `getShortName`, replaced alert/confirm with toast/ConfirmModal, SW cache cleanup
+
+---
+
+## [1.3.35] - 2026-02-16
+
+### Fixed
+- **LICENSE file version reference** — Updated from v0.17.0 to v1.0.0
+
+---
+
+## [1.3.34] - 2026-02-16
+
+### Added
+- **Third-party notices** — Added THIRD_PARTY_NOTICES.md for open-source attribution
+- **GDPR tier corrections** — Updated privacy policy to reflect accurate tier-based data handling
+
+### Fixed
+- **Legal/compliance audit remediation** — Self-hosted fonts (GDPR compliance, no Google Fonts CDN), CORS hardening, MFA encryption guard, periodic session cleanup, error sanitization, alt text fixes, cache versioning, referrer policy, GDPR data export/erase UI, license type display
+
+---
+
+## [1.3.33] - 2026-02-16
+
+### Fixed
+- **Printer command allowlist** — Restricted printer control commands to known-safe set with proper status codes
+- **Security hardening** — Deprecation fixes, accessibility improvements
+- **Monitor DB centralization** — Centralized monitor database access, SQLite-backed IPC, rate limiting refactor
+
+---
+
+## [1.3.32] - 2026-02-16
+
+### Fixed
+- **Light mode text contrast** — Fixed `text-white` blanket override in light mode and branding contrast issues
+
+---
+
+## [1.3.31] - 2026-02-16
+
+### Fixed
+- **Enterprise test license** — Mount Enterprise test license for RBAC test suite
+- **CSS farm palette** — CSS-variable-based farm palette for robust light mode theming
+
+---
+
 ## [1.3.30] - 2026-02-16
 
 ### Fixed

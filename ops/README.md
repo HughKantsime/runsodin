@@ -1,20 +1,17 @@
 # O.D.I.N. — Ops Scripts
 
-Deployment verification and release automation for the O.D.I.N. print farm management system.
+Verification and release automation for the O.D.I.N. print farm management system.
 
 ## Scripts
 
-### `phase0_verify.sh` — Deployment Gate
+### `phase0_verify.sh` — Health Check Gate
 
-Single-command verification that a deployment is healthy. Runs on both sandbox and prod.
+Single-command verification that a deployment is healthy. Runs on local, sandbox, and prod.
 
 ```bash
-# Auto-detect environment
-./ops/phase0_verify.sh
-
-# Force environment
-./ops/phase0_verify.sh sandbox
-./ops/phase0_verify.sh prod
+./ops/phase0_verify.sh              # auto-detect environment
+./ops/phase0_verify.sh local        # force local mode
+./ops/phase0_verify.sh prod         # force production mode
 ```
 
 **What it checks:**
@@ -27,90 +24,53 @@ Single-command verification that a deployment is healthy. Runs on both sandbox a
 | 0D — Configuration | ENCRYPTION_KEY, JWT_SECRET_KEY, DATABASE_URL | Any env var missing or empty |
 | 0E — Prod Guardrail | No `build:` in compose, image tag check | Active `build:` directive on prod |
 | 0F — Auth Smoke | Login → get JWT → hit /api/auth/me | Login fails, token invalid |
-| 0G — DB Write Probe | Create spool → read back → delete | DB write or read fails |
+| 0G — DB Write Probe | Create backup → read back | DB write or read fails |
 
 **Auth smoke (0F/0G) requires credentials:**
 
 ```bash
-# Set before running, or export in your shell profile
-export ODIN_ADMIN_USER="admin"          # defaults to "admin" if not set
 export ODIN_ADMIN_PASSWORD="YourAdminPassword"
-./ops/phase0_verify.sh prod
+./ops/phase0_verify.sh
 ```
-
-Without credentials, 0F/0G will show warnings but won't fail the gate.
 
 **Exit codes:** 0 = passed, 1 = failed.
 
 ---
 
-### `deploy_sandbox.sh` — Sandbox Build + Test
+### `bump-version.sh` — Version Bump + Tag
 
-Builds from source, runs Phase 0, then runs the pytest suite (Phases 1-3).
-
-```bash
-./ops/deploy_sandbox.sh              # full pipeline
-./ops/deploy_sandbox.sh --skip-build # retest only
-./ops/deploy_sandbox.sh --skip-tests # Phase 0 only
-```
-
-**Location:** Runs on sandbox (.70.200) at `/opt/printfarm-scheduler/`
-
----
-
-### `deploy_prod.sh` — Production Deploy (Pull Only)
-
-Pulls from GHCR, restarts container, runs Phase 0. **Never builds.**
+Bumps version across all files, commits, and tags.
 
 ```bash
-./ops/deploy_prod.sh                 # deploy :latest
-./ops/deploy_prod.sh v1.0.21        # deploy specific tag
-./ops/deploy_prod.sh --check-only   # Phase 0 without deploying
+./ops/bump-version.sh 1.3.46          # bump + commit + tag (no push)
+./ops/bump-version.sh 1.3.46 --push   # bump + commit + tag + push
+./ops/bump-version.sh                  # show current version
 ```
 
-**Location:** Runs on prod (.71.211) at `/opt/odin/`
-
-**Features:**
-- Pre-flight check aborts if `build:` exists in compose
-- Swaps image tag in compose when pinning a version
-- Logs every deploy to `/opt/odin/deploy.log` (timestamp, tag, version, digest)
+**Files updated:** `VERSION`, `frontend/package.json`, `backend/main.py`, `docker-compose.yml`, `install/install.sh`, `frontend/public/sw.js`
 
 ---
 
-### `RELEASE_CHECKLIST.md` — Step-by-Step Release Process
+### `seed_demo_full.py` — Demo Data Seeder
 
-Copy-paste checklist covering pre-release → tag → deploy → verify → rollback.
+Seeds realistic demo data via the API for testing and demos.
 
 ---
-
-## File Locations
-
-| Server | Path | Scripts |
-|--------|------|---------|
-| Sandbox (.70.200) | `/opt/printfarm-scheduler/ops/` | All 4 files |
-| Prod (.71.211) | `/opt/odin/ops/` | All 4 files |
-
-## Environment Files
-
-| Server | .env location |
-|--------|--------------|
-| Sandbox | `/opt/printfarm-scheduler/.env` |
-| Prod | `/opt/odin/runsodin/runsodin/.env` |
-
-Required env vars: `ENCRYPTION_KEY`, `JWT_SECRET_KEY`, `DATABASE_URL`, `ODIN_HOST_IP`, `TZ`
 
 ## Quick Reference
 
 ```bash
-# Full release workflow
-# 1. On sandbox: build + test
-ssh root@192.168.70.200
-cd /opt/printfarm-scheduler && ./ops/deploy_sandbox.sh
+# Build and test locally
+make build                          # docker compose up -d --build
+make verify                         # Phase 0 health checks
+make test                           # main + RBAC tests
 
-# 2. Tag + push (from dev machine)
-git tag v1.0.XX && git push origin main v1.0.XX
+# Release
+make release VERSION=1.3.46        # bump + commit + tag + push
+# GHCR workflow triggers on tag push
 
-# 3. On prod: deploy
+# Production (manual, as end user)
 ssh root@192.168.71.211
-cd /opt/odin && ./ops/deploy_prod.sh v1.0.XX
+cd /opt/odin/runsodin/runsodin
+docker compose pull && docker compose up -d
 ```

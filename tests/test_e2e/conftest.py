@@ -250,20 +250,31 @@ def _login_via_token(browser_instance, username, password, base_url=BASE_URL, fr
     """
     Login via cached API token, inject into localStorage, return (context, page).
     """
+    import json as _json
     token = _get_token(username, password, base_url)
+
+    # Decode JWT payload for the 'user' localStorage key (mirrors Login.jsx)
+    import base64
+    payload_b64 = token.split('.')[1]
+    # Add padding
+    payload_b64 += '=' * (4 - len(payload_b64) % 4)
+    payload = _json.loads(base64.urlsafe_b64decode(payload_b64))
+    user_json = _json.dumps({"username": payload.get("sub", username), "role": payload.get("role", "admin")})
 
     context = browser_instance.new_context(
         viewport={"width": 1280, "height": 800},
         ignore_https_errors=True,
     )
     page = context.new_page()
+    # Navigate to any page to initialize localStorage origin
     page.goto(frontend_url, wait_until="domcontentloaded", timeout=15000)
+    # Inject token + user before the SPA can redirect
     page.evaluate(f"""() => {{
-        localStorage.setItem('access_token', '{token}');
         localStorage.setItem('token', '{token}');
-        localStorage.setItem('auth_token', '{token}');
+        localStorage.setItem('user', '{user_json}');
     }}""")
-    page.reload(wait_until="networkidle", timeout=15000)
+    # Navigate to root — SPA will now find a valid token and render the app
+    page.goto(frontend_url, wait_until="networkidle", timeout=15000)
     return context, page
 
 
