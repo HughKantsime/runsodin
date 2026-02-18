@@ -910,11 +910,11 @@ export default function Jobs() {
           </div>
         </div>
         <div className="flex items-center gap-2 self-start">
-          <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
+          {canDo('jobs.create') && <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
             className={clsx('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-farm-800 hover:bg-farm-700 border border-farm-700', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
             <Zap size={16} />
             {runScheduler.isPending ? 'Running...' : 'Run Scheduler'}
-          </button>
+          </button>}
           {canDo('jobs.create') && <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">
             <Plus size={16} /> New Job
           </button>}

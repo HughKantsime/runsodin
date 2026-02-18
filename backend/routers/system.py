@@ -1545,6 +1545,8 @@ def global_search(q: str = "", db: Session = Depends(get_db)):
     """Search across models, jobs, spools, and printers."""
     if not q or len(q) < 2:
         return {"models": [], "jobs": [], "spools": [], "printers": []}
+    if len(q) > 200:
+        return {"models": [], "jobs": [], "spools": [], "printers": []}
 
     query = f"%{q.lower()}%"
 

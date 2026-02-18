@@ -114,7 +114,7 @@ class TestExtremeLengths:
                 )
 
     def test_very_long_search_query(self, admin_token):
-        """Very long search query must not crash."""
+        """Very long search query must return empty results, not 500."""
         long_query = "x" * 50000
         r = requests.get(
             f"{BASE_URL}/api/search",
@@ -122,8 +122,8 @@ class TestExtremeLengths:
             headers=_headers(admin_token),
             timeout=15,
         )
-        if r.status_code == 500:
-            pytest.xfail("50,000-char search query caused 500 — server bug, needs length limit")
+        assert r.status_code == 200, \
+            f"50,000-char search query returned {r.status_code} — expected 200 with empty results"
 
 
 class TestRawDataToJsonEndpoint:

@@ -109,7 +109,8 @@ class TestViewerReadOnly:
         visible_create = sum(1 for i in range(create_btns.count()) if create_btns.nth(i).is_visible())
         assert visible_create == 0, \
             f"Viewer sees {visible_create} job creation button(s)"
-        # "Run Scheduler" is currently visible to all roles (known gap)
+        # "Run Scheduler" should also be hidden from viewers
         scheduler_btn = viewer_page.locator('button:has-text("Run Scheduler")')
-        if sum(1 for i in range(scheduler_btn.count()) if scheduler_btn.nth(i).is_visible()) > 0:
-            pytest.xfail("Run Scheduler button visible to viewer — needs RBAC gate")
+        visible_sched = sum(1 for i in range(scheduler_btn.count()) if scheduler_btn.nth(i).is_visible())
+        assert visible_sched == 0, \
+            "Run Scheduler button visible to viewer — should be gated behind jobs.create"
