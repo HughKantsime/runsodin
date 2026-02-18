@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-16 at v1.3.36.
+Updated 2026-02-17 at v1.3.45.
 
 ## Shipped in v1.2.0
 
@@ -109,10 +109,8 @@ Updated 2026-02-16 at v1.3.36.
 
 ## Backlog — Deepen Existing Implementations
 
-### 1. Organizations — Remaining Gaps
-**Effort: Medium** — Implicit org scoping shipped in v1.3.28 (list/detail filtering on printers, jobs, spools, models). Remaining:
-
-- Org-level settings: default filament, notification preferences, branding
+### ~~1. Organizations — Remaining Gaps~~ ✅ Shipped
+Org-level settings shipped in v1.3.45: `settings_json` column on groups, GET/PUT endpoints, default filament applied on job creation, org quiet hours, org webhook dispatch, branding overlay, OrgManager settings panel UI.
 
 ---
 

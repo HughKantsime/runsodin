@@ -89,11 +89,12 @@ Production compose: `/opt/odin/runsodin/runsodin/docker-compose.yml`. Production
 - **main.py** — FastAPI app entry point (lifespan, middleware, CORS). Routes split into 13 modules under `routers/`.
 - **models.py** — SQLAlchemy ORM: Printer, Job, Model, Spool, FilamentSlot, etc.
 - **schemas.py** — Pydantic request/response models
-- **auth.py** — JWT (HS256, 24h expiry) + bcrypt password hashing
+- **auth.py** — PyJWT (HS256, 24h expiry) + bcrypt password hashing
 - **scheduler.py** — Job scheduling engine: color-match scoring, time slot allocation, blackout hours, load balancing
 - **crypto.py** — Fernet encryption for printer credentials at rest
 - **printer_adapter.py** — Base adapter interface; `bambu_adapter.py`, `moonraker_adapter.py`, `prusalink_adapter.py`, `elegoo_adapter.py` implement it
-- **printer_events.py** → **alert_dispatcher.py** — Observer pattern: state changes dispatch to push notifications, email, Discord/Slack webhooks, ntfy, Telegram
+- **printer_events.py** → **alert_dispatcher.py** — Observer pattern: state changes dispatch to push notifications, email, Discord/Slack webhooks, ntfy, Telegram. Resolves printer `org_id` for org-level quiet hours and org webhook dispatch.
+- **quiet_hours.py** — Notification suppression during configured quiet hours (system-level and org-level). Digest generation at quiet period end.
 - **ws_hub.py** — WebSocket event broadcasting to connected clients
 - **license_manager.py** — Air-gap Ed25519 license validation (Community/Pro/Education/Enterprise tiers)
 - **vision_monitor.py** — AI print failure detection daemon (spaghetti, first layer, detachment). ONNX inference on go2rtc camera frames. Per-printer threads, confirmation buffers, auto-pause.
@@ -143,7 +144,8 @@ Stack: React 18, Vite 5, TailwindCSS 3, React Query 5, React Router 6, Recharts,
 
 - **Auth model**: Three tiers — no headers (blocked), API key only (perimeter), JWT+API key (full RBAC with viewer/operator/admin roles)
 - **API prefix**: All routes under `/api/`. Swagger at `/api/docs`, ReDoc at `/api/redoc`
-- **Database**: SQLite at `/data/odin.db`. Several tables created via raw SQL in `entrypoint.sh` (not in SQLAlchemy `models.py`): `users`, `print_jobs`, `print_files`, `oidc_config`, `webhooks`, `vision_detections`, `vision_settings`, `vision_models`, `api_tokens`, `active_sessions`, `token_blacklist`, `quota_usage`, `model_revisions`, `report_schedules`, `timelapses`
+- **Database**: SQLite at `/data/odin.db`. Several tables created via raw SQL in `entrypoint.sh` (not in SQLAlchemy `models.py`): `users`, `groups`, `print_jobs`, `print_files`, `oidc_config`, `webhooks`, `vision_detections`, `vision_settings`, `vision_models`, `api_tokens`, `active_sessions`, `token_blacklist`, `quota_usage`, `model_revisions`, `report_schedules`, `timelapses`
+- **Org settings**: Per-org config stored as JSON in `groups.settings_json`. Keys: `default_filament_type`, `default_filament_color`, `quiet_hours_*`, `webhook_url`, `webhook_type`, `branding_app_name`, `branding_logo_url`. Helper: `routers/orgs.py:_get_org_settings()` merges with `DEFAULT_ORG_SETTINGS`.
 - **Secrets**: Auto-generated on first run, persisted in `/data/`. `ENCRYPTION_KEY` (Fernet), `JWT_SECRET_KEY`, `API_KEY`
 - **Pre-commit**: gitleaks for secret scanning
 - **Git LFS**: Required for binary assets >100 MB (ONNX models). `*.onnx` tracked in `.gitattributes`
