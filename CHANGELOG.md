@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.46] - 2026-02-18
+
+### Added
+- **Installation-bound license activation** — Persistent installation ID generated per ODIN instance; licenses can be bound to a specific installation, preventing file-copy piracy; online activation via license key (`POST /api/license/activate`); offline activation request export; license server `/api/activate` endpoint with activation tracking and limits; backwards compatible with existing unbound licenses
+
+---
+
 ## [1.3.45] - 2026-02-17
 
 ### Added

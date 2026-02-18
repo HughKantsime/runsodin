@@ -25,7 +25,7 @@ from models import (
 from schemas import HealthCheck
 from config import settings
 from auth import hash_password, create_access_token
-from license_manager import get_license, save_license_file
+from license_manager import get_license, save_license_file, get_installation_id
 from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 import crypto
 
@@ -136,6 +136,95 @@ def remove_license(
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
     return {"status": "removed", "tier": "community"}
+
+
+@router.get("/license/installation-id", tags=["License"])
+def get_license_installation_id(
+    current_user: dict = Depends(require_role("admin")),
+):
+    """Return the installation ID for this ODIN instance. Admin only."""
+    return {"installation_id": get_installation_id()}
+
+
+class LicenseActivateRequest(PydanticBaseModel):
+    key: str
+
+
+@router.post("/license/activate", tags=["License"])
+async def activate_license(
+    request: LicenseActivateRequest,
+    current_user: dict = Depends(require_role("admin")),
+):
+    """Activate a license by key via the license server. Admin only."""
+    license_server_url = os.environ.get("LICENSE_SERVER_URL", "http://192.168.70.6:5000")
+    installation_id = get_installation_id()
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{license_server_url}/api/activate",
+                json={
+                    "key": request.key,
+                    "installation_id": installation_id,
+                },
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach license server: {str(e)}",
+        )
+
+    if resp.status_code != 200:
+        detail = resp.json().get("error", "Activation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+
+    data = resp.json()
+    license_content = data.get("license_file")
+    if not license_content:
+        raise HTTPException(status_code=502, detail="License server returned no license file")
+
+    # Save and validate
+    path = save_license_file(license_content)
+    import license_manager
+    license_manager._cached_license = None
+    license_manager._cached_mtime = 0
+    license_info = get_license()
+
+    if license_info.error:
+        os.remove(path)
+        raise HTTPException(status_code=400, detail=license_info.error)
+
+    return {
+        "status": "activated",
+        "tier": license_info.tier,
+        "licensee": license_info.licensee,
+        "expires_at": license_info.expires_at,
+        "installation_id": installation_id,
+    }
+
+
+@router.get("/license/activation-request", tags=["License"])
+def get_activation_request(
+    current_user: dict = Depends(require_role("admin")),
+):
+    """Generate a downloadable activation request file for offline binding. Admin only."""
+    import socket
+    from starlette.responses import Response
+
+    payload = {
+        "installation_id": get_installation_id(),
+        "hostname": socket.gethostname(),
+        "odin_version": __version__,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    content = json.dumps(payload, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="odin-activation-request.json"',
+        },
+    )
 
 
 # ============== Setup / Onboarding Wizard ==============

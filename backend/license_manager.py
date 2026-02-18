@@ -11,6 +11,7 @@ License file format: base64-encoded JSON payload + signature
 import json
 import base64
 import os
+import uuid
 from datetime import datetime, date
 from typing import Optional, Dict, Any
 from pathlib import Path
@@ -83,6 +84,20 @@ TIERS = {
 # Where license files are stored
 LICENSE_DIR = os.environ.get("LICENSE_DIR", "/data")
 LICENSE_FILENAME = "odin.license"
+INSTALL_ID_FILENAME = ".odin-install-id"
+
+
+def get_installation_id() -> str:
+    """Read the persistent installation ID. Generates one if missing (defensive)."""
+    id_path = os.path.join(LICENSE_DIR, INSTALL_ID_FILENAME)
+    if os.path.isfile(id_path):
+        return open(id_path).read().strip()
+    # Defensive: generate if file was deleted
+    install_id = str(uuid.uuid4())
+    os.makedirs(LICENSE_DIR, exist_ok=True)
+    with open(id_path, "w") as f:
+        f.write(install_id)
+    return install_id
 
 
 class LicenseInfo:
@@ -125,6 +140,7 @@ class LicenseInfo:
             "max_users": self.max_users,
             "features": self.features,
             "error": self.error,
+            "installation_id": get_installation_id(),
         }
 
 
@@ -228,6 +244,18 @@ def load_license() -> LicenseInfo:
         info.max_users = payload.get("max_users", tier_def["max_users"])
         info.features = payload.get("features", tier_def["features"])
         info.expired = False
+
+        # Installation binding check (backwards compatible — skip if not in payload)
+        payload_install_id = payload.get("installation_id")
+        if payload_install_id:
+            local_install_id = get_installation_id()
+            if payload_install_id != local_install_id:
+                info.valid = False
+                info.error = "License is bound to a different installation"
+                info.max_printers = TIERS["community"]["max_printers"]
+                info.max_users = TIERS["community"]["max_users"]
+                info.features = TIERS["community"]["features"]
+                return info
 
         return info
 

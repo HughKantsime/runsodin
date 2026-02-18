@@ -569,6 +569,9 @@ export const license = {
       .then(r => { if (!r.ok) throw new Error('Upload failed'); return r.json() })
   },
   remove: () => fetchAPI('/license', { method: 'DELETE' }),
+  activate: (key) => fetchAPI('/license/activate', { method: 'POST', body: JSON.stringify({ key }) }),
+  getInstallationId: () => fetchAPI('/license/installation-id'),
+  getActivationRequest: () => fetchAPI('/license/activation-request'),
 }
 
 

@@ -30,6 +30,15 @@ if [ -z "$JWT_SECRET_KEY" ]; then
     fi
 fi
 
+# ── Generate installation ID on first boot ──
+if [ ! -f /data/.odin-install-id ]; then
+    python3 -c "import uuid; print(uuid.uuid4())" > /data/.odin-install-id
+    chmod 600 /data/.odin-install-id
+    echo "  ✓ Generated installation ID: $(cat /data/.odin-install-id)"
+else
+    echo "  ✓ Installation ID: $(cat /data/.odin-install-id)"
+fi
+
 # ── Ensure data directories exist ──
 mkdir -p /data/backups /data/uploads /data/static/branding /data/vision_frames /data/vision_models
 

@@ -362,6 +362,8 @@ function PrivacyDataCard() {
 function LicenseTab() {
   const [licenseInfo, setLicenseInfo] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [activating, setActivating] = useState(false)
+  const [licenseKey, setLicenseKey] = useState('')
   const [message, setMessage] = useState(null)
   const fileInputRef = useRef(null)
 
@@ -374,6 +376,22 @@ function LicenseTab() {
       const data = await licenseApi.get()
       setLicenseInfo(data)
     } catch (e) { console.error('Failed to fetch license:', e) }
+  }
+
+  const handleActivate = async () => {
+    if (!licenseKey.trim()) return
+    setActivating(true)
+    setMessage(null)
+    try {
+      const data = await licenseApi.activate(licenseKey.trim())
+      setMessage({ type: 'success', text: `License activated: ${data.tier} tier` })
+      setLicenseKey('')
+      loadLicense()
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Activation failed: ' + err.message })
+    } finally {
+      setActivating(false)
+    }
   }
 
   const handleUpload = async (e) => {
@@ -401,6 +419,30 @@ function LicenseTab() {
       loadLicense()
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to remove license' })
+    }
+  }
+
+  const handleExportActivationRequest = async () => {
+    try {
+      const data = await licenseApi.getActivationRequest()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'odin-activation-request.json'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to export activation request' })
+    }
+  }
+
+  const copyInstallId = () => {
+    if (licenseInfo?.installation_id) {
+      navigator.clipboard.writeText(licenseInfo.installation_id)
+      setMessage({ type: 'success', text: 'Installation ID copied to clipboard' })
     }
   }
 
@@ -449,16 +491,63 @@ function LicenseTab() {
             <span className="ml-2 text-farm-200">{licenseInfo?.max_users === -1 ? 'Unlimited' : (licenseInfo?.max_users || 1)}</span>
           </div>
         </div>
+
+        {licenseInfo?.installation_id && (
+          <div className="mt-4 pt-4 border-t border-farm-800">
+            <span className="text-farm-500 text-sm">Installation ID:</span>
+            <div className="flex items-center gap-2 mt-1">
+              <code className="text-xs text-farm-300 bg-farm-900 px-2 py-1 rounded font-mono flex-1 select-all">{licenseInfo.installation_id}</code>
+              <button onClick={copyInstallId} className="text-xs text-print-400 hover:text-print-300 transition-colors px-2 py-1">Copy</button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg p-5" style={{ backgroundColor: 'var(--brand-card-bg)', borderColor: 'var(--brand-sidebar-border)', border: '1px solid' }}>
         <div className="flex items-center gap-2 mb-4">
-          <Upload size={18} className="text-print-400" />
-          <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Upload License</h3>
+          <Key size={18} className="text-print-400" />
+          <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Activate License</h3>
         </div>
         <p className="text-sm text-farm-400 mb-4">
-          Upload an O.D.I.N. license file (.license) to unlock Pro, Education, or Enterprise features. License files are verified locally — no internet connection required.
+          Enter your license key to activate online. The license will be bound to this installation.
         </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={licenseKey}
+            onChange={e => setLicenseKey(e.target.value)}
+            placeholder="ODIN-XXXX-XXXX-XXXX"
+            className="flex-1 px-3 py-2 rounded-lg bg-farm-900 border border-farm-700 text-farm-200 text-sm placeholder-farm-600 focus:outline-none focus:border-print-500"
+            onKeyDown={e => e.key === 'Enter' && handleActivate()}
+          />
+          <button
+            onClick={handleActivate}
+            disabled={activating || !licenseKey.trim()}
+            className="px-4 py-2 rounded-lg bg-print-600 text-white text-sm font-medium hover:bg-print-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {activating ? 'Activating...' : 'Activate'}
+          </button>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={handleExportActivationRequest}
+            className="text-xs text-farm-400 hover:text-print-400 transition-colors flex items-center gap-1"
+          >
+            <Download size={14} />
+            Export activation request (offline)
+          </button>
+        </div>
+
+        <div className="relative my-5">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-farm-700" />
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="px-3 text-farm-500" style={{ backgroundColor: 'var(--brand-card-bg)' }}>or upload license file</span>
+          </div>
+        </div>
+
         <div className="flex gap-3">
           <label className="flex-1">
             <input

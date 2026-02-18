@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-17 at v1.3.45.
+Updated 2026-02-18 at v1.3.46.
 
 ## Shipped in v1.2.0
 
@@ -54,6 +54,7 @@ Updated 2026-02-17 at v1.3.45.
 - ~~Bulk operations on Printers and Spools pages~~
 - ~~Report runner daemon (scheduled report execution + quiet hours digest)~~
 - ~~Org resource scoping (org_id filtering on list endpoints, shared printer flag, org switcher)~~
+- ~~Installation-bound license activation (install ID, online/offline activation, binding validation)~~
 - ~~Hardcoded credentials removed, test env sanitized for public repo~~
 - ~~Timeline click-to-inspect with detail drawer (scheduled job details + MQTT job details)~~
 - ~~CameraModal live print context (info bar in large mode, full sidebar in fullscreen)~~
