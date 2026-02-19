@@ -7,6 +7,11 @@ All notable changes to O.D.I.N. are documented here.
 ### Added
 - **Installation-bound license activation** — Persistent installation ID generated per ODIN instance; licenses can be bound to a specific installation, preventing file-copy piracy; online activation via license key (`POST /api/license/activate`); offline activation request export; license server `/api/activate` endpoint with activation tracking and limits; backwards compatible with existing unbound licenses
 
+### Changed
+- **Pricing locked** — Pro: $15/mo or $150/yr (was $29/$290). Education: $300/yr per site (was $500/yr per campus). Updated ToS, README, GTM docs, marketing sites, and portfolio docs
+- **Marketing site migrated to Vercel** — runsodin.com now served from Vercel (was Cloudflare Pages). Added vercel.json, security headers, SPA rewrites
+- **Removed comparison and testimonials sections** — ComparisonSection removed (not aligned with brand voice), TestimonialsSection removed (no real reviews yet)
+
 ---
 
 ## [1.3.45] - 2026-02-17

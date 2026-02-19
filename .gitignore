@@ -79,7 +79,11 @@ setup_playwright.sh
 apply_audit_fixes.py
 repo_clean_and_orphan.sh
 
-# Autonomous session files (private — not for public repo)
+# Business-sensitive docs (private — not for public repo)
+CLAUDE.md
+GTM.md
+GTM_PLAN.md
+PROJECTIONS.md
 MANAGER.md
 SESSION_STATE.md
 
