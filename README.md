@@ -57,7 +57,7 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 
 | | **O.D.I.N.** | SimplyPrint | 3DPrinterOS | Obico |
 |---|---|---|---|---|
-| **Annual cost (20 printers)** | **$290 flat** | $960-1,440 | $2,280+ | $960-1,440 |
+| **Annual cost (20 printers)** | **$150 flat** | $960-1,440 | $2,280+ | $960-1,440 |
 | **Pricing model** | Flat license | Per-printer SaaS | Per-printer SaaS | Per-printer SaaS |
 | **Self-hosted** | Yes | No | No | Partial |
 | **Printer protocols** | 4 (Bambu, Klipper, Prusa, Elegoo) | 2 | Many (via agent) | OctoPrint only |

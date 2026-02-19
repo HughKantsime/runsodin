@@ -24,8 +24,8 @@ If you do not agree to these terms, do not download, install, or use the Softwar
 - **"Software"** means the O.D.I.N. application, including all backend services, frontend interfaces, monitor daemons, Vigil AI components, documentation, and updates provided under this Agreement.
 - **"License Key"** means the Ed25519-signed license file that activates a specific tier of functionality.
 - **"Community Tier"** means the free, limited edition of the Software (5 printers, 1 user).
-- **"Pro Tier"** means the paid commercial license at $29/month or $290/year.
-- **"Education Tier"** means the paid license at $500/year per campus, designed for educational institutions.
+- **"Pro Tier"** means the paid commercial license at $15/month or $150/year.
+- **"Education Tier"** means the paid license at $300/year per site, designed for educational institutions.
 - **"Enterprise Tier"** means the paid license at $2,500-$5,000/year, with enhanced security and compliance features.
 - **"Instance"** means a single deployment of the Software on a single server or Docker host.
 - **"Vigil AI"** means the optional AI-based print failure detection system included in the Software.
@@ -44,7 +44,7 @@ Subject to payment of applicable fees and this Agreement, we grant you a non-exc
 
 ### 3.3 Education Tier
 
-Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed campus** for educational purposes. The Education Tier includes all Pro features plus job approval workflows, user groups, print quotas, and usage chargebacks.
+Subject to payment of applicable fees and this Agreement, we grant you a non-exclusive, non-transferable license to install and use the Software on **one (1) Instance per licensed site** for educational purposes. The Education Tier includes all Pro features plus job approval workflows, user groups, print quotas, and usage chargebacks.
 
 ### 3.4 Enterprise Tier
 
@@ -97,8 +97,8 @@ Current pricing is published on our website. All prices are in US Dollars (USD) 
 | Tier | Price |
 |------|-------|
 | Community | Free |
-| Pro | $29/month or $290/year |
-| Education | $500/year per campus |
+| Pro | $15/month or $150/year |
+| Education | $300/year per site |
 | Enterprise | $2,500-$5,000/year (contact sales) |
 
 ### 5.2 Billing Cycle
@@ -175,7 +175,7 @@ Email support at sublab3dp@gmail.com. Best-effort response within 3 business day
 
 ### 8.3 Education Tier
 
-Email support with best-effort response within 2 business days. Includes onboarding assistance (one 30-minute remote session per campus). Academic-year-aligned support scheduling available.
+Email support with best-effort response within 2 business days. Includes onboarding assistance (one 30-minute remote session per site). Academic-year-aligned support scheduling available.
 
 ### 8.4 Enterprise Tier
 

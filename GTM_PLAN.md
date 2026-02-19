@@ -26,7 +26,7 @@ The self-hosted licensing model yields ~95% gross margins with near-zero infrast
 
 4. **Order-to-ship workflow** — The only platform where you can go order → BOM → schedule → print → invoice → ship in one system. Every competitor stops at "print queue."
 
-5. **Flat pricing** — No per-printer fees. A 20-printer farm on SimplyPrint pays $80-120/mo. O.D.I.N. Pro: $29/mo flat. 3-8x cheaper at scale.
+5. **Flat pricing** — No per-printer fees. A 20-printer farm on SimplyPrint pays $80-120/mo. O.D.I.N. Pro: $15/mo flat. 5-8x cheaper at scale.
 
 6. **Installer quality** — curl-pipe-bash with preflight checks, 59 test cases, self-updating updater. Unusually polished for this stage.
 
@@ -62,20 +62,20 @@ Pain: Juggling 4 apps, no cost visibility, failures caught by walking past
 Budget: $0-50/mo (price-sensitive, hates per-printer fees)
 Buying trigger: Adding 5th printer, first wholesale order, realizing margins are wrong
 Channel: YouTube, Reddit, Discord, GitHub
-ARPC: $290/year (Pro)
+ARPC: $150/year (Pro)
 ```
 
-**Why they buy O.D.I.N.:** Unified dashboard across brands, cost tracking reveals true COGS, Vigil AI catches failures overnight, flat $29/mo vs $80+/mo on SimplyPrint.
+**Why they buy O.D.I.N.:** Unified dashboard across brands, cost tracking reveals true COGS, Vigil AI catches failures overnight, flat $15/mo vs $80+/mo on SimplyPrint.
 
 ### Market B: Education (Steady Mid-Tier)
 
 ```
 Persona: "The STEM Lab Manager" — K-12 or university, 5-50 printers
 Pain: No approval workflow, no accountability, cloud tools blocked by IT
-Budget: $500-2,000/year (fixed annual, PO-based procurement)
+Budget: $300-2,000/year (fixed annual, PO-based procurement)
 Buying trigger: New lab build-out, academic year budget, replacing broken OctoPrint
 Channel: ISTE, MakerEd, Bambu/Prusa education programs, ed-tech resellers
-ARPC: $500/year (Education)
+ARPC: $300/year (Education)
 ```
 
 **Why they buy O.D.I.N.:** Job approval workflow, print quotas, self-hosted (FERPA-compliant by default), white-label branding ("Westfield STEM Lab"), Vigil AI for unsupervised printer safety, no per-student pricing.
@@ -106,14 +106,14 @@ ARPC: $3,750/year (Enterprise midpoint)
 | Tier | Price | Target | Limits | Key Gated Features |
 |------|-------|--------|--------|-------------------|
 | **Community** | Free | Hobbyists, evaluation | 5 printers, 1 user | Basic monitoring + telemetry |
-| **Pro** | **$29/mo or $290/yr** | Print businesses, prosumers | Unlimited | Vigil AI, orders/BOM, analytics, white-label, SSO, multi-user RBAC |
-| **Education** | **$500/yr per campus** | K-12, universities, makerspaces | Unlimited users + printers | Pro + approval workflow + quotas + groups + chargebacks |
+| **Pro** | **$15/mo or $150/yr** | Print businesses, prosumers | Unlimited | Vigil AI, orders/BOM, analytics, white-label, SSO, multi-user RBAC |
+| **Education** | **$300/yr per site** | K-12, universities, makerspaces | Unlimited users + printers | Pro + approval workflow + quotas + groups + chargebacks |
 | **Enterprise** | **$2,500-5,000/yr** (sales-led) | Manufacturing, gov/defence | Unlimited | Education + MFA + IP allowlist + orgs + GDPR + audit export |
 
 ### Pricing Rationale
 
-- **$29/mo Pro is 3-8x cheaper** than SimplyPrint/3DPrinterOS for any farm over 5 printers. Value prop is clear and defensible.
-- **$500/yr Education** fits within single-department budget authority (no Board approval needed under ~$5K). SimplyPrint's School plan is $480/yr for only 2 printers.
+- **$15/mo Pro is 5-8x cheaper** than SimplyPrint/3DPrinterOS for any farm over 5 printers. Value prop is clear and defensible.
+- **$300/yr Education** fits within single-department budget authority (no Board approval needed under ~$5K). SimplyPrint's School plan is $480/yr for only 2 printers.
 - **Enterprise floor of $2,500** positions below 3DPrinterOS enterprise ($5K-15K+) while leaving room for gov/defence premium.
 - **No per-printer fees ever.** This is the brand promise. Competitors punish growth; O.D.I.N. rewards it.
 
@@ -137,8 +137,8 @@ ARPC: $3,750/year (Enterprise midpoint)
 | CAC (organic) | $5-20 | YouTube, Reddit, GitHub. Primary channel. |
 | CAC (education) | $50-150 | IT directors find via search; longer cycle. |
 | CAC (enterprise) | $500-2,000 | Proposals, demos, procurement. |
-| LTV:CAC (Pro) | 47:1 | Excellent (benchmark: 3:1 minimum). |
-| LTV:CAC (Education) | 14:1 | Strong. |
+| LTV:CAC (Pro) | 24:1 | Excellent (benchmark: 3:1 minimum). |
+| LTV:CAC (Education) | 8:1 | Strong. |
 | LTV:CAC (Enterprise) | 11:1 | Healthy. |
 | Break-even (moderate) | Month 8-12 | ~$3K MRR covers solo developer expenses. |
 
@@ -146,9 +146,9 @@ ARPC: $3,750/year (Enterprise midpoint)
 
 | | Year 1 | Year 2 | Year 3 |
 |--|--------|--------|--------|
-| **Conservative** | $6,850 | $18,450 | $37,200 |
-| **Moderate** | $36,750 | $79,750 | $157,000 |
-| **Aggressive** | $154,750 | $293,000 | $516,750 |
+| **Conservative** | $4,500 | $12,000 | $24,000 |
+| **Moderate** | $21,000 | $45,000 | $88,000 |
+| **Aggressive** | $116,000 | $220,000 | $388,000 |
 
 Moderate scenario assumes: 1,500 Community installs, 5% free→Pro conversion, 15 Education customers, 2 Enterprise customers in Year 1. 20% annual churn.
 
@@ -158,7 +158,7 @@ The economics of self-hosted licensing are exceptionally favorable:
 - Near-zero COGS (customer hosts everything)
 - 95%+ gross margins
 - No infrastructure scaling headaches
-- Break-even at ~100 Pro customers
+- Break-even at ~200 Pro customers
 
 **Recommendation:** Bootstrap through Year 1. Pursue SBIR ($275K Phase I from NSF Advanced Manufacturing) as non-dilutive capital for Vigil AI R&D. Reassess external funding only if accelerating past $50K ARR.
 
@@ -350,7 +350,7 @@ These are **launch blockers**. Cannot sell commercially without them.
 
 | Platform | Annual Cost | Model | Self-Hosted | Multi-Protocol | AI Detection |
 |----------|-------------|-------|-------------|----------------|-------------|
-| **O.D.I.N. Pro** | **$290** | **Flat license** | **Yes** | **4 protocols** | **Included** |
+| **O.D.I.N. Pro** | **$150** | **Flat license** | **Yes** | **4 protocols** | **Included** |
 | SimplyPrint | $960-1,440 | Per-printer SaaS | No | 2 protocols | Add-on ($) |
 | 3DPrinterOS | $2,280+ | Per-printer SaaS | No | Many (via agent) | No |
 | Obico | $960-1,440 | Per-printer SaaS | Partial | OctoPrint only | Core product |

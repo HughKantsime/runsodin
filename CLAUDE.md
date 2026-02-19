@@ -9,11 +9,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 PRODUCT:        O.D.I.N. (Orchestrated Dispatch & Inventory Network)
 TAGLINE:        One Dashboard for Every Printer.
-VERSION:        v1.3.45
+VERSION:        v1.3.46
 STATUS:         Built, pre-launch
 TIER:           1: Launch Now
 PRIORITY:       Commercial launch — legal docs, pricing page, Reddit/GitHub GTM execution
 BLOCKERS:       Legal docs (ToS, Privacy, EULA, Vigil AI disclaimer) — DONE. Remaining: publish pricing on runsodin.com, Discord community, Reddit launch posts
+AUTONOMOUS:     Yes
 MASTER DOC:     ../MASTER_PORTFOLIO.md
 ```
 
@@ -225,6 +226,8 @@ When creating seed data or demo data, validate against actual model schemas and 
 | `GTM_PLAN.md` | Detailed GTM execution plan (418 lines) |
 | `VERSION` | Source of truth for version number |
 | `../MASTER_PORTFOLIO.md` | Portfolio-wide status and priorities |
+| `MANAGER.md` | Autonomous session manager — task list, constraints, protocol |
+| `SESSION_STATE.md` | Autonomous session state — progress, decisions, escalations |
 
 ---
 

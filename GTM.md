@@ -103,8 +103,8 @@ Everything in Pro plus MFA, IP allowlisting, multi-tenant organizations, GDPR da
 | Tier | Price | Includes |
 |------|-------|----------|
 | **Community** | Free forever | Up to 5 printers, 1 user, real-time monitoring, job scheduling, filament inventory, camera feeds, multi-channel alerts, GitHub support |
-| **Pro** | $29/mo or $290/yr (save 17%) | Unlimited printers/users, everything in Community + Vigil AI failure detection, orders/products/BOM, analytics, white-label branding, SSO/OIDC, timelapse generation, email support |
-| **Education** | $500/yr per campus | Everything in Pro + job approval workflows, per-student quotas, user groups, departmental chargebacks, usage reports, priority support |
+| **Pro** | $15/mo or $150/yr (save 17%) | Unlimited printers/users, everything in Community + Vigil AI failure detection, orders/products/BOM, analytics, white-label branding, SSO/OIDC, timelapse generation, email support |
+| **Education** | $300/yr per site | Everything in Pro + job approval workflows, per-student quotas, user groups, departmental chargebacks, usage reports, priority support |
 | **Enterprise** | Contact sales | Everything in Pro + MFA, IP allowlisting, organizations/multi-tenancy, GDPR export/erasure, compliance docs (FERPA, COPPA, VPAT), dedicated support |
 
 - No credit card for Community — download and run
@@ -113,8 +113,8 @@ Everything in Pro plus MFA, IP allowlisting, multi-tenant organizations, GDPR da
 - License manager is a separate internal tool (not customer-facing)
 
 **Revenue math:**
-- At $29/mo Pro, need ~345 subscribers for $10K MRR
-- At $500/yr Education, need 240 campuses for $10K MRR
+- At $15/mo Pro, need ~667 subscribers for $10K MRR
+- At $300/yr Education, need 400 sites for $10K MRR
 - 3D printing market growing 20%+ annually; farm management is underserved
 - Self-hosted tools have low churn (sticky infrastructure)
 
@@ -146,7 +146,7 @@ Everything in Pro plus MFA, IP allowlisting, multi-tenant organizations, GDPR da
 
 ### Phase 3: Convert and Expand (Months 5-8)
 
-**Goal:** 200 Pro subscribers ($5,800 MRR), 10 Education campuses, first Enterprise leads.
+**Goal:** 200 Pro subscribers ($3,000 MRR), 10 Education sites, first Enterprise leads.
 
 1. **Product Hunt launch** — with demo video showing multi-protocol monitoring + AI detection
 2. **3D printing business Facebook groups** — these are where the Etsy/contract printing farm operators live
@@ -179,7 +179,7 @@ The marketing site (runsodin.com) is already built with:
 - **Screenshots:** Dashboard, printer cards, camera grid, job queue, analytics
 - **Printer support:** Bambu, Klipper, Prusa, Elegoo logos with protocol details
 - **Stats:** Printers monitored, protocols supported, Docker install time
-- **Pricing:** Community (free) / Pro ($29/mo) / Education ($500/yr) with feature comparison
+- **Pricing:** Community (free) / Pro ($15/mo) / Education ($300/yr) with feature comparison
 - **Testimonials:** Placeholder quotes (need real user testimonials)
 - **FAQ:** Install requirements, air-gap support, protocol coverage, data privacy, license model
 
@@ -208,7 +208,7 @@ The marketing site (runsodin.com) is already built with:
 - **YouTube reviews:** $0-100 per video (free Pro license in exchange for review)
 - **Conference presence:** $500-1,500 per event (MRRF/ERRF are community events, not trade shows)
 - **Paid acquisition:** Not recommended until $10K MRR — organic channels are more effective for this niche
-- **Blended target:** <$15 CAC, LTV:CAC > 8:1 (Pro at $290-348/yr, expected 24+ month retention for infrastructure tools)
+- **Blended target:** <$15 CAC, LTV:CAC > 8:1 (Pro at $150-180/yr, expected 24+ month retention for infrastructure tools)
 
 ---
 
@@ -232,6 +232,6 @@ The marketing site (runsodin.com) is already built with:
 | Community installs | 200 | 750 | 2,500 |
 | GitHub stars | 100 | 500 | 1,500 |
 | Pro subscribers | 10 | 50 | 200 |
-| Education campuses | 0 | 2 | 10 |
-| MRR | $290 | $1,450 | $5,800 |
+| Education sites | 0 | 2 | 10 |
+| MRR | $150 | $750 | $3,000 |
 | Discord/community members | 50 | 200 | 500 |
