@@ -552,6 +552,17 @@ class TestPasswordValidation:
 class TestRateLimiting:
     """Verify login rate limiting and account lockout."""
 
+    @classmethod
+    def teardown_class(cls):
+        """Clear login_attempts after rate-limit tests so subsequent tests can log in."""
+        import subprocess
+        subprocess.run(
+            ["docker", "exec", "odin", "python3", "-c",
+             "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+             "c.execute('DELETE FROM login_attempts'); c.commit(); c.close()"],
+            capture_output=True,
+        )
+
     def test_s26_rate_limit_on_failed_logins(self):
         """S26: 11+ failed login attempts in 5 minutes → 429 eventually.
         Uses a throwaway username to avoid locking out real accounts.

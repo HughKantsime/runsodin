@@ -321,7 +321,7 @@ def schedule_from_model(
             estimated_cost, suggested_price
         ) VALUES (
             :item_name, :model_id, :duration_hours, :colors_required,
-            1, 5, 'PENDING', :printer_id, 0, 0,
+            1, 5, 'pending', :printer_id, 0, 0,
             :estimated_cost, :suggested_price
         )
     """), {
@@ -583,7 +583,7 @@ def schedule_print_file(
         INSERT INTO jobs (
             item_name, duration_hours, colors_required, quantity, priority, status, printer_id, hold, is_locked
         ) VALUES (
-            :item_name, :duration_hours, :colors_required, 1, 5, 'PENDING', :printer_id, 0, 0
+            :item_name, :duration_hours, :colors_required, 1, 5, 'pending', :printer_id, 0, 0
         )
     """), {
         "item_name": pf['project_name'],

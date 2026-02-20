@@ -93,6 +93,52 @@ Base.metadata.create_all(bind=engine)
 print('  ✓ Database initialized')
 "
 
+# ── Normalize enum values to lowercase (SQLAlchemy 2.x uses values, not names) ──
+python3 << 'ENUMMIGREOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+c = conn.cursor()
+
+# jobs.status: normalize uppercase names to lowercase values
+c.execute("""UPDATE jobs SET status = LOWER(status)
+             WHERE status != LOWER(status)
+             AND LOWER(status) IN ('pending','scheduled','printing','paused','completed','failed','cancelled')""")
+jobs_fixed = c.rowcount
+
+# spools.status: normalize uppercase names to lowercase values
+try:
+    c.execute("""UPDATE spools SET status = LOWER(status)
+                 WHERE status != LOWER(status)
+                 AND LOWER(status) IN ('active','empty','archived')""")
+    spools_fixed = c.rowcount
+except Exception:
+    spools_fixed = 0
+
+# orders.status: normalize uppercase names to lowercase values
+try:
+    c.execute("""UPDATE orders SET status = LOWER(status)
+                 WHERE status != LOWER(status)
+                 AND LOWER(status) IN ('pending','in_progress','partial','fulfilled','shipped','cancelled')""")
+    orders_fixed = c.rowcount
+except Exception:
+    orders_fixed = 0
+
+# filament_slots/spools/jobs filament_type: only 'EMPTY' needs lowercase (others like PLA match name=value)
+for tbl in ('filament_slots', 'spools', 'jobs'):
+    try:
+        c.execute(f"UPDATE {tbl} SET filament_type = 'empty' WHERE filament_type = 'EMPTY'")
+    except Exception:
+        pass
+
+conn.commit()
+conn.close()
+total = jobs_fixed + spools_fixed + orders_fixed
+if total > 0:
+    print(f"  ✓ Enum migration: normalized {total} rows (jobs={jobs_fixed}, spools={spools_fixed}, orders={orders_fixed})")
+else:
+    print("  ✓ Enum values already normalized")
+ENUMMIGREOF
+
 # ── Create users table (raw SQL, not in SQLAlchemy models) ──
 python3 << 'USERSEOF'
 import sqlite3

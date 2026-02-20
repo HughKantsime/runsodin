@@ -32,9 +32,13 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Boolean, 
+    Column, Integer, String, Float, DateTime, Boolean,
     ForeignKey, Enum as SQLEnum, Text, JSON
 )
+
+# SQLAlchemy 2.x defaults to using enum member NAMES as DB values.
+# We want member VALUES (lowercase strings) instead.
+_ENUM_VALUES = lambda x: [e.value for e in x]
 from sqlalchemy.orm import relationship, declarative_base, Session
 from sqlalchemy.sql import func
 
@@ -45,6 +49,7 @@ class JobStatus(str, Enum):
     PENDING = "pending"
     SCHEDULED = "scheduled"
     PRINTING = "printing"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -235,7 +240,7 @@ class FilamentSlot(Base):
     slot_number = Column(Integer, nullable=False)  # 1-4 typically
     
     # What's loaded
-    filament_type = Column(SQLEnum(FilamentType), default=FilamentType.EMPTY)
+    filament_type = Column(SQLEnum(FilamentType, values_callable=_ENUM_VALUES), default=FilamentType.EMPTY)
     color = Column(String(50))  # e.g., "black", "white", "red matte"
     color_hex = Column(String(7))  # e.g., "#FF0000" for UI display
     
@@ -279,7 +284,7 @@ class Spool(Base):
     lot_number = Column(String(50))
     
     # Status
-    status = Column(SQLEnum(SpoolStatus), default=SpoolStatus.ACTIVE)
+    status = Column(SQLEnum(SpoolStatus, values_callable=_ENUM_VALUES), default=SpoolStatus.ACTIVE)
     
     # Location
     location_printer_id = Column(Integer, ForeignKey("printers.id"), nullable=True)
@@ -371,7 +376,7 @@ class Model(Base):
     
     # Print characteristics
     build_time_hours = Column(Float)  # Estimated print time
-    default_filament_type = Column(SQLEnum(FilamentType), default=FilamentType.PLA)
+    default_filament_type = Column(SQLEnum(FilamentType, values_callable=_ENUM_VALUES), default=FilamentType.PLA)
     
     # Filament usage per color slot (stored as JSON for flexibility)
     # Format: {"color1": {"color": "black", "grams": 17}, "color2": {...}}
@@ -438,7 +443,7 @@ class Job(Base):
     quantity = Column(Integer, default=1)
     
     # Scheduling
-    status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING)
+    status = Column(SQLEnum(JobStatus, values_callable=_ENUM_VALUES), default=JobStatus.PENDING)
     priority = Column(Integer, default=3)  # 1 = highest, 5 = lowest
     
     # Assignment (filled by scheduler)
@@ -458,7 +463,7 @@ class Job(Base):
     colors_required = Column(String(500))
     
     # Filament type override
-    filament_type = Column(SQLEnum(FilamentType))
+    filament_type = Column(SQLEnum(FilamentType, values_callable=_ENUM_VALUES))
     
     # Scheduler metrics
     match_score = Column(Integer)  # How well this matched the printer state
@@ -581,7 +586,7 @@ class PrintPreset(Base):
     priority = Column(Integer, default=3)
     duration_hours = Column(Float, nullable=True)
     colors_required = Column(String(500), nullable=True)
-    filament_type = Column(SQLEnum(FilamentType), nullable=True)
+    filament_type = Column(SQLEnum(FilamentType, values_callable=_ENUM_VALUES), nullable=True)
     required_tags = Column(JSON, default=list)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -734,7 +739,7 @@ class Order(Base):
     customer_email = Column(String(200), nullable=True)
     
     # Status tracking
-    status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING)
+    status = Column(SQLEnum(OrderStatus, values_callable=_ENUM_VALUES), default=OrderStatus.PENDING)
     
     # Financials - what you charged
     revenue = Column(Float, nullable=True)             # Total charged to customer
@@ -958,8 +963,8 @@ class Alert(Base):
     user_id = Column(Integer, nullable=False, index=True)  # References users table (raw SQL)
     
     # Alert classification
-    alert_type = Column(SQLEnum(AlertType), nullable=False)
-    severity = Column(SQLEnum(AlertSeverity), nullable=False)
+    alert_type = Column(SQLEnum(AlertType, values_callable=_ENUM_VALUES), nullable=False)
+    severity = Column(SQLEnum(AlertSeverity, values_callable=_ENUM_VALUES), nullable=False)
     
     # Content
     title = Column(String(200), nullable=False)
@@ -997,7 +1002,7 @@ class AlertPreference(Base):
     
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, nullable=False, index=True)
-    alert_type = Column(SQLEnum(AlertType), nullable=False)
+    alert_type = Column(SQLEnum(AlertType, values_callable=_ENUM_VALUES), nullable=False)
     
     # Delivery channels
     in_app = Column(Boolean, default=True)

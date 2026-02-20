@@ -30,7 +30,7 @@ def _create_tables(conn):
             model_id INTEGER,
             item_name TEXT,
             printer_id INTEGER,
-            status TEXT DEFAULT 'PENDING',
+            status TEXT DEFAULT 'pending',
             scheduled_start TEXT,
             actual_start TEXT,
             scheduled_end TEXT,
@@ -66,7 +66,7 @@ def _create_tables(conn):
     conn.commit()
 
 
-def _insert_job(conn, job_id, model_id, item_name, printer_id, status="PENDING"):
+def _insert_job(conn, job_id, model_id, item_name, printer_id, status="pending"):
     conn.execute(
         "INSERT INTO jobs (id, model_id, item_name, printer_id, status) VALUES (?, ?, ?, ?, ?)",
         (job_id, model_id, item_name, printer_id, status),
@@ -158,7 +158,7 @@ def _setup_db(db_path, jobs=None, models=None, print_files=None):
     for j in (jobs or []):
         _insert_job(
             conn, j["id"], j.get("model_id"), j.get("item_name"),
-            j.get("printer_id"), j.get("status", "PENDING"),
+            j.get("printer_id"), j.get("status", "pending"),
         )
     conn.close()
 
@@ -261,7 +261,7 @@ class TestNameMatching:
         _setup_db(db_path,
             models=[{"id": 1, "name": "done_part"}],
             print_files=[{"model_id": 1, "filename": "done_part.3mf", "layer_count": 20}],
-            jobs=[{"id": 10, "model_id": 1, "item_name": "Done Part", "printer_id": 1, "status": "COMPLETED"}],
+            jobs=[{"id": 10, "model_id": 1, "item_name": "Done Part", "printer_id": 1, "status": "completed"}],
         )
         monitor = _run_job_started(db_path, printer_id=1, mqtt_state={
             "subtask_name": "done_part.3mf",
@@ -374,7 +374,7 @@ class TestStatusUpdate:
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT status FROM jobs WHERE id = 10").fetchone()
         conn.close()
-        assert row[0] == "PRINTING"
+        assert row[0] == "printing"
 
     def test_unlinked_job_status_unchanged(self, db_path):
         """Jobs that aren't linked should keep their original status."""
@@ -391,4 +391,4 @@ class TestStatusUpdate:
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT status FROM jobs WHERE id = 10").fetchone()
         conn.close()
-        assert row[0] == "PENDING"
+        assert row[0] == "pending"

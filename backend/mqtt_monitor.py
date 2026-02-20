@@ -467,7 +467,7 @@ class PrinterMonitor:
                     # scheduled_start is naive local time (written by scheduler via datetime.now())
                     cur.execute("""
                         SELECT id, item_name FROM jobs
-                        WHERE printer_id = ? AND status = 'SCHEDULED'
+                        WHERE printer_id = ? AND status = 'scheduled'
                           AND scheduled_start < datetime('now', 'localtime', '-2 hours')
                     """, (self.printer_id,))
                     stale_rows = cur.fetchall()
@@ -475,7 +475,7 @@ class PrinterMonitor:
                         stale_ids = [r[0] for r in stale_rows]
                         stale_names = [r[1] or f"job #{r[0]}" for r in stale_rows]
                         cur.execute(
-                            "UPDATE jobs SET status = 'PENDING', printer_id = NULL,"
+                            "UPDATE jobs SET status = 'pending', printer_id = NULL,"
                             " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
                             " WHERE id IN ({})".format(','.join('?' * len(stale_ids))),
                             stale_ids)
@@ -501,7 +501,7 @@ class PrinterMonitor:
                         LEFT JOIN models m ON j.model_id = m.id
                         LEFT JOIN print_files pf ON m.id = pf.model_id
                         WHERE j.printer_id = ?
-                        AND j.status IN ('SCHEDULED', 'PENDING')
+                        AND j.status IN ('scheduled', 'pending')
                         ORDER BY j.scheduled_start ASC
                         LIMIT 10
                     """, (self.printer_id,))
@@ -543,7 +543,7 @@ class PrinterMonitor:
                         now_local = datetime.now()
                         window_candidates = []
                         for cand_id, cand_filename, cand_item_name, cand_model_name, cand_layers, cand_status, cand_sched in candidates:
-                            if cand_status != 'SCHEDULED' or not cand_sched:
+                            if cand_status != 'scheduled' or not cand_sched:
                                 continue
                             # Layer count sanity check: if both sides have counts, reject >20% mismatch
                             if total_layers and cand_layers and total_layers > 0 and cand_layers > 0:
@@ -569,14 +569,14 @@ class PrinterMonitor:
                         log.info(f"[{self.name}] No auto-match for '{job_base}' ({total_layers} layers) - ad-hoc print")
                         cur.execute("""
                             SELECT id, item_name FROM jobs
-                            WHERE printer_id = ? AND status = 'SCHEDULED'
+                            WHERE printer_id = ? AND status = 'scheduled'
                         """, (self.printer_id,))
                         displaced = cur.fetchall()
                         if displaced:
                             displaced_ids = [r[0] for r in displaced]
                             displaced_names = [r[1] or f"job #{r[0]}" for r in displaced]
                             cur.execute(
-                                "UPDATE jobs SET status = 'PENDING', printer_id = NULL,"
+                                "UPDATE jobs SET status = 'pending', printer_id = NULL,"
                                 " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
                                 " WHERE id IN ({})".format(','.join('?' * len(displaced_ids))),
                                 displaced_ids)
@@ -621,7 +621,7 @@ class PrinterMonitor:
                     # Update linked job status to 'printing'
                     if self._linked_job_id:
                         cur.execute(
-                            "UPDATE jobs SET status = 'PRINTING',"
+                            "UPDATE jobs SET status = 'printing',"
                             " actual_start = COALESCE(actual_start, ?) WHERE id = ?",
                             (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), self._linked_job_id))
                         log.info(f"[{self.name}] Updated job {self._linked_job_id} status to 'printing'")
@@ -735,9 +735,8 @@ class PrinterMonitor:
                 # Update or create linked scheduled job
                 job_name = self._state.get('subtask_name', 'Unknown')
 
-                # SQLAlchemy Enum stores member NAMES (uppercase) for JobStatus
-                status_map = {'completed': 'COMPLETED', 'failed': 'FAILED', 'cancelled': 'CANCELLED'}
-                job_status = status_map.get(status, status.upper())
+                # SQLAlchemy Enum stores member VALUES (lowercase) for JobStatus
+                job_status = status.lower()
                 if self._linked_job_id:
                     cur.execute("UPDATE jobs SET status = ?, actual_end = ?, duration_hours = COALESCE(?, duration_hours) WHERE id = ?",
                                 (job_status, now_utc, duration_hours, self._linked_job_id))

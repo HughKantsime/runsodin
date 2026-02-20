@@ -12,6 +12,7 @@ class JobStatus(str, Enum):
     PENDING = "pending"
     SCHEDULED = "scheduled"
     PRINTING = "printing"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

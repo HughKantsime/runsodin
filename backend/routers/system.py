@@ -1431,7 +1431,7 @@ def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depe
     # Compute current total print hours for this printer (from completed jobs)
     result = db.execute(text(
         "SELECT COALESCE(SUM(duration_hours), 0) FROM jobs "
-        "WHERE printer_id = :pid AND status = 'COMPLETED'"
+        "WHERE printer_id = :pid AND status = 'completed'"
     ), {"pid": data.printer_id}).scalar()
     total_hours = float(result or 0)
 

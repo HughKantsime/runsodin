@@ -541,7 +541,7 @@ class MoonrakerMonitor:
                     JOIN print_files pf ON j.print_file_id = pf.id
                     JOIN models m ON pf.model_id = m.id
                     WHERE j.printer_id = ?
-                      AND j.status IN ('SCHEDULED', 'PENDING')
+                      AND j.status IN ('scheduled', 'pending')
                 """, (self.printer_id,))
 
                 candidates = cur.fetchall()
@@ -592,7 +592,7 @@ class MoonrakerMonitor:
                 UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?
             """, (scheduled_job_id, self._current_job_db_id))
             cur.execute("""
-                UPDATE jobs SET status = 'PRINTING' WHERE id = ?
+                UPDATE jobs SET status = 'printing' WHERE id = ?
             """, (scheduled_job_id,))
     
     def _auto_deduct_filament(self, cur, scheduled_job_id: int):

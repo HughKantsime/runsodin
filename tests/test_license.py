@@ -291,9 +291,10 @@ class TestValidLicense:
         path = _write_license(tmp_path, license_str)
 
         with patch.object(lm, "_find_license_file", return_value=path), \
-             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem):
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
+             patch.object(lm, "get_installation_id", return_value="test-install-id"):
             info = lm.load_license()
-        d = info.to_dict()
+            d = info.to_dict()
         assert d["valid"] is True
         assert d["tier"] == "pro"
         assert d["tier_name"] == "Pro"
