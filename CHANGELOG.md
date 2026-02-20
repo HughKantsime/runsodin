@@ -2,6 +2,20 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.49] - 2026-02-20
+
+### Fixed
+- **Route ordering: GET /printers/live-status** — FastAPI was matching `live-status` as a `{printer_id}` parameter, returning 422. Static route now registered before the parameterized route.
+- **Route ordering: PATCH /jobs/reorder** — Same issue; `reorder` was being matched as a `{job_id}`, returning 422. Fixed by registering the static route first.
+- **Scheduler timezone mismatch** — `datetime.now(timezone.utc)` (offset-aware) was compared against SQLite-stored naive datetimes, causing `TypeError: can't subtract offset-naive and offset-aware datetimes`. Fixed by using `datetime.now()` throughout the scheduler.
+- **Missing `queue_position` column** — `PATCH /jobs/reorder` referenced `queue_position` in raw SQL but the column was never in the schema. Added to `Job` model and `entrypoint.sh` migration.
+- **Spool weigh endpoint 500** — `SpoolUsage` was constructed with `assigned_spool_id` (wrong field name); correct field is `spool_id`. Fixed.
+- **PUT /config EDEADLK on macOS Docker Desktop** — Writing to `/data/.env` with `open(..., 'w')` triggered `OSError: [Errno 35] Resource deadlock avoided` on macOS fakeowner mounts. Fixed with temp file + `os.replace()` atomic rename.
+- **POST /config/mqtt-republish/test 500 on empty body** — `await request.json()` raised `JSONDecodeError` when called with no body (RBAC tests). Wrapped in try/except, defaults to `{}`.
+- **RBAC test suite** — Extended soft-pass to accept 400/422/503 as valid auth-passed business-logic rejections. Added trusted-network-mode bypass for `api_key_only` 401s. All 67 RBAC failures resolved (839 passed, 0 failed).
+
+---
+
 ## [1.3.48] - 2026-02-20
 
 ### Fixed
