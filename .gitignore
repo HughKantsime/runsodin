@@ -58,6 +58,7 @@ tests/.env.test
 *.pyc
 
 # Dev scripts (never commit)
+seed_demo.py
 add_*.py
 fix_*.py
 edit_*.py
