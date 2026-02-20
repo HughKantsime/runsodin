@@ -2,6 +2,19 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.48] - 2026-02-20
+
+### Fixed
+- **SQLAlchemy 2.x enum storage bug** — SQLAlchemy 2.x defaults to storing Python enum member *names* (uppercase) as DB values instead of member *values* (lowercase). Fixed by adding `values_callable` to all 10 `SQLEnum` column definitions in `models.py`. This was causing 500 errors on `/api/jobs`, `/api/export/jobs`, and `/api/analytics` endpoints.
+- **Missing PAUSED job status** — Added `PAUSED = "paused"` to `JobStatus` enum in both `models.py` and `schemas.py`. Previously, paused jobs would raise a `LookupError` when serialized.
+- **Raw SQL uppercase status literals** — Fixed hardcoded uppercase status strings (`'PENDING'`, `'SCHEDULED'`, `'PRINTING'`, `'COMPLETED'`) in `mqtt_monitor.py`, `moonraker_monitor.py`, `routers/models.py`, and `routers/system.py` to match the lowercase enum values.
+- **DB migration on startup** — `entrypoint.sh` now normalizes any existing uppercase enum values in `jobs`, `spools`, `orders`, and `filament_slots` tables on container start.
+- **Test isolation: rate limiting** — Security tests that trigger IP-based rate limiting now clear `login_attempts` via `teardown_class`. `Makefile` clears `login_attempts` before each pytest invocation to prevent accumulated entries from blocking subsequent test sessions.
+- **Test: `test_to_dict` outside container** — `test_license.py::TestValidLicense::test_to_dict` patched `get_installation_id` so it doesn't try to write to `/data/` when running tests on the local Mac.
+- **Test: MQTT linking fixtures** — `test_mqtt_linking.py` fixtures updated to use lowercase status values, matching the corrected monitor SQL queries.
+
+---
+
 ## [1.3.47] - 2026-02-20
 
 ### Added
