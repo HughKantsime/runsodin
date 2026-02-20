@@ -271,6 +271,7 @@ export const reportSchedules = {
   create: (data) => fetchAPI('/report-schedules', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI(`/report-schedules/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id) => fetchAPI(`/report-schedules/${id}`, { method: 'DELETE' }),
+  runNow: (id) => fetchAPI(`/report-schedules/${id}/run`, { method: 'POST' }),
 }
 
 // Organizations

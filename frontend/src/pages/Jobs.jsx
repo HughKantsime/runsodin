@@ -911,6 +911,7 @@ export default function Jobs() {
         </div>
         <div className="flex items-center gap-2 self-start">
           {canDo('jobs.create') && <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
+            aria-busy={runScheduler.isPending}
             className={clsx('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-farm-800 hover:bg-farm-700 border border-farm-700', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
             <Zap size={16} />
             {runScheduler.isPending ? 'Running...' : 'Run Scheduler'}

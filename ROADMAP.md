@@ -19,16 +19,16 @@ Updated 2026-02-18 at v1.3.46.
 - ~~Scoped API Tokens (Per-User)~~
 - ~~Session Management & Token Revocation~~
 - ~~Print Quotas~~
-- ~~Organizations & Multi-Tenancy~~ *(basic — CRUD + member/printer assignment, no implicit resource scoping yet)*
+- ~~Organizations & Multi-Tenancy~~
 - ~~Cost Chargebacks & Department Billing~~
 - ~~IP Allowlisting~~
 - ~~GDPR Data Export & Right to Erasure~~
-- ~~File / Model Versioning~~ *(list + upload revisions, no revert or job-level revision reference yet)*
+- ~~File / Model Versioning~~
 - ~~WCAG 2.1 Accessibility~~ *(initial pass — landmarks, ARIA labels, dialog roles, skip-to-content)*
 - ~~Bulk Operations UI~~ *(Jobs multi-select with cancel/priority/reschedule/delete)*
 - ~~Backup Restore via UI~~
 - ~~Broadened Data Retention Policies~~
-- ~~Scheduled Reports~~ *(CRUD definitions only — no automated execution yet)*
+- ~~Scheduled Reports~~
 - ~~Curl-pipe-bash installer with preflight checks~~
 - ~~Self-updating updater with version diffing and rollback~~
 - ~~Installer test suite (59 unit + integration tests)~~

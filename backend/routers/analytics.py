@@ -956,3 +956,20 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
         db.commit()
 
     return {"status": "ok"}
+
+
+@router.post("/report-schedules/{schedule_id}/run", tags=["Reports"])
+async def run_report_now(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Immediately generate and email a scheduled report."""
+    row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    from report_runner import run_report
+    try:
+        run_report(dict(row._mapping))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.error(f"Run-now report {schedule_id} failed: {e}")
+        raise HTTPException(status_code=500, detail="Report generation failed")
+    return {"status": "sent"}

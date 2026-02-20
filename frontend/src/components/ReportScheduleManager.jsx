@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Calendar, X, Pause, Play } from 'lucide-react'
+import { Plus, Trash2, Calendar, X, Pause, Play, Zap } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { reportSchedules } from '../api'
 
 const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary']
@@ -29,6 +30,12 @@ export default function ReportScheduleManager() {
   const toggleSchedule = useMutation({
     mutationFn: ({ id, is_active }) => reportSchedules.update(id, { is_active }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-schedules'] }),
+  })
+
+  const runNow = useMutation({
+    mutationFn: (id) => reportSchedules.runNow(id),
+    onSuccess: () => toast.success('Report sent'),
+    onError: (err) => toast.error('Failed to send report: ' + err.message),
   })
 
   const handleCreate = () => {
@@ -85,6 +92,7 @@ export default function ReportScheduleManager() {
             </div>
           </div>
           <button onClick={handleCreate} disabled={!form.name.trim() || createSchedule.isPending}
+            aria-busy={createSchedule.isPending}
             className="px-4 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg text-sm">
             {createSchedule.isPending ? 'Creating...' : 'Create Schedule'}
           </button>
@@ -107,6 +115,16 @@ export default function ReportScheduleManager() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => runNow.mutate(s.id)}
+              disabled={runNow.isPending}
+              aria-busy={runNow.isPending}
+              aria-label={`Run "${s.name}" now`}
+              className="p-1.5 text-farm-500 hover:text-print-400 rounded-lg disabled:opacity-50"
+              title="Send now"
+            >
+              <Zap size={14} />
+            </button>
             <button
               onClick={() => toggleSchedule.mutate({ id: s.id, is_active: !s.is_active })}
               className={`p-1.5 rounded-lg ${s.is_active ? 'text-green-400 hover:bg-green-900/30' : 'text-farm-500 hover:bg-farm-700'}`}

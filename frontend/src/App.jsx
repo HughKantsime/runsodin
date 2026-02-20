@@ -533,6 +533,8 @@ export default function App() {
           </div>
           <UpgradeBanner />
           <main id="main-content" className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          {/* Screen reader live region for async status announcements */}
+          <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" id="sr-status" />
           <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Dashboard />} />

@@ -2,6 +2,17 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.47] - 2026-02-20
+
+### Added
+- **Scheduled Reports "Run Now"** — `POST /api/v1/report-schedules/{id}/run` endpoint immediately generates and emails a report; `run_report()` public function extracted from report_runner daemon; Run Now (⚡) button in ReportScheduleManager UI with success/error toast
+- **WCAG 2.1 improvements** — `aria-busy` on async action buttons (Run Scheduler, Create Schedule, Run Now); sr-only `aria-live="polite"` region in main layout for screen reader announcements
+
+### Changed
+- **ROADMAP.md** — Removed stale asterisk caveats from Organizations, File/Model Versioning, and Scheduled Reports (all features fully shipped)
+
+---
+
 ## [1.3.46] - 2026-02-18
 
 ### Added

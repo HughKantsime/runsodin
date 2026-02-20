@@ -442,6 +442,51 @@ def process_quiet_hours_digest(session):
 
 
 # =============================================================================
+# On-demand report execution (called by API)
+# =============================================================================
+
+def run_report(schedule: dict) -> None:
+    """Generate and send a single scheduled report immediately.
+
+    Args:
+        schedule: dict with keys name, report_type, recipients (JSON string),
+                  filters (JSON string). Matches the report_schedules row shape.
+    Raises:
+        RuntimeError: if SMTP is not configured or report_type is unknown.
+    """
+    session = SessionLocal()
+    try:
+        smtp_config = get_smtp_config(session)
+        if not smtp_config:
+            raise RuntimeError("SMTP not configured")
+
+        report_type = schedule.get("report_type")
+        generator = GENERATORS.get(report_type)
+        if not generator:
+            raise RuntimeError(f"Unknown report type '{report_type}'")
+
+        try:
+            recipients = json.loads(schedule["recipients"]) if schedule.get("recipients") else []
+        except (json.JSONDecodeError, TypeError):
+            recipients = []
+
+        try:
+            filters = json.loads(schedule["filters"]) if schedule.get("filters") else {}
+        except (json.JSONDecodeError, TypeError):
+            filters = {}
+
+        html = generator(session, filters)
+        subject = f"O.D.I.N. Report: {schedule.get('name', 'Report')}"
+        sent = 0
+        for recip in recipients:
+            if send_report_email(smtp_config, recip.strip(), subject, html):
+                sent += 1
+        log.info(f"Run-now report '{schedule.get('name')}' (type={report_type}) sent to {sent}/{len(recipients)} recipients")
+    finally:
+        session.close()
+
+
+# =============================================================================
 # Main loop
 # =============================================================================
 
