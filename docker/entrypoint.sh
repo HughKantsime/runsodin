@@ -560,6 +560,12 @@ try:
 except Exception:
     pass  # Column already exists
 
+# Add queue_position column to jobs if missing
+try:
+    conn.execute("ALTER TABLE jobs ADD COLUMN queue_position INTEGER")
+except Exception:
+    pass  # Column already exists
+
 conn.commit()
 
 # Add timelapse_enabled column to printers if missing

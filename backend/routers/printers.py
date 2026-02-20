@@ -421,6 +421,18 @@ def reorder_printers(
     return {"success": True, "order": printer_ids}
 
 
+# Static route registered before /printers/{printer_id} to prevent FastAPI
+# from treating "live-status" as a printer_id integer.
+@router.get("/printers/live-status", tags=["Printers"])
+def get_all_printers_live_status_early(db: Session = Depends(get_db)):
+    """Get real-time status from all Bambu printers."""
+    printers = db.query(Printer).filter(
+        Printer.api_host.isnot(None),
+        Printer.api_key.isnot(None),
+    ).all()
+    return [_fetch_printer_live_status(printer.id, db) for printer in printers]
+
+
 @router.get("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
 def get_printer(printer_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get a specific printer."""
@@ -1489,9 +1501,8 @@ async def get_unmatched_slots(printer_id: int, db: Session = Depends(get_db)):
 # Live Status
 # ====================================================================
 
-@router.get("/printers/{printer_id}/live-status", tags=["Printers"])
-def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
-    """Get real-time status from printer via MQTT."""
+def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
+    """Shared logic: fetch real-time status from a single printer via MQTT."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
@@ -1507,7 +1518,6 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
     except Exception:
         return {"error": "Could not decrypt credentials"}
 
-    # Quick MQTT connection to get status
     from bambu_adapter import BambuPrinter
 
     status_data = {}
@@ -1523,7 +1533,6 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
             on_status_update=on_status,
         )
         if bp.connect():
-            # Wait for first status
             timeout = 5
             start = time.time()
             while not status_data and (time.time() - start) < timeout:
@@ -1554,20 +1563,10 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
         return {"error": str(e)}
 
 
-@router.get("/printers/live-status", tags=["Printers"])
-def get_all_printers_live_status(db: Session = Depends(get_db)):
-    """Get real-time status from all Bambu printers."""
-    printers = db.query(Printer).filter(
-        Printer.api_host.isnot(None),
-        Printer.api_key.isnot(None),
-    ).all()
-
-    results = []
-    for printer in printers:
-        printer_status = get_printer_live_status(printer.id, db)
-        results.append(printer_status)
-
-    return results
+@router.get("/printers/{printer_id}/live-status", tags=["Printers"])
+def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
+    """Get real-time status from printer via MQTT."""
+    return _fetch_printer_live_status(printer_id, db)
 
 
 # ====================================================================

@@ -232,6 +232,23 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
     return db_jobs
 
 
+# Static route registered before /jobs/{job_id} to prevent FastAPI from
+# treating "reorder" as a job_id integer.
+class JobReorderRequest(PydanticBaseModel):
+    job_ids: list[int]
+
+@router.patch("/jobs/reorder", tags=["Jobs"])
+async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Reorder job queue. Sets queue_position on each job based on array index."""
+    for position, job_id in enumerate(req.job_ids):
+        db.execute(
+            text("UPDATE jobs SET queue_position = :pos WHERE id = :id AND status IN ('pending', 'scheduled')"),
+            {"pos": position, "id": job_id}
+        )
+    db.commit()
+    return {"reordered": len(req.job_ids)}
+
+
 @router.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 def get_job(job_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get a specific job."""
@@ -890,27 +907,6 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     return {"status": "ok", "affected": count}
 
 
-# ──────────────────────────────────────────────
-# Reorder jobs
-# ──────────────────────────────────────────────
-
-class JobReorderRequest(PydanticBaseModel):
-    job_ids: list[int]  # Ordered list of job IDs in desired queue position
-
-@router.patch("/jobs/reorder", tags=["Jobs"])
-async def reorder_jobs(req: JobReorderRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """
-    Reorder job queue. Accepts ordered list of job IDs.
-    Sets queue_position on each job based on array index.
-    Only reorders pending/scheduled jobs.
-    """
-    for position, job_id in enumerate(req.job_ids):
-        db.execute(
-            text("UPDATE jobs SET queue_position = :pos WHERE id = :id AND status IN ('pending', 'scheduled')"),
-            {"pos": position, "id": job_id}
-        )
-    db.commit()
-    return {"reordered": len(req.job_ids)}
 
 
 # ──────────────────────────────────────────────

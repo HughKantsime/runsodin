@@ -728,7 +728,7 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
     # Record as usage if weight decreased
     if new_weight < old_weight:
         usage = SpoolUsage(
-            assigned_spool_id=spool.id,
+            spool_id=spool.id,
             weight_used_g=old_weight - new_weight,
             notes="Manual weigh adjustment",
         )

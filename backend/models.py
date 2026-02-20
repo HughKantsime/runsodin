@@ -504,6 +504,9 @@ class Job(Base):
     # Scheduler constraints
     required_tags = Column(JSON, default=list)  # Only schedule on printers with these tags
 
+    # Queue ordering
+    queue_position = Column(Integer, nullable=True)
+
     # Metadata
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

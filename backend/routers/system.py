@@ -569,10 +569,19 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_rol
     if config.blackout_end is not None:
         env_vars['BLACKOUT_END'] = config.blackout_end
 
-    # Write back
-    with open(env_path, 'w') as f:
-        for key, val in env_vars.items():
-            f.write(f"{key}={val}\n")
+    # Write back via temp file + atomic rename to avoid filesystem deadlocks
+    import tempfile
+    dir_path = os.path.dirname(env_path) or '.'
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.env.tmp')
+        with os.fdopen(fd, 'w') as f:
+            for key, val in env_vars.items():
+                f.write(f"{key}={val}\n")
+        os.replace(tmp_path, env_path)
+    except Exception:
+        if 'tmp_path' in dir() and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
     return {"success": True, "message": "Config updated. Restart backend to apply changes."}
 
@@ -1073,7 +1082,10 @@ async def test_mqtt_republish(request: Request, current_user: dict = Depends(req
     if not mqtt_republish:
         raise HTTPException(status_code=503, detail="MQTT republish module not available")
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
     result = mqtt_republish.test_connection(
         host=body.get("host", ""),
         port=int(body.get("port", 1883)),
