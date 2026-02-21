@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from models import Printer, Job, JobStatus, SchedulerRun
 
@@ -285,6 +286,28 @@ class Scheduler:
             Job.hold == False
         ).order_by(Job.priority, Job.created_at).all()
         
+        # Pre-fetch printer model requirements from uploaded print files.
+        # This is the safety gate data: a job that uses an H2D file must not
+        # be assigned to an X1C printer. We look up print_files.printer_model
+        # via the job's model_id (print_files.model_id FK). We only block on
+        # known mismatches — if a printer's model is unset we let it through.
+        job_model_requirements: Dict[int, str] = {}
+        model_ids = [j.model_id for j in pending_jobs if j.model_id]
+        if model_ids:
+            placeholders = ",".join(str(m) for m in set(model_ids))
+            rows = db.execute(text(
+                f"SELECT model_id, printer_model FROM print_files "
+                f"WHERE model_id IN ({placeholders}) "
+                f"AND printer_model IS NOT NULL AND printer_model != '' "
+                f"ORDER BY id DESC"
+            )).fetchall()
+            # Keep first (most recent) result per model_id
+            seen: set = set()
+            for row in rows:
+                if row[0] not in seen:
+                    job_model_requirements[row[0]] = row[1]
+                    seen.add(row[0])
+
         # Schedule each job
         for job in pending_jobs:
             best_fit = self._find_best_fit(
@@ -292,7 +315,8 @@ class Scheduler:
                 printer_states=printer_states,
                 usage_map=usage_map,
                 start_date=start_date,
-                total_slots=total_slots
+                total_slots=total_slots,
+                required_printer_model=job_model_requirements.get(job.model_id)
             )
             
             if best_fit:
@@ -331,7 +355,11 @@ class Scheduler:
                 ))
             else:
                 result.skipped_count += 1
-                result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")
+                req = job_model_requirements.get(job.model_id)
+                if req:
+                    result.errors.append(f"Could not schedule job {job.id} ({job.item_name}): requires {req} printer, none available")
+                else:
+                    result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")
         
         # Commit changes
         db.commit()
@@ -357,7 +385,8 @@ class Scheduler:
         printer_states: Dict[int, PrinterState],
         usage_map: Dict[Tuple[int, int], str],
         start_date: datetime,
-        total_slots: int
+        total_slots: int,
+        required_printer_model: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Find the best printer and time slot for a job.
@@ -376,6 +405,14 @@ class Scheduler:
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
 
         for printer_id, state in printer_states.items():
+            # Model constraint: skip printers whose model is known and doesn't match.
+            # If printer model is unset (not yet auto-detected), we allow it through —
+            # blocking on unknown model would exclude all non-Bambu printers.
+            if required_printer_model:
+                printer_model = (state.printer.model or '').strip()
+                if printer_model and printer_model != required_printer_model:
+                    continue
+
             # Tag constraint: skip printers missing required tags
             if required_tags:
                 printer_tags = state.printer.tags or []
