@@ -2,7 +2,7 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [1.3.48] - 2026-02-21
+## [1.3.58] - 2026-02-21
 
 ### Security
 - **JWT entropy** — `JWT_SECRET_KEY` generation switched from `token_urlsafe(32)` (~192 bits) to `token_bytes(32).hex()` (256 bits, no encoding overhead)

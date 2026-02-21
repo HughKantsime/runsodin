@@ -107,7 +107,7 @@ Updated 2026-02-21 at v1.3.57.
 - ~~Frontend API consolidation: all pages migrated to centralized fetchAPI (Settings, Spools, Printers, Analytics, Orders, App.jsx), removed 6 local API layers (~200 lines), fixed auth header bugs, deduplicated getShortName, replaced alert/confirm with toast/ConfirmModal, SW cache cleanup~~
 - ~~Printer dispatch: FTPS+MQTT for Bambu, HTTP upload+start for Moonraker/Klipper and PrusaLink; .3mf files stored on upload; manual Dispatch button on scheduled jobs with bed-clear confirmation; AUTO_DISPATCH env var for auto-send on IDLE transition~~
 - ~~Security hardening pass (v1.3.57): api_key stripped from API responses, camera URL credential sanitization, auth added to live-status/tags/camera endpoints, last-admin protection, SSRF blocklist, XXE prevention (defusedxml), ZIP bomb protection, path traversal fix on revision upload, HSTS header, error message sanitization~~
-- ~~Security hardening pass (v1.3.48): JWT 256-bit entropy, numeric field bounds (slot_count/quantity/priority/units_per_bed), camera URL scheme+SSRF+metachar validation, webhook SSRF validation, audit logs on login+password-change, GDPR export completeness (api_tokens, quota_usage)~~
+- ~~Security hardening pass (v1.3.58): JWT 256-bit entropy, numeric field bounds (slot_count/quantity/priority/units_per_bed), camera URL scheme+SSRF+metachar validation, webhook SSRF validation, audit logs on login+password-change, GDPR export completeness (api_tokens, quota_usage)~~
 
 ---
 
