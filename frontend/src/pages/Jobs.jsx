@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical, Briefcase } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical, Briefcase, Send } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps, modelRevisions } from '../api'
@@ -155,8 +155,18 @@ function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect }) {
             </button>
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
-            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Start print">
+            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Start print (manual)">
               <Play size={16} />
+            </button>
+          )}
+          {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
+            <button
+              onClick={() => onAction('dispatch', job.id, job.item_name, job.printer?.name)}
+              className="p-1.5 text-emerald-400 hover:bg-emerald-900/50 rounded-lg"
+              title={`Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
+              aria-label="Dispatch to printer"
+            >
+              <Send size={15} />
             </button>
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (
@@ -792,6 +802,15 @@ export default function Jobs() {
     onError: (err) => toast.error('Repeat job failed: ' + err.message),
   })
 
+  const dispatchJob = useMutation({
+    mutationFn: jobs.dispatch,
+    onSuccess: (_, jobId) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      toast.success('Print dispatched — file uploading to printer')
+    },
+    onError: (err) => toast.error('Dispatch failed: ' + (err.message || 'Unknown error')),
+  })
+
   const approveJobMut = useMutation({
     mutationFn: approveJob,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job approved') },
@@ -830,6 +849,19 @@ export default function Jobs() {
         if (job) setEditingJob(job)
         break
       }
+      case 'dispatch': {
+        // jobName = item name, existingReason = printer name (4th positional arg)
+        const printerLabel = existingReason || 'the printer'
+        setConfirmAction({
+          action: 'dispatch',
+          jobId,
+          title: 'Dispatch to Printer',
+          message: `"${jobName}" will be uploaded to ${printerLabel} via FTP and the print will start automatically.\n\nMake sure the bed is clear before confirming.`,
+          confirmText: 'Dispatch',
+          confirmVariant: 'confirm',
+        })
+        break
+      }
       case 'approve': approveJobMut.mutate(jobId); break
       case 'reject': setRejectingJobId(jobId); setShowRejectModal(true); break
       case 'resubmit': resubmitJobMut.mutate(jobId); break
@@ -851,6 +883,7 @@ export default function Jobs() {
     else if (action === 'complete') completeJob.mutate(jobId)
     else if (action === 'cancel') cancelJob.mutate(jobId)
     else if (action === 'delete') deleteJob.mutate(jobId)
+    else if (action === 'dispatch') dispatchJob.mutate(jobId)
     else if (action === 'bulkDelete') bulkAction.mutate({ action: 'delete' })
     setConfirmAction(null)
   }
