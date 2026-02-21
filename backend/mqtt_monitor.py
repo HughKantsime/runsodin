@@ -242,6 +242,21 @@ class PrinterMonitor:
                             (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
                              hms_j, lights_on, noz_type, noz_dia, fan_speed_val, self.printer_id))
                         conn.commit()
+
+                        # Auto-detect printer model from MQTT — write once, never overwrite a user-set value
+                        raw_pt = self._state.get('printer_type', '')
+                        if raw_pt:
+                            try:
+                                from threemf_parser import _friendly_printer_name
+                                friendly = _friendly_printer_name(raw_pt) or raw_pt
+                                conn.execute(
+                                    "UPDATE printers SET model = ? WHERE id = ? AND (model IS NULL OR model = '' OR model = 'Unknown')",
+                                    (friendly, self.printer_id)
+                                )
+                                conn.commit()
+                            except Exception as e:
+                                log.debug(f"[{self.name}] Model auto-detect failed: {e}")
+
                         # Republish telemetry to external broker
                         if mqtt_republish:
                             try:

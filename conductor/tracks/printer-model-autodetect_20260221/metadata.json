@@ -1,0 +1,14 @@
+{
+  "version": 3,
+  "track_id": "printer-model-autodetect_20260221",
+  "name": "Printer Model Auto-Detection & Form UI Hardening",
+  "type": "feature",
+  "status": "in_progress",
+  "superpower_enhanced": true,
+  "created_at": "2026-02-21",
+  "loop_state": {
+    "current_step": "EXECUTE",
+    "step_status": "in_progress",
+    "fix_cycle_count": 0
+  }
+}

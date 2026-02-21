@@ -74,6 +74,7 @@ class PrinterStatus:
     ams_slots: list = field(default_factory=list)
     error_message: str = ""
     raw_data: Dict = field(default_factory=dict)
+    printer_type: str = ""  # e.g. "X1C", "BL-P001" — raw value from MQTT printer_type field
 
 
 class BambuPrinter:
@@ -327,6 +328,11 @@ class BambuPrinter:
             if ams_data:
                 self._parse_ams(ams_data)
             
+            # Capture printer_type (model code) from MQTT
+            raw_pt = print_data.get("printer_type", "")
+            if raw_pt:
+                self._status.printer_type = raw_pt
+
             # Check for errors
             if print_data.get("print_error", 0) != 0:
                 self._status.state = PrinterState.ERROR

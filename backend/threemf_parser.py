@@ -14,9 +14,11 @@ def _friendly_printer_name(model_id: str) -> str:
     mappings = {
         'BL-P001': 'P1S', 'BL-P002': 'P1P',
         'BL-A001': 'A1', 'BL-A003': 'A1 Mini',
+        'BL-P003': 'H2D',  # H2D (dual-extruder, released 2025)
         'C11': 'X1C', 'C12': 'X1E', 'C13': 'X1',
         'N1': 'A1', 'N2S': 'A1 Mini',
         'O1D': 'X1C',
+        'H2D': 'H2D',  # In case MQTT reports the friendly name directly
     }
     for code, name in mappings.items():
         if code.lower() in model_id.lower():

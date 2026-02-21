@@ -1,7 +1,7 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug, Printer as PrinterIcon } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug, Printer as PrinterIcon, Lock } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
@@ -375,7 +375,11 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
   })
   const [testStatus, setTestStatus] = useState(null)
   const [testMessage, setTestMessage] = useState('')
+  const [modelOverride, setModelOverride] = useState(false)
+  const [slotOverride, setSlotOverride] = useState(false)
   const modalRef = useRef(null)
+
+  const BAMBU_MODELS = ['X1C', 'X1E', 'X1', 'P1S', 'P1P', 'A1', 'A1 Mini', 'H2D']
 
   useEffect(() => {
     if (!isOpen) return
@@ -432,6 +436,8 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
     }
     setTestStatus(null)
     setTestMessage('')
+    setModelOverride(false)
+    setSlotOverride(false)
   }, [printer, isOpen])
 
   const handleTestConnection = async () => {
@@ -465,6 +471,12 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
       if (result.success) {
         setTestStatus('success')
         setTestMessage(`Connected! State: ${result.state}, Bed: ${result.bed_temp}°C, ${result.ams_slots || 0} AMS slots`)
+        if (result.ams_slots != null) {
+          setFormData(prev => ({ ...prev, slot_count: result.ams_slots }))
+        }
+        if (result.model && result.model !== 'Unknown' && !formData.model) {
+          setFormData(prev => ({ ...prev, model: result.model }))
+        }
       } else {
         setTestStatus('error')
         setTestMessage(result.error || 'Connection failed')
@@ -513,32 +525,103 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Printer Name {!isEditing && '*'}</label>
-            <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., X1C, P1S-01" />
+            <label className="block text-sm text-farm-400 mb-1">Machine ID {!isEditing && '*'}</label>
+            <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.replace(/\s+/g, '-') }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., p1s-01, x1c-floor2" />
+            <p className="text-xs text-farm-500 mt-1">Unique identifier used in logs and the API. Cannot contain spaces.</p>
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Nickname</label>
+            <label className="block text-sm text-farm-400 mb-1">Display Name</label>
             <input type="text" value={formData.nickname} onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Big Bertha (optional)" />
+            <p className="text-xs text-farm-500 mt-1">Friendly label shown on cards and dashboards. Falls back to Machine ID if blank.</p>
           </div>
-          <div>
-            <label className="block text-sm text-farm-400 mb-1">Model</label>
-            <input type="text" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Bambu Lab X1 Carbon" />
-          </div>
-          <div>
-            <label className="block text-sm text-farm-400 mb-1">Filament Slots</label>
-            <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
-              <option value={1}>1 slot (no AMS)</option>
-              <option value={4}>4 slots (1x AMS)</option>
-              <option value={5}>5 slots (AMS + HT slot)</option>
-              <option value={8}>8 slots (2x AMS)</option>
-              <option value={9}>9 slots (2x AMS + HT slot)</option>
-              <option value={12}>12 slots (3x AMS)</option>
-              <option value={16}>16 slots (4x AMS)</option>
-            </select>
-            {isEditing && formData.slot_count !== printer.slot_count && (
-              <p className="text-xs text-amber-400 mt-1">Note: Changing slot count will reset filament colors</p>
-            )}
-          </div>
+          {isEditing && showBambuFields && printer?.model && printer?.last_seen ? (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Model</label>
+              <div className="flex items-center gap-2">
+                <span className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-200">{formData.model}</span>
+                <span className="text-xs text-green-400 flex items-center gap-1 whitespace-nowrap"><Lock size={11} /> Auto-detected</span>
+              </div>
+              {!modelOverride ? (
+                <button type="button" onClick={() => setModelOverride(true)} className="text-xs text-farm-500 hover:text-farm-300 mt-1">Override</button>
+              ) : (
+                <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-amber-600 rounded-lg px-3 py-2 text-sm mt-2">
+                  <option value="">Select model</option>
+                  {BAMBU_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              )}
+            </div>
+          ) : showBambuFields ? (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Model</label>
+              <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                <option value="">Will auto-detect on first connect</option>
+                {BAMBU_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Model</label>
+              <input type="text" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Prusa MK4, Ender 3" />
+            </div>
+          )}
+          {isEditing && showBambuFields && printer?.last_seen ? (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Filament Slots</label>
+              <div className="flex items-center gap-2">
+                <span className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-200">{formData.slot_count} slots</span>
+                <span className="text-xs text-green-400 flex items-center gap-1 whitespace-nowrap"><Lock size={11} /> Auto-detected</span>
+              </div>
+              {!slotOverride ? (
+                <button type="button" onClick={() => setSlotOverride(true)} className="text-xs text-farm-500 hover:text-farm-300 mt-1">Override</button>
+              ) : (
+                <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-farm-800 border border-amber-600 rounded-lg px-3 py-2 text-sm mt-2">
+                  <option value={1}>1 slot (no AMS)</option>
+                  <option value={4}>4 slots (1x AMS)</option>
+                  <option value={5}>5 slots (AMS + HT slot)</option>
+                  <option value={8}>8 slots (2x AMS)</option>
+                  <option value={9}>9 slots (2x AMS + HT slot)</option>
+                  <option value={12}>12 slots (3x AMS)</option>
+                  <option value={16}>16 slots (4x AMS)</option>
+                </select>
+              )}
+              {slotOverride && formData.slot_count !== printer.slot_count && (
+                <p className="text-xs text-amber-400 mt-1">Note: Changing slot count will reset filament colors</p>
+              )}
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm text-farm-400 mb-1">Filament Slots</label>
+              <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                <option value={1}>1 slot (no AMS)</option>
+                <option value={4}>4 slots (1x AMS)</option>
+                <option value={5}>5 slots (AMS + HT slot)</option>
+                <option value={8}>8 slots (2x AMS)</option>
+                <option value={9}>9 slots (2x AMS + HT slot)</option>
+                <option value={12}>12 slots (3x AMS)</option>
+                <option value={16}>16 slots (4x AMS)</option>
+              </select>
+              {isEditing && formData.slot_count !== printer?.slot_count && (
+                <p className="text-xs text-amber-400 mt-1">Note: Changing slot count will reset filament colors</p>
+              )}
+            </div>
+          )}
+
+          {isEditing && (printer?.nozzle_diameter || printer?.nozzle_type) && (
+            <div className="flex gap-3">
+              {printer.nozzle_diameter && (
+                <div className="flex-1">
+                  <label className="block text-xs text-farm-500 mb-1">Nozzle Size</label>
+                  <div className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-300">{printer.nozzle_diameter}mm</div>
+                </div>
+              )}
+              {printer.nozzle_type && (
+                <div className="flex-1">
+                  <label className="block text-xs text-farm-500 mb-1">Nozzle Type</label>
+                  <div className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-300">{printer.nozzle_type}</div>
+                </div>
+              )}
+            </div>
+          )}
           
           <div className="border-t border-farm-700 pt-4 mt-4">
             <label className="block text-sm text-farm-400 mb-2">Printer Connection (Optional)</label>
