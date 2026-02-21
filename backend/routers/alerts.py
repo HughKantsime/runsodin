@@ -8,7 +8,7 @@ import json
 import logging
 import threading
 
-from deps import get_db, get_current_user, require_role, log_audit, _get_org_filter
+from deps import get_db, get_current_user, require_role, log_audit, _get_org_filter, _validate_webhook_url
 from models import (
     Alert, AlertType, AlertSeverity, AlertPreference, PushSubscription,
     SystemConfig,
@@ -54,6 +54,8 @@ async def create_webhook(
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
+    _validate_webhook_url(url)
+
     # Store alert_types as JSON
     if isinstance(alert_types, list):
         alert_types = json.dumps(alert_types)
@@ -79,6 +81,9 @@ async def update_webhook(
 
     updates = []
     params = {"id": webhook_id}
+
+    if "url" in data and data["url"]:
+        _validate_webhook_url(data["url"])
 
     for field in ["name", "url", "webhook_type", "is_enabled", "alert_types"]:
         if field in data:

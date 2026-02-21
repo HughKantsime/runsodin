@@ -23,7 +23,7 @@ if [ -z "$JWT_SECRET_KEY" ]; then
         export JWT_SECRET_KEY=$(cat /data/.jwt_secret)
         echo "  ✓ Loaded JWT secret from /data/.jwt_secret"
     else
-        export JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+        export JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_bytes(32).hex())")
         echo "$JWT_SECRET_KEY" > /data/.jwt_secret
         chmod 600 /data/.jwt_secret
         echo "  ✓ Generated new JWT secret (saved to /data/.jwt_secret)"

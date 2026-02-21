@@ -59,6 +59,9 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
+    log_audit(db, "auth.login", "user", user.id,
+              details={"username": user.username},
+              ip=client_ip)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -599,6 +602,16 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     prefs = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id}).fetchall()]
 
+    # API tokens: exclude token_hash and token_prefix to avoid leaking token material
+    api_tokens_data = [dict(r._mapping) for r in db.execute(
+        text("SELECT id, name, scopes, created_at, last_used_at, expires_at FROM api_tokens WHERE user_id = :uid"),
+        {"uid": user_id}).fetchall()]
+
+    # Quota usage records
+    quota_data = [dict(r._mapping) for r in db.execute(
+        text("SELECT period_key, grams_used, hours_used, jobs_used, updated_at FROM quota_usage WHERE user_id = :uid"),
+        {"uid": user_id}).fetchall()]
+
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user": u,
@@ -606,6 +619,8 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "audit_log_entries": audit,
         "active_sessions": sessions_data,
         "alert_preferences": prefs,
+        "api_tokens": api_tokens_data,
+        "quota_usage": quota_data,
     }
 
     log_audit(db, "gdpr_export", "user", user_id, f"Data exported for user {user.username}")
@@ -1048,11 +1063,15 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
     ALLOWED_USER_FIELDS = {"username", "email", "role", "is_active", "password_hash", "group_id"}
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
 
+    password_changed = 'password_hash' in updates
     if updates:
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates['id'] = user_id
         db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)
         db.commit()
+    if password_changed:
+        log_audit(db, "user.password_changed", "user", user_id,
+                  {"actor_user_id": current_user["id"], "target_user_id": user_id})
     return {"status": "updated"}
 
 @router.delete("/users/{user_id}", tags=["Users"])

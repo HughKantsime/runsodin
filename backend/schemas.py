@@ -115,7 +115,7 @@ class PrinterCreate(PrinterBase):
 class PrinterUpdate(BaseModel):
     name: Optional[str] = None
     model: Optional[str] = None
-    slot_count: Optional[int] = None
+    slot_count: Optional[int] = Field(default=None, ge=1, le=256)
     is_active: Optional[bool] = None
     api_type: Optional[str] = None
     api_host: Optional[str] = None
@@ -179,8 +179,8 @@ class ModelBase(BaseModel):
     thumbnail_b64: Optional[str] = None
     notes: Optional[str] = None
     cost_per_item: Optional[float] = None
-    units_per_bed: Optional[int] = 1
-    quantity_per_bed: Optional[int] = 1  # Sellable pieces per print
+    units_per_bed: Optional[int] = Field(default=1, ge=1, le=10000)
+    quantity_per_bed: Optional[int] = Field(default=1, ge=1, le=10000)  # Sellable pieces per print
     markup_percent: Optional[float] = 300
     is_favorite: Optional[bool] = False
 
@@ -198,8 +198,8 @@ class ModelUpdate(BaseModel):
     thumbnail_url: Optional[str] = None
     notes: Optional[str] = None
     cost_per_item: Optional[float] = None
-    units_per_bed: Optional[int] = 1
-    quantity_per_bed: Optional[int] = 1  # Sellable pieces per print
+    units_per_bed: Optional[int] = Field(default=1, ge=1, le=10000)
+    quantity_per_bed: Optional[int] = Field(default=1, ge=1, le=10000)  # Sellable pieces per print
     markup_percent: Optional[float] = 300
     is_favorite: Optional[bool] = None
 
@@ -247,7 +247,7 @@ class ModelResponse(ModelBase):
 class JobBase(BaseModel):
     item_name: str = Field(..., min_length=1, max_length=200)
     model_id: Optional[int] = None
-    quantity: int = Field(default=1, ge=1)
+    quantity: int = Field(default=1, ge=1, le=10000)
     priority: Union[int, str] = Field(default=3)
     duration_hours: Optional[float] = None
     colors_required: Optional[str] = None  # Comma-separated
@@ -257,6 +257,15 @@ class JobBase(BaseModel):
     due_date: Optional[datetime] = None
     required_tags: List[str] = []
 
+    @field_validator('priority', mode='before')
+    @classmethod
+    def validate_priority_range(cls, v):
+        """Clamp integer priorities to 0–10; leave strings for normalize_priority."""
+        if isinstance(v, int) and not isinstance(v, bool):
+            if v < 0 or v > 10:
+                raise ValueError('priority must be between 0 and 10')
+        return v
+
 
 class JobCreate(JobBase):
     model_revision_id: Optional[int] = None
@@ -265,8 +274,8 @@ class JobCreate(JobBase):
 class JobUpdate(BaseModel):
     item_name: Optional[str] = None
     model_id: Optional[int] = None
-    quantity: Optional[int] = None
-    priority: Optional[int] = None
+    quantity: Optional[int] = Field(default=None, ge=1, le=10000)
+    priority: Optional[int] = Field(default=None, ge=0, le=10)
     status: Optional[JobStatus] = None
     printer_id: Optional[int] = None
     scheduled_start: Optional[datetime] = None

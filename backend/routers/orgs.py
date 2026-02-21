@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import logging
 
-from deps import get_db, require_role, log_audit
+from deps import get_db, require_role, log_audit, _validate_webhook_url
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -161,6 +161,10 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
     org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+
+    # SSRF validation for webhook URL before persisting
+    if "webhook_url" in body and body["webhook_url"]:
+        _validate_webhook_url(body["webhook_url"])
 
     current = json.loads(org.settings_json) if org.settings_json else {}
     for key in ALLOWED_SETTINGS_KEYS:

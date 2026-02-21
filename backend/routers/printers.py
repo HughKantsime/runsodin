@@ -357,6 +357,8 @@ def create_printer(
     """Create a new printer."""
     if printer.api_host:
         _check_ssrf_blocklist(printer.api_host)
+    if printer.camera_url:
+        printer.camera_url = _validate_camera_url(printer.camera_url)
 
     from license_manager import check_printer_limit
 
@@ -461,6 +463,10 @@ def update_printer(
         raise HTTPException(status_code=404, detail="Printer not found")
 
     update_data = updates.model_dump(exclude_unset=True)
+
+    # Validate and sanitize camera_url before storage
+    if 'camera_url' in update_data and update_data['camera_url']:
+        update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
 
     # Encrypt api_key if being updated
     if 'api_key' in update_data and update_data['api_key']:
@@ -1186,6 +1192,40 @@ def _check_ssrf_blocklist(host: str) -> None:
             raise HTTPException(status_code=400, detail="Invalid printer host")
     except ValueError:
         pass  # hostname — let OS resolve it
+
+
+_CAMERA_SHELL_METACHAR_RE = re.compile(r'[;&|$`\\]')
+
+
+def _validate_camera_url(url: str) -> str:
+    """Validate and sanitize a camera URL before writing to go2rtc config.
+
+    - Only rtsp:// or rtsps:// schemes allowed
+    - Strips shell metacharacters (; & | $ ` \\)
+    - Rejects localhost/loopback targets (SSRF prevention)
+
+    Returns the sanitized URL or raises HTTPException 400.
+    """
+    if not url:
+        return url
+
+    import urllib.parse
+    lower = url.strip().lower()
+    if not (lower.startswith("rtsp://") or lower.startswith("rtsps://")):
+        raise HTTPException(status_code=400, detail="Camera URL must use rtsp:// or rtsps:// scheme")
+
+    # Strip shell metacharacters before any further processing
+    sanitized = _CAMERA_SHELL_METACHAR_RE.sub('', url.strip())
+
+    # SSRF check on the host portion
+    try:
+        parsed = urllib.parse.urlparse(sanitized)
+        host = parsed.hostname or ""
+        _check_ssrf_blocklist(host)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail="Camera URL points to a blocked host")
+
+    return sanitized
 
 
 @router.post("/printers/test-connection", tags=["Printers"])

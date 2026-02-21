@@ -2,6 +2,19 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.48] - 2026-02-21
+
+### Security
+- **JWT entropy** — `JWT_SECRET_KEY` generation switched from `token_urlsafe(32)` (~192 bits) to `token_bytes(32).hex()` (256 bits, no encoding overhead)
+- **Numeric field bounds** — Pydantic validators enforce: `slot_count` 1–256 (PrinterUpdate), `quantity` 1–10000 (JobBase/JobUpdate), `priority` 0–10 (JobBase/JobUpdate), `units_per_bed`/`quantity_per_bed` 1–10000 (ModelBase/ModelUpdate)
+- **Camera URL validation** — camera URLs must use `rtsp://` or `rtsps://` scheme; shell metacharacters stripped before storage; localhost/loopback targets rejected with 400
+- **Webhook SSRF** — webhook URLs (create/update system webhooks, org webhook settings) validated: http/https only, no loopback/link-local/RFC-1918 targets; shared `_validate_webhook_url` helper in `deps.py`
+- **Audit: password changes** — `log_audit("user.password_changed")` emitted with actor/target user IDs when a password is updated via `PATCH /users/{id}`
+- **Audit: successful logins** — `log_audit("auth.login")` emitted with username and client IP on every successful `POST /auth/login`
+- **GDPR export completeness** — `GET /users/{id}/export` now includes `api_tokens` (name, scopes, timestamps — no token values) and `quota_usage` records
+
+---
+
 ## [1.3.57] - 2026-02-21
 
 ### Security
