@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.50] - 2026-02-20
+
+### Added
+- **Browser notifications** — ODIN now requests OS notification permission on first load. When an alert or Vigil AI detection fires while the tab is in the background, a native browser notification pops up so users don't have to watch the tab. No external services or configuration required.
+
+---
+
 ## [1.3.49] - 2026-02-20
 
 ### Fixed
