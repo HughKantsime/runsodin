@@ -2,6 +2,22 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.57] - 2026-02-21
+
+### Security
+- **Credential exposure** — `api_key` removed from `PrinterResponse` schema; encrypted credentials no longer returned in any printer API response
+- **Camera URL sanitization** — embedded Bambu access codes stripped from `camera_url` in all API responses (`rtsps://bblp:ACCESS_CODE@...` → `rtsps://***@...`)
+- **Missing auth guards** — `GET /printers/tags`, `GET /printers/{id}/live-status`, `GET /cameras/{id}/stream`, and `POST /cameras/{id}/webrtc` now require authentication
+- **Last-admin protection** — `DELETE /users/{id}` now rejects the request if it would remove the last admin account
+- **SSRF blocklist** — printer `api_host` is validated against localhost, loopback, and link-local ranges on create and test-connection
+- **XXE prevention** — `threemf_parser.py` now uses `defusedxml` instead of `xml.etree.ElementTree`; added `defusedxml==0.7.1` to requirements
+- **ZIP bomb protection** — 3MF/gcode upload enforces 100 MB upload limit and rejects archives whose decompressed size exceeds 500 MB
+- **Path traversal** — model revision upload filename now sanitized with `re.sub` before constructing file path
+- **HSTS** — `Strict-Transport-Security` header added (2-year max-age) when running over HTTPS
+- **Error message sanitization** — raw `str(e)` no longer returned in HTTP responses; exceptions logged server-side with generic messages to clients
+
+---
+
 ## [1.3.56] - 2026-02-21
 
 ### Added

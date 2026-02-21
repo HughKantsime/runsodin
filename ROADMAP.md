@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-21 at v1.3.48.
+Updated 2026-02-21 at v1.3.57.
 
 ## Shipped in v1.2.0
 
@@ -106,6 +106,7 @@ Updated 2026-02-21 at v1.3.48.
 - ~~Code smell remediation: fix spoolman_spool_id attribute, audit_logs table name, bulk add_tag JSON logic, encrypt plug_auth_token, deduplicate quota helpers, normalize datetime.now(timezone.utc) across 12 files, replace deprecated utcnow(), remove dead code (verify_api_key, init_db), StaticPool→NullPool, bare except→except Exception (25 sites)~~
 - ~~Frontend API consolidation: all pages migrated to centralized fetchAPI (Settings, Spools, Printers, Analytics, Orders, App.jsx), removed 6 local API layers (~200 lines), fixed auth header bugs, deduplicated getShortName, replaced alert/confirm with toast/ConfirmModal, SW cache cleanup~~
 - ~~Printer dispatch: FTPS+MQTT for Bambu, HTTP upload+start for Moonraker/Klipper and PrusaLink; .3mf files stored on upload; manual Dispatch button on scheduled jobs with bed-clear confirmation; AUTO_DISPATCH env var for auto-send on IDLE transition~~
+- ~~Security hardening pass (v1.3.57): api_key stripped from API responses, camera URL credential sanitization, auth added to live-status/tags/camera endpoints, last-admin protection, SSRF blocklist, XXE prevention (defusedxml), ZIP bomb protection, path traversal fix on revision upload, HSTS header, error message sanitization~~
 
 ---
 
