@@ -1,6 +1,18 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission()
+  }
+}
+
+function sendNotification(title, body) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+  if (document.visibilityState === 'visible') return
+  new Notification(title, { body, icon: '/odin-icon-192.svg', tag: title })
+}
+
 /**
  * WebSocket hook for real-time O.D.I.N. updates.
  * 
@@ -107,12 +119,17 @@ export default function useWebSocket() {
               queryClient.invalidateQueries({ queryKey: ['dash-alert-summary'] })
               queryClient.invalidateQueries({ queryKey: ['alert-summary'] })
               queryClient.invalidateQueries({ queryKey: ['alerts'] })
+              sendNotification(d.title || 'O.D.I.N. Alert', d.message || '')
               break
 
             case 'vision_detection':
               queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
               queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
               queryClient.invalidateQueries({ queryKey: ['alerts'] })
+              sendNotification(
+                'Vigil AI Detection',
+                `${d.detection_type || 'Issue'} detected on Printer #${d.printer_id}`
+              )
               break
           }
         } catch (e) {
@@ -136,6 +153,10 @@ export default function useWebSocket() {
       reconnectTimer.current = setTimeout(connect, 5000)
     }
   }, [queryClient])
+
+  useEffect(() => {
+    requestNotificationPermission()
+  }, [])
 
   useEffect(() => {
     connect()
