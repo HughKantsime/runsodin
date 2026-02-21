@@ -161,7 +161,7 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("op
 
 
 @router.get("/cameras/{printer_id}/stream", tags=["Cameras"])
-def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
+def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get go2rtc stream info for a printer camera."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -185,7 +185,7 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/cameras/{printer_id}/webrtc", tags=["Cameras"])
-async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends(get_db)):
+async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Proxy WebRTC signaling to go2rtc."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

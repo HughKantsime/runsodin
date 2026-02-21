@@ -339,7 +339,7 @@ def list_printers(
 
 
 @router.get("/printers/tags", tags=["Printers"])
-def list_all_tags(db: Session = Depends(get_db)):
+def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Get all unique tags across all printers."""
     printers = db.query(Printer).filter(Printer.tags.isnot(None)).all()
     tags = set()
@@ -355,6 +355,9 @@ def create_printer(
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Create a new printer."""
+    if printer.api_host:
+        _check_ssrf_blocklist(printer.api_host)
+
     from license_manager import check_printer_limit
 
     # Check license printer limit
@@ -690,7 +693,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
     except ImportError:
         raise HTTPException(status_code=500, detail="bambu_adapter not installed")
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Printer connection error: {str(e)}")
+        log.error(f"Printer connection error (Bambu sync): {e}")
+        raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
 
     # Map filament types
     filament_type_map = {
@@ -1161,12 +1165,28 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Printer connection error: {str(e)}")
+        log.error(f"Printer connection error (lights control): {e}")
+        raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
 
 
 # ====================================================================
 # Test Connection
 # ====================================================================
+
+def _check_ssrf_blocklist(host: str) -> None:
+    """Block SSRF attempts targeting localhost, metadata endpoints, or internal-only hosts."""
+    import ipaddress
+    blocked_prefixes = ("localhost", "127.", "169.254.", "0.", "::1")
+    h = (host or "").strip().lower().split(":")[0]  # strip port
+    if any(h.startswith(p) for p in blocked_prefixes):
+        raise HTTPException(status_code=400, detail="Invalid printer host")
+    try:
+        addr = ipaddress.ip_address(h)
+        if addr.is_loopback or addr.is_link_local:
+            raise HTTPException(status_code=400, detail="Invalid printer host")
+    except ValueError:
+        pass  # hostname — let OS resolve it
+
 
 @router.post("/printers/test-connection", tags=["Printers"])
 def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator"))):
@@ -1175,6 +1195,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 
     Used by the UI to validate credentials before saving.
     """
+    _check_ssrf_blocklist(request.api_host)
     api_type = request.api_type.lower()
 
     if api_type == "bambu":
@@ -1564,7 +1585,7 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
 
 
 @router.get("/printers/{printer_id}/live-status", tags=["Printers"])
-def get_printer_live_status(printer_id: int, db: Session = Depends(get_db)):
+def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Get real-time status from printer via MQTT."""
     return _fetch_printer_live_status(printer_id, db)
 

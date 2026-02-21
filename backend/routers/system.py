@@ -306,7 +306,8 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
         })
         db.commit()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+        log.error(f"Failed to create admin user during setup: {e}")
+        raise HTTPException(status_code=400, detail="Failed to create user. The username may already be taken.")
 
     # Return a JWT token so the wizard can make authenticated calls
     access_token = create_access_token(
@@ -952,7 +953,8 @@ async def lookup_hms(code: str):
             "total_codes": get_code_count()
         }
     except Exception as e:
-        raise HTTPException(500, str(e))
+        log.error(f"HMS code lookup failed: {e}")
+        raise HTTPException(500, "Internal server error")
 
 
 # ============== Quiet Hours Config ==============

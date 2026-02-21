@@ -71,7 +71,7 @@ class PrinterBase(BaseModel):
     is_active: bool = True
     api_type: Optional[str] = None
     api_host: Optional[str] = None
-    api_key: Optional[str] = None
+    # api_key is intentionally excluded — write-only credential, never returned in responses
     camera_url: Optional[str] = None
     nickname: Optional[str] = None
     # Live telemetry
@@ -107,7 +107,7 @@ class PrinterBase(BaseModel):
 
 
 class PrinterCreate(PrinterBase):
-    # Initial filament configuration
+    api_key: Optional[str] = None  # Write-only credential
     initial_slots: Optional[List[FilamentSlotCreate]] = None
     shared: bool = False
 
@@ -139,6 +139,15 @@ class PrinterResponse(PrinterBase):
     tags: List[str] = []
     shared: bool = False
     org_id: Optional[int] = None
+
+    @field_validator('camera_url', mode='before')
+    @classmethod
+    def _sanitize_camera_url(cls, v):
+        """Strip credentials from RTSP camera URLs before returning to clients."""
+        import re
+        if not v:
+            return v
+        return re.sub(r'(rtsps?://)([^@]+)@', r'\1***@', v)
 
 
 class PrinterSummary(BaseModel):

@@ -4,10 +4,15 @@ Extracts print metadata, filament info, and thumbnails.
 """
 
 import zipfile
-import xml.etree.ElementTree as ET
 import json
 import base64
 from pathlib import Path
+
+# Use defusedxml to prevent XXE and billion-laughs attacks when parsing 3MF XML
+try:
+    from defusedxml import ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # fallback — defusedxml strongly preferred
 
 def _friendly_printer_name(model_id: str) -> str:
     """Convert Bambu internal codes to friendly names."""
@@ -366,8 +371,6 @@ def extract_mesh_from_3mf(file_path: str) -> Optional[dict]:
     'triangles' (flat [v1,v2,v3,v1,v2,v3,...]) for Three.js BufferGeometry.
     Keeps only every Nth vertex for large models to stay under ~500KB.
     """
-    import xml.etree.ElementTree as ET
-    
     try:
         with zipfile.ZipFile(file_path, 'r') as zf:
             # Find the 3D model file

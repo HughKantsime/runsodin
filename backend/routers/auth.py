@@ -1059,6 +1059,14 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
 async def delete_user(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if current_user["id"] == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    # Prevent deleting the last admin account
+    target = db.execute(text("SELECT role FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.role == "admin":
+        admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
     db.commit()
     return {"status": "deleted"}

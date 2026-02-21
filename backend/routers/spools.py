@@ -258,7 +258,8 @@ async def get_spoolman_filaments():
             response.raise_for_status()
             return response.json()
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to connect to Spoolman: {str(e)}")
+        log.error(f"Spoolman connection failed: {e}")
+        raise HTTPException(status_code=502, detail="Failed to connect to Spoolman. Check Spoolman URL in settings.")
 
 
 # ====================================================================

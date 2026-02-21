@@ -387,9 +387,14 @@ async def upload_3mf(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only .3mf, .gcode, and .bgcode files are supported")
 
+    # Enforce upload size limit (100 MB)
+    MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large. Maximum upload size is 100 MB.")
+
     # Save to temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
@@ -397,6 +402,17 @@ async def upload_3mf(
         if ext == ".3mf":
             # --- .3mf path: full metadata parse ---
             from threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
+
+            # Zip bomb check: reject files where uncompressed size exceeds 500 MB
+            import zipfile as _zf
+            MAX_UNCOMPRESSED = 500 * 1024 * 1024
+            try:
+                with _zf.ZipFile(tmp_path, 'r') as _z:
+                    total_size = sum(e.file_size for e in _z.infolist())
+                    if total_size > MAX_UNCOMPRESSED:
+                        raise HTTPException(status_code=400, detail="File rejected: decompressed size exceeds 500 MB limit.")
+            except _zf.BadZipFile:
+                raise HTTPException(status_code=400, detail="Invalid .3mf file (bad zip structure).")
 
             metadata = parse_3mf(tmp_path)
             if not metadata:
@@ -781,7 +797,8 @@ async def create_model_revision(
     if file:
         rev_dir = f"/data/model_revisions/{model_id}"
         os.makedirs(rev_dir, exist_ok=True)
-        file_path = f"{rev_dir}/v{next_rev}_{file.filename}"
+        safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename or "file")
+        file_path = f"{rev_dir}/v{next_rev}_{safe_name}"
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)

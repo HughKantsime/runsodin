@@ -25,6 +25,7 @@ paho-mqtt==2.1.0
 
 # .3mf parsing
 lxml==5.3.0
+defusedxml==0.7.1
 
 # Push notifications
 pywebpush==2.0.1
