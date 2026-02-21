@@ -24,7 +24,10 @@ Usage:
     printer.disconnect()
 """
 
+import ftplib
 import json
+import os
+import socket
 import ssl
 import time
 import threading
@@ -32,6 +35,38 @@ from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import paho.mqtt.client as mqtt
+
+
+class _ImplicitFTPS(ftplib.FTP):
+    """Implicit FTPS client for Bambu printers.
+
+    Bambu uses implicit TLS on port 990: TLS is negotiated immediately upon
+    connection, before any FTP commands. Python's ftplib.FTP_TLS only supports
+    explicit FTPS (STARTTLS), so we wrap the socket in SSL ourselves.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self._ssl_ctx.check_hostname = False
+        self._ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    def connect(self, host='', port=990, timeout=30, **kwargs):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        raw_sock = socket.create_connection((host, port), timeout=timeout)
+        self.sock = self._ssl_ctx.wrap_socket(raw_sock, server_hostname=host)
+        self.af = self.sock.family
+        self.file = self.sock.makefile('r', encoding='latin-1')
+        self.welcome = self.getresp()
+        return self.welcome
+
+    def ntransfercmd(self, cmd, rest=None):
+        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
+        if not isinstance(conn, ssl.SSLSocket):
+            conn = self._ssl_ctx.wrap_socket(conn, server_hostname=self.host)
+        return conn, size
 
 
 class PrinterState(str, Enum):
@@ -87,6 +122,7 @@ class BambuPrinter:
     
     MQTT_PORT = 8883
     MQTT_TIMEOUT = 10
+    FTPS_PORT = 990
     
     def __init__(
         self,
@@ -252,7 +288,85 @@ class BambuPrinter:
     def turn_light_off(self) -> bool:
         """Turn chamber light off."""
         return self._send_gcode("M355 S0")
-    
+
+    def upload_file(self, local_path: str, remote_filename: str = None) -> bool:
+        """Upload a .3mf file to the printer via implicit FTPS (port 990).
+
+        The printer must be reachable at self.ip. No MQTT connection is required.
+        Upload uses passive mode. The file lands in the printer's root FTP directory.
+
+        Args:
+            local_path: Absolute path to the local .3mf file.
+            remote_filename: Name to store on the printer (default: basename of local_path).
+
+        Returns:
+            True if the upload completed without error.
+        """
+        if remote_filename is None:
+            remote_filename = os.path.basename(local_path)
+
+        try:
+            ftp = _ImplicitFTPS()
+            ftp.connect(host=self.ip, port=self.FTPS_PORT, timeout=30)
+            ftp.login(user="bblp", passwd=self.access_code)
+            ftp.set_pasv(True)
+            with open(local_path, 'rb') as f:
+                ftp.storbinary(f"STOR {remote_filename}", f)
+            ftp.quit()
+            return True
+        except Exception as e:
+            print(f"[{self.serial}] FTPS upload error: {e}")
+            return False
+
+    def start_print(
+        self,
+        remote_filename: str,
+        plate_num: int = 1,
+        use_ams: bool = True,
+        bed_leveling: bool = True,
+        timelapse: bool = False,
+    ) -> bool:
+        """Send MQTT command to start printing an uploaded .3mf file.
+
+        The file must already exist on the printer (uploaded via upload_file).
+        Requires an active MQTT connection (call connect() first).
+
+        Args:
+            remote_filename: Filename on the printer (as passed to upload_file).
+            plate_num: Plate number inside the .3mf to print (default 1).
+            use_ams: Whether to use the AMS for filament feeding (default True).
+            bed_leveling: Whether to run auto bed leveling before print (default True).
+            timelapse: Whether to record a timelapse (default False).
+
+        Returns:
+            True if the MQTT command was published and acknowledged.
+        """
+        if not self._connected:
+            return False
+
+        subtask_name = remote_filename.replace('.3mf', '')
+        payload = {
+            "print": {
+                "sequence_id": str(int(time.time()) % 100000),
+                "command": "project_file",
+                "param": f"Metadata/plate_{plate_num}.gcode",
+                "subtask_name": subtask_name,
+                "url": f"ftp:///{remote_filename}",
+                "bed_type": "auto",
+                "timelapse": timelapse,
+                "bed_leveling": bed_leveling,
+                "flow_cali": False,
+                "vibration_cali": True,
+                "layer_inspect": False,
+                "use_ams": use_ams,
+                "profile_id": "0",
+                "project_id": "0",
+                "subtask_id": "0",
+                "task_id": "0",
+            }
+        }
+        return self._publish(payload)
+
     # ============== Private Methods ==============
     
     def _on_connect(self, client, userdata, flags, rc):

@@ -476,6 +476,17 @@ async def upload_3mf(
                        {"mid": model_id, "fid": file_id})
             db.commit()
 
+        # Persist the .3mf file to disk so dispatch can upload it to printers later
+        import shutil, re
+        file_dir = "/data/print_files"
+        os.makedirs(file_dir, exist_ok=True)
+        safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
+        stored_path = f"{file_dir}/{file_id}_{safe_name}"
+        shutil.copy2(tmp_path, stored_path)
+        db.execute(text("UPDATE print_files SET stored_path = :p, original_filename = :fn WHERE id = :id"),
+                   {"p": stored_path, "fn": file.filename, "id": file_id})
+        db.commit()
+
         return {
             "id": file_id,
             "filename": file.filename,
@@ -496,7 +507,8 @@ async def upload_3mf(
             "is_new_model": is_new_model,
             "printer_model": metadata.printer_model,
             "objects": plate_objects,
-            "has_mesh": mesh_data is not None
+            "has_mesh": mesh_data is not None,
+            "stored_path": stored_path
         }
     finally:
         # Clean up temp file

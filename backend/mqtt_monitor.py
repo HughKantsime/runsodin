@@ -456,6 +456,10 @@ class PrinterMonitor:
         # RUNNING/PAUSE -> IDLE = Job cancelled
         elif new_state == 'IDLE' and old_state in ('RUNNING', 'PAUSE'):
             self._job_ended('cancelled')
+
+        # FINISH/FAILED -> IDLE = printer fully settled, attempt next queued job
+        elif new_state == 'IDLE' and old_state in ('FINISH', 'FAILED'):
+            Thread(target=self._try_dispatch, daemon=True).start()
     
     def _job_started(self):
         """Record a new print job starting and link to scheduled job if found."""
@@ -826,6 +830,16 @@ class PrinterMonitor:
             self._linked_job_id = None
         except Exception as e:
             log.error(f"[{self.name}] Failed to record job end: {e}")
+
+    def _try_dispatch(self):
+        """Background thread: attempt to dispatch the next queued job after printer goes idle."""
+        try:
+            # Brief settle delay so the printer is fully in IDLE before we upload
+            time.sleep(5)
+            import printer_dispatch
+            printer_dispatch.attempt_dispatch(self.printer_id)
+        except Exception as e:
+            log.warning(f"[{self.name}] Dispatch attempt error: {e}")
 
 
 class MQTTMonitorDaemon:

@@ -69,6 +69,7 @@ export const jobs = {
   cancel: (id) => fetchAPI('/jobs/' + id + '/cancel', { method: 'POST' }),
   reorder: (jobIds) => fetchAPI('/jobs/reorder', { method: 'PATCH', body: JSON.stringify({ job_ids: jobIds }) }),
   repeat: (id) => fetchAPI('/jobs/' + id + '/repeat', { method: 'POST' }),
+  dispatch: (id) => fetchAPI('/jobs/' + id + '/dispatch', { method: 'POST' }),
 }
 
 export const models = {

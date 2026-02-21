@@ -495,6 +495,37 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
     return job
 
 
+@router.post("/jobs/{job_id}/dispatch", tags=["Jobs"])
+def dispatch_job_to_printer(
+    job_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """Dispatch a scheduled Bambu job: upload .3mf via FTPS then start print via MQTT.
+
+    Requires the job to have a linked model with a stored .3mf file on disk.
+    The assigned printer must be a Bambu printer with credentials configured.
+    """
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if not job.printer_id:
+        raise HTTPException(status_code=400, detail="Job is not assigned to a printer")
+
+    try:
+        from printer_dispatch import dispatch_job
+        success, message = dispatch_job(job.printer_id, job_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dispatch error: {e}")
+
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    db.refresh(job)
+    return {"success": True, "message": message, "job_id": job_id, "status": job.status.value}
+
+
 # ──────────────────────────────────────────────
 # Job Approval Workflow (v0.18.0)
 # ──────────────────────────────────────────────
