@@ -315,6 +315,7 @@ class MoonrakerMonitor:
             elif self._prev_state in ("RUNNING", "PAUSE") and internal_state in ("IDLE", "FAILED"):
                 end_status = "completed" if internal_state == "IDLE" else "failed"
                 self._job_ended(end_status, status)
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
 
                 # Capture Klipper error message on failure
                 if end_status == "failed" and status.error_message:
@@ -479,6 +480,15 @@ class MoonrakerMonitor:
         except Exception as e:
             log.warning(f"[{self.name}] Progress update failed: {e}")
     
+    def _try_dispatch(self):
+        """Attempt auto-dispatch of next scheduled job after print completes."""
+        try:
+            time.sleep(5)
+            import printer_dispatch
+            printer_dispatch.attempt_dispatch(self.printer_id)
+        except Exception as e:
+            log.warning(f"[{self.name}] Dispatch attempt error: {e}")
+
     # ==================== Filament Slot Sync ====================
 
     def _sync_filament_slots(self, slots):

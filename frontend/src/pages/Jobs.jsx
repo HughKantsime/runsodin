@@ -9,7 +9,7 @@ function formatHours(h) {
 }
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical, Briefcase, Send } from 'lucide-react'
+import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical, Briefcase, Send, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
 import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps, modelRevisions } from '../api'
@@ -48,7 +48,7 @@ const jobTypeTabs = [
   { value: 'adhoc', label: 'Ad-hoc', icon: null },
 ]
 
-function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect }) {
+function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching }) {
   const statusColors = {
     submitted: 'text-amber-400',
     pending: 'text-status-pending',
@@ -161,12 +161,18 @@ function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect }) {
           )}
           {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
             <button
-              onClick={() => onAction('dispatch', job.id, job.item_name, job.printer?.name)}
-              className="p-1.5 text-emerald-400 hover:bg-emerald-900/50 rounded-lg"
-              title={`Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
-              aria-label="Dispatch to printer"
+              onClick={() => !isDispatching && onAction('dispatch', job.id, job.item_name, job.printer?.name)}
+              className={clsx(
+                'p-1.5 rounded-lg',
+                isDispatching
+                  ? 'text-emerald-500 cursor-not-allowed'
+                  : 'text-emerald-400 hover:bg-emerald-900/50'
+              )}
+              title={isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
+              aria-label={isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
+              disabled={isDispatching}
             >
-              <Send size={15} />
+              {isDispatching ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
             </button>
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (
@@ -1086,7 +1092,7 @@ export default function Jobs() {
                 </td></tr>
               ) : (
                 filteredJobs.map(job => (
-                  <JobRow key={job.id} job={job} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect}
+                  <JobRow key={job.id} job={job} onAction={handleAction} isSelected={selectedJobs.has(job.id)} onToggleSelect={toggleJobSelect} isDispatching={dispatchJob.isPending && dispatchJob.variables === job.id}
                     dragProps={(job.status === 'pending' || job.status === 'scheduled') ? {
                       draggable: true,
                       onDragStart: (e) => handleDragStart(e, job.id),

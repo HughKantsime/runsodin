@@ -131,6 +131,13 @@ export default function useWebSocket() {
                 `${d.detection_type || 'Issue'} detected on Printer #${d.printer_id}`
               )
               break
+
+            case 'job_dispatch_event':
+              // Invalidate jobs on terminal dispatch statuses
+              if (d.status === 'dispatched' || d.status === 'failed') {
+                queryClient.invalidateQueries({ queryKey: ['jobs'] })
+              }
+              break
           }
         } catch (e) {
           // Ignore parse errors

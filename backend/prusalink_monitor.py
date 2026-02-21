@@ -101,6 +101,15 @@ class PrusaLinkMonitorThread(threading.Thread):
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] PrusaLink monitor stopped")
 
+    def _try_dispatch(self):
+        """Attempt auto-dispatch of next scheduled job after print completes."""
+        try:
+            time.sleep(5)
+            import printer_dispatch
+            printer_dispatch.attempt_dispatch(self.printer_id)
+        except Exception as e:
+            log.warning(f"[{self.name}] Dispatch attempt error: {e}")
+
     def _discover_and_save_camera(self):
         """Discover camera URL and save to DB via printer_events."""
         try:
@@ -153,6 +162,7 @@ class PrusaLinkMonitorThread(threading.Thread):
                     status.time_printing,
                     None,  # filament_used_g — not provided
                 )
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
             elif odin_state == "FAILED":
                 # Print failed — try to extract error detail from raw data
                 error_msg = "Printer reported error state"
@@ -167,6 +177,7 @@ class PrusaLinkMonitorThread(threading.Thread):
                     current_file or self._last_filename or "Unknown",
                     error_msg,
                 )
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
                 # Record error in hms_error_history for tracking
                 try:
                     printer_events.record_error(

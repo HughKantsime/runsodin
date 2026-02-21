@@ -29,6 +29,7 @@ Usage:
 """
 
 import json
+import os
 import time
 import logging
 from typing import Optional, Dict, Any, List
@@ -415,6 +416,44 @@ class MoonrakerPrinter:
     
     # ==================== Job Control ====================
     
+    def upload_file(self, local_path: str, remote_filename: str = None) -> bool:
+        """Upload a .gcode file to Moonraker's gcodes folder via multipart POST.
+
+        Args:
+            local_path: Absolute path to the local .gcode file.
+            remote_filename: Name to store on the printer (default: basename).
+
+        Returns:
+            True if the upload completed successfully (HTTP 201).
+        """
+        import requests as _requests
+
+        if remote_filename is None:
+            remote_filename = os.path.basename(local_path)
+
+        url = f"{self.base_url}/server/files/upload"
+        headers = {}
+        if self.api_key:
+            headers["X-Api-Key"] = self.api_key
+
+        try:
+            with open(local_path, "rb") as f:
+                resp = _requests.post(
+                    url,
+                    files={"file": (remote_filename, f, "application/octet-stream")},
+                    data={"root": "gcodes"},
+                    headers=headers,
+                    timeout=120,
+                )
+            if resp.status_code in (200, 201):
+                log.info(f"Uploaded {remote_filename} to Moonraker at {self.host}")
+                return True
+            log.error(f"Moonraker upload returned {resp.status_code}: {resp.text[:200]}")
+            return False
+        except Exception as e:
+            log.error(f"Moonraker upload failed ({self.host}): {e}")
+            return False
+
     def start_print(self, filename: str) -> bool:
         """Start printing a file already on the printer."""
         try:

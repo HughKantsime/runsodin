@@ -339,6 +339,50 @@ class PrusaLinkPrinter:
 
         return None
 
+    def upload_and_print(self, local_path: str, remote_filename: str = None) -> bool:
+        """Upload a .gcode/.bgcode file to PrusaLink and start printing immediately.
+
+        Uses the OctoPrint-compatible POST /api/files/local endpoint with
+        print=true, which uploads the file and kicks off the print in one call.
+
+        Args:
+            local_path: Absolute path to the local .gcode or .bgcode file.
+            remote_filename: Name to store on the printer (default: basename).
+
+        Returns:
+            True if upload and print start succeeded.
+        """
+        import os as _os
+        if remote_filename is None:
+            remote_filename = _os.path.basename(local_path)
+
+        url = f"{self.base_url}/api/files/local"
+        headers = {}
+        kwargs: dict = {"timeout": 120}
+
+        if self.api_key:
+            headers["X-Api-Key"] = self.api_key
+        else:
+            kwargs["auth"] = HTTPDigestAuth(self.username, self.password)
+
+        try:
+            with open(local_path, "rb") as f:
+                resp = requests.post(
+                    url,
+                    files={"file": (remote_filename, f, "application/octet-stream")},
+                    data={"select": "true", "print": "true"},
+                    headers=headers,
+                    **kwargs,
+                )
+            if resp.status_code in (200, 201):
+                log.info(f"Uploaded and started {remote_filename} on PrusaLink at {self.host}")
+                return True
+            log.error(f"PrusaLink upload returned {resp.status_code}: {resp.text[:200]}")
+            return False
+        except Exception as e:
+            log.error(f"PrusaLink upload failed ({self.host}): {e}")
+            return False
+
     def stop_print(self, job_id: int) -> bool:
         """DELETE /api/v1/job/{id} — stop/cancel current print."""
         try:
