@@ -591,6 +591,31 @@ conn.execute("CREATE INDEX IF NOT EXISTS idx_timelapses_printer ON timelapses(pr
 conn.execute("CREATE INDEX IF NOT EXISTS idx_timelapses_status ON timelapses(status)")
 conn.commit()
 
+# Add bed_x_mm, bed_y_mm to printers if missing
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN bed_x_mm REAL")
+except Exception:
+    pass  # Column already exists
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN bed_y_mm REAL")
+except Exception:
+    pass  # Column already exists
+
+# Add bed_x_mm, bed_y_mm, compatible_api_types to print_files if missing
+try:
+    conn.execute("ALTER TABLE print_files ADD COLUMN bed_x_mm REAL")
+except Exception:
+    pass  # Column already exists
+try:
+    conn.execute("ALTER TABLE print_files ADD COLUMN bed_y_mm REAL")
+except Exception:
+    pass  # Column already exists
+try:
+    conn.execute("ALTER TABLE print_files ADD COLUMN compatible_api_types TEXT")
+except Exception:
+    pass  # Column already exists
+
+conn.commit()
 conn.close()
 print("  ✓ Telemetry expansion tables ready")
 TELEMETRYEOF

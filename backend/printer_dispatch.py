@@ -56,7 +56,7 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
     try:
         with get_db(row_factory=sqlite3.Row) as conn:
             row = conn.execute(
-                "SELECT api_type, api_host, api_key FROM printers WHERE id = ?",
+                "SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm FROM printers WHERE id = ?",
                 (printer_id,),
             ).fetchone()
     except Exception as e:
@@ -80,7 +80,13 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
         except ValueError:
             pass
 
-    info = {"api_type": api_type, "ip": host, "port": port}
+    info = {
+        "api_type": api_type,
+        "ip": host,
+        "port": port,
+        "bed_x_mm": row["bed_x_mm"],
+        "bed_y_mm": row["bed_y_mm"],
+    }
 
     if api_type == "bambu":
         if not api_key_raw:
@@ -167,7 +173,8 @@ def _load_job(job_id: int) -> Optional[dict]:
             row = conn.execute(
                 """
                 SELECT j.id, j.item_name, j.status, j.printer_id,
-                       pf.stored_path, pf.original_filename
+                       pf.stored_path, pf.original_filename,
+                       pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types
                 FROM jobs j
                 JOIN models m ON j.model_id = m.id
                 JOIN print_files pf ON pf.model_id = m.id
@@ -304,6 +311,32 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
             f"{api_type.title()} printers cannot print .3mf files — they need pre-sliced .gcode. "
             "Upload a .gcode file for this model to enable dispatch."
         )
+
+    # Guard 1 — API type compatibility
+    printer_name = creds.get("ip", f"printer {printer_id}")
+    compat_types = job.get("compatible_api_types") or ""
+    if compat_types:
+        allowed = [t.strip() for t in compat_types.split(",")]
+        if api_type not in allowed:
+            return False, (
+                f"This file requires a {' or '.join(allowed)} printer, "
+                f"but this printer uses {api_type}. "
+                "Upload the correct file format for this printer."
+            )
+
+    # Guard 2 — Bed size
+    file_x = job.get("bed_x_mm")
+    file_y = job.get("bed_y_mm")
+    printer_x = creds.get("bed_x_mm")
+    printer_y = creds.get("bed_y_mm")
+    TOLERANCE_MM = 2.0
+    if all(v is not None for v in (file_x, file_y, printer_x, printer_y)):
+        if file_x > printer_x + TOLERANCE_MM or file_y > printer_y + TOLERANCE_MM:
+            return False, (
+                f"File was sliced for a {file_x:.0f}x{file_y:.0f}mm bed, "
+                f"but this printer has a {printer_x:.0f}x{printer_y:.0f}mm bed. "
+                "Upload a re-sliced version."
+            )
 
     log.info(
         f"[dispatch] Dispatching job {job_id} ('{job['item_name']}') "

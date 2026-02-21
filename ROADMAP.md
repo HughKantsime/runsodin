@@ -133,4 +133,9 @@ Setup.jsx now enforces 8-char + uppercase + lowercase + digit with live strength
 
 ---
 
+### ~~3. Dispatch Compatibility Guardrails~~ ✅ Shipped
+Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/compatible_api_types`; `printers.bed_x_mm/y_mm` config; API type + bed size guards in `dispatch_job()`; Models page compatibility badges; job modal inline bed mismatch warning. Shipped v1.3.56.
+
+---
+
 ## Parked (needs more design)

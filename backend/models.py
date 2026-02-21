@@ -174,6 +174,8 @@ class Printer(Base):
     nozzle_type = Column(String(20), nullable=True)
     nozzle_diameter = Column(Float, nullable=True)
     fan_speed = Column(Integer, nullable=True)
+    bed_x_mm = Column(Float, nullable=True)
+    bed_y_mm = Column(Float, nullable=True)
 
     # Smart plug integration
     plug_type = Column(String(20), nullable=True)         # 'tasmota', 'homeassistant', 'mqtt'

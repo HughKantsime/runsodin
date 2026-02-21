@@ -2,6 +2,21 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.56] - 2026-02-21
+
+### Added
+- **Dispatch compatibility guardrails** — Printer dispatch now validates file-printer compatibility before sending:
+  - **Metadata extraction** — bed dimensions parsed from gcode slicer comments (PrusaSlicer, Cura, Bambu) and 3MF XML at upload time; stored on `print_files` as `bed_x_mm`, `bed_y_mm`, `compatible_api_types`
+  - **API type guard** — if a file's `compatible_api_types` is set (e.g. `"bambu"`), dispatching it to a Moonraker/PrusaLink printer returns HTTP 400 with a clear message
+  - **Bed size guard** — if both the file's sliced bed and the printer's configured bed are known, a mismatch (file > printer + 2mm tolerance) blocks dispatch with a mismatch message
+  - **Soft-fail** — missing bed data on either side skips the check; never silently blocks unknown files
+  - **Printer bed config** — `bed_x_mm`/`bed_y_mm` fields added to printer add/edit form with auto-fill for common models (X1C, P1S, MK4, Ender 3, etc.)
+  - **Models page badges** — print file variants now show bed dimensions, "Bambu only" / "Moonraker / PrusaLink" compatibility badges, and a warning icon for files with no slicer metadata
+  - **Job modal warning** — creating or editing a job with a mismatched printer shows an inline yellow warning (non-blocking, operator can override)
+- **gcode/bgcode file support in dispatch** — upload route now accepts `.gcode` and `.bgcode` in addition to `.3mf`; all three stored to disk and dispatched correctly
+
+---
+
 ## [1.3.50] - 2026-02-20
 
 ### Added

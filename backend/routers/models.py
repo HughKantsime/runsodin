@@ -152,6 +152,17 @@ def list_models_with_pricing(
         result = db.execute(text("SELECT COUNT(*) FROM print_files WHERE model_id = :mid"), {"mid": model.id}).scalar()
         variant_counts[model.id] = result or 1
 
+    # Get bed dimensions from most recent print file per model
+    bed_dims = {}
+    for model in models:
+        row = db.execute(text(
+            "SELECT bed_x_mm, bed_y_mm FROM print_files WHERE model_id = :mid AND bed_x_mm IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1"
+        ), {"mid": model.id}).fetchone()
+        if row:
+            bed_dims[model.id] = {"bed_x_mm": row[0], "bed_y_mm": row[1]}
+        else:
+            bed_dims[model.id] = {"bed_x_mm": None, "bed_y_mm": None}
+
     result = []
     for model in models:
         # Calculate cost for this model
@@ -208,7 +219,10 @@ def list_models_with_pricing(
             "estimated_cost": round(subtotal, 2),
             "suggested_price": round(suggested_price, 2),
             "margin_percent": margin,
-            "is_favorite": model.is_favorite or False
+            "is_favorite": model.is_favorite or False,
+            # Bed dimensions from linked print file (for dispatch compatibility warning)
+            "bed_x_mm": bed_dims.get(model.id, {}).get("bed_x_mm"),
+            "bed_y_mm": bed_dims.get(model.id, {}).get("bed_y_mm"),
         }
         result.append(model_dict)
 
@@ -363,153 +377,252 @@ async def upload_3mf(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
-    """Upload and parse a .3mf file."""
-    from threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
+    """Upload and parse a print file (.3mf, .gcode, or .bgcode)."""
+    import print_file_meta as pfm
 
-    if not file.filename.endswith('.3mf'):
-        raise HTTPException(status_code=400, detail="Only .3mf files are supported")
+    fname = file.filename or ""
+    ext = os.path.splitext(fname)[1].lower()
 
-    # Save to temp file for parsing
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.3mf') as tmp:
+    ALLOWED_EXTENSIONS = {".3mf", ".gcode", ".bgcode"}
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Only .3mf, .gcode, and .bgcode files are supported")
+
+    # Save to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
     try:
-        # Parse the file
-        metadata = parse_3mf(tmp_path)
-        if not metadata:
-            raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
+        if ext == ".3mf":
+            # --- .3mf path: full metadata parse ---
+            from threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
 
-        # Extract objects for quantity counting
-        import zipfile
-        with zipfile.ZipFile(tmp_path, 'r') as zf:
-            plate_objects = extract_objects_from_plate(zf)
+            metadata = parse_3mf(tmp_path)
+            if not metadata:
+                raise HTTPException(status_code=400, detail="Failed to parse .3mf file")
 
-        # Extract 3D mesh for viewer
-        mesh_data = extract_mesh_from_3mf(tmp_path)
-        mesh_json = json.dumps(mesh_data) if mesh_data else None
+            # Extract objects for quantity counting
+            import zipfile
+            with zipfile.ZipFile(tmp_path, 'r') as zf:
+                plate_objects = extract_objects_from_plate(zf)
 
-        # Store in database
-        result = db.execute(text("""
-            INSERT INTO print_files (
-                filename, project_name, print_time_seconds, total_weight_grams,
-                layer_count, layer_height, nozzle_diameter, printer_model,
-                supports_used, bed_type, filaments_json, thumbnail_b64, mesh_data
-            ) VALUES (
-                :filename, :project_name, :print_time_seconds, :total_weight_grams,
-                :layer_count, :layer_height, :nozzle_diameter, :printer_model,
-                :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json
-            )
-        """), {
-            "filename": file.filename,
-            "project_name": metadata.project_name,
-            "print_time_seconds": metadata.print_time_seconds,
-            "total_weight_grams": metadata.total_weight_grams,
-            "layer_count": metadata.layer_count,
-            "layer_height": metadata.layer_height,
-            "nozzle_diameter": metadata.nozzle_diameter,
-            "printer_model": metadata.printer_model,
-            "supports_used": metadata.supports_used,
-            "bed_type": metadata.bed_type,
-            "filaments_json": json.dumps([{
-                "slot": f.slot,
-                "type": f.type,
-                "color": f.color,
-                "used_meters": f.used_meters,
-                "used_grams": f.used_grams
-            } for f in metadata.filaments]),
-            "thumbnail_b64": metadata.thumbnail_b64,
-            "mesh_json": mesh_json
-        })
-        db.commit()
+            # Extract 3D mesh for viewer
+            mesh_data = extract_mesh_from_3mf(tmp_path)
+            mesh_json = json.dumps(mesh_data) if mesh_data else None
 
-        file_id = result.lastrowid
-
-        # Check for existing model with same name (multi-variant support)
-        normalized_name = _normalize_model_name(metadata.project_name)
-        existing_model = db.execute(text(
-            "SELECT id FROM models WHERE name = :name OR name = :raw_name LIMIT 1"
-        ), {"name": normalized_name, "raw_name": metadata.project_name}).fetchone()
-
-        color_req = {}
-        for f_item in metadata.filaments:
-            color_req[f"slot{f_item.slot}"] = {
-                "color": f_item.color,
-                "grams": round(f_item.used_grams, 2) if f_item.used_grams else 0
-            }
-
-        fil_type = "PLA"
-        if metadata.filaments:
-            fil_type = metadata.filaments[0].type or "PLA"
-
-        if existing_model:
-            # Attach as variant to existing model
-            model_id = existing_model[0]
-            is_new_model = False
-            db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
-                       {"mid": model_id, "fid": file_id})
-            db.commit()
-        else:
-            # Create new model
-            model_result = db.execute(text("""
-                INSERT INTO models (
-                    name, build_time_hours, default_filament_type,
-                    color_requirements, thumbnail_b64, print_file_id, category
+            # Store in database
+            result = db.execute(text("""
+                INSERT INTO print_files (
+                    filename, project_name, print_time_seconds, total_weight_grams,
+                    layer_count, layer_height, nozzle_diameter, printer_model,
+                    supports_used, bed_type, filaments_json, thumbnail_b64, mesh_data
                 ) VALUES (
-                    :name, :build_time_hours, :filament_type,
-                    :color_requirements, :thumbnail_b64, :print_file_id, :category
+                    :filename, :project_name, :print_time_seconds, :total_weight_grams,
+                    :layer_count, :layer_height, :nozzle_diameter, :printer_model,
+                    :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json
                 )
             """), {
-                "name": normalized_name,  # Use normalized name for model
-                "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
-                "filament_type": fil_type,
-                "color_requirements": json.dumps(color_req),
+                "filename": file.filename,
+                "project_name": metadata.project_name,
+                "print_time_seconds": metadata.print_time_seconds,
+                "total_weight_grams": metadata.total_weight_grams,
+                "layer_count": metadata.layer_count,
+                "layer_height": metadata.layer_height,
+                "nozzle_diameter": metadata.nozzle_diameter,
+                "printer_model": metadata.printer_model,
+                "supports_used": metadata.supports_used,
+                "bed_type": metadata.bed_type,
+                "filaments_json": json.dumps([{
+                    "slot": f.slot,
+                    "type": f.type,
+                    "color": f.color,
+                    "used_meters": f.used_meters,
+                    "used_grams": f.used_grams
+                } for f in metadata.filaments]),
                 "thumbnail_b64": metadata.thumbnail_b64,
-                "print_file_id": file_id,
-                "category": "Uploaded"
+                "mesh_json": mesh_json
             })
             db.commit()
-            model_id = model_result.lastrowid
-            is_new_model = True
-            db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
-                       {"mid": model_id, "fid": file_id})
+
+            file_id = result.lastrowid
+
+            # Check for existing model with same name (multi-variant support)
+            normalized_name = _normalize_model_name(metadata.project_name)
+            existing_model = db.execute(text(
+                "SELECT id FROM models WHERE name = :name OR name = :raw_name LIMIT 1"
+            ), {"name": normalized_name, "raw_name": metadata.project_name}).fetchone()
+
+            color_req = {}
+            for f_item in metadata.filaments:
+                color_req[f"slot{f_item.slot}"] = {
+                    "color": f_item.color,
+                    "grams": round(f_item.used_grams, 2) if f_item.used_grams else 0
+                }
+
+            fil_type = "PLA"
+            if metadata.filaments:
+                fil_type = metadata.filaments[0].type or "PLA"
+
+            if existing_model:
+                # Attach as variant to existing model
+                model_id = existing_model[0]
+                is_new_model = False
+                db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
+                           {"mid": model_id, "fid": file_id})
+                db.commit()
+            else:
+                # Create new model
+                model_result = db.execute(text("""
+                    INSERT INTO models (
+                        name, build_time_hours, default_filament_type,
+                        color_requirements, thumbnail_b64, print_file_id, category
+                    ) VALUES (
+                        :name, :build_time_hours, :filament_type,
+                        :color_requirements, :thumbnail_b64, :print_file_id, :category
+                    )
+                """), {
+                    "name": normalized_name,
+                    "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
+                    "filament_type": fil_type,
+                    "color_requirements": json.dumps(color_req),
+                    "thumbnail_b64": metadata.thumbnail_b64,
+                    "print_file_id": file_id,
+                    "category": "Uploaded"
+                })
+                db.commit()
+                model_id = model_result.lastrowid
+                is_new_model = True
+                db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
+                           {"mid": model_id, "fid": file_id})
+                db.commit()
+
+            # Persist file to disk
+            import shutil
+            file_dir = "/data/print_files"
+            os.makedirs(file_dir, exist_ok=True)
+            safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
+            stored_path = f"{file_dir}/{file_id}_{safe_name}"
+            shutil.copy2(tmp_path, stored_path)
+            db.execute(text("UPDATE print_files SET stored_path = :p, original_filename = :fn WHERE id = :id"),
+                       {"p": stored_path, "fn": file.filename, "id": file_id})
             db.commit()
 
-        # Persist the .3mf file to disk so dispatch can upload it to printers later
-        import shutil, re
-        file_dir = "/data/print_files"
-        os.makedirs(file_dir, exist_ok=True)
-        safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
-        stored_path = f"{file_dir}/{file_id}_{safe_name}"
-        shutil.copy2(tmp_path, stored_path)
-        db.execute(text("UPDATE print_files SET stored_path = :p, original_filename = :fn WHERE id = :id"),
-                   {"p": stored_path, "fn": file.filename, "id": file_id})
-        db.commit()
+            # Extract bed/compatibility metadata and persist
+            meta = pfm.extract_print_file_meta(stored_path, ext)
+            db.execute(text(
+                "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, compatible_api_types = :types WHERE id = :id"
+            ), {"x": meta["bed_x_mm"], "y": meta["bed_y_mm"], "types": meta["compatible_api_types"], "id": file_id})
+            db.commit()
 
-        return {
-            "id": file_id,
-            "filename": file.filename,
-            "project_name": metadata.project_name,
-            "print_time_seconds": metadata.print_time_seconds,
-            "print_time_formatted": metadata.print_time_formatted(),
-            "total_weight_grams": metadata.total_weight_grams,
-            "layer_count": metadata.layer_count,
-            "filaments": [{
-                "slot": f.slot,
-                "type": f.type,
-                "color": f.color,
-                "used_grams": f.used_grams
-            } for f in metadata.filaments],
-            "thumbnail_b64": metadata.thumbnail_b64,
-            "is_sliced": metadata.print_time_seconds > 0,
-            "model_id": model_id,
-            "is_new_model": is_new_model,
-            "printer_model": metadata.printer_model,
-            "objects": plate_objects,
-            "has_mesh": mesh_data is not None,
-            "stored_path": stored_path
-        }
+            return {
+                "id": file_id,
+                "filename": file.filename,
+                "project_name": metadata.project_name,
+                "print_time_seconds": metadata.print_time_seconds,
+                "print_time_formatted": metadata.print_time_formatted(),
+                "total_weight_grams": metadata.total_weight_grams,
+                "layer_count": metadata.layer_count,
+                "filaments": [{
+                    "slot": f.slot,
+                    "type": f.type,
+                    "color": f.color,
+                    "used_grams": f.used_grams
+                } for f in metadata.filaments],
+                "thumbnail_b64": metadata.thumbnail_b64,
+                "is_sliced": metadata.print_time_seconds > 0,
+                "model_id": model_id,
+                "is_new_model": is_new_model,
+                "printer_model": metadata.printer_model,
+                "objects": plate_objects,
+                "has_mesh": mesh_data is not None,
+                "stored_path": stored_path,
+                "bed_x_mm": meta["bed_x_mm"],
+                "bed_y_mm": meta["bed_y_mm"],
+                "compatible_api_types": meta["compatible_api_types"],
+            }
+
+        else:
+            # --- .gcode / .bgcode path: minimal record, no 3mf parsing ---
+            import shutil
+            project_name = os.path.splitext(fname)[0]
+            normalized_name = _normalize_model_name(project_name)
+
+            result = db.execute(text("""
+                INSERT INTO print_files (
+                    filename, project_name, filaments_json
+                ) VALUES (
+                    :filename, :project_name, :filaments_json
+                )
+            """), {
+                "filename": file.filename,
+                "project_name": project_name,
+                "filaments_json": json.dumps([]),
+            })
+            db.commit()
+            file_id = result.lastrowid
+
+            # Persist file to disk
+            file_dir = "/data/print_files"
+            os.makedirs(file_dir, exist_ok=True)
+            safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
+            stored_path = f"{file_dir}/{file_id}_{safe_name}"
+            shutil.copy2(tmp_path, stored_path)
+            db.execute(text("UPDATE print_files SET stored_path = :p, original_filename = :fn WHERE id = :id"),
+                       {"p": stored_path, "fn": file.filename, "id": file_id})
+            db.commit()
+
+            # Check for existing model or create new
+            existing_model = db.execute(text(
+                "SELECT id FROM models WHERE name = :name OR name = :raw_name LIMIT 1"
+            ), {"name": normalized_name, "raw_name": project_name}).fetchone()
+
+            if existing_model:
+                model_id = existing_model[0]
+                is_new_model = False
+                db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
+                           {"mid": model_id, "fid": file_id})
+                db.commit()
+            else:
+                model_result = db.execute(text("""
+                    INSERT INTO models (name, default_filament_type, print_file_id, category)
+                    VALUES (:name, 'PLA', :print_file_id, 'Uploaded')
+                """), {"name": normalized_name, "print_file_id": file_id})
+                db.commit()
+                model_id = model_result.lastrowid
+                is_new_model = True
+                db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
+                           {"mid": model_id, "fid": file_id})
+                db.commit()
+
+            # Extract bed/compatibility metadata and persist
+            meta = pfm.extract_print_file_meta(stored_path, ext)
+            db.execute(text(
+                "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, compatible_api_types = :types WHERE id = :id"
+            ), {"x": meta["bed_x_mm"], "y": meta["bed_y_mm"], "types": meta["compatible_api_types"], "id": file_id})
+            db.commit()
+
+            return {
+                "id": file_id,
+                "filename": file.filename,
+                "project_name": project_name,
+                "print_time_seconds": 0,
+                "print_time_formatted": "0m",
+                "total_weight_grams": None,
+                "layer_count": None,
+                "filaments": [],
+                "thumbnail_b64": None,
+                "is_sliced": True,
+                "model_id": model_id,
+                "is_new_model": is_new_model,
+                "printer_model": None,
+                "objects": [],
+                "has_mesh": False,
+                "stored_path": stored_path,
+                "bed_x_mm": meta["bed_x_mm"],
+                "bed_y_mm": meta["bed_y_mm"],
+                "compatible_api_types": meta["compatible_api_types"],
+            }
     finally:
         # Clean up temp file
         os.unlink(tmp_path)
@@ -779,7 +892,8 @@ def get_model_variants(model_id: int, db: Session = Depends(get_db)):
 
     variants = db.execute(text("""
         SELECT id, filename, printer_model, print_time_seconds, total_weight_grams,
-               nozzle_diameter, layer_height, uploaded_at
+               nozzle_diameter, layer_height, uploaded_at,
+               bed_x_mm, bed_y_mm, compatible_api_types
         FROM print_files WHERE model_id = :model_id ORDER BY uploaded_at DESC
     """), {"model_id": model_id}).fetchall()
 
@@ -789,7 +903,8 @@ def get_model_variants(model_id: int, db: Session = Depends(get_db)):
         "variants": [{
             "id": v[0], "filename": v[1], "printer_model": v[2] or "Unknown",
             "print_time_seconds": v[3], "print_time_hours": round(v[3]/3600.0, 2) if v[3] else 0,
-            "total_weight_grams": v[4], "nozzle_diameter": v[5], "layer_height": v[6], "uploaded_at": v[7]
+            "total_weight_grams": v[4], "nozzle_diameter": v[5], "layer_height": v[6], "uploaded_at": v[7],
+            "bed_x_mm": v[8], "bed_y_mm": v[9], "compatible_api_types": v[10],
         } for v in variants]
     }
 

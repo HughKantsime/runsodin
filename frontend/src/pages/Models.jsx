@@ -13,7 +13,7 @@ import {
   ChevronDown,
   CalendarPlus,
   Printer as PrinterIcon,
-  Star, Box, History, Search, Upload } from 'lucide-react'
+  Star, Box, History, Search, Upload, AlertTriangle } from 'lucide-react'
 import ModelViewer from '../components/ModelViewer'
 import ModelRevisionPanel from '../components/ModelRevisionPanel'
 import clsx from 'clsx'
@@ -440,9 +440,24 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
         <p className="text-sm text-farm-500 mb-2">{model.name}</p>
 
         {variants.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
+          <div className="flex flex-col gap-1.5 mb-3">
             {variants.map(v => (
-              <span key={v.id} className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg text-xs">{v.printer_model}</span>
+              <div key={v.id} className="flex flex-wrap items-center gap-1">
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg text-xs">{v.printer_model}</span>
+                {v.bed_x_mm != null && v.bed_y_mm != null && (
+                  <span className="px-2 py-0.5 bg-farm-700/60 text-farm-300 rounded-lg text-xs">{v.bed_x_mm}x{v.bed_y_mm}mm</span>
+                )}
+                {v.compatible_api_types === 'bambu' ? (
+                  <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded-lg text-xs">Bambu only</span>
+                ) : v.compatible_api_types ? (
+                  <span className="px-2 py-0.5 bg-green-600/20 text-green-400 rounded-lg text-xs">Moonraker / PrusaLink</span>
+                ) : null}
+                {v.bed_x_mm == null && !v.compatible_api_types && (
+                  <span title="No slicer metadata — re-upload to enable bed checks" className="text-yellow-500 flex items-center">
+                    <AlertTriangle size={12} />
+                  </span>
+                )}
+              </div>
             ))}
           </div>
         )}

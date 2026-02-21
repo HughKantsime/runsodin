@@ -221,6 +221,29 @@ function SortIcon({ field, sortField, sortDirection }) {
   return sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
 }
 
+function BedMismatchWarning({ modelId, printerId, modelsData, printersData }) {
+  if (!modelId || !printerId || !modelsData || !printersData) return null
+  const model = modelsData.find(m => m.id === Number(modelId))
+  const printer = printersData.find(p => p.id === Number(printerId))
+  if (!model || !printer) return null
+  const modelX = model.bed_x_mm
+  const modelY = model.bed_y_mm
+  const printerX = printer.bed_x_mm
+  const printerY = printer.bed_y_mm
+  if (modelX == null || modelY == null || printerX == null || printerY == null) return null
+  const TOLERANCE = 2
+  if (modelX <= printerX + TOLERANCE && modelY <= printerY + TOLERANCE) return null
+  return (
+    <div className="flex items-start gap-2 p-3 bg-yellow-900/30 border border-yellow-700/40 rounded-lg text-xs text-yellow-300">
+      <AlertTriangle size={14} className="mt-0.5 shrink-0 text-yellow-400" />
+      <span>
+        File sliced for {modelX}x{modelY}mm — this printer's bed is {printerX}x{printerY}mm.
+        You can still dispatch but it will likely fail.
+      </span>
+    </div>
+  )
+}
+
 function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData, printersData }) {
   const [formData, setFormData] = useState({
     item_name: '',
@@ -337,6 +360,12 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData, p
                 <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
               ))}
             </select>
+            <BedMismatchWarning
+              modelId={formData.model_id}
+              printerId={formData.printer_id}
+              modelsData={modelsData}
+              printersData={printersData}
+            />
           </div>
           <div>
             <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
@@ -472,7 +501,7 @@ function RejectModal({ isOpen, onClose, onSubmit }) {
   )
 }
 
-function EditJobModal({ isOpen, onClose, onSubmit, job, printersData }) {
+function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, modelsData }) {
   const [formData, setFormData] = useState({})
 
   useEffect(() => {
@@ -552,6 +581,12 @@ function EditJobModal({ isOpen, onClose, onSubmit, job, printersData }) {
                   <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
                 ))}
               </select>
+              <BedMismatchWarning
+                modelId={job?.model_id}
+                printerId={formData.printer_id}
+                modelsData={modelsData}
+                printersData={printersData}
+              />
             </div>
           </div>
           <div>
@@ -1134,6 +1169,7 @@ export default function Jobs() {
         onSubmit={(id, data) => updateJob.mutate({ id, data })}
         job={editingJob}
         printersData={printersData}
+        modelsData={modelsData}
       />
       <RejectModal
         isOpen={showRejectModal}

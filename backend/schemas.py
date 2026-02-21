@@ -86,6 +86,8 @@ class PrinterBase(BaseModel):
     nozzle_type: Optional[str] = None
     nozzle_diameter: Optional[float] = None
     fan_speed: Optional[int] = None
+    bed_x_mm: Optional[float] = None
+    bed_y_mm: Optional[float] = None
     last_seen: Optional[datetime] = None
     # Care counters (universal)
     total_print_hours: Optional[float] = None
@@ -123,6 +125,8 @@ class PrinterUpdate(BaseModel):
     tags: Optional[List[str]] = None
     timelapse_enabled: Optional[bool] = None
     shared: Optional[bool] = None
+    bed_x_mm: Optional[float] = None
+    bed_y_mm: Optional[float] = None
 
 class PrinterResponse(PrinterBase):
     model_config = ConfigDict(from_attributes=True)

@@ -363,6 +363,33 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
     </div>
   )
 }
+const KNOWN_PRINTER_BEDS = {
+  'x1 carbon': [256, 256],
+  'x1c': [256, 256],
+  'x1e': [256, 256],
+  'x1': [256, 256],
+  'p1s': [256, 256],
+  'p1p': [256, 256],
+  'a1 mini': [180, 180],
+  'a1': [256, 256],
+  'h2d': [320, 320],
+  'mk4': [250, 210],
+  'mk3': [250, 210],
+  'mini': [180, 180],
+  'ender 3': [220, 220],
+  'ender-3': [220, 220],
+  'voron': [300, 300],
+}
+
+function lookupBedSize(modelStr) {
+  if (!modelStr) return null
+  const lower = modelStr.toLowerCase()
+  for (const [key, dims] of Object.entries(KNOWN_PRINTER_BEDS)) {
+    if (lower.includes(key)) return dims
+  }
+  return null
+}
+
 function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
   const [formData, setFormData] = useState({
     name: '',
@@ -371,7 +398,9 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
     api_type: '',
     api_host: '',
     serial: '',
-    access_code: ''
+    access_code: '',
+    bed_x_mm: '',
+    bed_y_mm: '',
   })
   const [testStatus, setTestStatus] = useState(null)
   const [testMessage, setTestMessage] = useState('')
@@ -430,15 +459,27 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
         tags: printer.tags || [],
         timelapse_enabled: printer.timelapse_enabled || false,
         shared: printer.shared || false,
+        bed_x_mm: printer.bed_x_mm != null ? String(printer.bed_x_mm) : '',
+        bed_y_mm: printer.bed_y_mm != null ? String(printer.bed_y_mm) : '',
       })
     } else {
-      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false, shared: false })
+      setFormData({ name: '', nickname: '', model: '', slot_count: 4, api_type: '', api_host: '', serial: '', access_code: '', camera_url: '', plug_type: '', plug_host: '', plug_topic: '', plug_entity: '', plug_token: '', tags: [], timelapse_enabled: false, shared: false, bed_x_mm: '', bed_y_mm: '' })
     }
     setTestStatus(null)
     setTestMessage('')
     setModelOverride(false)
     setSlotOverride(false)
   }, [printer, isOpen])
+
+  // Auto-fill bed size from known printer model lookup
+  useEffect(() => {
+    if (!formData.model) return
+    if (formData.bed_x_mm !== '' || formData.bed_y_mm !== '') return
+    const dims = lookupBedSize(formData.model)
+    if (dims) {
+      setFormData(prev => ({ ...prev, bed_x_mm: String(dims[0]), bed_y_mm: String(dims[1]) }))
+    }
+  }, [formData.model]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTestConnection = async () => {
     if (!formData.api_host) {
@@ -499,6 +540,8 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,
       shared: formData.shared || false,
+      bed_x_mm: formData.bed_x_mm !== '' ? parseFloat(formData.bed_x_mm) || null : null,
+      bed_y_mm: formData.bed_y_mm !== '' ? parseFloat(formData.bed_y_mm) || null : null,
     }
 
     if (formData.api_type) submitData.api_type = formData.api_type
@@ -622,7 +665,34 @@ function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyncAms }) {
               )}
             </div>
           )}
-          
+
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Bed Size (optional)</label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={formData.bed_x_mm}
+                onChange={(e) => setFormData(prev => ({ ...prev, bed_x_mm: e.target.value }))}
+                className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                placeholder="X mm"
+              />
+              <span className="text-farm-500 text-sm">x</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={formData.bed_y_mm}
+                onChange={(e) => setFormData(prev => ({ ...prev, bed_y_mm: e.target.value }))}
+                className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                placeholder="Y mm"
+              />
+              <span className="text-farm-500 text-xs whitespace-nowrap">mm</span>
+            </div>
+            <p className="text-xs text-farm-600 mt-1">Used to verify file compatibility before dispatch</p>
+          </div>
+
           <div className="border-t border-farm-700 pt-4 mt-4">
             <label className="block text-sm text-farm-400 mb-2">Printer Connection (Optional)</label>
             <select 
