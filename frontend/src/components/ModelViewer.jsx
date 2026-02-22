@@ -1,24 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, RotateCcw, ZoomIn, ZoomOut, Maximize2, Box } from 'lucide-react'
 import { fetchAPI } from '../api'
+import * as THREE from 'three'
 
 /**
  * 3D Model Viewer using Three.js
  * Renders mesh geometry extracted from .3mf files
  * Opens as a modal overlay from model cards
  */
-
-// Lazy-load Three.js from CDN
-let THREE = null
-let OrbitControlsFactory = null
-
-async function loadThreeJS() {
-  if (THREE) return
-  
-  // Import Three.js from CDN via dynamic import
-  const threeModule = await import('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js')
-  THREE = threeModule
-}
 
 export default function ModelViewer({ modelId, modelName, onClose }) {
   const containerRef = useRef(null)
@@ -185,10 +174,6 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
     
     async function init() {
       try {
-        // Load Three.js
-        await loadThreeJS()
-        if (cancelled) return
-        
         // Fetch mesh data
         const meshData = await fetchAPI(`/models/${modelId}/mesh`)
         if (cancelled) return

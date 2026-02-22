@@ -13,6 +13,10 @@ Updated 2026-02-21 at v1.3.57.
 - ~~Print Profiles / Presets~~
 - ~~Timelapse Generation from Camera Streams~~
 
+## Shipped in v1.3.64
+
+- ~~Frontend security hardening~~ — Three.js bundled from npm (no CDN), CSP connect-src wildcards removed, OIDC dead code replaced with working oidc_code exchange, OIDC errors URL-encoded, Google Fonts CDN removed from Branding page
+
 ## Shipped in v1.3.62
 
 - ~~Credential encryption at rest~~ — SMTP password, MQTT republish password encrypted with Fernet; camera_url no longer persists plaintext RTSP credentials; user-supplied camera URLs with embedded credentials encrypted on write

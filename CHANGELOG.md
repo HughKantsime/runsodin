@@ -2,6 +2,16 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.64] - 2026-02-21
+
+### Security
+- **Three.js bundled locally** — `ModelViewer.jsx` now imports Three.js from npm (`three@0.128.0`) instead of a CDN dynamic import. Eliminates supply chain risk from external CDN compromise.
+- **CSP connect-src tightened** — removed `ws:` and `wss:` wildcards from `connect-src` in `backend/main.py`. `'self'` already covers same-origin WebSocket connections.
+- **OIDC dead code removed** — removed the dead `urlToken` code block from `Login.jsx` (pre-cookie migration remnant). Replaced with working `oidc_code` exchange flow: frontend now detects `?oidc_code=` on load and POSTs it to `/api/auth/oidc/exchange`.
+- **oidcExchange added to api.js** — `api.auth.oidcExchange(code)` added to the API client for the OIDC code exchange.
+- **OIDC error URL-encoded** — OIDC callback error redirects now URL-encode the error string via `urllib.parse.quote()` to prevent open redirect injection via crafted error strings.
+- **Google Fonts removed from Branding page** — removed the runtime Google Fonts CDN `<link>` injection from `Branding.jsx`. Font previews fall back to system fonts already loaded. Eliminates GDPR data transfer to Google.
+
 ## [1.3.63] - 2026-02-21
 
 ### Security

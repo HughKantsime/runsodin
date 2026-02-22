@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Lock, User, AlertCircle, ShieldCheck, Loader2 } from 'lucide-react'
 import { useBranding } from '../BrandingContext'
 import { refreshPermissions } from '../permissions'
+import * as api from '../api'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -21,20 +22,18 @@ export default function Login() {
   const mfaInputRef = useRef(null)
 
 
-  // Handle OIDC callback
-  // The backend sets the session cookie via redirect; we just need to navigate to /
+  // Handle OIDC callback parameters
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
+    const oidcCode = urlParams.get('oidc_code');
     const urlError = urlParams.get('error');
 
-    if (urlToken) {
-      // Legacy: backend returned token in URL fragment (pre-cookie migration).
-      // Store temporarily so backend cookie auth takes over on next request.
-      // TODO: Update OIDC callback to set cookie server-side and remove this path.
-      setOidcLoading(true)
+    if (oidcCode) {
+      setOidcLoading(true);
       window.history.replaceState({}, '', '/');
-      window.location.reload();
+      api.auth.oidcExchange(oidcCode)
+        .then(() => { window.location.href = '/'; })
+        .catch(() => { setError('SSO login failed. Please try again.'); setOidcLoading(false); });
     }
 
     if (urlError) {

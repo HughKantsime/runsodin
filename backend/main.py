@@ -258,7 +258,7 @@ _CSP_DIRECTIVES = "; ".join([
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' ws: wss:",
+    "connect-src 'self'",
     "media-src 'self' blob:",
     "frame-src 'self'",
     "object-src 'none'",

@@ -210,6 +210,10 @@ export const auth = {
   }),
   mfaStatus: () => fetchAPI('/auth/mfa/status'),
   adminDisableMfa: (userId) => fetchAPI(`/admin/users/${userId}/mfa`, { method: 'DELETE' }),
+  oidcExchange: (code) => fetchAPI('/auth/oidc/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }),
 }
 
 // Session management

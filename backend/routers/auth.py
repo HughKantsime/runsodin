@@ -7,6 +7,7 @@ from sqlalchemy import text
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 import csv, io, json, logging, os, re
+from urllib.parse import quote
 
 from deps import (get_db, get_current_user, require_role, log_audit,
                   _validate_password, _check_rate_limit, _record_login_attempt,
@@ -894,7 +895,7 @@ async def oidc_callback(
     # Handle errors from provider
     if error:
         log.error(f"OIDC error: {error} - {error_description}")
-        return RedirectResponse(url=f"/?error={error}", status_code=302)
+        return RedirectResponse(url=f"/?error={quote(str(error))}", status_code=302)
 
     if not code or not state:
         return RedirectResponse(url="/?error=missing_params", status_code=302)

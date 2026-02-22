@@ -23,7 +23,8 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^6.21.0",
-    "recharts": "^3.7.0"
+    "recharts": "^3.7.0",
+    "three": "0.128.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",

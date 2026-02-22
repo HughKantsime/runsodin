@@ -114,9 +114,6 @@ function getAuthHeaders(contentType = 'application/json') {
   return headers
 }
 
-// Google Fonts URL for branding font picker — loaded on-demand
-const BRANDING_FONTS_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Open+Sans:wght@300;400;600;700&family=Lato:wght@300;400;700&family=Montserrat:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Raleway:wght@300;400;500;600;700&family=Nunito:wght@300;400;600;700&family=Source+Sans+3:wght@300;400;600;700&family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=Urbanist:wght@300;400;500;600;700&family=Oswald:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Merriweather:wght@300;400;700&family=Lora:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=Source+Serif+4:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Inconsolata:wght@400;500;600;700&display=swap'
-
 export default function Branding() {
   const [branding, setBranding] = useState(null)
   const [draft, setDraft] = useState(null)
@@ -127,18 +124,6 @@ export default function Branding() {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const logoInputRef = useRef(null)
   const faviconInputRef = useRef(null)
-
-  // Lazy-load Google Fonts when Branding page mounts
-  useEffect(() => {
-    const id = 'branding-google-fonts'
-    if (!document.getElementById(id)) {
-      const link = document.createElement('link')
-      link.id = id
-      link.rel = 'stylesheet'
-      link.href = BRANDING_FONTS_URL
-      document.head.appendChild(link)
-    }
-  }, [])
 
   useEffect(() => {
     fetch(`${API_BASE}/branding`)
