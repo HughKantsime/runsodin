@@ -2,6 +2,21 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.61] - 2026-02-21
+
+### Security
+- **Auth coverage sweep** — added `require_role()` guards to all endpoints identified in the authorization security audit: `GET /stats`, `/analytics`, `/analytics/failures`, `/analytics/time-accuracy` (viewer), `GET /cameras` (viewer), `GET /search`, `/maintenance/tasks`, `/maintenance/logs`, `/maintenance/status`, `/hms-codes/{code}` (viewer), `GET /config`, `/spoolman/test` (admin), `POST /setup/network` (admin + setup-lock check), `GET /print-jobs`, `/print-jobs/stats`, `/print-jobs/unlinked`, `/failure-reasons`, `/presets`, `GET /jobs`, `GET /jobs/{id}` (viewer)
+- **Approve/reject hardened** — `POST /jobs/{id}/approve` and `/reject` now use `require_role("operator")` dependency instead of a manual role check after feature gate
+- **Bulk job mutations** — `POST /jobs/bulk-update` checks `check_org_access()` per job ID before mutation; `POST /jobs/{id}/repeat` and `/link-print` also check org access
+- **Metrics auth** — `GET /metrics` removed from unauthenticated middleware bypass; now requires viewer role or API key
+- **Groups IDOR** — `GET /groups/{id}` rejects non-admin callers attempting to access a group they don't belong to; `GET /groups` returns only the caller's own group for non-admins
+- **Education usage report** — `GET /education/usage-report` scopes user query to caller's `group_id` for non-admin roles
+- **OIDC defaults hardened** — `default_role` changed from `"operator"` to `"viewer"`; `auto_create_users` default changed from `True` to `False`
+- **License server IP** — hardcoded `http://192.168.70.6:5000` fallback removed from `POST /license/activate`; requires explicit `LICENSE_SERVER_URL` env var; http URLs (non-localhost) automatically upgraded to https
+- **Maintenance task/log deletion** — `DELETE /maintenance/tasks/{id}` and `/maintenance/logs/{id}` elevated from operator to admin
+
+## [v1.3.60] - 2026-02-21 (skipped — no backend changes)
+
 ## [1.3.59] - 2026-02-21
 
 ### Security
