@@ -1,19 +1,9 @@
 const API_BASE = '/api'
 
-// API Key for authentication - leave empty if auth is disabled
-// Used only for the perimeter X-API-Key header (server-side env var based).
-// Session auth is handled via httpOnly cookies — no localStorage token needed.
-const API_KEY = import.meta.env.VITE_API_KEY
-
 export async function fetchAPI(endpoint, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
-  }
-
-  // Add API key if configured (perimeter auth, not session auth)
-  if (API_KEY) {
-    headers['X-API-Key'] = API_KEY
   }
 
   // credentials: 'include' sends the httpOnly session cookie automatically.
@@ -135,11 +125,8 @@ export const printFiles = {
   upload: async (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    const uploadHeaders = {}
-    if (API_KEY) uploadHeaders['X-API-Key'] = API_KEY
     const response = await fetch(`${API_BASE}/print-files/upload`, {
       method: 'POST',
-      headers: uploadHeaders,
       credentials: 'include',
       body: formData
     })
@@ -306,11 +293,8 @@ export const modelRevisions = {
     const formData = new FormData()
     formData.append('changelog', changelog)
     if (file) formData.append('file', file)
-    const headers = {}
-    if (API_KEY) headers['X-API-Key'] = API_KEY
     const res = await fetch(`${API_BASE}/models/${modelId}/revisions`, {
       method: 'POST',
-      headers,
       credentials: 'include',
       body: formData,
     })
@@ -342,11 +326,8 @@ export const users = {
   importCsv: async (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    const headers = {}
-    if (API_KEY) headers['X-API-Key'] = API_KEY
     const response = await fetch(`${API_BASE}/users/import`, {
       method: 'POST',
-      headers,
       credentials: 'include',
       body: formData,
     })
@@ -559,10 +540,7 @@ export const license = {
   upload: (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    const headers = {}
-    const _apiKey = import.meta.env.VITE_API_KEY
-    if (_apiKey) headers['X-API-Key'] = _apiKey
-    return fetch('/api/license/upload', { method: 'POST', headers, credentials: 'include', body: formData })
+    return fetch('/api/license/upload', { method: 'POST', credentials: 'include', body: formData })
       .then(r => { if (!r.ok) throw new Error('Upload failed'); return r.json() })
   },
   remove: () => fetchAPI('/license', { method: 'DELETE' }),
@@ -690,11 +668,8 @@ export const vision = {
   uploadModel: async (file, name, detectionType, inputSize = 640) => {
     const formData = new FormData()
     formData.append('file', file)
-    const headers = {}
-    if (API_KEY) headers['X-API-Key'] = API_KEY
     const response = await fetch(`${API_BASE}/vision/models?name=${encodeURIComponent(name)}&detection_type=${detectionType}&input_size=${inputSize}`, {
       method: 'POST',
-      headers,
       credentials: 'include',
       body: formData,
     })
@@ -710,9 +685,7 @@ export const backups = {
   create: () => fetchAPI('/backups', { method: 'POST' }),
   remove: (filename) => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
   download: async (filename) => {
-    const headers = {}
-    if (API_KEY) headers['X-API-Key'] = API_KEY
-    const res = await fetch(`${API_BASE}/backups/${filename}`, { headers, credentials: 'include' })
+    const res = await fetch(`${API_BASE}/backups/${filename}`, { credentials: 'include' })
     if (!res.ok) throw new Error('Download failed')
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -737,9 +710,7 @@ export const config = {
 
 // Orders invoice (blob download)
 export const orderInvoice = async (orderId, orderNumber) => {
-  const headers = {}
-  if (API_KEY) headers['X-API-Key'] = API_KEY
-  const res = await fetch(`${API_BASE}/orders/${orderId}/invoice.pdf`, { headers, credentials: 'include' })
+  const res = await fetch(`${API_BASE}/orders/${orderId}/invoice.pdf`, { credentials: 'include' })
   if (!res.ok) throw new Error('Failed to generate invoice')
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
@@ -752,9 +723,7 @@ export const orderInvoice = async (orderId, orderNumber) => {
 
 // Generic blob download helper (for exports)
 export const downloadBlob = async (endpoint, filename) => {
-  const headers = {}
-  if (API_KEY) headers['X-API-Key'] = API_KEY
-  const res = await fetch(`${API_BASE}${endpoint}`, { headers, credentials: 'include' })
+  const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include' })
   if (!res.ok) throw new Error('Export failed')
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

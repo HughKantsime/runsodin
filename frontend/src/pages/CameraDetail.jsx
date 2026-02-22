@@ -7,16 +7,12 @@ import { printers } from '../api'
 import { PrinterInfoPanel, FilamentSlotsPanel, ActiveJobPanel } from '../components/PrinterPanels'
 
 const API_BASE = '/api'
-const API_KEY = import.meta.env.VITE_API_KEY
 
 function AiIndicator({ printerId }) {
   const { data } = useQuery({
     queryKey: ['vision-settings', printerId],
     queryFn: async () => {
-      
-      const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY }
-      
-      const res = await fetch(`${API_BASE}/printers/${printerId}/vision`, { headers })
+      const res = await fetch(`${API_BASE}/printers/${printerId}/vision`, { headers: { 'Content-Type': 'application/json' }, credentials: 'include' })
       if (!res.ok) return null
       return res.json()
     },
@@ -60,10 +56,7 @@ function WebRTCPlayer({ cameraId, className }) {
       pc.addTransceiver('video', { direction: 'recvonly' })
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      
-      const headers = { 'Content-Type': 'application/sdp', 'X-API-Key': API_KEY }
-      
-      const response = await fetch(`${API_BASE}/cameras/${cameraId}/webrtc`, { method: 'POST', headers, body: offer.sdp })
+      const response = await fetch(`${API_BASE}/cameras/${cameraId}/webrtc`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, credentials: 'include', body: offer.sdp })
       if (!response.ok) throw new Error('Failed')
       const answerSDP = await response.text()
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))

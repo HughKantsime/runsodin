@@ -1,8 +1,6 @@
 import { useState, useRef } from 'react'
 import { Upload, AlertTriangle, CheckCircle } from 'lucide-react'
 
-const API_KEY = import.meta.env.VITE_API_KEY
-
 export default function BackupRestore({ onRestored }) {
   const [restoring, setRestoring] = useState(false)
   const [result, setResult] = useState(null)
@@ -29,9 +27,7 @@ export default function BackupRestore({ onRestored }) {
       
       const res = await fetch('/api/backups/restore', {
         method: 'POST',
-        headers: {
-          'X-API-Key': API_KEY,
-        },
+        credentials: 'include',
         body: formData,
       })
       if (!res.ok) {

@@ -428,10 +428,7 @@ export default function Dashboard() {
   const { data: activeCameras } = useQuery({
     queryKey: ['cameras'],
     queryFn: async () => {
-      
-      const headers = { 'X-API-Key': import.meta.env.VITE_API_KEY }
-      
-      const response = await fetch('/api/cameras', { headers })
+      const response = await fetch('/api/cameras', { credentials: 'include' })
       if (!response.ok) return []
       return response.json()
     }

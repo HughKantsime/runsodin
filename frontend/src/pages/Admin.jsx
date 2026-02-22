@@ -13,7 +13,6 @@ const API_BASE = '/api'
 const fetchUsers = async () => {
   const response = await fetch(`${API_BASE}/users`, {
     credentials: 'include',
-    headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }
   })
   if (!response.ok) throw new Error('Failed to fetch users')
   return response.json()
@@ -282,8 +281,7 @@ export default function Admin() {
 
   const createUser = useMutation({
     mutationFn: async (userData) => {
-      
-      const response = await fetch(`${API_BASE}/users`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-API-Key': import.meta.env.VITE_API_KEY }, body: JSON.stringify(userData) })
+      const response = await fetch(`${API_BASE}/users`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userData) })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.detail || 'Failed to create user')
@@ -296,8 +294,7 @@ export default function Admin() {
 
   const updateUser = useMutation({
     mutationFn: async ({ id, ...userData }) => {
-      
-      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-API-Key': import.meta.env.VITE_API_KEY }, body: JSON.stringify(userData) })
+      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userData) })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.detail || 'Failed to update user')
@@ -310,8 +307,7 @@ export default function Admin() {
 
   const deleteUser = useMutation({
     mutationFn: async (id) => {
-      
-      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE', credentials: 'include', headers: { 'X-API-Key': import.meta.env.VITE_API_KEY } })
+      const response = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE', credentials: 'include' })
       if (!response.ok) throw new Error('Failed to delete user')
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })

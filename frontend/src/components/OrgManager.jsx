@@ -23,9 +23,7 @@ export default function OrgManager() {
   const { data: userList } = useQuery({
     queryKey: ['users-for-orgs'],
     queryFn: async () => {
-      
-      const res = await fetch('/api/users', {
-      })
+      const res = await fetch('/api/users', { credentials: 'include' })
       return res.ok ? res.json() : []
     },
   })
@@ -33,10 +31,7 @@ export default function OrgManager() {
   const { data: printerList } = useQuery({
     queryKey: ['printers-for-orgs'],
     queryFn: async () => {
-      
-      const API_KEY = import.meta.env.VITE_API_KEY
-      const res = await fetch('/api/printers', {
-      })
+      const res = await fetch('/api/printers', { credentials: 'include' })
       return res.ok ? res.json() : []
     },
   })

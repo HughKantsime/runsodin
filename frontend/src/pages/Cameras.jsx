@@ -5,7 +5,6 @@ import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Mon
 import CameraModal from '../components/CameraModal'
 
 const API_BASE = '/api'
-const API_KEY = import.meta.env.VITE_API_KEY
 
 
 function PipPlayer({ camera, onClose }) {
@@ -103,10 +102,7 @@ function AiIndicator({ printerId }) {
   const { data } = useQuery({
     queryKey: ['vision-settings', printerId],
     queryFn: async () => {
-      
-      const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY }
-      
-      const res = await fetch(`${API_BASE}/printers/${printerId}/vision`, { headers })
+      const res = await fetch(`${API_BASE}/printers/${printerId}/vision`, { headers: { 'Content-Type': 'application/json' }, credentials: 'include' })
       if (!res.ok) return null
       return res.json()
     },
@@ -154,11 +150,7 @@ function CameraCard({ camera, onExpand, onPip }) {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      
-      const headers = { 'Content-Type': 'application/sdp', 'X-API-Key': API_KEY }
-      
-
-      const response = await fetch(API_BASE + '/cameras/' + camera.id + '/webrtc', { method: 'POST', headers, body: offer.sdp })
+      const response = await fetch(API_BASE + '/cameras/' + camera.id + '/webrtc', { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, credentials: 'include', body: offer.sdp })
       if (!response.ok) throw new Error('Failed')
 
       const answerSDP = await response.text()
@@ -281,10 +273,7 @@ export default function Cameras() {
   useEffect(() => {
     const fetchPrinters = async () => {
       try {
-        
-        const headers = { 'X-API-Key': API_KEY }
-        
-        const res = await fetch(API_BASE + '/printers', { headers })
+        const res = await fetch(API_BASE + '/printers', { credentials: 'include' })
         if (res.ok) {
           const data = await res.json()
           setAllPrinters(data.filter(p => p.camera_url))
@@ -298,12 +287,9 @@ export default function Cameras() {
 
   const toggleCamera = async (printerId) => {
     try {
-      
-      const headers = { 'X-API-Key': API_KEY }
-      
       const res = await fetch(API_BASE + '/cameras/' + printerId + '/toggle', {
         method: 'PATCH',
-        headers
+        credentials: 'include',
       })
       if (res.ok) {
         const data = await res.json()
@@ -320,10 +306,7 @@ export default function Cameras() {
   const { data: cameras, isLoading } = useQuery({
     queryKey: ['cameras'],
     queryFn: async () => {
-      
-      const headers = { 'X-API-Key': API_KEY }
-      
-      const response = await fetch(API_BASE + '/cameras', { headers })
+      const response = await fetch(API_BASE + '/cameras', { credentials: 'include' })
       if (!response.ok) throw new Error('Failed to fetch cameras')
       return response.json()
     },
@@ -546,10 +529,7 @@ function ControlRoomCamera({ camera }) {
       pc.addTransceiver('video', { direction: 'recvonly' })
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      
-      const headers = { 'Content-Type': 'application/sdp', 'X-API-Key': API_KEY }
-      
-      const response = await fetch(API_BASE + '/cameras/' + camera.id + '/webrtc', { method: 'POST', headers, body: offer.sdp })
+      const response = await fetch(API_BASE + '/cameras/' + camera.id + '/webrtc', { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, credentials: 'include', body: offer.sdp })
       if (!response.ok) throw new Error('Failed')
       const answerSDP = await response.text()
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))

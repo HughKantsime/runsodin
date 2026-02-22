@@ -105,7 +105,6 @@ export default function Setup() {
   const apiHeaders = (extraToken) => ({
     'Content-Type': 'application/json',
     ...(extraToken ? { Authorization: `Bearer ${extraToken}` } : {}),
-    ...(import.meta.env.VITE_API_KEY ? { 'X-API-Key': import.meta.env.VITE_API_KEY } : {}),
   })
   const apiOptions = (extraToken) => ({ headers: apiHeaders(extraToken), credentials: 'include' })
 

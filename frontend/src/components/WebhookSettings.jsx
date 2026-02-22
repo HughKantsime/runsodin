@@ -3,7 +3,6 @@ import { Webhook, Plus, Trash2, TestTube, Check, X, MessageSquare } from 'lucide
 import toast from 'react-hot-toast';
 
 const API_BASE = '/api';
-const API_KEY = import.meta.env.VITE_API_KEY;
 
 /**
  * Webhook Settings Component - Configure Discord/Slack webhooks
@@ -29,15 +28,12 @@ export default function WebhookSettings() {
   }, []);
 
   const getHeaders = () => {
-    ;
-    const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY };
-    ;
-    return headers;
+    return { 'Content-Type': 'application/json' };
   };
 
   const loadWebhooks = async () => {
     try {
-      const res = await fetch(`${API_BASE}/webhooks`, { headers: getHeaders() });
+      const res = await fetch(`${API_BASE}/webhooks`, { headers: getHeaders(), credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setWebhooks(data.map(w => ({
@@ -57,6 +53,7 @@ export default function WebhookSettings() {
       const res = await fetch(`${API_BASE}/webhooks`, {
         method: 'POST',
         headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(newWebhook)
       });
       if (res.ok) {
@@ -72,7 +69,7 @@ export default function WebhookSettings() {
   const deleteWebhook = async (id) => {
     if (!confirm('Delete this webhook?')) return;
     try {
-      await fetch(`${API_BASE}/webhooks/${id}`, { method: 'DELETE', headers: getHeaders() });
+      await fetch(`${API_BASE}/webhooks/${id}`, { method: 'DELETE', headers: getHeaders(), credentials: 'include' });
       loadWebhooks();
     } catch (err) {
       toast.error('Failed to delete webhook');
@@ -84,6 +81,7 @@ export default function WebhookSettings() {
       await fetch(`${API_BASE}/webhooks/${id}`, {
         method: 'PATCH',
         headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify({ is_enabled: !enabled })
       });
       loadWebhooks();
@@ -98,7 +96,8 @@ export default function WebhookSettings() {
     try {
       const res = await fetch(`${API_BASE}/webhooks/${id}/test`, {
         method: 'POST',
-        headers: getHeaders()
+        headers: getHeaders(),
+        credentials: 'include',
       });
       const data = await res.json();
       setTestResult({ id, success: data.success, message: data.message });

@@ -115,9 +115,7 @@ export function canDo(action) {
  */
 export async function refreshPermissions() {
   try {
-    const API_KEY = import.meta.env.VITE_API_KEY
     const headers = { 'Content-Type': 'application/json' }
-    if (API_KEY) headers['X-API-Key'] = API_KEY
 
     // Fetch user info and permissions — session cookie sent automatically
     const [meRes, permRes] = await Promise.all([

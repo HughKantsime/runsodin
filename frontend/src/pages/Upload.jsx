@@ -327,8 +327,6 @@ export default function Upload() {
         xhr.addEventListener('error', () => reject(new Error('Network error')))
         xhr.open('POST', '/api/print-files/upload')
         xhr.withCredentials = true  // send session cookie
-        const apiKey = import.meta.env.VITE_API_KEY || ''
-        if (apiKey) xhr.setRequestHeader('X-API-Key', apiKey)
         const formData = new FormData()
         formData.append('file', file)
         xhr.send(formData)

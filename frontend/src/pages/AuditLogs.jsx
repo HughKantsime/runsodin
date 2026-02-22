@@ -77,12 +77,7 @@ export default function AuditLogs() {
     let url = '/api/export/audit-logs?'
     if (entityType) url += `entity_type=${entityType}&`
     if (action) url += `action=${action}&`
-    
-    const headers = {}
-    
-    const apiKey = import.meta.env.VITE_API_KEY
-    if (apiKey) headers['X-API-Key'] = apiKey
-    fetch(url, { headers })
+    fetch(url, { credentials: 'include' })
       .then(r => r.blob())
       .then(blob => {
         const u = URL.createObjectURL(blob)

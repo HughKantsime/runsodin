@@ -4,24 +4,16 @@ import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucid
 import { refreshPermissions } from '../permissions'
 import ConfirmModal from '../components/ConfirmModal'
 
-const API_KEY = import.meta.env.VITE_API_KEY
-
 async function fetchPerms() {
   const headers = { 'Content-Type': 'application/json' }
-  if (API_KEY) headers['X-API-Key'] = API_KEY
-  
-  
-  const res = await fetch('/api/permissions', { headers })
+  const res = await fetch('/api/permissions', { headers, credentials: 'include' })
   if (!res.ok) throw new Error('Failed to load permissions')
   return res.json()
 }
 
 async function savePerms(data) {
   const headers = { 'Content-Type': 'application/json' }
-  if (API_KEY) headers['X-API-Key'] = API_KEY
-  
-  
-  const res = await fetch('/api/permissions', { method: 'PUT', headers, body: JSON.stringify(data) })
+  const res = await fetch('/api/permissions', { method: 'PUT', headers, credentials: 'include', body: JSON.stringify(data) })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.detail || 'Failed to save')
@@ -31,10 +23,7 @@ async function savePerms(data) {
 
 async function resetPerms() {
   const headers = { 'Content-Type': 'application/json' }
-  if (API_KEY) headers['X-API-Key'] = API_KEY
-  
-  
-  const res = await fetch('/api/permissions/reset', { method: 'POST', headers })
+  const res = await fetch('/api/permissions/reset', { method: 'POST', headers, credentials: 'include' })
   if (!res.ok) throw new Error('Failed to reset')
   return res.json()
 }

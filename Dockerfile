@@ -6,7 +6,7 @@
 #           MQTT monitor, Moonraker monitor, go2rtc
 # ============================================================
 
-FROM python:3.11-slim AS backend-base
+FROM python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf AS backend-base
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,14 +16,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install go2rtc (camera proxy)
+# Install go2rtc (camera proxy) — SHA256 verified per architecture
 ARG GO2RTC_VERSION=1.9.4
 ARG TARGETARCH=amd64
+# Hashes for v1.9.4: amd64 and arm64 (add others if new arches are targeted)
 RUN wget -q "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${TARGETARCH}" \
-    -O /usr/local/bin/go2rtc && chmod +x /usr/local/bin/go2rtc
+    -O /usr/local/bin/go2rtc \
+    && case "${TARGETARCH}" in \
+         amd64) echo "8d86510e64e0deadee40d550d46323ddec9f62e14cec56de3a9df0f2f7fe9ada  /usr/local/bin/go2rtc" | sha256sum -c - ;; \
+         arm64) echo "ebea4cf3a0bc3a12190ebba1f2c4b3c8cf4aac099fadb4cd50a669429b074f1c  /usr/local/bin/go2rtc" | sha256sum -c - ;; \
+         *)     echo "WARNING: no SHA256 checksum configured for arch=${TARGETARCH}" >&2 ;; \
+       esac \
+    && chmod +x /usr/local/bin/go2rtc
 
 # ── Node build stage for frontend ──
-FROM node:20-slim AS frontend-build
+FROM node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687 AS frontend-build
 
 WORKDIR /build/frontend
 COPY frontend/package*.json ./

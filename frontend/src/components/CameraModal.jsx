@@ -51,16 +51,10 @@ export default function CameraModal({ printer, onClose }) {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      
-      const headers = {
-        'Content-Type': 'application/sdp',
-        'X-API-Key': import.meta.env.VITE_API_KEY,
-      }
-      
-
       const response = await fetch('/api/cameras/' + printer.id + '/webrtc', {
         method: 'POST',
-        headers: headers,
+        headers: { 'Content-Type': 'application/sdp' },
+        credentials: 'include',
         body: offer.sdp
       })
 

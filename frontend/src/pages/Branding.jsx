@@ -107,10 +107,6 @@ const DEFAULTS = {
 function getAuthHeaders(contentType = 'application/json') {
   const headers = {}
   if (contentType) headers['Content-Type'] = contentType
-  
-  
-  const apiKey = import.meta.env.VITE_API_KEY
-  if (apiKey) headers['X-API-Key'] = apiKey
   return headers
 }
 
@@ -147,6 +143,7 @@ export default function Branding() {
       const res = await fetch(`${API_BASE}/branding`, {
         method: 'PUT',
         headers: getAuthHeaders(),
+        credentials: 'include',
         body: JSON.stringify(draft)
       })
       if (!res.ok) throw new Error("Failed to save")
@@ -178,6 +175,7 @@ export default function Branding() {
       const res = await fetch(`${API_BASE}/branding/favicon`, {
         method: 'DELETE',
         headers: getAuthHeaders(null),
+        credentials: 'include',
       })
       if (!res.ok) throw new Error("Remove failed")
       setBranding(prev => ({ ...prev, favicon_url: null }))
@@ -196,6 +194,7 @@ export default function Branding() {
       const res = await fetch(`${API_BASE}/branding/${endpoint}`, {
         method: 'POST',
         headers: getAuthHeaders(null),
+        credentials: 'include',
         body: formData
       })
       if (!res.ok) throw new Error("Upload failed")
@@ -212,6 +211,7 @@ export default function Branding() {
       const res = await fetch(`${API_BASE}/branding/logo`, {
         method: 'DELETE',
         headers: getAuthHeaders(null),
+        credentials: 'include',
       })
       if (!res.ok) throw new Error("Remove failed")
       setBranding(prev => ({ ...prev, logo_url: null }))
