@@ -926,10 +926,10 @@ async def oidc_callback(
             )
             db.commit()
             user_role = existing._mapping.get("role", "operator")
-        elif config.get("auto_create_users", True):
+        elif config.get("auto_create_users", False):
             # Create new user
             username = email.split("@")[0]  # Use email prefix as username
-            default_role = config.get("default_role", "operator")
+            default_role = config.get("default_role", "viewer")
 
             # Ensure unique username
             base_username = username
@@ -1301,14 +1301,29 @@ async def import_users_csv(
 @router.get("/groups", tags=["Groups"])
 async def list_groups(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
-    groups = db.execute(text("""
-        SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
-               u.username AS owner_username,
-               (SELECT COUNT(*) FROM users WHERE group_id = g.id) AS member_count
-        FROM groups g
-        LEFT JOIN users u ON u.id = g.owner_id
-        ORDER BY g.name
-    """)).fetchall()
+    # Non-admin callers only see their own group
+    if current_user.get("role") == "admin":
+        groups = db.execute(text("""
+            SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
+                   u.username AS owner_username,
+                   (SELECT COUNT(*) FROM users WHERE group_id = g.id) AS member_count
+            FROM groups g
+            LEFT JOIN users u ON u.id = g.owner_id
+            ORDER BY g.name
+        """)).fetchall()
+    else:
+        user_group_id = current_user.get("group_id")
+        if user_group_id is None:
+            return []
+        groups = db.execute(text("""
+            SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
+                   u.username AS owner_username,
+                   (SELECT COUNT(*) FROM users WHERE group_id = g.id) AS member_count
+            FROM groups g
+            LEFT JOIN users u ON u.id = g.owner_id
+            WHERE g.id = :gid
+            ORDER BY g.name
+        """), {"gid": user_group_id}).fetchall()
     return [dict(g._mapping) for g in groups]
 
 
@@ -1341,6 +1356,9 @@ async def create_group(body: dict, current_user: dict = Depends(require_role("ad
 @router.get("/groups/{group_id}", tags=["Groups"])
 async def get_group(group_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     require_feature("user_groups")
+    # Non-admin callers can only view their own group (IDOR prevention)
+    if current_user.get("role") != "admin" and current_user.get("group_id") != group_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     group = db.execute(text("""
         SELECT g.id, g.name, g.description, g.owner_id, g.created_at, g.updated_at,
                u.username AS owner_username

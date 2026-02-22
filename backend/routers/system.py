@@ -156,7 +156,11 @@ async def activate_license(
     current_user: dict = Depends(require_role("admin")),
 ):
     """Activate a license by key via the license server. Admin only."""
-    license_server_url = os.environ.get("LICENSE_SERVER_URL", "http://192.168.70.6:5000")
+    license_server_url = os.environ.get("LICENSE_SERVER_URL")
+    if not license_server_url:
+        raise HTTPException(status_code=503, detail="LICENSE_SERVER_URL is not configured. Set this environment variable to enable online activation.")
+    if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
+        license_server_url = "https://" + license_server_url[7:]
     installation_id = get_installation_id()
 
     try:
@@ -474,8 +478,10 @@ def setup_network_info(request: Request):
 
 
 @router.post("/setup/network", tags=["Setup"])
-async def setup_save_network(request: Request, db: Session = Depends(get_db)):
-    """Save host IP for WebRTC camera streaming."""
+async def setup_save_network(request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+    """Save host IP for WebRTC camera streaming. Admin only."""
+    if _setup_is_locked(db):
+        raise HTTPException(status_code=403, detail="Setup already completed")
     data = await request.json()
     host_ip = data.get("host_ip", "").strip()
     if not host_ip:
@@ -536,7 +542,7 @@ ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
 
 
 @router.get("/config", tags=["Config"])
-def get_config():
+def get_config(current_user: dict = Depends(require_role("admin"))):
     """Get current configuration."""
     return {
         "spoolman_url": settings.spoolman_url,
@@ -587,8 +593,8 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_rol
     return {"success": True, "message": "Config updated. Restart backend to apply changes."}
 
 @router.get("/spoolman/test", tags=["Spoolman"])
-async def test_spoolman_connection():
-    """Test Spoolman connection."""
+async def test_spoolman_connection(current_user: dict = Depends(require_role("admin"))):
+    """Test Spoolman connection. Admin only."""
     if not settings.spoolman_url:
         return {"success": False, "message": "Spoolman URL not configured"}
 
@@ -790,8 +796,8 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
 # ============== Prometheus Metrics ==============
 
 @router.get("/metrics", tags=["Monitoring"])
-async def prometheus_metrics(db: Session = Depends(get_db)):
-    """Prometheus-compatible metrics endpoint. No auth required."""
+async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+    """Prometheus-compatible metrics endpoint. Requires viewer role or API key."""
     lines = []
 
     # --- Fleet metrics ---
@@ -943,7 +949,7 @@ async def prometheus_metrics(db: Session = Depends(get_db)):
 # ============== HMS Code Lookup ==============
 
 @router.get("/hms-codes/{code}", tags=["Monitoring"])
-async def lookup_hms(code: str):
+async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewer"))):
     """Look up human-readable description for a Bambu HMS error code."""
     try:
         from hms_codes import lookup_hms_code, get_code_count
@@ -1354,7 +1360,7 @@ class MaintenanceLogCreate(PydanticBaseModel):
 
 
 @router.get("/maintenance/tasks", tags=["Maintenance"])
-def list_maintenance_tasks(db: Session = Depends(get_db)):
+def list_maintenance_tasks(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """List all maintenance task templates."""
     tasks = db.query(MaintenanceTask).order_by(MaintenanceTask.name).all()
     return [{
@@ -1401,7 +1407,7 @@ def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_u
 
 
 @router.delete("/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
-def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a maintenance task template and its logs."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
     if not task:
@@ -1414,7 +1420,8 @@ def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_r
 def list_maintenance_logs(
     printer_id: Optional[int] = None,
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer")),
 ):
     """List maintenance logs, optionally filtered by printer."""
     query = db.query(MaintenanceLog).order_by(MaintenanceLog.performed_at.desc())
@@ -1466,7 +1473,7 @@ def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depe
 
 
 @router.delete("/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
-def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a maintenance log entry."""
     log_entry = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
     if not log_entry:
@@ -1476,7 +1483,7 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
 
 
 @router.get("/maintenance/status", tags=["Maintenance"])
-def get_maintenance_status(db: Session = Depends(get_db)):
+def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get maintenance status for all active printers. Returns per-printer task health."""
     printers = db.query(Printer).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
     tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active.is_(True)).all()
@@ -1644,7 +1651,7 @@ def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("ad
 # ============== Global Search ==============
 
 @router.get("/search", tags=["Search"])
-def global_search(q: str = "", db: Session = Depends(get_db)):
+def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Search across models, jobs, spools, and printers."""
     if not q or len(q) < 2:
         return {"models": [], "jobs": [], "spools": [], "printers": []}

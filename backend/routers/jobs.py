@@ -54,7 +54,7 @@ def list_jobs(
     org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """List jobs with optional filters."""
@@ -73,12 +73,11 @@ def list_jobs(
 
 
 @router.post("/jobs", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
-def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Create a new print job. If approval is required and user is a viewer, job is created as 'submitted'.
 
-    Note: No require_role() here -- intentional. Viewers can create jobs that enter the approval
-    workflow (status='submitted') when require_job_approval is enabled. The approval flow handles
-    authorization; operators/admins bypass it and create jobs directly as 'pending'.
+    require_role("viewer") allows viewers, operators, and admins — blocking only unauthenticated
+    requests. The approval workflow logic checks current_user["role"] internally.
     """
     # Import here to avoid circular at module level
     from routers.models import calculate_job_cost
@@ -250,12 +249,12 @@ async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depen
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
-def get_job(job_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_job(job_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a specific job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if current_user and not check_org_access(current_user, job.charged_to_org_id):
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
@@ -295,6 +294,8 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
     """Clone a job for printing again. Creates a new pending job with same settings."""
     original = db.query(Job).filter(Job.id == job_id).first()
     if not original:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, original.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Create new job with same settings
@@ -535,11 +536,9 @@ class _RejectJobRequest(PydanticBaseModel):
     reason: str
 
 @router.post("/jobs/{job_id}/approve", tags=["Jobs"])
-def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("operator"))):
     require_feature("job_approval")
     """Approve a submitted job. Moves it to pending status for scheduling."""
-    if not current_user or current_user.get("role") not in ("operator", "admin"):
-        raise HTTPException(status_code=403, detail="Only operators and admins can approve jobs")
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -574,11 +573,9 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
 
 
 @router.post("/jobs/{job_id}/reject", tags=["Jobs"])
-def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_db), current_user: dict = Depends(require_role("operator"))):
     require_feature("job_approval")
     """Reject a submitted job with a required reason."""
-    if not current_user or current_user.get("role") not in ("operator", "admin"):
-        raise HTTPException(status_code=403, detail="Only operators and admins can reject jobs")
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -695,10 +692,15 @@ def set_approval_setting(body: dict, db: Session = Depends(get_db), current_user
 @router.post("/jobs/{job_id}/link-print", tags=["Jobs"])
 def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Link a scheduled job to an MQTT-detected print."""
-    # Check job exists
-    job = db.execute(text("SELECT id, printer_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
-    if not job:
+    # Check job exists and caller has org access
+    job_row = db.execute(text("SELECT id, printer_id, charged_to_org_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
+    if not job_row:
         raise HTTPException(status_code=404, detail="Job not found")
+    job_dict = dict(job_row._mapping)
+    if not check_org_access(current_user, job_dict.get("charged_to_org_id")):
+        raise HTTPException(status_code=404, detail="Job not found")
+    # Re-alias for downstream use
+    job = job_row
 
     # Check print_job exists
     print_job = db.execute(text("SELECT id, printer_id, status FROM print_jobs WHERE id = :id"), {"id": print_job_id}).fetchone()
@@ -731,7 +733,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
 
 
 @router.get("/print-jobs/unlinked", tags=["Print Jobs"])
-def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db)):
+def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get recent print jobs not linked to scheduled jobs."""
     sql = """
         SELECT pj.*, p.name as printer_name
@@ -822,7 +824,8 @@ def get_print_jobs(
     printer_id: Optional[int] = None,
     status: Optional[str] = None,
     limit: int = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer")),
 ):
     """Get print job history from MQTT tracking."""
     from datetime import datetime as dt
@@ -865,7 +868,7 @@ def get_print_jobs(
     return jobs
 
 @router.get("/print-jobs/stats", tags=["Print Jobs"])
-def get_print_job_stats(db: Session = Depends(get_db)):
+def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get aggregated print job statistics."""
     query = text("""
         SELECT
@@ -907,6 +910,9 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
 
     if action == "cancel":
         for jid in job_ids:
+            job = db.query(Job).filter(Job.id == jid).first()
+            if job and not check_org_access(current_user, job.charged_to_org_id):
+                continue
             db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
                        {"id": jid})
             count += 1
@@ -915,19 +921,31 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
         if priority not in range(1, 6):
             raise HTTPException(status_code=400, detail="Priority must be 1-5")
         for jid in job_ids:
+            job = db.query(Job).filter(Job.id == jid).first()
+            if job and not check_org_access(current_user, job.charged_to_org_id):
+                continue
             db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id"), {"p": priority, "id": jid})
             count += 1
     elif action == "delete":
         for jid in job_ids:
+            job = db.query(Job).filter(Job.id == jid).first()
+            if job and not check_org_access(current_user, job.charged_to_org_id):
+                continue
             db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
                        {"id": jid})
             count += 1
     elif action == "hold":
         for jid in job_ids:
+            job = db.query(Job).filter(Job.id == jid).first()
+            if job and not check_org_access(current_user, job.charged_to_org_id):
+                continue
             db.execute(text("UPDATE jobs SET hold = 1 WHERE id = :id"), {"id": jid})
             count += 1
     elif action == "unhold":
         for jid in job_ids:
+            job = db.query(Job).filter(Job.id == jid).first()
+            if job and not check_org_access(current_user, job.charged_to_org_id):
+                continue
             db.execute(text("UPDATE jobs SET hold = 0 WHERE id = :id"), {"id": jid})
             count += 1
     else:
@@ -945,7 +963,7 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
 # ──────────────────────────────────────────────
 
 @router.get("/failure-reasons", tags=["Jobs"])
-async def get_failure_reasons():
+async def get_failure_reasons(current_user: dict = Depends(require_role("viewer"))):
     """List available failure reason categories."""
     return FAILURE_REASONS
 
@@ -995,7 +1013,7 @@ async def update_job_failure(
 # ──────────────────────────────────────────────
 
 @router.get("/presets", tags=["Presets"])
-def list_presets(db: Session = Depends(get_db)):
+def list_presets(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """List all print presets."""
     presets = db.query(PrintPreset).order_by(PrintPreset.name).all()
     return [

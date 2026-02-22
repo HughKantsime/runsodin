@@ -26,7 +26,7 @@ router = APIRouter()
 # ============== Stats ==============
 
 @router.get("/stats", tags=["Stats"])
-async def get_stats(db: Session = Depends(get_db)):
+async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get dashboard statistics."""
     total_printers = db.query(Printer).count()
     active_printers = db.query(Printer).filter(Printer.is_active.is_(True)).count()
@@ -124,7 +124,7 @@ async def get_stats(db: Session = Depends(get_db)):
 # ============== Analytics ==============
 
 @router.get("/analytics", tags=["Analytics"])
-def get_analytics(db: Session = Depends(get_db)):
+def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get analytics data for dashboard."""
     from sqlalchemy import func
 
@@ -297,6 +297,7 @@ def get_analytics(db: Session = Depends(get_db)):
 def get_failure_analytics(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer")),
 ):
     """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -408,6 +409,7 @@ def get_failure_analytics(
 def get_time_accuracy(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer")),
 ):
     """Estimated vs actual print time accuracy stats."""
     from sqlalchemy import func as fn
@@ -496,10 +498,20 @@ def get_education_usage_report(
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Get all users
-    users_rows = db.execute(
-        text("SELECT id, username, email, role, is_active, last_login FROM users")
-    ).fetchall()
+    # Get all users — non-admin callers can only see their own org
+    if current_user.get("role") == "admin":
+        users_rows = db.execute(
+            text("SELECT id, username, email, role, is_active, last_login FROM users")
+        ).fetchall()
+    else:
+        user_group_id = current_user.get("group_id")
+        if user_group_id is None:
+            users_rows = []
+        else:
+            users_rows = db.execute(
+                text("SELECT id, username, email, role, is_active, last_login FROM users WHERE group_id = :gid"),
+                {"gid": user_group_id}
+            ).fetchall()
 
     # Get jobs in window, eager-load model for filament data
     jobs_in_range = (

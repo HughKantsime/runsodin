@@ -118,7 +118,7 @@ def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_u
 # ====================================================================
 
 @router.get("/cameras", tags=["Cameras"])
-def list_cameras(db: Session = Depends(get_db)):
+def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """List printers with active camera streams in go2rtc."""
     # Check which streams go2rtc actually has configured
     active_streams = set()

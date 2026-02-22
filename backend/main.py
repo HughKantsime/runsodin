@@ -310,7 +310,7 @@ async def authenticate_request(request: Request, call_next):
         _api_path = path[4:]  # strip "/api" → "/..."
 
     if (
-        path in ("/health", "/metrics", "/ws")
+        path in ("/health", "/ws")
         or path.endswith("/label")
         or path.endswith("/labels/batch")
         or _api_path.startswith("/auth")
