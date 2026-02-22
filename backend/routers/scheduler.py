@@ -83,6 +83,7 @@ def run_scheduler_endpoint(
 @router.get("/scheduler/runs", response_model=list[SchedulerRunResponse], tags=["Scheduler"])
 def list_scheduler_runs(
     limit: int = Query(default=30, le=100),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """Get scheduler run history."""
@@ -97,6 +98,7 @@ def list_scheduler_runs(
 def get_timeline(
     start_date: Optional[datetime] = None,
     days: int = Query(default=7, ge=1, le=30),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """Get timeline view data for the scheduler."""

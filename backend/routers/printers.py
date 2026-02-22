@@ -190,7 +190,7 @@ def sync_go2rtc_config(db: Session):
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
         log.info(f"go2rtc WebRTC ICE candidate: {lan_ip}:8555")
     config = {
-        "api": {"listen": "0.0.0.0:1984"},
+        "api": {"listen": "127.0.0.1:1984"},
         "webrtc": webrtc_config,
         "streams": streams,
     }

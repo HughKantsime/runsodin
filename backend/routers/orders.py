@@ -101,7 +101,7 @@ def calculate_job_cost(db: Session, model_id: int = None, filament_grams: float 
 # -------------- Products --------------
 
 @router.get("/products", response_model=List[ProductResponse], tags=["Products"])
-def list_products(db: Session = Depends(get_db)):
+def list_products(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all products."""
     products = db.query(Product).all()
     result = []
@@ -157,7 +157,7 @@ def create_product(data: ProductCreate, current_user: dict = Depends(require_rol
 
 
 @router.get("/products/{product_id}", response_model=ProductResponse, tags=["Products"])
-def get_product(product_id: int, db: Session = Depends(get_db)):
+def get_product(product_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a product with its BOM components."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -268,6 +268,7 @@ def remove_product_component(product_id: int, component_id: int, current_user: d
 def list_orders(
     status_filter: Optional[str] = None,
     platform: Optional[str] = None,
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """List all orders with optional filters."""
@@ -339,7 +340,7 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
 
 
 @router.get("/orders/{order_id}", response_model=OrderResponse, tags=["Orders"])
-def get_order(order_id: int, db: Session = Depends(get_db)):
+def get_order(order_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get an order with items and P&L calculation."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:

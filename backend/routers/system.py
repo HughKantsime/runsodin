@@ -459,8 +459,17 @@ def _get_lan_ip():
 
 
 @router.get("/setup/network", tags=["Setup"])
-def setup_network_info(request: Request):
-    """Return auto-detected host IP for network configuration."""
+def setup_network_info(request: Request, db: Session = Depends(get_db)):
+    """Return auto-detected host IP for network configuration.
+    Allowed unauthenticated only during initial setup (before any users exist).
+    """
+    if _setup_is_locked(db):
+        # Setup complete — require authentication for this info
+        current_user = get_current_user(request, db)
+        if not current_user:
+            from fastapi import Response as _Resp
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
     # Best detection: use the Host header from the browser request
     # When user hits http://192.168.70.200:8000, Host = "192.168.70.200:8000"
     detected_ip = ""

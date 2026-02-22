@@ -221,7 +221,7 @@ async def sync_spoolman(current_user: dict = Depends(require_role("operator")), 
 
 
 @router.get("/spoolman/spools", response_model=List[SpoolmanSpool], tags=["Spoolman"])
-async def list_spoolman_spools():
+async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer"))):
     """List available spools from Spoolman."""
     if not settings.spoolman_url:
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
@@ -250,7 +250,7 @@ async def list_spoolman_spools():
 
 
 @router.get("/spoolman/filaments", tags=["Spoolman"])
-async def get_spoolman_filaments():
+async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer"))):
     """Fetch all filament types from Spoolman."""
     try:
         async with httpx.AsyncClient() as client:
@@ -270,6 +270,7 @@ async def get_spoolman_filaments():
 def list_filaments(
     brand: Optional[str] = None,
     material: Optional[str] = None,
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """Get filaments from library."""
@@ -310,7 +311,7 @@ def add_custom_filament(data: FilamentCreateRequest, current_user: dict = Depend
 
 
 @router.get("/filaments/combined", tags=["Filaments"])
-async def get_combined_filaments(db: Session = Depends(get_db)):
+async def get_combined_filaments(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get filaments from both Spoolman (if available) and local library."""
     result = []
 
@@ -351,7 +352,7 @@ async def get_combined_filaments(db: Session = Depends(get_db)):
 
 
 @router.get("/filaments/{filament_id}", tags=["Filaments"])
-def get_filament(filament_id: str, db: Session = Depends(get_db)):
+def get_filament(filament_id: str, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a specific filament from the library."""
     fid_str = filament_id.replace("lib_", "")
     try:
@@ -754,7 +755,7 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
 # ====================================================================
 
 @router.get("/spools/{spool_id}/qr", tags=["Spools"])
-def get_spool_qr(spool_id: int, db: Session = Depends(get_db)):
+def get_spool_qr(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get QR code data for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -770,7 +771,7 @@ def get_spool_qr(spool_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/spools/lookup/{qr_code}", tags=["Spools"])
-def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
+def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Look up spool details by QR code."""
     spool = db.query(Spool).filter(Spool.qr_code == qr_code).first()
     if not spool:
@@ -794,6 +795,7 @@ def lookup_spool_by_qr(qr_code: str, db: Session = Depends(get_db)):
 def generate_spool_label(
     spool_id: int,
     size: str = "small",  # small (2x1"), medium (3x2"), large (4x3")
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """Generate a printable QR label for a spool."""
@@ -908,6 +910,7 @@ def generate_spool_label(
 def generate_batch_labels(
     spool_ids: str,  # Comma-separated IDs
     size: str = "small",
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """Generate a page of labels for multiple spools."""
@@ -1022,7 +1025,7 @@ def confirm_slot_assignment(
 
 
 @router.get("/printers/{printer_id}/slots/needs-attention", tags=["Spools"])
-def get_slots_needing_attention(printer_id: int, db: Session = Depends(get_db)):
+def get_slots_needing_attention(printer_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get slots that need spool confirmation or have mismatches."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -1111,7 +1114,7 @@ def log_drying_session(
 
 
 @router.get("/spools/{spool_id}/drying-history", tags=["Spools"])
-def get_drying_history(spool_id: int, db: Session = Depends(get_db)):
+def get_drying_history(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get drying session history for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:

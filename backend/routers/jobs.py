@@ -661,7 +661,7 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
 # ──────────────────────────────────────────────
 
 @router.get("/config/require-job-approval", tags=["Config"])
-def get_approval_setting(db: Session = Depends(get_db)):
+def get_approval_setting(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get the current job approval requirement setting."""
     config = db.query(SystemConfig).filter(SystemConfig.key == "require_job_approval").first()
     enabled = False

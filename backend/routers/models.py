@@ -651,6 +651,7 @@ async def upload_3mf(
 def list_print_files(
     limit: int = Query(default=20, ge=1, le=100),
     include_scheduled: bool = False,
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """List uploaded print files."""
@@ -677,7 +678,7 @@ def list_print_files(
 
 
 @router.get("/print-files/{file_id}", tags=["Print Files"])
-def get_print_file(file_id: int, db: Session = Depends(get_db)):
+def get_print_file(file_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get details of a specific print file."""
     result = db.execute(text("SELECT * FROM print_files WHERE id = :id"), {"id": file_id}).fetchone()
     if not result:
@@ -871,7 +872,7 @@ async def revert_model_revision(
 # ──────────────────────────────────────────────
 
 @router.get("/print-files/{file_id}/mesh", tags=["3D Viewer"])
-async def get_print_file_mesh(file_id: int, db: Session = Depends(get_db)):
+async def get_print_file_mesh(file_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get mesh geometry data for 3D viewer from a print file."""
     result = db.execute(text(
         "SELECT mesh_data FROM print_files WHERE id = :id"
@@ -885,7 +886,7 @@ async def get_print_file_mesh(file_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/models/{model_id}/mesh", tags=["3D Viewer"])
-async def get_model_mesh(model_id: int, db: Session = Depends(get_db)):
+async def get_model_mesh(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get mesh geometry for a model (via its linked print_file)."""
     # Find print_file_id from model
     model = db.execute(text(
@@ -911,7 +912,7 @@ async def get_model_mesh(model_id: int, db: Session = Depends(get_db)):
 # ──────────────────────────────────────────────
 
 @router.get("/models/{model_id}/variants", tags=["Models"])
-def get_model_variants(model_id: int, db: Session = Depends(get_db)):
+def get_model_variants(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get all print file variants for a model."""
     model = db.execute(text("SELECT id, name FROM models WHERE id = :id"), {"id": model_id}).fetchone()
     if not model:
@@ -956,7 +957,7 @@ def delete_model_variant(model_id: int, variant_id: int, current_user: dict = De
 # ──────────────────────────────────────────────
 
 @router.get("/pricing-config")
-def get_pricing_config(db: Session = Depends(get_db)):
+def get_pricing_config(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get system pricing configuration."""
     config = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
     if not config:
