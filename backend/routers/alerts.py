@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 
+import crypto
 from deps import get_db, get_current_user, require_role, log_audit, _get_org_filter, _validate_webhook_url
 from models import (
     Alert, AlertType, AlertSeverity, AlertPreference, PushSubscription,
@@ -26,6 +27,26 @@ log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
+def _decrypt_webhook_url(url: str) -> str:
+    """Decrypt a webhook URL, returning the plaintext. Migration-safe: returns
+    the value unchanged if it is not Fernet-encrypted (pre-v1.3.66 rows)."""
+    if not url:
+        return url
+    try:
+        return crypto.decrypt(url)
+    except Exception:
+        return url  # plaintext fallback for existing rows
+
+
+def _encrypt_webhook_url(url: str) -> str:
+    """Encrypt a webhook URL if not already encrypted."""
+    if not url:
+        return url
+    if crypto.is_encrypted(url):
+        return url
+    return crypto.encrypt(url)
+
+
 # ============== Webhooks ==============
 
 @router.get("/webhooks", tags=["Webhooks"])
@@ -35,7 +56,12 @@ async def list_webhooks(
 ):
     """List all webhooks."""
     rows = db.execute(text("SELECT * FROM webhooks ORDER BY name")).fetchall()
-    return [dict(r._mapping) for r in rows]
+    results = []
+    for r in rows:
+        wh = dict(r._mapping)
+        wh["url"] = _decrypt_webhook_url(wh.get("url", ""))
+        results.append(wh)
+    return results
 
 
 @router.post("/webhooks", tags=["Webhooks"])
@@ -56,6 +82,7 @@ async def create_webhook(
         raise HTTPException(status_code=400, detail="URL is required")
 
     _validate_webhook_url(url)
+    url = _encrypt_webhook_url(url)
 
     # Store alert_types as JSON
     if isinstance(alert_types, list):
@@ -91,6 +118,8 @@ async def update_webhook(
             value = data[field]
             if field == "alert_types" and isinstance(value, list):
                 value = json.dumps(value)
+            if field == "url" and value:
+                value = _encrypt_webhook_url(value)
             updates.append(f"{field} = :{field}")
             params[field] = value
 
@@ -127,6 +156,7 @@ async def test_webhook(
         raise HTTPException(status_code=404, detail="Webhook not found")
 
     webhook = dict(row._mapping)
+    webhook["url"] = _decrypt_webhook_url(webhook.get("url", ""))
 
     try:
         import httpx
@@ -232,7 +262,7 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
                 pass
 
         wtype = wh["webhook_type"]
-        url = wh["url"]
+        url = _decrypt_webhook_url(wh.get("url", ""))
 
         severity_colors = {"critical": 0xef4444, "warning": 0xf59e0b, "info": 0x3b82f6}
         severity_emoji = {"critical": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}

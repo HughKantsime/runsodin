@@ -205,6 +205,13 @@ async def lifespan(app: FastAPI):
     # for dual-schema tables (defined in both models.py and entrypoint.sh)
     _check_schema_drift()
 
+    if not settings.api_key:
+        log.warning(
+            "⚠️  API_KEY is not set — perimeter authentication is DISABLED. "
+            "All requests are accepted without an API key. "
+            "Set API_KEY in your environment or docker-compose.yml for production use."
+        )
+
     broadcast_task = asyncio.create_task(ws_broadcaster())
     cleanup_task = asyncio.create_task(periodic_cleanup())
     yield
