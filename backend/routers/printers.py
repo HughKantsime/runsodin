@@ -1345,6 +1345,8 @@ async def test_bambu_printer_connection(request: BambuConnectionTest, current_us
     if not BAMBU_AVAILABLE:
         raise HTTPException(status_code=501, detail="Bambu integration not available. Install: pip install paho-mqtt")
 
+    _check_ssrf_blocklist(request.ip_address)
+
     result = test_bambu_connection(
         ip_address=request.ip_address,
         serial_number=request.serial_number,
@@ -1629,7 +1631,8 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
         else:
             return {"error": "Connection failed"}
     except Exception as e:
-        return {"error": str(e)}
+        log.debug("Live status fetch error for printer %s: %s", printer_id, e, exc_info=True)
+        return {"error": "Unable to fetch live status"}
 
 
 @router.get("/printers/{printer_id}/live-status", tags=["Printers"])

@@ -95,14 +95,11 @@ async def logout(
     current_user: dict = Depends(get_current_user),
 ):
     """Clear session cookie and blacklist the JWT (if present)."""
-    # Blacklist the session cookie JWT
-    session_token = request.cookies.get("session")
-    if session_token:
-        import jwt as _jwt
+    import jwt as _jwt
+
+    def _blacklist_token(token: str) -> None:
         try:
-            payload = _jwt.decode(
-                session_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
-            )
+            payload = _jwt.decode(token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             jti = payload.get("jti")
             exp = payload.get("exp")
             if jti and exp:
@@ -114,9 +111,22 @@ async def logout(
                     text("DELETE FROM active_sessions WHERE token_jti = :jti"),
                     {"jti": jti},
                 )
-                db.commit()
         except Exception:
-            log.debug("Could not blacklist session token on logout", exc_info=True)
+            log.debug("Could not blacklist token on logout", exc_info=True)
+
+    # Blacklist the session cookie JWT
+    session_token = request.cookies.get("session")
+    if session_token:
+        _blacklist_token(session_token)
+
+    # Also blacklist a Bearer JWT (API clients that explicitly call logout)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        bearer_token = auth_header[7:]
+        if bearer_token != session_token:  # avoid double-blacklisting the same token
+            _blacklist_token(bearer_token)
+
+    db.commit()
 
     # Clear the session cookie
     response.delete_cookie(key="session", path="/")
@@ -1015,7 +1025,7 @@ async def oidc_callback(
 
 
 @router.post("/auth/oidc/exchange", tags=["Auth"])
-async def oidc_exchange_code(body: dict, db: Session = Depends(get_db)):
+async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends(get_db)):
     """Exchange a one-time OIDC auth code for a JWT access token.
 
     The OIDC callback redirects the browser with a short-lived code instead of
@@ -1050,7 +1060,33 @@ async def oidc_exchange_code(body: dict, db: Session = Depends(get_db)):
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="Code expired")
 
-    return {"access_token": row.access_token, "token_type": "bearer"}
+    access_token = row.access_token
+
+    # Record the session and set a proper httpOnly cookie (same as password login)
+    import jwt as _jwt
+    try:
+        payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+        username = payload.get("sub")
+        if username:
+            user = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": username}).fetchone()
+            if user:
+                client_ip = request.client.host if request.client else "unknown"
+                _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
+    except Exception:
+        log.debug("Could not record OIDC session", exc_info=True)
+
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+    resp.set_cookie(
+        key="session",
+        value=access_token,
+        httponly=True,
+        secure=_settings.cookie_secure,
+        samesite=_settings.cookie_samesite,
+        path="/",
+        max_age=86400,
+    )
+    return resp
 
 
 @router.get("/admin/oidc", tags=["Admin"])
@@ -1188,6 +1224,19 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
     if password_changed:
         log_audit(db, "user.password_changed", "user", user_id,
                   {"actor_user_id": current_user["id"], "target_user_id": user_id})
+        # Revoke all existing sessions for the target user so old credentials can't be reused
+        sessions = db.execute(
+            text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"),
+            {"uid": user_id},
+        ).fetchall()
+        expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        for session in sessions:
+            db.execute(
+                text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+                {"jti": session.token_jti, "exp": expiry},
+            )
+        db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+        db.commit()
     return {"status": "updated"}
 
 @router.delete("/users/{user_id}", tags=["Users"])

@@ -67,6 +67,7 @@ CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:3000}
 HOST=0.0.0.0
 PORT=8000
 EOF
+chmod 600 /app/backend/.env
 
 echo "  ✓ Configuration written"
 

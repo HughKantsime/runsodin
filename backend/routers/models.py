@@ -555,7 +555,6 @@ async def upload_3mf(
                 "printer_model": metadata.printer_model,
                 "objects": plate_objects,
                 "has_mesh": mesh_data is not None,
-                "stored_path": stored_path,
                 "bed_x_mm": meta["bed_x_mm"],
                 "bed_y_mm": meta["bed_y_mm"],
                 "compatible_api_types": meta["compatible_api_types"],
@@ -637,7 +636,6 @@ async def upload_3mf(
                 "printer_model": None,
                 "objects": [],
                 "has_mesh": False,
-                "stored_path": stored_path,
                 "bed_x_mm": meta["bed_x_mm"],
                 "bed_y_mm": meta["bed_y_mm"],
                 "compatible_api_types": meta["compatible_api_types"],
@@ -671,6 +669,7 @@ def list_print_files(
         r = dict(row._mapping)
         r['filaments'] = json.loads(r['filaments_json']) if r['filaments_json'] else []
         del r['filaments_json']
+        r.pop('stored_path', None)  # server filesystem path — not for clients
         r['print_time_formatted'] = f"{r['print_time_seconds'] // 3600}h {(r['print_time_seconds'] % 3600) // 60}m" if r['print_time_seconds'] >= 3600 else f"{r['print_time_seconds'] // 60}m"
         files.append(r)
 
@@ -687,6 +686,7 @@ def get_print_file(file_id: int, current_user: dict = Depends(require_role("view
     r = dict(result._mapping)
     r['filaments'] = json.loads(r['filaments_json']) if r['filaments_json'] else []
     del r['filaments_json']
+    r.pop('stored_path', None)  # server filesystem path — not for clients
     r['print_time_formatted'] = f"{r['print_time_seconds'] // 3600}h {(r['print_time_seconds'] % 3600) // 60}m" if r['print_time_seconds'] >= 3600 else f"{r['print_time_seconds'] // 60}m"
 
     return r
