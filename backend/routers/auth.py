@@ -162,6 +162,16 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     if not payload.get("mfa_pending"):
         raise HTTPException(status_code=400, detail="Token is not an MFA challenge token")
 
+    # Reject blacklisted mfa_pending tokens (already used for a session)
+    mfa_pending_jti = payload.get("jti")
+    if mfa_pending_jti:
+        blacklisted = db.execute(
+            text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
+            {"jti": mfa_pending_jti},
+        ).fetchone()
+        if blacklisted:
+            raise HTTPException(status_code=401, detail="MFA token has already been used")
+
     user = db.execute(text("SELECT * FROM users WHERE username = :username"),
                       {"username": token_data.username}).fetchone()
     if not user or not user.mfa_enabled or not user.mfa_secret:
@@ -172,6 +182,16 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Invalid MFA code")
+
+    # Blacklist the mfa_pending token so it cannot be reused for a second session
+    mfa_jti = payload.get("jti")
+    if mfa_jti:
+        mfa_exp = payload.get("exp", 0)
+        db.execute(text("""
+            INSERT OR IGNORE INTO token_blacklist (jti, expires_at)
+            VALUES (:jti, :exp)
+        """), {"jti": mfa_jti, "exp": datetime.fromtimestamp(mfa_exp, tz=timezone.utc).isoformat()})
+        db.commit()
 
     # Issue full access token
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
@@ -352,13 +372,15 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
         "FROM active_sessions s WHERE s.user_id = :uid ORDER BY s.last_seen_at DESC"),
         {"uid": current_user["id"]}).fetchall()
 
-    # Determine current session's jti
+    # Determine current session's jti — check cookie first (browser), then Bearer header (API clients)
     current_jti = None
+    session_cookie = request.cookies.get("session")
     auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
+    raw_token = session_cookie or (auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else None)
+    if raw_token:
         try:
             import jwt as _jwt
-            payload = _jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+            payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             current_jti = payload.get("jti")
         except Exception:
             pass
@@ -400,13 +422,15 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
 @router.delete("/sessions", tags=["Sessions"])
 async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke all sessions except the current one."""
-    # Find current jti
+    # Find current jti — check cookie first (browser), then Bearer header (API clients)
     current_jti = None
+    session_cookie = request.cookies.get("session")
     auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
+    raw_token = session_cookie or (auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else None)
+    if raw_token:
         try:
             import jwt as _jwt
-            payload = _jwt.decode(auth_header[7:], auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
+            payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             current_jti = payload.get("jti")
         except Exception:
             pass
