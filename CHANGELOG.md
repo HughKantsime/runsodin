@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.68] - 2026-02-21
+
+### Fixed
+- **Spool label endpoint auth** — `GET /api/spools/{id}/label` now correctly requires viewer+ auth. Tests updated to match.
+- **GET /api/config accessible to viewer/operator** — Dropped `require_role("admin")` to `require_role("viewer")` for the config read endpoint; it only returns non-sensitive values (`spoolman_url`, `blackout_start`, `blackout_end`).
+- **package-lock.json sync** — Updated lockfile to include `three@0.128.0` (was missing, caused `npm ci` failure in Docker builds).
+
 ## [1.3.67] - 2026-02-21
 
 ### Security
