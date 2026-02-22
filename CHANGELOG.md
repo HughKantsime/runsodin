@@ -2,6 +2,17 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.66] - 2026-02-21
+
+### Security
+- **OIDC login fixed** — `POST /auth/oidc/exchange` now sets an httpOnly session cookie and records the session (previously returned JSON only, making OIDC SSO non-functional since `Login.jsx` discarded the response body).
+- **Logout invalidates Bearer JWT** — `POST /auth/logout` now blacklists the `Authorization: Bearer` token in addition to the session cookie, so API clients that call logout are properly signed out.
+- **Password change revokes sessions** — `PATCH /users/{user_id}` now blacklists all existing session JTIs and clears `active_sessions` for the target user when a password change is applied, preventing credential reuse.
+- **Bambu SSRF check** — `POST /bambu/test-connection` now calls `_check_ssrf_blocklist()` on `ip_address` before attempting the MQTT connection, blocking SSRF targeting internal hosts.
+- **Live-status error redaction** — `_fetch_printer_live_status` no longer returns `str(e)` in error responses; internal exception details are logged at DEBUG level and a generic message is returned to the caller.
+- **stored_path removed from print-file responses** — server filesystem paths are stripped from `POST /print-files`, `GET /print-files`, and `GET /print-files/{id}` responses.
+- **`.env` permissions hardened** — `docker/entrypoint.sh` now runs `chmod 600 /app/backend/.env` after writing secrets to it (matching the existing behaviour for `/data/.env.supervisor`).
+
 ## [1.3.65] - 2026-02-21
 
 ### Security
