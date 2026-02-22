@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     # SameSite policy: 'strict' (prod), 'lax' (needed if OIDC IdP is cross-origin)
     cookie_samesite: str = "strict"
+
+    # OIDC redirect URI override. When ODIN is behind a reverse proxy, set this
+    # to the externally-visible callback URL (e.g. https://odin.example.com/api/auth/oidc/callback)
+    # to avoid Host-header injection affecting the redirect_uri sent to the IdP.
+    # If unset, redirect_uri is derived from request.base_url (default, fine for direct access).
+    oidc_redirect_uri: Optional[str] = None
     
     class Config:
         env_file = ".env"

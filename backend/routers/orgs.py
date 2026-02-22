@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 import logging
 
+import crypto
 from deps import get_db, require_role, log_audit, _validate_webhook_url
 
 log = logging.getLogger("odin.api")
@@ -32,7 +33,14 @@ def _get_org_settings(db, org_id: int) -> dict:
     """Load org settings from groups.settings_json, merged with defaults."""
     row = db.execute(text("SELECT settings_json FROM groups WHERE id = :id"), {"id": org_id}).fetchone()
     if row and row.settings_json:
-        return {**DEFAULT_ORG_SETTINGS, **json.loads(row.settings_json)}
+        stored = json.loads(row.settings_json)
+        # Decrypt webhook_url if it was stored encrypted (migration-safe fallback)
+        if stored.get("webhook_url"):
+            try:
+                stored["webhook_url"] = crypto.decrypt(stored["webhook_url"])
+            except Exception:
+                pass  # already plaintext (pre-v1.3.67 rows)
+        return {**DEFAULT_ORG_SETTINGS, **stored}
     return dict(DEFAULT_ORG_SETTINGS)
 
 
@@ -162,9 +170,12 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    # SSRF validation for webhook URL before persisting
+    # SSRF validation and encryption for webhook URL before persisting
     if "webhook_url" in body and body["webhook_url"]:
         _validate_webhook_url(body["webhook_url"])
+        body["webhook_url"] = crypto.encrypt(body["webhook_url"])
+    elif "webhook_url" in body and not body["webhook_url"]:
+        body["webhook_url"] = None  # allow clearing
 
     current = json.loads(org.settings_json) if org.settings_json else {}
     for key in ALLOWED_SETTINGS_KEYS:

@@ -877,9 +877,12 @@ async def oidc_login(request: Request, db: Session = Depends(get_db)):
 
     config = dict(row._mapping)
 
-    # Build redirect URI from request
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/auth/oidc/callback"
+    # Build redirect URI — use configured override when behind a reverse proxy
+    if _settings.oidc_redirect_uri:
+        redirect_uri = _settings.oidc_redirect_uri
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base_url}/api/auth/oidc/callback"
 
     handler = create_handler_from_config(config, redirect_uri)
 
@@ -917,8 +920,11 @@ async def oidc_callback(
 
     config = dict(row._mapping)
 
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/auth/oidc/callback"
+    if _settings.oidc_redirect_uri:
+        redirect_uri = _settings.oidc_redirect_uri
+    else:
+        base_url = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base_url}/api/auth/oidc/callback"
 
     handler = create_handler_from_config(config, redirect_uri)
 
@@ -1006,12 +1012,14 @@ async def oidc_callback(
 
         # Store a short-lived one-time code that the frontend can exchange for the JWT.
         # This avoids leaking the JWT in the redirect URL (browser history, Referer header, logs).
+        # The token itself is Fernet-encrypted so a SQLite dump doesn't yield usable JWTs.
         import secrets as _secrets
+        from crypto import encrypt as _crypto_encrypt
         oidc_code = _secrets.token_urlsafe(48)
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
         db.execute(text(
             "INSERT INTO oidc_auth_codes (code, access_token, expires_at) VALUES (:code, :token, :exp)"
-        ), {"code": oidc_code, "token": access_token, "exp": expires_at})
+        ), {"code": oidc_code, "token": _crypto_encrypt(access_token), "exp": expires_at})
         db.commit()
 
         return RedirectResponse(
@@ -1060,7 +1068,10 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="Code expired")
 
-    access_token = row.access_token
+    # Decrypt the stored token (encrypted at storage time to protect against DB dump)
+    from crypto import decrypt as _crypto_decrypt, is_encrypted as _crypto_is_encrypted
+    raw_token = row.access_token
+    access_token = _crypto_decrypt(raw_token) if _crypto_is_encrypted(raw_token) else raw_token
 
     # Record the session and set a proper httpOnly cookie (same as password login)
     import jwt as _jwt

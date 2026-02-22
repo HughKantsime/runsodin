@@ -50,4 +50,4 @@ slowapi==0.1.9
 # Vigil AI (local print failure detection)
 numpy<2
 opencv-python-headless==4.9.0.80
-onnxruntime==1.17.1
+onnxruntime==1.20.1
