@@ -2,6 +2,12 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.62] - 2026-02-21
+
+### Security
+- **Credential encryption at rest** — SMTP password encrypted with Fernet before storage in `system_config`; decrypted on read in `alert_dispatcher.py` and `report_runner.py`. MQTT republish password encrypted on write in `system.py`; decrypted before use in `mqtt_republish.py`. All decryption paths are migration-safe (fall back to raw value if decryption fails so existing deployments upgrade without breaking).
+- **camera_url credential persistence removed** — Bambu RTSP URLs (containing plaintext `access_code`) are no longer persisted to `camera_url`. `get_camera_url()` already generates the URL on-demand from the encrypted `api_key`. `discover_camera()` now only syncs the go2rtc config without writing the plaintext URL to the DB. User-supplied camera URLs containing embedded credentials (`@`) are encrypted before storage and decrypted on read.
+
 ## [1.3.61] - 2026-02-21
 
 ### Security

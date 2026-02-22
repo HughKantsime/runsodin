@@ -13,6 +13,10 @@ Updated 2026-02-21 at v1.3.57.
 - ~~Print Profiles / Presets~~
 - ~~Timelapse Generation from Camera Streams~~
 
+## Shipped in v1.3.62
+
+- ~~Credential encryption at rest~~ — SMTP password, MQTT republish password encrypted with Fernet; camera_url no longer persists plaintext RTSP credentials; user-supplied camera URLs with embedded credentials encrypted on write
+
 ## Shipped in v1.3.61
 
 - ~~Auth coverage sweep~~ — all endpoints from authorization audit now require `require_role()` (analytics, jobs, system, cameras, auth); OIDC defaults hardened; license server IP hardcoded removed
