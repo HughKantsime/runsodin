@@ -325,6 +325,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
     """Test printer connection during setup. Wraps existing test logic."""
     if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
+    from routers.printers import _check_ssrf_blocklist
+    _check_ssrf_blocklist(request.api_host)
     if request.api_type.lower() == "bambu":
         if not request.serial or not request.access_code:
             raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
@@ -1269,18 +1271,17 @@ def list_backups(current_user: dict = Depends(require_role("admin"))):
 @router.get("/backups/{filename}", tags=["System"])
 def download_backup(filename: str, current_user: dict = Depends(require_role("admin"))):
     """Download a database backup file."""
-    if "/" in filename or ".." in filename:
+    backup_dir = os.path.realpath(str(Path(__file__).parent.parent / "backups"))
+    backup_path = os.path.realpath(os.path.join(backup_dir, filename))
+    if not backup_path.startswith(backup_dir + os.sep):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    backup_dir = Path(__file__).parent.parent / "backups"
-    backup_path = backup_dir / filename
-
-    if not backup_path.exists():
+    if not os.path.exists(backup_path):
         raise HTTPException(status_code=404, detail="Backup not found")
 
     from starlette.responses import FileResponse
     return FileResponse(
-        path=str(backup_path),
+        path=backup_path,
         filename=filename,
         media_type="application/octet-stream"
     )
@@ -1289,16 +1290,15 @@ def download_backup(filename: str, current_user: dict = Depends(require_role("ad
 @router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
 def delete_backup(filename: str, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Delete a database backup."""
-    if "/" in filename or ".." in filename:
+    backup_dir = os.path.realpath(str(Path(__file__).parent.parent / "backups"))
+    backup_path = os.path.realpath(os.path.join(backup_dir, filename))
+    if not backup_path.startswith(backup_dir + os.sep):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    backup_dir = Path(__file__).parent.parent / "backups"
-    backup_path = backup_dir / filename
-
-    if not backup_path.exists():
+    if not os.path.exists(backup_path):
         raise HTTPException(status_code=404, detail="Backup not found")
 
-    backup_path.unlink()
+    os.unlink(backup_path)
     log_audit(db, "backup_deleted", "system", details={"filename": filename})
 
 
