@@ -478,6 +478,9 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
 # =============================================================================
 
 VALID_SCOPES = {
+    # Umbrella scopes — grant read or write access across all resources
+    "read", "write",
+    # Granular resource scopes
     "read:printers", "write:printers",
     "read:jobs", "write:jobs",
     "read:spools", "write:spools",
@@ -664,7 +667,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     jobs = [dict(r._mapping) for r in db.execute(
         text("SELECT * FROM jobs WHERE submitted_by = :uid"), {"uid": user_id}).fetchall()]
     audit = [dict(r._mapping) for r in db.execute(
-        text("SELECT * FROM audit_logs WHERE user_id = :uid ORDER BY created_at DESC LIMIT 1000"),
+        text("SELECT * FROM audit_logs WHERE entity_type = 'user' AND entity_id = :uid ORDER BY timestamp DESC LIMIT 1000"),
         {"uid": user_id}).fetchall()]
     sessions_data = [dict(r._mapping) for r in db.execute(
         text("SELECT id, ip_address, user_agent, created_at, last_seen_at FROM active_sessions WHERE user_id = :uid"),

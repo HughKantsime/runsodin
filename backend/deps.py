@@ -223,11 +223,17 @@ def require_role(required_role: str, scope: str = None):
         # Scope enforcement for scoped per-user API tokens
         if scope is not None:
             token_scopes = current_user.get("_token_scopes", [])
-            if token_scopes and scope not in token_scopes:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Insufficient token scope — '{scope}' scope required",
+            if token_scopes:
+                granted = (
+                    scope in token_scopes
+                    or any(s.startswith(f"{scope}:") for s in token_scopes)
+                    or "admin" in token_scopes
                 )
+                if not granted:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Insufficient token scope — '{scope}' scope required",
+                    )
         return current_user
     return role_checker
 
@@ -250,11 +256,18 @@ def require_scope(scope: str):
         token_scopes = current_user.get("_token_scopes", [])
         # Only enforce scopes when the user authenticated via a scoped per-user token.
         # Empty list means JWT or global API key — no scope restriction.
-        if token_scopes and scope not in token_scopes:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Insufficient token scope — '{scope}' scope required",
+        if token_scopes:
+            # Match: exact scope ("write"), umbrella ("write" covers "write:printers"), or "admin"
+            granted = (
+                scope in token_scopes
+                or any(s.startswith(f"{scope}:") for s in token_scopes)
+                or "admin" in token_scopes
             )
+            if not granted:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient token scope — '{scope}' scope required",
+                )
         return current_user
     return _check
 

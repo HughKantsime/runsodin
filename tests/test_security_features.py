@@ -370,27 +370,26 @@ class TestNonRootContainer:
     """Verify the Docker container does not run processes as root."""
 
     def test_container_runs_as_non_root(self):
-        """docker exec odin whoami should NOT return 'root'.
+        """PID 1 (supervisord) inside the container should NOT run as root (UID 0).
 
-        The non-root container feature is part of v1.3.59 and requires the Docker
-        image to be rebuilt with a USER directive in the Dockerfile. This test
-        verifies the running container was built with that change.
+        supervisord.conf sets user=odin, causing supervisord to drop privileges
+        after startup. We check /proc/1/status because 'docker exec whoami' always
+        spawns a shell as the Dockerfile default user (root), not the supervisord user.
         """
         result = subprocess.run(
-            ["docker", "exec", "odin", "whoami"],
+            ["docker", "exec", "odin", "sh", "-c", "cat /proc/1/status"],
             capture_output=True, text=True, timeout=15,
         )
         if result.returncode != 0:
-            pytest.skip(f"Cannot exec into container: {result.stderr.strip()}")
-        user = result.stdout.strip()
-        if user == "root":
-            pytest.skip(
-                "Container is running as root. The v1.3.59 non-root container "
-                "feature requires a rebuilt Docker image with a USER directive. "
-                "The currently running image predates this change. "
-                "Run 'make build' to rebuild and 'make test' to verify."
-            )
-        assert user, "whoami returned empty string"
+            pytest.skip(f"Cannot read /proc/1/status: {result.stderr.strip()}")
+        # Extract Uid line: "Uid:\t999\t999\t999\t999" (real, effective, saved, fs)
+        uid_line = next((l for l in result.stdout.splitlines() if l.startswith("Uid:")), None)
+        assert uid_line, "Could not find Uid: line in /proc/1/status"
+        real_uid = int(uid_line.split()[1])
+        assert real_uid != 0, (
+            f"PID 1 (supervisord) is running as UID 0 (root). "
+            f"Expected non-root UID. Got: {uid_line.strip()}"
+        )
 
 
 # ---------------------------------------------------------------------------
