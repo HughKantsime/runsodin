@@ -791,9 +791,9 @@ class TestSpoolFilament:
                 or "filament_brand" in data), \
             f"Missing material info. Keys: {list(data.keys())}"
 
-    def test_spool_label_endpoint(self, first_spool_id):
-        """Spool label generation (public endpoint)."""
-        r = requests.get(f"{BASE_URL}/api/spools/{first_spool_id}/label")
+    def test_spool_label_endpoint(self, first_spool_id, admin_headers):
+        """Spool label generation (requires viewer+ auth)."""
+        r = requests.get(f"{BASE_URL}/api/spools/{first_spool_id}/label", headers=admin_headers)
         assert r.status_code == 200
 
     def test_filament_slots(self, admin_headers, first_printer_id):

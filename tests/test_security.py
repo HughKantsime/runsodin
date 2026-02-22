@@ -252,17 +252,25 @@ class TestSetupEndpointsLocked:
 class TestLabelAuthBypass:
     """Verify exact path matching on label endpoints — no substring bypass."""
 
-    def test_s8_legitimate_label_endpoint(self):
-        """S8: GET /api/spools/1/label (no auth) → 200 or 404 (legitimate endpoint)."""
-        r = requests.get(
+    def test_s8_legitimate_label_endpoint(self, admin_token):
+        """S8: GET /api/spools/1/label — endpoint exists and works with auth (200 or 404)."""
+        # Unauthenticated requests should be rejected (401)
+        r_unauth = requests.get(
             f"{BASE_URL}/api/spools/1/label",
             headers=_no_auth_headers(),
             timeout=10,
         )
-        # 200 = spool exists, 404 = spool doesn't exist. Both are fine.
-        # 401 would mean label endpoint incorrectly requires auth.
-        assert r.status_code in (200, 404), \
-            f"Label endpoint broken: {r.status_code}"
+        assert r_unauth.status_code == 401, \
+            f"Label endpoint should require auth but got {r_unauth.status_code}"
+
+        # Authenticated requests should succeed or return 404 (spool may not exist)
+        r_auth = requests.get(
+            f"{BASE_URL}/api/spools/1/label",
+            headers=_headers(admin_token),
+            timeout=10,
+        )
+        assert r_auth.status_code in (200, 404), \
+            f"Label endpoint broken for authed request: {r_auth.status_code}"
 
     def test_s9_relabel_not_bypassed(self, api_key_enabled):
         """S9: /api/printers/1/relabel should NOT match /label bypass."""

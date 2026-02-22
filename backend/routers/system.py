@@ -553,7 +553,7 @@ ALLOWED_CONFIG_KEYS = {'SPOOLMAN_URL', 'BLACKOUT_START', 'BLACKOUT_END'}
 
 
 @router.get("/config", tags=["Config"])
-def get_config(current_user: dict = Depends(require_role("admin"))):
+def get_config(current_user: dict = Depends(require_role("viewer"))):
     """Get current configuration."""
     return {
         "spoolman_url": settings.spoolman_url,
