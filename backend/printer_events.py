@@ -339,37 +339,22 @@ def mark_offline(printer_id: int):
 
 def discover_camera(printer_id: int, rtsp_url: str):
     """
-    Auto-populate camera URL if not already set.
-    Called when Bambu X1C broadcasts ipcam.rtsp_url in MQTT.
+    Trigger go2rtc config sync when a Bambu camera is discovered via MQTT.
+
+    We do NOT persist the RTSP URL to camera_url — the URL contains plaintext
+    credentials (bblp access_code) that are already stored encrypted in api_key.
+    get_camera_url() regenerates the URL on-demand from the encrypted credentials.
     """
     try:
-        with get_db() as conn:
-            cur = conn.cursor()
-
-            # Check if camera_url is already set
-            cur.execute("SELECT camera_url, camera_discovered FROM printers WHERE id = ?", (printer_id,))
-            row = cur.fetchone()
-
-            if row and not row[0]:  # camera_url is empty
-                cur.execute(
-                    """UPDATE printers SET
-                        camera_url = ?,
-                        camera_discovered = 1
-                    WHERE id = ?""",
-                    (rtsp_url, printer_id)
-                )
-                conn.commit()
-                log.info(f"Auto-discovered camera for printer {printer_id}: {rtsp_url}")
-
-                # Regenerate go2rtc config so the new camera stream is available
-                try:
-                    from main import sync_go2rtc_config_standalone
-                    sync_go2rtc_config_standalone()
-                    log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
-                except Exception as e2:
-                    log.warning(f"Could not sync go2rtc config: {e2}")
+        # Regenerate go2rtc config so the camera stream is available
+        try:
+            from main import sync_go2rtc_config_standalone
+            sync_go2rtc_config_standalone()
+            log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
+        except Exception as e2:
+            log.warning(f"Could not sync go2rtc config: {e2}")
     except Exception as e:
-        log.error(f"Failed to discover camera for printer {printer_id}: {e}")
+        log.error(f"Failed to sync go2rtc for printer {printer_id}: {e}")
 
 
 # =============================================================================

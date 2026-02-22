@@ -47,6 +47,14 @@ def get_smtp_config(session):
         return None
     if not config.get("enabled") or not config.get("host"):
         return None
+    # Decrypt password — migration-safe: crypto.decrypt() falls back to raw on failure
+    if config.get("password"):
+        try:
+            import crypto
+            config = dict(config)
+            config["password"] = crypto.decrypt(config["password"])
+        except Exception:
+            pass
     return config
 
 

@@ -1041,7 +1041,13 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
             elif short_key == "port":
                 config[short_key] = int(val) if val else 1883
             elif short_key == "password":
-                config[short_key] = "••••••••" if val else ""
+                # Decrypt to check if a value exists, then mask for the response
+                raw = val
+                try:
+                    raw = crypto.decrypt(val)
+                except Exception:
+                    pass
+                config[short_key] = "••••••••" if raw else ""
             else:
                 config[short_key] = val
         else:
@@ -1063,7 +1069,11 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
         if short_key == "password" and value == "••••••••":
             continue
 
-        str_val = str(value).lower() if isinstance(value, bool) else str(value)
+        # Encrypt password before storage
+        if short_key == "password" and value:
+            str_val = crypto.encrypt(str(value))
+        else:
+            str_val = str(value).lower() if isinstance(value, bool) else str(value)
 
         existing = db.execute(text("SELECT 1 FROM system_config WHERE key = :k"), {"k": db_key}).fetchone()
         if existing:

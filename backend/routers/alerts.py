@@ -20,6 +20,7 @@ from schemas import (
     PushSubscriptionCreate,
 )
 from config import settings
+import crypto
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -533,6 +534,10 @@ async def update_smtp_config(
 
     if not smtp_data.get("password") and config and config.value.get("password"):
         smtp_data["password"] = config.value["password"]
+
+    # Encrypt password if a new plaintext value was provided
+    if smtp_data.get("password") and not crypto.is_encrypted(smtp_data["password"]):
+        smtp_data["password"] = crypto.encrypt(smtp_data["password"])
 
     if config:
         config.value = smtp_data

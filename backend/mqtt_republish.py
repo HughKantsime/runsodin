@@ -53,11 +53,20 @@ def _get_config() -> Optional[Dict[str, Any]]:
             _config_ts = now
             return None
 
+        raw_password = rows.get("mqtt_republish_password", "")
+        # Decrypt password — migration-safe: crypto.decrypt() falls back to raw on failure
+        if raw_password:
+            try:
+                import crypto
+                raw_password = crypto.decrypt(raw_password)
+            except Exception:
+                pass
+
         _config_cache = {
             "host": rows.get("mqtt_republish_host", ""),
             "port": int(rows.get("mqtt_republish_port", "1883")),
             "username": rows.get("mqtt_republish_username", ""),
-            "password": rows.get("mqtt_republish_password", ""),
+            "password": raw_password,
             "topic_prefix": rows.get("mqtt_republish_topic_prefix", "odin"),
             "use_tls": rows.get("mqtt_republish_use_tls", "").lower() in ("true", "1"),
         }

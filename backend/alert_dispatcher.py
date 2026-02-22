@@ -192,6 +192,14 @@ def _get_smtp_config(db):
     smtp = config.value
     if not smtp.get("enabled") or not smtp.get("host"):
         return None
+    # Decrypt password — migration-safe: crypto.decrypt() falls back to raw on failure
+    if smtp.get("password"):
+        try:
+            import crypto
+            smtp = dict(smtp)  # copy to avoid mutating the cached ORM value
+            smtp["password"] = crypto.decrypt(smtp["password"])
+        except Exception:
+            pass
     return smtp
 
 

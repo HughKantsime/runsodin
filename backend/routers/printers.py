@@ -120,7 +120,13 @@ def get_camera_url(printer):
     - Moonraker/PrusaLink/Elegoo: uses camera_url populated by monitor auto-discovery
     """
     if printer.camera_url:
-        return printer.camera_url
+        # Decrypt if stored encrypted (user-supplied URLs with embedded credentials)
+        url = printer.camera_url
+        try:
+            url = crypto.decrypt(url)
+        except Exception:
+            pass
+        return url
     # Auto-generate RTSP URL for Bambu printers with built-in cameras
     if printer.api_type == "bambu" and printer.api_key and printer.api_host:
         RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
@@ -170,10 +176,6 @@ def sync_go2rtc_config(db: Session):
                 streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
             else:
                 streams[f"printer_{p.id}"] = url
-            # Save generated URL back to DB if not already set
-            if not p.camera_url and url:
-                p.camera_url = url
-                p.camera_discovered = True
     db.commit()
     webrtc_config = {"listen": "0.0.0.0:8555"}
     # Priority: env var > system_config > auto-detect
@@ -359,6 +361,9 @@ def create_printer(
         _check_ssrf_blocklist(printer.api_host)
     if printer.camera_url:
         printer.camera_url = _validate_camera_url(printer.camera_url)
+        # Encrypt user-supplied RTSP URLs that contain embedded credentials
+        if '@' in printer.camera_url:
+            printer.camera_url = crypto.encrypt(printer.camera_url)
 
     from license_manager import check_printer_limit
 
@@ -467,6 +472,9 @@ def update_printer(
     # Validate and sanitize camera_url before storage
     if 'camera_url' in update_data and update_data['camera_url']:
         update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
+        # Encrypt user-supplied RTSP URLs that contain embedded credentials
+        if '@' in update_data['camera_url']:
+            update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
 
     # Encrypt api_key if being updated
     if 'api_key' in update_data and update_data['api_key']:
