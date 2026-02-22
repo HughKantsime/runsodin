@@ -108,7 +108,7 @@ Updated 2026-02-21 at v1.3.57.
 - ~~Printer dispatch: FTPS+MQTT for Bambu, HTTP upload+start for Moonraker/Klipper and PrusaLink; .3mf files stored on upload; manual Dispatch button on scheduled jobs with bed-clear confirmation; AUTO_DISPATCH env var for auto-send on IDLE transition~~
 - ~~Security hardening pass (v1.3.57): api_key stripped from API responses, camera URL credential sanitization, auth added to live-status/tags/camera endpoints, last-admin protection, SSRF blocklist, XXE prevention (defusedxml), ZIP bomb protection, path traversal fix on revision upload, HSTS header, error message sanitization~~
 - ~~Security hardening pass (v1.3.58): JWT 256-bit entropy, numeric field bounds (slot_count/quantity/priority/units_per_bed), camera URL scheme+SSRF+metachar validation, webhook SSRF validation, audit logs on login+password-change, GDPR export completeness (api_tokens, quota_usage)~~
-- ~~Security hardening pass (v1.3.48): httpOnly session cookie auth (XSS protection), go2rtc HLS/API bound to 127.0.0.1 (network isolation), container non-root user via supervisord user=odin, global rate limiting via slowapi (10/min auth, 30/min upload), API token scope enforcement (read/write/admin scopes)~~
+- ~~Security hardening pass (v1.3.59): httpOnly session cookie auth (XSS protection), go2rtc HLS/API bound to 127.0.0.1 (network isolation), container non-root user via supervisord user=odin, global rate limiting via slowapi (10/min auth, 30/min upload), API token scope enforcement (read/write/admin scopes)~~
 
 ---
 

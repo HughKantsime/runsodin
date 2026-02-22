@@ -2,7 +2,7 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [1.3.48] - 2026-02-21
+## [1.3.59] - 2026-02-21
 
 ### Security
 - **httpOnly cookie auth** — JWT moved from `localStorage` to an httpOnly session cookie (`Secure`, `SameSite=Strict`). Cookie auth is Try 0 in `get_current_user`; Bearer token and X-API-Key fallbacks preserved for API clients. Login and MFA verify both set the cookie. New `POST /auth/logout` endpoint clears cookie and blacklists JWT. Frontend `api.js` uses `credentials: 'include'`; all localStorage token reads removed across 20+ files.
