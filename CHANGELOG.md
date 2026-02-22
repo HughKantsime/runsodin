@@ -2,9 +2,16 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [Unreleased]
+## [1.3.67] - 2026-02-21
 
 ### Security
+- **OIDC redirect_uri pinning** — Added `OIDC_REDIRECT_URI` environment variable. When set, both `GET /auth/oidc/login` and `GET /auth/oidc/callback` use the configured URI instead of deriving it from the `Host` header. Eliminates Host-header injection risk when ODIN is behind a reverse proxy.
+- **oidc_auth_codes encrypted** — The JWT stored in the `oidc_auth_codes` table for the OIDC code-exchange flow is now Fernet-encrypted at rest. A database dump no longer yields usable access tokens. Migration-safe decrypt fallback handles any existing plaintext rows.
+- **Org webhook_url encrypted** — Org-level `webhook_url` in `groups.settings_json` is now Fernet-encrypted on write and decrypted transparently by `_get_org_settings()`. Protects Discord/Slack/Telegram tokens in multi-org backup dumps.
+- **onnxruntime upgraded** — Bumped from `1.17.1` to `1.20.1`, resolving CVE-2024-25960 (heap buffer overflow in ONNX parsing).
+- **Docker base image digest pinning** — `python:3.11-slim` and `node:20-slim` are now pinned to `sha256:` digests in the Dockerfile. A supply-chain compromise of the floating tag will no longer silently pull a malicious layer.
+- **go2rtc SHA256 verification** — go2rtc v1.9.4 binary is now SHA256-verified during Docker build (per-arch hashes for amd64 and arm64). Build fails on binary tampering or MITM.
+- **VITE_API_KEY removed** — Removed all `import.meta.env.VITE_API_KEY` / `X-API-Key` references from 16 frontend files. Session auth is fully httpOnly cookie (`credentials: 'include'`); the dead env var was a footgun that would bake an API key into the public JS bundle if accidentally set at build time.
 - **Webhook URL encryption** — Discord/Slack/Telegram/ntfy webhook URLs are now Fernet-encrypted before storage in the `webhooks` table. Tokens embedded in URLs (e.g. `discord.com/api/webhooks/ID/TOKEN`) are no longer plaintext in DB or backups. Migration-safe decrypt fallback handles existing rows.
 - **API_KEY startup warning** — A `WARNING` log is now emitted at startup if `API_KEY` is unset, making the "perimeter auth disabled" state explicit rather than silent.
 - **Backup path traversal hardened** — `download_backup` and `delete_backup` now use `realpath()` + prefix check instead of string-scan, consistent with all other file-serving endpoints (symlink-safe).
