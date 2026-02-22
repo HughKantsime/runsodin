@@ -345,9 +345,8 @@ function Sidebar({ mobileOpen, onMobileClose }) {
               <span className="text-[10px]" style={{ color: 'var(--brand-text-muted)' }}>v{__APP_VERSION__}</span>
             )}
             <button
-              onClick={() => {
-                localStorage.removeItem("token");
-                localStorage.removeItem("user");
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
                 window.location.href = "/login";
               }}
               className="flex items-center gap-2 hover:text-red-400 text-sm transition-colors"
@@ -424,23 +423,30 @@ function MobileHeader({ onMenuClick }) {
 }
 
 
-function isTokenValid() {
-  const token = localStorage.getItem('token')
-  if (!token) return false
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    return payload.exp * 1000 > Date.now()
-  } catch {
-    return false
-  }
-}
+// Token validity is determined by the session cookie (httpOnly, not readable in JS).
+// Use the /api/auth/me endpoint to verify authentication status.
 
 
 function ProtectedRoute({ children }) {
   const location = useLocation()
-  if (!isTokenValid()) {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(r => {
+        setAuthenticated(r.ok)
+        setAuthChecked(true)
+      })
+      .catch(() => {
+        setAuthenticated(false)
+        setAuthChecked(true)
+      })
+  }, [location.pathname])
+
+  if (!authChecked) return null  // brief flicker while checking; acceptable
+
+  if (!authenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
   return children

@@ -278,7 +278,7 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
 
 
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
-def delete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:

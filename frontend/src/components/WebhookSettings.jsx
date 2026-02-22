@@ -29,9 +29,9 @@ export default function WebhookSettings() {
   }, []);
 
   const getHeaders = () => {
-    const token = localStorage.getItem('token');
+    ;
     const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    ;
     return headers;
   };
 

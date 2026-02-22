@@ -103,9 +103,9 @@ function AiIndicator({ printerId }) {
   const { data } = useQuery({
     queryKey: ['vision-settings', printerId],
     queryFn: async () => {
-      const token = localStorage.getItem('token')
+      
       const headers = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
+      
       const res = await fetch(`${API_BASE}/printers/${printerId}/vision`, { headers })
       if (!res.ok) return null
       return res.json()
@@ -154,9 +154,9 @@ function CameraCard({ camera, onExpand, onPip }) {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      const token = localStorage.getItem('token')
+      
       const headers = { 'Content-Type': 'application/sdp', 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
+      
 
       const response = await fetch(API_BASE + '/cameras/' + camera.id + '/webrtc', { method: 'POST', headers, body: offer.sdp })
       if (!response.ok) throw new Error('Failed')
@@ -281,9 +281,9 @@ export default function Cameras() {
   useEffect(() => {
     const fetchPrinters = async () => {
       try {
-        const token = localStorage.getItem('token')
+        
         const headers = { 'X-API-Key': API_KEY }
-        if (token) headers['Authorization'] = 'Bearer ' + token
+        
         const res = await fetch(API_BASE + '/printers', { headers })
         if (res.ok) {
           const data = await res.json()
@@ -298,9 +298,9 @@ export default function Cameras() {
 
   const toggleCamera = async (printerId) => {
     try {
-      const token = localStorage.getItem('token')
+      
       const headers = { 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
+      
       const res = await fetch(API_BASE + '/cameras/' + printerId + '/toggle', {
         method: 'PATCH',
         headers
@@ -320,9 +320,9 @@ export default function Cameras() {
   const { data: cameras, isLoading } = useQuery({
     queryKey: ['cameras'],
     queryFn: async () => {
-      const token = localStorage.getItem('token')
+      
       const headers = { 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
+      
       const response = await fetch(API_BASE + '/cameras', { headers })
       if (!response.ok) throw new Error('Failed to fetch cameras')
       return response.json()
@@ -546,9 +546,9 @@ function ControlRoomCamera({ camera }) {
       pc.addTransceiver('video', { direction: 'recvonly' })
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      const token = localStorage.getItem('token')
+      
       const headers = { 'Content-Type': 'application/sdp', 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
+      
       const response = await fetch(API_BASE + '/cameras/' + camera.id + '/webrtc', { method: 'POST', headers, body: offer.sdp })
       if (!response.ok) throw new Error('Failed')
       const answerSDP = await response.text()

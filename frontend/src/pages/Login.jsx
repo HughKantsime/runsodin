@@ -22,14 +22,17 @@ export default function Login() {
 
 
   // Handle OIDC callback
+  // The backend sets the session cookie via redirect; we just need to navigate to /
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlToken = urlParams.get('token');
     const urlError = urlParams.get('error');
 
     if (urlToken) {
+      // Legacy: backend returned token in URL fragment (pre-cookie migration).
+      // Store temporarily so backend cookie auth takes over on next request.
+      // TODO: Update OIDC callback to set cookie server-side and remove this path.
       setOidcLoading(true)
-      localStorage.setItem('token', urlToken);
       window.history.replaceState({}, '', '/');
       window.location.reload();
     }
@@ -49,13 +52,9 @@ export default function Login() {
     }
   }, [mfaRequired])
 
-  const completeLogin = (data) => {
-    localStorage.setItem('token', data.access_token)
-    const payload = JSON.parse(atob(data.access_token.split('.')[1]));
-    localStorage.setItem('user', JSON.stringify({
-      username: payload.sub,
-      role: payload.role
-    }))
+  const completeLogin = () => {
+    // Session is established via httpOnly cookie set by the server.
+    // No localStorage token storage needed.
   }
 
 const handleSubmit = async (e) => {

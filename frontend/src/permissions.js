@@ -83,15 +83,14 @@ function getActionAccess() {
 }
 
 export function getCurrentUser() {
-  const token = localStorage.getItem('token')
-  if (!token) return null
+  // With httpOnly cookie auth, we can't decode the JWT from JS.
+  // User info (username, role) is cached in localStorage by refreshPermissions().
+  // The token itself is never accessible to JS — only the cookie-secured session.
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]))
-    if (payload.exp * 1000 < Date.now()) return null
-    return { username: payload.sub, role: payload.role || 'viewer' }
-  } catch {
-    return null
-  }
+    const raw = localStorage.getItem('odin_user')
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return null
 }
 
 export function canAccessPage(page) {
@@ -119,12 +118,20 @@ export async function refreshPermissions() {
     const API_KEY = import.meta.env.VITE_API_KEY
     const headers = { 'Content-Type': 'application/json' }
     if (API_KEY) headers['X-API-Key'] = API_KEY
-    const token = localStorage.getItem('token')
-    if (token) headers['Authorization'] = 'Bearer ' + token
 
-    const res = await fetch('/api/permissions', { headers })
-    if (res.ok) {
-      const data = await res.json()
+    // Fetch user info and permissions — session cookie sent automatically
+    const [meRes, permRes] = await Promise.all([
+      fetch('/api/auth/me', { headers, credentials: 'include' }),
+      fetch('/api/permissions', { headers, credentials: 'include' }),
+    ])
+
+    if (meRes.ok) {
+      const me = await meRes.json()
+      localStorage.setItem('odin_user', JSON.stringify({ username: me.username, role: me.role }))
+    }
+
+    if (permRes.ok) {
+      const data = await permRes.json()
       localStorage.setItem('rbac_permissions', JSON.stringify(data))
       return data
     }

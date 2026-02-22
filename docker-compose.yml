@@ -20,8 +20,8 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"   # Web UI + API
-      - "1984:1984"   # go2rtc (camera WebRTC/HLS)
-      - "8555:8555"   # go2rtc WebRTC
+      # Port 1984 (go2rtc HLS/API) intentionally not exposed — bound to 127.0.0.1 inside container
+      - "8555:8555"   # go2rtc WebRTC (must remain on 0.0.0.0 for ICE candidates)
     volumes:
       - ./odin-data:/data
       - ./odin-data/go2rtc:/app/go2rtc

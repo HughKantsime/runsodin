@@ -292,14 +292,13 @@ export default function Upload() {
     queryFn: getApprovalSetting,
   })
   const approvalEnabled = approvalSetting?.require_job_approval || false
-  // Check user role from localStorage token
+  // Get user role from the cached user info (set by refreshPermissions after login)
   const userRole = (() => {
     try {
-      const token = localStorage.getItem('token')
-      if (!token) return null
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      return payload.role
-    } catch { return null }
+      const raw = localStorage.getItem('odin_user')
+      if (raw) return JSON.parse(raw).role
+    } catch {}
+    return null
   })()
   const showSubmitForApproval = approvalEnabled && userRole === 'viewer'
 
@@ -327,10 +326,9 @@ export default function Upload() {
         })
         xhr.addEventListener('error', () => reject(new Error('Network error')))
         xhr.open('POST', '/api/print-files/upload')
-        const apiKey = localStorage.getItem('api_key') || import.meta.env.VITE_API_KEY || ''
+        xhr.withCredentials = true  // send session cookie
+        const apiKey = import.meta.env.VITE_API_KEY || ''
         if (apiKey) xhr.setRequestHeader('X-API-Key', apiKey)
-        const token = localStorage.getItem('token')
-        if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token)
         const formData = new FormData()
         formData.append('file', file)
         xhr.send(formData)

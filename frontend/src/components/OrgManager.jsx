@@ -23,9 +23,8 @@ export default function OrgManager() {
   const { data: userList } = useQuery({
     queryKey: ['users-for-orgs'],
     queryFn: async () => {
-      const token = localStorage.getItem('token')
+      
       const res = await fetch('/api/users', {
-        headers: { 'Authorization': `Bearer ${token}` }
       })
       return res.ok ? res.json() : []
     },
@@ -34,10 +33,9 @@ export default function OrgManager() {
   const { data: printerList } = useQuery({
     queryKey: ['printers-for-orgs'],
     queryFn: async () => {
-      const token = localStorage.getItem('token')
+      
       const API_KEY = import.meta.env.VITE_API_KEY
       const res = await fetch('/api/printers', {
-        headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': API_KEY }
       })
       return res.ok ? res.json() : []
     },

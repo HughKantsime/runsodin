@@ -100,11 +100,14 @@ export default function Setup() {
     setSlotCount(['moonraker', 'prusalink', 'elegoo'].includes(printerType) ? 1 : 4)
   }, [printerType])
 
+  // Session cookie is sent automatically (credentials: 'include').
+  // Bearer token fallback kept for first-boot setup steps before cookie is set.
   const apiHeaders = (extraToken) => ({
     'Content-Type': 'application/json',
     ...(extraToken ? { Authorization: `Bearer ${extraToken}` } : {}),
     ...(import.meta.env.VITE_API_KEY ? { 'X-API-Key': import.meta.env.VITE_API_KEY } : {}),
   })
+  const apiOptions = (extraToken) => ({ headers: apiHeaders(extraToken), credentials: 'include' })
 
   // === Step handlers ===
 
@@ -132,9 +135,20 @@ export default function Setup() {
       }
       const data = await resp.json()
       setToken(data.access_token)
-      // Store token + user for later
-      localStorage.setItem('token', data.access_token)
-      localStorage.setItem('user', JSON.stringify({ username: data.username, role: data.role }))
+      // Login to establish session cookie for subsequent setup steps
+      const loginResp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'include',
+        body: new URLSearchParams({ username: username.trim(), password }),
+      })
+      if (loginResp.ok) {
+        const loginData = await loginResp.json()
+        // Cache user info for permissions (role, username)
+        localStorage.setItem('odin_user', JSON.stringify({ username: data.username || username.trim(), role: data.role || 'admin' }))
+        // Also keep token for setup steps that pass it explicitly
+        setToken(loginData.access_token || data.access_token)
+      }
       setStep(2) // Go to printer step
     } catch (err) {
       setError(err.message)
@@ -153,10 +167,9 @@ export default function Setup() {
 
     setTestLoading(true)
     try {
-      const authToken = token || localStorage.getItem('token')
       const resp = await fetch('/api/setup/test-printer', {
         method: 'POST',
-        headers: apiHeaders(authToken),
+        ...apiOptions(token),
         body: JSON.stringify({
           name: printerName.trim() || 'Printer',
           printer_type: printerType,
@@ -183,10 +196,9 @@ export default function Setup() {
 
     setIsLoading(true)
     try {
-      const authToken = token || localStorage.getItem('token')
       const resp = await fetch('/api/setup/printer', {
         method: 'POST',
-        headers: apiHeaders(authToken),
+        ...apiOptions(token),
         body: JSON.stringify({
           name: printerName.trim(),
           printer_type: printerType,
@@ -223,10 +235,9 @@ export default function Setup() {
 
   const handleFinish = async () => {
     try {
-      const authToken = token || localStorage.getItem('token')
       await fetch('/api/setup/complete', {
         method: 'POST',
-        headers: apiHeaders(authToken),
+        ...apiOptions(token),
       })
     } catch {
       // Non-critical
@@ -532,10 +543,9 @@ export default function Setup() {
     setError('')
     setIsLoading(true)
     try {
-      const authToken = token || localStorage.getItem('token')
       const resp = await fetch('/api/setup/network', {
         method: 'POST',
-        headers: apiHeaders(authToken),
+        ...apiOptions(token),
         body: JSON.stringify({ host_ip: hostIp })
       })
       if (!resp.ok) {

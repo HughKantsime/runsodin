@@ -77,9 +77,9 @@ export default function AuditLogs() {
     let url = '/api/export/audit-logs?'
     if (entityType) url += `entity_type=${entityType}&`
     if (action) url += `action=${action}&`
-    const token = localStorage.getItem('token')
+    
     const headers = {}
-    if (token) headers['Authorization'] = 'Bearer ' + token
+    
     const apiKey = import.meta.env.VITE_API_KEY
     if (apiKey) headers['X-API-Key'] = apiKey
     fetch(url, { headers })

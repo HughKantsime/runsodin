@@ -9,8 +9,8 @@ const API_KEY = import.meta.env.VITE_API_KEY
 async function fetchPerms() {
   const headers = { 'Content-Type': 'application/json' }
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  const token = localStorage.getItem('token')
-  if (token) headers['Authorization'] = 'Bearer ' + token
+  
+  
   const res = await fetch('/api/permissions', { headers })
   if (!res.ok) throw new Error('Failed to load permissions')
   return res.json()
@@ -19,8 +19,8 @@ async function fetchPerms() {
 async function savePerms(data) {
   const headers = { 'Content-Type': 'application/json' }
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  const token = localStorage.getItem('token')
-  if (token) headers['Authorization'] = 'Bearer ' + token
+  
+  
   const res = await fetch('/api/permissions', { method: 'PUT', headers, body: JSON.stringify(data) })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -32,8 +32,8 @@ async function savePerms(data) {
 async function resetPerms() {
   const headers = { 'Content-Type': 'application/json' }
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  const token = localStorage.getItem('token')
-  if (token) headers['Authorization'] = 'Bearer ' + token
+  
+  
   const res = await fetch('/api/permissions/reset', { method: 'POST', headers })
   if (!res.ok) throw new Error('Failed to reset')
   return res.json()

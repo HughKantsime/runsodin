@@ -58,8 +58,13 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/odin.conf
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# Create non-root user for runtime (supervisord drops to this user)
+# entrypoint.sh still runs as root to handle secret generation and chown
+RUN groupadd -r odin && useradd -r -g odin -d /app -s /sbin/nologin odin
+
 # Create data directories (will be mounted as volumes)
-RUN mkdir -p /data /data/backups /data/uploads /data/static/branding /app/go2rtc
+RUN mkdir -p /data /data/backups /data/uploads /data/static/branding /app/go2rtc \
+    && chown -R odin:odin /app /data 2>/dev/null || true
 
 # Default environment
 ENV PYTHONUNBUFFERED=1 \
@@ -70,8 +75,9 @@ ENV PYTHONUNBUFFERED=1 \
     HOST=0.0.0.0 \
     PORT=8000
 
-# Ports: 8000 (API), 3000 (frontend/proxy), 1984 (go2rtc)
-EXPOSE 8000 1984
+# Ports: 8000 (API+frontend), 8555 (go2rtc WebRTC)
+# Port 1984 (go2rtc HLS/API) is bound to 127.0.0.1 inside the container and not exposed
+EXPOSE 8000 8555
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1

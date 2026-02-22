@@ -9,4 +9,4 @@ webrtc:
   listen: ":8555"
 
 api:
-  listen: ":1984"
+  listen: "127.0.0.1:1984"

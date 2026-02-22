@@ -352,7 +352,7 @@ def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(ge
 @router.post("/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
 def create_printer(
     printer: PrinterCreate,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)
 ):
     """Create a new printer."""
     if printer.api_host:
@@ -504,7 +504,7 @@ def update_printer(
 
 
 @router.delete("/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
-def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Delete a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

@@ -1,6 +1,8 @@
 const API_BASE = '/api'
 
 // API Key for authentication - leave empty if auth is disabled
+// Used only for the perimeter X-API-Key header (server-side env var based).
+// Session auth is handled via httpOnly cookies — no localStorage token needed.
 const API_KEY = import.meta.env.VITE_API_KEY
 
 export async function fetchAPI(endpoint, options = {}) {
@@ -8,25 +10,20 @@ export async function fetchAPI(endpoint, options = {}) {
     'Content-Type': 'application/json',
     ...options.headers,
   }
-  
-  // Add API key if configured
+
+  // Add API key if configured (perimeter auth, not session auth)
   if (API_KEY) {
     headers['X-API-Key'] = API_KEY
   }
 
-  // Add JWT token if available
-  const token = localStorage.getItem("token")
-  if (token) {
-    headers["Authorization"] = "Bearer " + token
-  }
-  
+  // credentials: 'include' sends the httpOnly session cookie automatically.
+  // No need to read/inject a Bearer token from localStorage.
   const response = await fetch(API_BASE + endpoint, {
     headers,
+    credentials: 'include',
     ...options,
   })
   if (response.status === 401) {
-    localStorage.removeItem("token")
-    localStorage.removeItem("user")
     if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"
     }
@@ -140,22 +137,19 @@ export const printFiles = {
     formData.append('file', file)
     const uploadHeaders = {}
     if (API_KEY) uploadHeaders['X-API-Key'] = API_KEY
-    const tk = localStorage.getItem('token')
-    if (tk) uploadHeaders['Authorization'] = 'Bearer ' + tk
     const response = await fetch(`${API_BASE}/print-files/upload`, {
       method: 'POST',
       headers: uploadHeaders,
+      credentials: 'include',
       body: formData
     })
     if (response.status === 401) {
-    localStorage.removeItem("token")
-    localStorage.removeItem("user")
-    if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
-      window.location.href = "/login"
+      if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
+        window.location.href = "/login"
+      }
+      return
     }
-    return
-  }
-  if (!response.ok) {
+    if (!response.ok) {
       const err = await response.json()
       throw new Error(err.detail || 'Upload failed')
     }
@@ -181,31 +175,29 @@ export const auth = {
     const response = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      credentials: 'include',  // receive Set-Cookie from server
       body: formData
     })
-    if (response.status === 401) {
-    localStorage.removeItem("token")
-    localStorage.removeItem("user")
-    if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
-      window.location.href = "/login"
-    }
-    return
-  }
-  if (!response.ok) {
-      const err = await response.json()
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
       throw new Error(err.detail || 'Login failed')
     }
     return response.json()
   },
+  logout: async () => {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+  },
   me: async () => {
-    const token = localStorage.getItem('token')
-    if (!token) return null
     const response = await fetch(`${API_BASE}/auth/me`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      credentials: 'include',
     })
     if (!response.ok) return null
     return response.json()
   },
+  wsToken: () => fetchAPI('/auth/ws-token', { method: 'POST' }),
   mfaVerify: (mfa_token, code) => fetchAPI('/auth/mfa/verify', {
     method: 'POST', body: JSON.stringify({ mfa_token, code })
   }),
@@ -310,10 +302,12 @@ export const modelRevisions = {
     const formData = new FormData()
     formData.append('changelog', changelog)
     if (file) formData.append('file', file)
-    const token = localStorage.getItem('token')
+    const headers = {}
+    if (API_KEY) headers['X-API-Key'] = API_KEY
     const res = await fetch(`${API_BASE}/models/${modelId}/revisions`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'X-API-Key': API_KEY },
+      headers,
+      credentials: 'include',
       body: formData,
     })
     if (!res.ok) throw new Error('Failed to create revision')
@@ -346,11 +340,10 @@ export const users = {
     formData.append('file', file)
     const headers = {}
     if (API_KEY) headers['X-API-Key'] = API_KEY
-    const tk = localStorage.getItem('token')
-    if (tk) headers['Authorization'] = 'Bearer ' + tk
     const response = await fetch(`${API_BASE}/users/import`, {
       method: 'POST',
       headers,
+      credentials: 'include',
       body: formData,
     })
     if (!response.ok) {
@@ -562,12 +555,10 @@ export const license = {
   upload: (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('token')
     const headers = {}
-    const API_KEY = import.meta.env.VITE_API_KEY
-    if (API_KEY) headers['X-API-Key'] = API_KEY
-    if (token) headers['Authorization'] = 'Bearer ' + token
-    return fetch('/api/license/upload', { method: 'POST', headers, body: formData })
+    const _apiKey = import.meta.env.VITE_API_KEY
+    if (_apiKey) headers['X-API-Key'] = _apiKey
+    return fetch('/api/license/upload', { method: 'POST', headers, credentials: 'include', body: formData })
       .then(r => { if (!r.ok) throw new Error('Upload failed'); return r.json() })
   },
   remove: () => fetchAPI('/license', { method: 'DELETE' }),
@@ -676,8 +667,8 @@ export const timelapses = {
     return fetchAPI(`/timelapses${qs ? '?' + qs : ''}`)
   },
   videoUrl: (id) => {
-    const token = localStorage.getItem('token')
-    return `/api/timelapses/${id}/video${token ? '?token=' + token : ''}`
+    // Session cookie is sent automatically for same-origin requests
+    return `/api/timelapses/${id}/video`
   },
   delete: (id) => fetchAPI(`/timelapses/${id}`, { method: 'DELETE' }),
 }
@@ -695,13 +686,12 @@ export const vision = {
   uploadModel: async (file, name, detectionType, inputSize = 640) => {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('token')
     const headers = {}
     if (API_KEY) headers['X-API-Key'] = API_KEY
-    if (token) headers['Authorization'] = 'Bearer ' + token
     const response = await fetch(`${API_BASE}/vision/models?name=${encodeURIComponent(name)}&detection_type=${detectionType}&input_size=${inputSize}`, {
       method: 'POST',
       headers,
+      credentials: 'include',
       body: formData,
     })
     if (!response.ok) throw new Error('Failed to upload model')
@@ -716,11 +706,9 @@ export const backups = {
   create: () => fetchAPI('/backups', { method: 'POST' }),
   remove: (filename) => fetchAPI(`/backups/${filename}`, { method: 'DELETE' }),
   download: async (filename) => {
-    const token = localStorage.getItem('token')
     const headers = {}
     if (API_KEY) headers['X-API-Key'] = API_KEY
-    if (token) headers['Authorization'] = 'Bearer ' + token
-    const res = await fetch(`${API_BASE}/backups/${filename}`, { headers })
+    const res = await fetch(`${API_BASE}/backups/${filename}`, { headers, credentials: 'include' })
     if (!res.ok) throw new Error('Download failed')
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -745,11 +733,9 @@ export const config = {
 
 // Orders invoice (blob download)
 export const orderInvoice = async (orderId, orderNumber) => {
-  const token = localStorage.getItem('token')
   const headers = {}
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  if (token) headers['Authorization'] = 'Bearer ' + token
-  const res = await fetch(`${API_BASE}/orders/${orderId}/invoice.pdf`, { headers })
+  const res = await fetch(`${API_BASE}/orders/${orderId}/invoice.pdf`, { headers, credentials: 'include' })
   if (!res.ok) throw new Error('Failed to generate invoice')
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
@@ -762,11 +748,9 @@ export const orderInvoice = async (orderId, orderNumber) => {
 
 // Generic blob download helper (for exports)
 export const downloadBlob = async (endpoint, filename) => {
-  const token = localStorage.getItem('token')
   const headers = {}
   if (API_KEY) headers['X-API-Key'] = API_KEY
-  if (token) headers['Authorization'] = 'Bearer ' + token
-  const res = await fetch(`${API_BASE}${endpoint}`, { headers })
+  const res = await fetch(`${API_BASE}${endpoint}`, { headers, credentials: 'include' })
   if (!res.ok) throw new Error('Export failed')
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

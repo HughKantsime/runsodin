@@ -75,7 +75,47 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
-    """Resolve the current user from JWT or API key."""
+    """Resolve the current user from session cookie, JWT Bearer token, or API key.
+
+    Auth priority:
+      0. httpOnly session cookie (browser-based SPA auth)
+      1. Authorization: Bearer <JWT> header (API clients, fallback)
+      2. X-API-Key header — global key (perimeter auth) or per-user scoped token
+    """
+    # Try 0: httpOnly session cookie (browser-based auth)
+    session_token = request.cookies.get("session")
+    if session_token:
+        token_data = decode_token(session_token)
+        if token_data:
+            import jwt as _jwt
+            try:
+                payload = _jwt.decode(
+                    session_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
+                )
+                if not payload.get("mfa_pending"):
+                    jti = payload.get("jti")
+                    if jti:
+                        blacklisted = db.execute(
+                            text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
+                            {"jti": jti},
+                        ).fetchone()
+                        if blacklisted:
+                            pass  # fall through to next auth method
+                        else:
+                            db.execute(
+                                text("UPDATE active_sessions SET last_seen_at = :now WHERE token_jti = :jti"),
+                                {"now": datetime.now(timezone.utc), "jti": jti},
+                            )
+                            db.commit()
+                            user = db.execute(
+                                text("SELECT * FROM users WHERE username = :username"),
+                                {"username": token_data.username},
+                            ).fetchone()
+                            if user:
+                                return dict(user._mapping)
+            except Exception:
+                log.debug("Cookie auth failed", exc_info=True)
+
     # Try 1: JWT Bearer token (primary auth)
     if token:
         token_data = decode_token(token)
@@ -167,15 +207,56 @@ async def get_current_user(
     return None
 
 
-def require_role(required_role: str):
-    """FastAPI dependency that checks the user has at least the given role."""
+def require_role(required_role: str, scope: str = None):
+    """FastAPI dependency that checks the user has at least the given role.
+
+    Optionally enforces an API token scope (for per-user scoped tokens).
+    scope='read' for GET endpoints, scope='write' for POST/PATCH/PUT/DELETE.
+    Scope is only enforced when the request uses a per-user API token (odin_xxx).
+    JWT and global API key bypass scope checks.
+    """
     async def role_checker(current_user: dict = Depends(get_current_user)):
         if not current_user:
             raise HTTPException(status_code=401, detail="Not authenticated")
         if not has_permission(current_user["role"], required_role):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
+        # Scope enforcement for scoped per-user API tokens
+        if scope is not None:
+            token_scopes = current_user.get("_token_scopes", [])
+            if token_scopes and scope not in token_scopes:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient token scope — '{scope}' scope required",
+                )
         return current_user
     return role_checker
+
+
+def require_scope(scope: str):
+    """FastAPI dependency that enforces API token scope for per-user token auth.
+
+    Only enforced when the request uses a per-user API token (odin_xxx format).
+    JWT session auth and the global API key bypass scope checks (they have full access).
+    Scope values: 'read', 'write', 'admin'.
+
+    Usage:
+        @router.delete("/things/{id}")
+        async def delete_thing(current_user: dict = Depends(require_scope("write"))):
+            ...
+    """
+    async def _check(current_user: dict = Depends(get_current_user)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        token_scopes = current_user.get("_token_scopes", [])
+        # Only enforce scopes when the user authenticated via a scoped per-user token.
+        # Empty list means JWT or global API key — no scope restriction.
+        if token_scopes and scope not in token_scopes:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient token scope — '{scope}' scope required",
+            )
+        return current_user
+    return _check
 
 
 def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[int]:

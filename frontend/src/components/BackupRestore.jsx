@@ -26,12 +26,11 @@ export default function BackupRestore({ onRestored }) {
     try {
       const formData = new FormData()
       formData.append('file', confirmFile)
-      const token = localStorage.getItem('token')
+      
       const res = await fetch('/api/backups/restore', {
         method: 'POST',
         headers: {
           'X-API-Key': API_KEY,
-          'Authorization': `Bearer ${token}`,
         },
         body: formData,
       })

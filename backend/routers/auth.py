@@ -17,6 +17,8 @@ from auth import hash_password, create_access_token, verify_password, decode_tok
 from models import SystemConfig
 from config import settings
 from license_manager import require_feature, check_user_limit
+from rate_limit import limiter
+from config import settings as _settings
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -27,6 +29,7 @@ router = APIRouter()
 # =============================================================================
 
 @router.post("/auth/login", tags=["Auth"])
+@limiter.limit("10/minute")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     # Security checks
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
@@ -62,7 +65,61 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     log_audit(db, "auth.login", "user", user.id,
               details={"username": user.username},
               ip=client_ip)
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    # Set session cookie (httpOnly prevents XSS-based token theft)
+    # Also return access_token in body for backward compatibility with API clients
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+    resp.set_cookie(
+        key="session",
+        value=access_token,
+        httponly=True,
+        secure=_settings.cookie_secure,
+        samesite=_settings.cookie_samesite,
+        path="/",
+        max_age=86400,  # 24 hours, matches JWT expiry
+    )
+    return resp
+
+
+# =============================================================================
+# Logout
+# =============================================================================
+
+@router.post("/auth/logout", tags=["Auth"])
+async def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Clear session cookie and blacklist the JWT (if present)."""
+    # Blacklist the session cookie JWT
+    session_token = request.cookies.get("session")
+    if session_token:
+        import jwt as _jwt
+        try:
+            payload = _jwt.decode(
+                session_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
+            )
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                db.execute(
+                    text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+                    {"jti": jti, "exp": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()},
+                )
+                db.execute(
+                    text("DELETE FROM active_sessions WHERE token_jti = :jti"),
+                    {"jti": jti},
+                )
+                db.commit()
+        except Exception:
+            log.debug("Could not blacklist session token on logout", exc_info=True)
+
+    # Clear the session cookie
+    response.delete_cookie(key="session", path="/")
+    return {"detail": "Logged out"}
 
 
 def _record_session(db, user_id, access_token, ip, user_agent):
@@ -85,6 +142,7 @@ def _record_session(db, user_id, access_token, ip, user_agent):
 # =============================================================================
 
 @router.post("/auth/mfa/verify", tags=["Auth"])
+@limiter.limit("10/minute")
 async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)):
     """Verify TOTP code during login. Requires mfa_pending token."""
     import pyotp
@@ -119,7 +177,19 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
     _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
+    resp.set_cookie(
+        key="session",
+        value=access_token,
+        httponly=True,
+        secure=_settings.cookie_secure,
+        samesite=_settings.cookie_samesite,
+        path="/",
+        max_age=86400,
+    )
+    return resp
 
 
 @router.post("/auth/mfa/setup", tags=["Auth"])
@@ -1021,6 +1091,24 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return {"username": current_user["username"], "email": current_user["email"], "role": current_user["role"], "group_id": current_user.get("group_id")}
+
+
+@router.post("/auth/ws-token", tags=["Auth"])
+async def get_ws_token(current_user: dict = Depends(get_current_user)):
+    """Issue a short-lived JWT for WebSocket authentication.
+
+    WebSocket connections cannot send cookies or custom headers, so they need
+    a token passed as a query parameter (?token=...). This endpoint issues a
+    5-minute JWT specifically for that purpose, callable from the authenticated
+    browser session (cookie auth).
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    ws_token = create_access_token(
+        data={"sub": current_user["username"], "role": current_user["role"], "ws": True},
+        expires_delta=timedelta(minutes=5),
+    )
+    return {"token": ws_token}
 
 
 # =============================================================================

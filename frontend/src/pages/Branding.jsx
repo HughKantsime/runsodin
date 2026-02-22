@@ -107,8 +107,8 @@ const DEFAULTS = {
 function getAuthHeaders(contentType = 'application/json') {
   const headers = {}
   if (contentType) headers['Content-Type'] = contentType
-  const token = localStorage.getItem('token')
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  
+  
   const apiKey = import.meta.env.VITE_API_KEY
   if (apiKey) headers['X-API-Key'] = apiKey
   return headers

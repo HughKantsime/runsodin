@@ -2,6 +2,17 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.48] - 2026-02-21
+
+### Security
+- **httpOnly cookie auth** — JWT moved from `localStorage` to an httpOnly session cookie (`Secure`, `SameSite=Strict`). Cookie auth is Try 0 in `get_current_user`; Bearer token and X-API-Key fallbacks preserved for API clients. Login and MFA verify both set the cookie. New `POST /auth/logout` endpoint clears cookie and blacklists JWT. Frontend `api.js` uses `credentials: 'include'`; all localStorage token reads removed across 20+ files.
+- **go2rtc network isolation** — go2rtc HLS/API server (`port 1984`) now bound to `127.0.0.1` only. External clients can no longer bypass ODIN auth to access streams directly. WebRTC port 8555 remains on `0.0.0.0` for ICE candidates. Port 1984 removed from Dockerfile EXPOSE and docker-compose.yml.
+- **Container non-root user** — `odin` user/group created in Dockerfile. `supervisord.conf` sets `user=odin`; `entrypoint.sh` chowns `/data` and `/app` before exec-ing supervisord. All 9 supervised processes run as non-root.
+- **Global rate limiting (slowapi)** — `slowapi==0.1.9` added. Auth endpoints (`/auth/login`, `/auth/mfa/verify`) limited to 10 req/min per IP. File upload endpoint limited to 30 req/min. Shared limiter instance in `backend/rate_limit.py`.
+- **API token scope enforcement** — `require_scope(scope)` dependency added to `deps.py`. `require_role()` updated to accept optional `scope=` parameter. Create/delete endpoints on printers, jobs, models, and spools enforce `scope="write"` for per-user scoped tokens. JWT and global API key bypass scope checks (full access). New `POST /auth/ws-token` endpoint issues 5-minute JWT for WebSocket authentication.
+
+---
+
 ## [1.3.58] - 2026-02-21
 
 ### Security

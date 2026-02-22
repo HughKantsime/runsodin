@@ -30,15 +30,27 @@ export default function useWebSocket() {
   const reconnectTimer = useRef(null)
   const lastConnectAttempt = useRef(0)
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     // Don't reconnect too fast
     const now = Date.now()
     if (now - lastConnectAttempt.current < 3000) return
     lastConnectAttempt.current = now
 
+    // Fetch a short-lived WS token (WebSocket connections can't send cookies/headers).
+    // Falls back to no token — backend allows unauthenticated WS when API key is disabled.
+    let wsToken = ''
+    try {
+      const res = await fetch('/api/auth/ws-token', { method: 'POST', credentials: 'include' })
+      if (res.ok) {
+        const data = await res.json()
+        wsToken = data.token || ''
+      }
+    } catch {}
+
     // Build WebSocket URL from current location
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${window.location.host}/ws`
+    const tokenParam = wsToken ? `?token=${encodeURIComponent(wsToken)}` : ''
+    const url = `${proto}//${window.location.host}/ws${tokenParam}`
 
     try {
       const ws = new WebSocket(url)

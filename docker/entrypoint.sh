@@ -784,5 +784,14 @@ ENV_VARS="ENCRYPTION_KEY=\"${ENCRYPTION_KEY}\",JWT_SECRET_KEY=\"${JWT_SECRET_KEY
 sed -i "s|environment=PYTHONUNBUFFERED=\"1\"|environment=${ENV_VARS}|g" /etc/supervisor/conf.d/odin.conf
 echo "  ✓ Supervisor environment injected"
 
+# ── Fix ownership so supervisord and all processes run as odin ──
+# entrypoint.sh runs as root so secrets/DB init can complete before dropping privileges.
+# supervisord.conf sets user=odin so all child processes run as non-root.
+chown -R odin:odin /data 2>/dev/null || true
+chown -R odin:odin /app 2>/dev/null || true
+mkdir -p /var/run
+chown odin:odin /var/run 2>/dev/null || true
+echo "  ✓ Ownership set for odin user"
+
 # ── Start supervisord (manages all processes) ──
 exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/odin.conf

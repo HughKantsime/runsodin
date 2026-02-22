@@ -523,7 +523,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(get_current_user), db:
 
 
 @router.post("/spools", tags=["Spools"])
-def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Create a new spool."""
     # Verify filament exists
     filament = db.query(FilamentLibrary).filter(FilamentLibrary.id == spool.filament_id).first()
@@ -585,7 +585,7 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
 
 
 @router.delete("/spools/{spool_id}", tags=["Spools"])
-def delete_spool(spool_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_spool(spool_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Delete a spool (or archive it)."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:

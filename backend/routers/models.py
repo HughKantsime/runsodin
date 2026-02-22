@@ -1,5 +1,6 @@
 """O.D.I.N. — Model & Print File Routes"""
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File
+from rate_limit import limiter
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
@@ -230,7 +231,7 @@ def list_models_with_pricing(
 
 
 @router.post("/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED, tags=["Models"])
-def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Create a new model definition."""
     # Convert color requirements to dict format
     color_req = None
@@ -294,7 +295,7 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
 
 
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Models"])
-def delete_model(model_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_model(model_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Delete a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -373,7 +374,9 @@ def _normalize_model_name(name: str) -> str:
     return result.strip()
 
 @router.post("/print-files/upload", tags=["Print Files"])
+@limiter.limit("30/minute")
 async def upload_3mf(
+    request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):

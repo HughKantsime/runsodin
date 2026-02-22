@@ -36,9 +36,9 @@ function TVCameraStream({ cameraId }) {
       pc.addTransceiver('video', { direction: 'recvonly' })
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      const token = localStorage.getItem('token')
+      
       const headers = { 'Content-Type': 'application/sdp', 'X-API-Key': API_KEY }
-      if (token) headers['Authorization'] = 'Bearer ' + token
+      
       const response = await fetch(`${API_BASE}/cameras/${cameraId}/webrtc`, { method: 'POST', headers, body: offer.sdp })
       if (!response.ok) throw new Error('Failed')
       const answerSDP = await response.text()

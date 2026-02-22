@@ -241,7 +241,7 @@ function PrivacyDataCard() {
   const [message, setMessage] = useState(null)
 
   const getCurrentUserId = async () => {
-    const token = localStorage.getItem('token')
+    
     if (!token) return null
     try {
       const payload = JSON.parse(atob(token.split('.')[1]))
@@ -291,8 +291,10 @@ function PrivacyDataCard() {
         return
       }
       await gdpr.eraseData(userId)
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      // Clear session — call logout to clear cookie
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+      localStorage.removeItem('odin_user')
+      localStorage.removeItem('rbac_permissions')
       window.location.href = '/login'
     } catch (err) {
       setMessage({ type: 'error', text: err.message || 'Erase failed' })

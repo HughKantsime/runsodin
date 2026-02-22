@@ -22,6 +22,9 @@ from sqlalchemy import text
 from config import settings
 from deps import engine, SessionLocal, Base
 from auth import decode_token
+from rate_limit import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from routers import (
     alerts,
     analytics,
@@ -221,6 +224,10 @@ app = FastAPI(
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
 )
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS
 _cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]

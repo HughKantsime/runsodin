@@ -29,9 +29,8 @@ export default function OIDCSettings() {
 
   const loadConfig = async () => {
     try {
-      const token = localStorage.getItem('token');
+      ;
       const res = await fetch('/api/admin/oidc', {
-        headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
@@ -51,7 +50,7 @@ export default function OIDCSettings() {
     setMessage(null);
 
     try {
-      const token = localStorage.getItem('token');
+      ;
       const payload = { ...config };
       
       // Only include secret if changed
@@ -62,7 +61,6 @@ export default function OIDCSettings() {
       const res = await fetch('/api/admin/oidc', {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
