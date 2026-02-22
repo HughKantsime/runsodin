@@ -13,6 +13,10 @@ Updated 2026-02-21 at v1.3.57.
 - ~~Print Profiles / Presets~~
 - ~~Timelapse Generation from Camera Streams~~
 
+## Shipped in v1.3.65
+
+- ~~Path traversal sweep~~ — `realpath()` boundary checks on timelapse serve/delete, vision training export, and model revision revert; 100 MB limit on revision and backup uploads; 500 MB limit on ONNX uploads; trigger scan on backup restore; `label_class` allowlist validation
+
 ## Shipped in v1.3.64
 
 - ~~Frontend security hardening~~ — Three.js bundled from npm (no CDN), CSP connect-src wildcards removed, OIDC dead code replaced with working oidc_code exchange, OIDC errors URL-encoded, Google Fonts CDN removed from Branding page

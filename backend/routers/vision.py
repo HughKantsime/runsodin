@@ -318,11 +318,14 @@ async def upload_vision_model(
         raise HTTPException(status_code=400, detail="File must be .onnx")
 
     # Save file
+    MAX_ONNX_BYTES = 500 * 1024 * 1024  # 500 MB — ONNX models can be large
+    content = await file.read(MAX_ONNX_BYTES + 1)
+    if len(content) > MAX_ONNX_BYTES:
+        raise HTTPException(status_code=413, detail="Model file exceeds 500 MB limit")
     os.makedirs('/data/vision_models', exist_ok=True)
     safe_name = re.sub(r'[^\w\-\.]', '_', file.filename)
     dest = os.path.join('/data/vision_models', safe_name)
     with open(dest, 'wb') as f:
-        content = await file.read()
         f.write(content)
 
     # Register in DB
@@ -502,6 +505,10 @@ async def label_training_data(
     if not label_class or bbox is None:
         raise HTTPException(status_code=400, detail="class and bbox are required")
 
+    VALID_DETECTION_TYPES = {"spaghetti", "first_layer_failure", "detachment", "false_positive"}
+    if label_class not in VALID_DETECTION_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid detection type. Must be one of: {', '.join(sorted(VALID_DETECTION_TYPES))}")
+
     det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
     if not det:
         raise HTTPException(status_code=404, detail="Detection not found")
@@ -553,7 +560,9 @@ async def export_training_data(
         ))
 
         for row in rows:
-            frame_abs = os.path.join('/data/vision_frames', row.frame_path)
+            frame_abs = os.path.realpath(os.path.join('/data/vision_frames', row.frame_path))
+            if not frame_abs.startswith('/data/vision_frames/'):
+                continue  # skip corrupted or injected entries
             if not os.path.isfile(frame_abs):
                 continue
 

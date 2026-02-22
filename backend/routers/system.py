@@ -749,9 +749,14 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
     if not file.filename.endswith(".db"):
         raise HTTPException(status_code=400, detail="Only .db files are supported")
 
+    # Enforce size limit before writing to disk
+    MAX_BACKUP_BYTES = 100 * 1024 * 1024  # 100 MB
+    content = await file.read(MAX_BACKUP_BYTES + 1)
+    if len(content) > MAX_BACKUP_BYTES:
+        raise HTTPException(status_code=413, detail="Backup file too large")
+
     # Save uploaded file to temp
     with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
@@ -768,6 +773,12 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
             test_conn.close()
             os.unlink(tmp_path)
             raise HTTPException(status_code=400, detail="Backup file is not a valid O.D.I.N. database")
+        # Scan for unexpected triggers or views that could execute code on restore
+        triggers = test_conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()
+        if triggers:
+            test_conn.close()
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=400, detail="Backup contains unexpected database triggers")
         test_conn.close()
     except sqlite3.Error as e:
         os.unlink(tmp_path)

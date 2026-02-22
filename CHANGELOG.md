@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.65] - 2026-02-21
+
+### Security
+- **Timelapse path traversal** — `GET /timelapses/{id}/video` and `DELETE /timelapses/{id}` now resolve `t.filename` via `os.path.realpath()` and verify the result starts with `/data/timelapses/` before serving or deleting the file.
+- **Vision training export path traversal** — the training data ZIP export resolves each `frame_path` entry via `os.path.realpath()` and skips any path that escapes `/data/vision_frames/`.
+- **Model revision revert path traversal** — the revert endpoint now calls `os.path.realpath()` on `target.file_path` and rejects paths outside `/data/` with HTTP 400.
+- **Model revision upload size limit** — the revision upload handler now enforces a 100 MB limit (matching the primary upload endpoint).
+- **ONNX upload size limit** — the ONNX model upload endpoint now enforces a 500 MB limit.
+- **Backup restore size limit** — the backup restore endpoint now enforces a 100 MB size limit before writing to disk.
+- **Backup restore trigger scan** — after the existing integrity check, the restore endpoint now queries `sqlite_master` for triggers and rejects any backup containing them.
+- **Detection label_class allowlist** — `POST /vision/training-data/{id}/label` now validates `label_class` against `{"spaghetti", "first_layer_failure", "detachment", "false_positive"}` and returns HTTP 400 for any other value.
+
 ## [1.3.64] - 2026-02-21
 
 ### Security

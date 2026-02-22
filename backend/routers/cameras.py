@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import logging
+import os
 import shutil
 
 import httpx
@@ -88,8 +89,10 @@ def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Sess
         raise HTTPException(status_code=404, detail="Timelapse not found")
     if t.status != "ready":
         raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
-    video_path = Path("/data/timelapses") / t.filename
-    if not video_path.exists():
+    video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
+    if not str(video_path).startswith("/data/timelapses/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    if not video_path.is_file():
         raise HTTPException(status_code=404, detail="Video file not found")
     return FileResponse(str(video_path), media_type="video/mp4", filename=video_path.name)
 
@@ -101,7 +104,9 @@ def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_u
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
     # Delete video file
-    video_path = Path("/data/timelapses") / t.filename
+    video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
+    if not str(video_path).startswith("/data/timelapses/"):
+        raise HTTPException(status_code=400, detail="Invalid file path")
     if video_path.exists():
         video_path.unlink()
     # Delete frame directory if still around

@@ -798,12 +798,15 @@ async def create_model_revision(
     # Save file if uploaded
     file_path = None
     if file:
+        _MAX_REVISION_BYTES = 100 * 1024 * 1024  # 100 MB
         rev_dir = f"/data/model_revisions/{model_id}"
         os.makedirs(rev_dir, exist_ok=True)
         safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename or "file")
         file_path = f"{rev_dir}/v{next_rev}_{safe_name}"
         with open(file_path, "wb") as f:
-            content = await file.read()
+            content = await file.read(_MAX_REVISION_BYTES + 1)
+            if len(content) > _MAX_REVISION_BYTES:
+                raise HTTPException(status_code=413, detail="File exceeds 100 MB limit")
             f.write(content)
 
     db.execute(text("""INSERT INTO model_revisions (model_id, revision_number, file_path, changelog, uploaded_by)
@@ -841,13 +844,17 @@ async def revert_model_revision(
 
     # Copy revision file if it exists
     new_file_path = None
-    if target.file_path and os.path.exists(target.file_path):
-        rev_dir = f"/data/model_revisions/{model_id}"
-        os.makedirs(rev_dir, exist_ok=True)
-        ext = os.path.splitext(target.file_path)[1]
-        new_file_path = f"{rev_dir}/v{next_rev}_reverted{ext}"
-        import shutil
-        shutil.copy2(target.file_path, new_file_path)
+    if target.file_path:
+        safe_path = os.path.realpath(target.file_path)
+        if not safe_path.startswith('/data/'):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        if os.path.exists(safe_path):
+            rev_dir = f"/data/model_revisions/{model_id}"
+            os.makedirs(rev_dir, exist_ok=True)
+            ext = os.path.splitext(target.file_path)[1]
+            new_file_path = f"{rev_dir}/v{next_rev}_reverted{ext}"
+            import shutil
+            shutil.copy2(safe_path, new_file_path)
 
     db.execute(text("""INSERT INTO model_revisions (model_id, revision_number, file_path, changelog, uploaded_by)
                        VALUES (:mid, :rev, :fp, :cl, :uid)"""),
