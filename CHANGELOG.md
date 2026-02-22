@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased]
+
+### Security
+- **Webhook URL encryption** — Discord/Slack/Telegram/ntfy webhook URLs are now Fernet-encrypted before storage in the `webhooks` table. Tokens embedded in URLs (e.g. `discord.com/api/webhooks/ID/TOKEN`) are no longer plaintext in DB or backups. Migration-safe decrypt fallback handles existing rows.
+- **API_KEY startup warning** — A `WARNING` log is now emitted at startup if `API_KEY` is unset, making the "perimeter auth disabled" state explicit rather than silent.
+- **Backup path traversal hardened** — `download_backup` and `delete_backup` now use `realpath()` + prefix check instead of string-scan, consistent with all other file-serving endpoints (symlink-safe).
+- **Setup test-printer SSRF** — `POST /setup/test-printer` now calls `_check_ssrf_blocklist(api_host)` before attempting outbound MQTT/HTTP connection.
+
 ## [1.3.66] - 2026-02-21
 
 ### Security
