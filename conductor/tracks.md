@@ -6,6 +6,11 @@ Active and completed development tracks.
 
 | Track ID | Name | Type | Status | Step | Created |
 |----------|------|------|--------|------|---------|
+| auth-missing-endpoints_20260221 | Auth — Missing Authentication on Endpoint Groups | infrastructure | new | NOT_STARTED | 2026-02-21 |
+| credential-encryption_20260221 | Credential Encryption — SMTP, MQTT, camera_url | infrastructure | new | NOT_STARTED | 2026-02-21 |
+| ws-token-mfa-hardening_20260221 | WebSocket Token Scoping + MFA Hardening | infrastructure | new | NOT_STARTED | 2026-02-21 |
+| frontend-security_20260221 | Frontend Security Hardening | infrastructure | new | NOT_STARTED | 2026-02-21 |
+| path-traversal-sweep_20260221 | Path Traversal Sweep | infrastructure | new | NOT_STARTED | 2026-02-21 |
 
 ## Completed Tracks
 
