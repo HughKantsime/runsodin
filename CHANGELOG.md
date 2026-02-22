@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.63] - 2026-02-21
+
+### Security
+- **ws-token REST rejection** — `get_current_user()` in `deps.py` now rejects JWTs containing `"ws": True` on both cookie and Bearer auth paths. WebSocket tokens captured from URL query parameters can no longer be replayed against REST endpoints.
+- **MFA pending token blacklisted on use** — `mfa_verify` blacklists the `mfa_pending` JWT immediately after successful TOTP verification. Re-submitting the same token returns 401. Prevents a second session being issued from a single MFA flow.
+- **`revoke_all_sessions` cookie-auth fix** — Caller JTI is now extracted from the session cookie when no Bearer header is present. Cookie-auth callers (browsers) are no longer logged out by their own revoke-all request. Same fix applied to `list_sessions` `is_current` detection.
+
 ## [1.3.62] - 2026-02-21
 
 ### Security
