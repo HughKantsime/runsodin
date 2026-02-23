@@ -726,7 +726,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
 
     if config["audit_logs_days"] > 0:
         cutoff = now - timedelta(days=config["audit_logs_days"])
-        r = db.execute(text("DELETE FROM audit_logs WHERE created_at < :cutoff"), {"cutoff": cutoff})
+        r = db.execute(text("DELETE FROM audit_logs WHERE timestamp < :cutoff"), {"cutoff": cutoff})
         deleted["audit_logs"] = r.rowcount
 
     if config["alert_history_days"] > 0:
