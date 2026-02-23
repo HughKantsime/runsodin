@@ -459,10 +459,9 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/auth/oidc/login",    _pub(), None,             "OIDC login redirect"),
     ("GET",    "/api/auth/oidc/callback", _pub(), None,             "OIDC callback"),
     ("POST",   "/api/auth/oidc/exchange", _pub(), {"code": "test"}, "OIDC token exchange"),
-    # Logout (intentionally public no-op when unauthed)
-    ("POST",   "/api/auth/logout",
-     {"no_headers": 200, "api_key_only": 200, "viewer": 200, "operator": 200, "admin": 200},
-     None, "Logout"),
+    # Logout — intentionally public (no-op when unauthed). Skip JWT role tests:
+    # calling logout with a live test token blacklists it, breaking subsequent tests.
+    ("POST",   "/api/auth/logout",  _pub(), None, "Logout (public no-op when unauthed)"),
     # WS token (get_current_user)
     ("POST",   "/api/auth/ws-token",  _api_read(), None, "Get WebSocket token"),
     # Sessions (require_role("viewer") — own sessions)
@@ -481,7 +480,7 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     ("PATCH",  "/api/users/{user_id}",        _admin_only(), {"email": "rbac@test.local"}, "Update user (template)"),
     ("DELETE", "/api/users/{user_id}",        _admin_only(), None, "Delete user (template)"),
-    ("GET",    "/api/users/{user_id}/export", _api_read(),   None, "Export user data (GDPR)"),
+    ("GET",    "/api/users/{user_id}/export", _admin_only(), None, "Export user data (GDPR — admin or self; IDOR blocks non-admin)"),
     ("DELETE", "/api/users/{user_id}/erase",  _admin_only(), None, "Erase user data (GDPR)"),
     ("POST",   "/api/users/import",           _admin_only(), None, "Import users"),
 
@@ -490,7 +489,7 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     # Groups (GETs require operator, writes require admin)
     ("GET",    "/api/groups",              _op_write(),   None,                        "List groups (operator+)"),
-    ("GET",    "/api/groups/{group_id}",   _op_write(),   None,                        "Get group (operator+)"),
+    ("GET",    "/api/groups/{group_id}",   _admin_only(), None,                        "Get group (admin only — IDOR blocks non-members)"),
     ("POST",   "/api/groups",              _admin_only(), {"name": "RBAC Test Group"}, "Create group"),
     ("PATCH",  "/api/groups/{group_id}",   _admin_only(), {"name": "Updated"},         "Update group"),
     ("DELETE", "/api/groups/{group_id}",   _admin_only(), None,                        "Delete group"),
@@ -602,7 +601,7 @@ ENDPOINT_MATRIX = [
     # 52. Presets
     # =========================================================================
     ("GET",    "/api/presets",                      _api_read(), None,                     "List presets"),
-    ("POST",   "/api/presets",                      _op_write(), {"name": "RBAC Preset"},  "Create preset"),
+    ("POST",   "/api/presets",                      _op_write(), None,  "Create preset"),
     ("DELETE", "/api/presets/{preset_id}",          _op_write(), None,                     "Delete preset"),
     ("POST",   "/api/presets/{preset_id}/schedule", _api_read(), {},                       "Schedule preset"),
 
@@ -687,12 +686,12 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     ("GET",    "/api/vision/detections",                         _api_read(),   None, "List detections"),
     ("GET",    "/api/vision/detections/{detection_id}",          _api_read(),   None, "Get detection"),
-    ("PATCH",  "/api/vision/detections/{detection_id}",          _admin_only(), {},   "Update detection"),
+    ("PATCH",  "/api/vision/detections/{detection_id}",          _op_write(), {"status": "confirmed"},   "Update detection (operator+)"),
     ("GET",    "/api/vision/frames/{printer_id}/{filename}",     _api_read(),   None, "Get vision frame"),
     ("GET",    "/api/vision/models",                             _admin_read(), None, "List vision models"),
     ("POST",   "/api/vision/models",                             _admin_only(), None, "Upload vision model"),
     ("PATCH",  "/api/vision/models/{model_id}/activate",         _admin_only(), None, "Activate vision model"),
-    ("GET",    "/api/vision/settings",                           _api_read(),   None, "Get vision settings"),
+    ("GET",    "/api/vision/settings",                           _admin_read(), None, "Get vision settings (admin only)"),
     ("PATCH",  "/api/vision/settings",                           _admin_only(), {},   "Update vision settings"),
     ("GET",    "/api/vision/stats",                              _api_read(),   None, "Vision stats"),
     ("GET",    "/api/vision/training-data",                      _admin_read(), None, "List vision training data"),

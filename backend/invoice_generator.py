@@ -131,7 +131,7 @@ class InvoiceGenerator:
                 pdf.set_fill_color(255, 255, 255)
 
             product_name = item.get("product_name") or f"Product #{item.get('product_id', '?')}"
-            sku = item.get("product_sku") or "—"
+            sku = item.get("product_sku") or "-"
             qty = item.get("quantity", 0)
             unit_price = item.get("unit_price")
             line_subtotal = item.get("subtotal")
