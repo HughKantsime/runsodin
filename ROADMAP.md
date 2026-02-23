@@ -1,6 +1,6 @@
 # O.D.I.N. Feature Roadmap
 
-Updated 2026-02-21 at v1.3.57.
+Updated — see CHANGELOG for current version.
 
 ## Shipped in v1.2.0
 
