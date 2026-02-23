@@ -83,13 +83,19 @@ EXCLUDED_PATHS = {
 
 def _normalise_path(path: str) -> str:
     """
-    Normalise path parameter names so comparison is name-agnostic.
-    OpenAPI: /api/printers/{printer_id}
-    Matrix:  /api/printers/{printer_id}   ← same, but handle mismatches
+    Normalise a path for comparison:
 
-    We strip the parameter name and replace with a canonical {id} placeholder.
-    This allows the matrix to use any param name and still match the live route.
+    1. Strip the /v1 version prefix so /api/v1/printers == /api/printers.
+       The API mounts routes at both /api/X and /api/v1/X for backwards
+       compatibility. The RBAC matrix uses /api/X. Stripping /v1 means
+       both forms match a single matrix entry.
+
+    2. Replace all path parameter names with a canonical {id} placeholder
+       so {printer_id}, {job_id}, {user_id} etc. all match {id}.
     """
+    # Strip /v1 version prefix
+    path = re.sub(r"^/api/v1/", "/api/", path)
+    # Canonicalise path params
     return re.sub(r"\{[^}]+\}", "{id}", path)
 
 
@@ -152,26 +158,37 @@ def test_all_routes_in_rbac_matrix():
     matrix_routes = _get_matrix_routes()
     server_routes = _get_server_routes()
 
-    uncovered = []
-    for method, path in server_routes:
+    # Collect uncovered routes, deduplicating by normalised key.
+    # Both /api/X and /api/v1/X normalise to the same key — show only the
+    # canonical (non-versioned) form so the list is actionable, not doubled.
+    seen_normalised = set()
+    uncovered = []  # (method, canonical_path)
+
+    for method, path in sorted(server_routes):
         if path in EXCLUDED_PATHS:
             continue
-        normalised = (method, _normalise_path(path))
-        if normalised not in matrix_routes:
-            uncovered.append((method, path))
+        norm_key = (method, _normalise_path(path))
+        if norm_key in matrix_routes:
+            continue
+        if norm_key in seen_normalised:
+            continue  # already reported via the other version (/api/X vs /api/v1/X)
+        seen_normalised.add(norm_key)
+        # Prefer the non-versioned path in the display
+        display_path = re.sub(r"^/api/v1/", "/api/", path)
+        uncovered.append((method, display_path))
 
     if uncovered:
         lines = [
             "",
             "=" * 65,
-            "ROUTE COVERAGE FAILURE — endpoints not in RBAC matrix:",
+            f"ROUTE COVERAGE FAILURE — {len(uncovered)} endpoints not in RBAC matrix:",
             "=" * 65,
             "",
             "These routes are registered in the server but have no entry",
             "in ENDPOINT_MATRIX (tests/test_rbac.py).",
             "",
-            "Fix: add each route to ENDPOINT_MATRIX with correct auth",
-            "expectations (see existing entries for format).",
+            "Fix: add each route to ENDPOINT_MATRIX with the correct auth",
+            "expectations (see existing entries for format), then re-run.",
             "",
         ]
         for method, path in sorted(uncovered):
@@ -234,6 +251,7 @@ def test_no_unauthenticated_write_endpoints():
     """
     INTENTIONALLY_PUBLIC_WRITE_PATHS = {
         "/api/auth/login",
+        "/api/auth/logout",      # no-op when unauthenticated, 200 is correct
         "/api/auth/refresh",
         "/api/setup/admin",
         "/api/setup/test-printer",
