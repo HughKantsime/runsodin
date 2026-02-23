@@ -24,7 +24,7 @@ Usage:
     printer.disconnect()
 """
 
-import ftplib
+import ftplib  # nosec B402 — Bambu Lab printers only support FTP for file transfer; no SFTP/FTPS option exists in the Bambu protocol. LAN-only, accepted hardware limitation.
 import json
 import os
 import socket
