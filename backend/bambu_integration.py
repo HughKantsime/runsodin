@@ -219,8 +219,8 @@ class BambuMQTTClient:
         try:
             self.client = mqtt.Client(client_id=f"printfarm_{int(time.time())}", protocol=mqtt.MQTTv5)
             self.client.username_pw_set("bblp", self.config.access_code)
-            self.client.tls_set(cert_reqs=ssl.CERT_NONE)
-            self.client.tls_insecure_set(True)
+            self.client.tls_set(cert_reqs=ssl.CERT_NONE)  # nosec B501 — Bambu Lab printers use self-signed certs on their MQTT broker; cert verification is intentionally disabled per the Bambu protocol requirement. This is a LAN-only connection.
+            self.client.tls_insecure_set(True)  # nosec B501 — same as above
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
             self.client.on_message = self._on_message
