@@ -435,6 +435,275 @@ ENDPOINT_MATRIX = [
     ("GET",  "/api/spoolman/spools", _pub(), None, "Spoolman spools (public)"),
     ("GET",  "/api/spoolman/filaments", _pub(), None, "Spoolman filaments (public)"),
     ("GET",  "/api/spoolman/test", _pub(), None, "Spoolman test (public)"),
+
+    # =========================================================================
+    # 35. Admin Endpoints
+    # =========================================================================
+    ("GET",    "/api/admin/sessions",                  _admin_read(), None,           "List all sessions — admin"),
+    ("DELETE", "/api/admin/sessions/{session_id}",     _admin_only(), None,           "Revoke session — admin"),
+    ("DELETE", "/api/admin/users/{user_id}/mfa",       _admin_only(), None,           "Reset user MFA — admin"),
+    ("GET",    "/api/admin/quotas",                    _admin_read(), None,           "List quotas — admin"),
+    ("PUT",    "/api/admin/quotas/{user_id}",          _admin_only(), {"limit": 100}, "Set user quota"),
+    ("POST",   "/api/admin/retention/cleanup",         _admin_only(), None,           "Run retention cleanup"),
+
+    # =========================================================================
+    # 36. Auth — MFA / OIDC / Sessions / Tokens / Quotas
+    # =========================================================================
+    # MFA (require_role("viewer") — all authed users including api_key_only)
+    ("GET",    "/api/auth/mfa/status",   _api_read(), None,                "MFA status (own)"),
+    ("POST",   "/api/auth/mfa/setup",    _api_read(), None,                "Start MFA setup"),
+    ("POST",   "/api/auth/mfa/confirm",  _api_read(), {"token": "000000"}, "Confirm MFA setup"),
+    ("POST",   "/api/auth/mfa/verify",   _pub(),      {"token": "000000"}, "Verify MFA (public second-factor)"),
+    ("DELETE", "/api/auth/mfa",          _api_read(), None,                "Disable own MFA"),
+    # OIDC (no auth dependency — public)
+    ("GET",    "/api/auth/oidc/login",    _pub(), None,             "OIDC login redirect"),
+    ("GET",    "/api/auth/oidc/callback", _pub(), None,             "OIDC callback"),
+    ("POST",   "/api/auth/oidc/exchange", _pub(), {"code": "test"}, "OIDC token exchange"),
+    # Logout (intentionally public no-op when unauthed)
+    ("POST",   "/api/auth/logout",
+     {"no_headers": 200, "api_key_only": 200, "viewer": 200, "operator": 200, "admin": 200},
+     None, "Logout"),
+    # WS token (get_current_user)
+    ("POST",   "/api/auth/ws-token",  _api_read(), None, "Get WebSocket token"),
+    # Sessions (require_role("viewer") — own sessions)
+    ("GET",    "/api/sessions",               _api_read(), None, "List own sessions"),
+    ("DELETE", "/api/sessions",               _api_read(), None, "Revoke all own sessions"),
+    ("DELETE", "/api/sessions/{session_id}",  _api_read(), None, "Revoke own session"),
+    # API tokens (require_role("viewer"))
+    ("GET",    "/api/tokens",             _api_read(), None,                  "List API tokens"),
+    ("POST",   "/api/tokens",             _api_read(), {"name": "RBAC Test"}, "Create API token"),
+    ("DELETE", "/api/tokens/{token_id}",  _api_read(), None,                  "Revoke API token"),
+    # Quotas — own usage
+    ("GET",    "/api/quotas",  _api_read(), None, "Get own quota usage"),
+
+    # =========================================================================
+    # 37. Users — missing actions (template forms)
+    # =========================================================================
+    ("PATCH",  "/api/users/{user_id}",        _admin_only(), {"email": "rbac@test.local"}, "Update user (template)"),
+    ("DELETE", "/api/users/{user_id}",        _admin_only(), None, "Delete user (template)"),
+    ("GET",    "/api/users/{user_id}/export", _api_read(),   None, "Export user data (GDPR)"),
+    ("DELETE", "/api/users/{user_id}/erase",  _admin_only(), None, "Erase user data (GDPR)"),
+    ("POST",   "/api/users/import",           _admin_only(), None, "Import users"),
+
+    # =========================================================================
+    # 38. Groups & Orgs
+    # =========================================================================
+    # Groups (GETs require operator, writes require admin)
+    ("GET",    "/api/groups",              _op_write(),   None,                        "List groups (operator+)"),
+    ("GET",    "/api/groups/{group_id}",   _op_write(),   None,                        "Get group (operator+)"),
+    ("POST",   "/api/groups",              _admin_only(), {"name": "RBAC Test Group"}, "Create group"),
+    ("PATCH",  "/api/groups/{group_id}",   _admin_only(), {"name": "Updated"},         "Update group"),
+    ("DELETE", "/api/groups/{group_id}",   _admin_only(), None,                        "Delete group"),
+    # Orgs (all require admin)
+    ("GET",    "/api/orgs",                       _admin_only(), None,                      "List orgs"),
+    ("POST",   "/api/orgs",                       _admin_only(), {"name": "RBAC Test Org"}, "Create org"),
+    ("PATCH",  "/api/orgs/{org_id}",              _admin_only(), {"name": "Updated"},        "Update org"),
+    ("DELETE", "/api/orgs/{org_id}",              _admin_only(), None,                       "Delete org"),
+    ("GET",    "/api/orgs/{org_id}/settings",     _admin_only(), None,                       "Get org settings"),
+    ("PUT",    "/api/orgs/{org_id}/settings",     _admin_only(), {},                         "Update org settings"),
+    ("POST",   "/api/orgs/{org_id}/members",      _admin_only(), {"user_id": 1},             "Add org member"),
+    ("POST",   "/api/orgs/{org_id}/printers",     _admin_only(), {"printer_id": 1},          "Add org printer"),
+
+    # =========================================================================
+    # 39. Alerts — template forms (hardcoded /1 entries retained above)
+    # =========================================================================
+    ("PATCH", "/api/alerts/{alert_id}/read",    _api_read(), None, "Mark alert read (template)"),
+    ("PATCH", "/api/alerts/{alert_id}/dismiss", _api_read(), None, "Dismiss alert (template)"),
+
+    # =========================================================================
+    # 40. Backups — restore action
+    # =========================================================================
+    ("POST", "/api/backups/restore", _admin_only(), None, "Restore backup from file"),
+
+    # =========================================================================
+    # 41. Branding — file uploads
+    # =========================================================================
+    ("POST", "/api/branding/logo",    _admin_only(), None, "Upload logo"),
+    ("POST", "/api/branding/favicon", _admin_only(), None, "Upload favicon"),
+
+    # =========================================================================
+    # 42. Cameras — WebRTC
+    # =========================================================================
+    ("POST", "/api/cameras/{printer_id}/webrtc", _api_read(), None, "WebRTC offer"),
+
+    # =========================================================================
+    # 43. Config — additional endpoints
+    # =========================================================================
+    ("GET", "/api/config/ip-allowlist",  _admin_read(), None,              "Get IP allowlist"),
+    ("PUT", "/api/config/ip-allowlist",  _admin_only(), {},                "Update IP allowlist"),
+    ("GET", "/api/config/require-mfa",   _admin_read(), None,              "Get MFA enforcement config"),
+    ("PUT", "/api/config/require-mfa",   _admin_only(), {"enabled": False}, "Set MFA enforcement"),
+    ("GET", "/api/config/retention",     _admin_read(), None,              "Get data retention config"),
+    ("PUT", "/api/config/retention",     _admin_only(), {},                "Update data retention config"),
+
+    # =========================================================================
+    # 44. Consumables
+    # =========================================================================
+    ("GET",    "/api/consumables",                        _api_read(),   None,                         "List consumables"),
+    ("POST",   "/api/consumables",                        _op_write(),   {"name": "PLA", "unit": "g"}, "Create consumable"),
+    ("GET",    "/api/consumables/low-stock",              _api_read(),   None,                         "Low-stock consumables"),
+    ("GET",    "/api/consumables/{consumable_id}",        _api_read(),   None,                         "Get consumable"),
+    ("PATCH",  "/api/consumables/{consumable_id}",        _op_write(),   {"name": "Updated"},          "Update consumable"),
+    ("DELETE", "/api/consumables/{consumable_id}",        _admin_only(), None,                         "Delete consumable"),
+    ("POST",   "/api/consumables/{consumable_id}/adjust", _op_write(),   {"quantity": 1},              "Adjust consumable stock"),
+
+    # =========================================================================
+    # 45. Education, Export & Reports
+    # =========================================================================
+    ("GET", "/api/education/usage-report", _op_write(),   None, "Education usage report (operator+)"),
+    ("GET", "/api/export/audit-logs",      _admin_read(), None, "Export audit logs"),
+    ("GET", "/api/reports/chargebacks",    _admin_read(), None, "Chargeback report"),
+
+    # =========================================================================
+    # 46. Health & Metrics (API-prefixed)
+    # =========================================================================
+    ("GET", "/api/health",  _pub(),      None, "API health check"),
+    ("GET", "/api/metrics", _api_read(), None, "API metrics endpoint"),
+
+    # =========================================================================
+    # 47. HMS codes — template form
+    # =========================================================================
+    ("GET", "/api/hms-codes/{code}", _api_read(), None, "HMS code lookup (template)"),
+
+    # =========================================================================
+    # 48. Jobs — missing actions
+    # =========================================================================
+    ("POST", "/api/jobs/bulk-update",       _op_write(), {"job_ids": [], "status": "pending"}, "Bulk update jobs"),
+    ("POST", "/api/jobs/{job_id}/approve",  _op_write(), None, "Approve job"),
+    ("POST", "/api/jobs/{job_id}/dispatch", _op_write(), None, "Dispatch job"),
+    ("POST", "/api/jobs/{job_id}/reject",   _op_write(), None, "Reject job"),
+    ("POST", "/api/jobs/{job_id}/resubmit", _api_read(), None, "Resubmit job"),
+
+    # =========================================================================
+    # 49. License — missing endpoints
+    # =========================================================================
+    ("GET",  "/api/license/installation-id",    _admin_read(), None, "Get installation ID"),
+    ("GET",  "/api/license/activation-request", _admin_read(), None, "Get offline activation request"),
+    ("POST", "/api/license/activate",           _admin_only(), {},   "Activate license online"),
+    ("POST", "/api/license/upload",             _admin_only(), None, "Upload license file"),
+
+    # =========================================================================
+    # 50. Models — missing actions
+    # =========================================================================
+    ("GET",    "/api/models/{model_id}/revisions",                     _api_read(), None, "List model revisions"),
+    ("POST",   "/api/models/{model_id}/revisions",                     _op_write(), None, "Create model revision"),
+    ("POST",   "/api/models/{model_id}/revisions/{rev_number}/revert", _op_write(), None, "Revert to revision"),
+    ("POST",   "/api/models/{model_id}/schedule",                      _op_write(), {},   "Schedule model"),
+    ("DELETE", "/api/models/{model_id}/variants/{variant_id}",         _op_write(), None, "Delete model variant"),
+
+    # =========================================================================
+    # 51. Orders — missing sub-resources
+    # =========================================================================
+    ("DELETE", "/api/orders/{order_id}/items/{item_id}",  _op_write(),   None, "Remove order item"),
+    ("PATCH",  "/api/orders/{order_id}/items/{item_id}",  _admin_only(), {},   "Update order item"),
+    ("GET",    "/api/orders/{order_id}/invoice.pdf",      _op_write(),   None, "Download invoice PDF"),
+
+    # =========================================================================
+    # 52. Presets
+    # =========================================================================
+    ("GET",    "/api/presets",                      _api_read(), None,                     "List presets"),
+    ("POST",   "/api/presets",                      _op_write(), {"name": "RBAC Preset"},  "Create preset"),
+    ("DELETE", "/api/presets/{preset_id}",          _op_write(), None,                     "Delete preset"),
+    ("POST",   "/api/presets/{preset_id}/schedule", _api_read(), {},                       "Schedule preset"),
+
+    # =========================================================================
+    # 53. Print Files — missing actions / template forms
+    # =========================================================================
+    ("GET",    "/api/print-files/{file_id}",          _api_read(), None, "Get print file (template)"),
+    ("GET",    "/api/print-files/{file_id}/mesh",     _api_read(), None, "Get print file mesh"),
+    ("DELETE", "/api/print-files/{file_id}",          _op_write(), None, "Delete print file (template)"),
+    ("POST",   "/api/print-files/upload",             _op_write(), None, "Upload print file"),
+    ("POST",   "/api/print-files/{file_id}/schedule", _op_write(), {},   "Schedule print file"),
+
+    # =========================================================================
+    # 54. Printers — missing sub-resources / template slot forms
+    # =========================================================================
+    ("GET",    "/api/printers/tags",                                         _api_read(),   None, "List printer tags"),
+    ("GET",    "/api/printers/{printer_id}/hms-history",                     _api_read(),   None, "HMS history"),
+    ("GET",    "/api/printers/{printer_id}/nozzle",                          _api_read(),   None, "Get current nozzle"),
+    ("GET",    "/api/printers/{printer_id}/nozzle/history",                  _api_read(),   None, "Nozzle history"),
+    ("POST",   "/api/printers/{printer_id}/nozzle",                          _op_write(),   {},   "Install nozzle"),
+    ("PATCH",  "/api/printers/{printer_id}/nozzle/{nozzle_id}/retire",       _op_write(),   None, "Retire nozzle"),
+    ("GET",    "/api/printers/{printer_id}/telemetry",                       _api_read(),   None, "Printer telemetry"),
+    ("GET",    "/api/printers/{printer_id}/vision",                          _api_read(),   None, "Printer vision settings"),
+    ("PATCH",  "/api/printers/{printer_id}/vision",                          _admin_only(), {},   "Update printer vision settings"),
+    ("POST",   "/api/printers/bulk-update",                                  _admin_only(), {"printer_ids": [], "action": "enable"}, "Bulk update printers"),
+    ("PATCH",  "/api/printers/{printer_id}/slots/{slot_number}",             _op_write(),   {"filament_type": "PLA"},                 "Update slot (template)"),
+    ("PATCH",  "/api/printers/{printer_id}/slots/{slot_number}/manual-assign", _op_write(), {"filament_type": "PLA", "color": "Red"}, "Manual assign (template)"),
+    ("POST",   "/api/printers/{printer_id}/slots/{slot_number}/assign",      _op_write(),   None, "Assign spool (template)"),
+    ("POST",   "/api/printers/{printer_id}/slots/{slot_number}/confirm",     _op_write(),   None, "Confirm spool assign (template)"),
+
+    # =========================================================================
+    # 55. Products — missing sub-resources
+    # =========================================================================
+    ("POST",   "/api/products/{product_id}/consumables",                      _op_write(), {"consumable_id": 1}, "Add product consumable"),
+    ("DELETE", "/api/products/{product_id}/consumables/{consumable_link_id}", _op_write(), None, "Remove product consumable"),
+    ("DELETE", "/api/products/{product_id}/components/{component_id}",        _op_write(), None, "Remove BOM component"),
+
+    # =========================================================================
+    # 56. Report Schedules
+    # =========================================================================
+    ("GET",    "/api/report-schedules",                    _admin_read(), None, "List report schedules"),
+    ("POST",   "/api/report-schedules",                    _admin_only(), {},   "Create report schedule"),
+    ("PATCH",  "/api/report-schedules/{schedule_id}",      _admin_only(), {},   "Update report schedule"),
+    ("DELETE", "/api/report-schedules/{schedule_id}",      _admin_only(), None, "Delete report schedule"),
+    ("POST",   "/api/report-schedules/{schedule_id}/run",  _admin_only(), None, "Run report schedule immediately"),
+
+    # =========================================================================
+    # 57. Search — plain path (existing entry has ?q=test suffix which doesn't match)
+    # =========================================================================
+    ("GET", "/api/search", _api_read(), None, "Global search (template)"),
+
+    # =========================================================================
+    # 58. Settings — education mode
+    # =========================================================================
+    ("GET", "/api/settings/education-mode", _pub(),        None,               "Get education mode"),
+    ("PUT", "/api/settings/education-mode", _admin_only(), {"enabled": False},  "Set education mode"),
+
+    # =========================================================================
+    # 59. Setup — missing endpoints
+    # =========================================================================
+    ("GET",  "/api/setup/network",  _api_read(),    None, "Get network config"),
+    ("POST", "/api/setup/network",  _setup_locked(), None, "Save network config (locked after setup)"),
+
+    # =========================================================================
+    # 60. Spools — missing sub-resources / template forms
+    # =========================================================================
+    ("GET",  "/api/spools/labels/batch",              _api_read(), None, "Batch spool labels (template)"),
+    ("GET",  "/api/spools/lookup/{qr_code}",          _api_read(), None, "QR code lookup (template)"),
+    ("GET",  "/api/spools/{spool_id}/drying-history", _api_read(), None, "Spool drying history"),
+    ("POST", "/api/spools/bulk-update",               _op_write(), {},   "Bulk update spools"),
+    ("POST", "/api/spools/{spool_id}/dry",            _op_write(), {},   "Start spool drying"),
+
+    # =========================================================================
+    # 61. Timelapses
+    # =========================================================================
+    ("GET",    "/api/timelapses",                      _api_read(),   None, "List timelapses"),
+    ("GET",    "/api/timelapses/{timelapse_id}/video", _api_read(),   None, "Download timelapse video"),
+    ("DELETE", "/api/timelapses/{timelapse_id}",       _admin_only(), None, "Delete timelapse"),
+
+    # =========================================================================
+    # 62. Vision
+    # =========================================================================
+    ("GET",    "/api/vision/detections",                         _api_read(),   None, "List detections"),
+    ("GET",    "/api/vision/detections/{detection_id}",          _api_read(),   None, "Get detection"),
+    ("PATCH",  "/api/vision/detections/{detection_id}",          _admin_only(), {},   "Update detection"),
+    ("GET",    "/api/vision/frames/{printer_id}/{filename}",     _api_read(),   None, "Get vision frame"),
+    ("GET",    "/api/vision/models",                             _admin_read(), None, "List vision models"),
+    ("POST",   "/api/vision/models",                             _admin_only(), None, "Upload vision model"),
+    ("PATCH",  "/api/vision/models/{model_id}/activate",         _admin_only(), None, "Activate vision model"),
+    ("GET",    "/api/vision/settings",                           _api_read(),   None, "Get vision settings"),
+    ("PATCH",  "/api/vision/settings",                           _admin_only(), {},   "Update vision settings"),
+    ("GET",    "/api/vision/stats",                              _api_read(),   None, "Vision stats"),
+    ("GET",    "/api/vision/training-data",                      _admin_read(), None, "List vision training data"),
+    ("GET",    "/api/vision/training-data/export",               _admin_read(), None, "Export vision training data"),
+    ("POST",   "/api/vision/training-data/{detection_id}/label", _admin_only(), {},   "Label detection for training"),
+
+    # =========================================================================
+    # 63. Analytics
+    # =========================================================================
+    ("GET", "/api/analytics/failures",      _api_read(), None, "Failure analytics"),
+    ("GET", "/api/analytics/time-accuracy", _api_read(), None, "Time accuracy analytics"),
 ]
 
 
@@ -455,6 +724,29 @@ def _resolve_path(path_template, test_data):
         "{maintenance_log_id}": str(test_data.get("maintenance_log_id", 1)),
         "{backup_filename}": test_data.get("backup_filename", "nonexistent.db"),
         "{filament_id}": str(test_data.get("filament_id", 1)),
+        # New params added for coverage (sections 35-63)
+        "{alert_id}": str(test_data.get("alert_id", 1)),
+        "{timelapse_id}": str(test_data.get("timelapse_id", 1)),
+        "{detection_id}": str(test_data.get("detection_id", 1)),
+        "{token_id}": str(test_data.get("token_id", 1)),
+        "{session_id}": str(test_data.get("session_id", 1)),
+        "{group_id}": str(test_data.get("group_id", 1)),
+        "{org_id}": str(test_data.get("org_id", 1)),
+        "{user_id}": str(test_data.get("user_id", 1)),
+        "{item_id}": str(test_data.get("item_id", 1)),
+        "{component_id}": str(test_data.get("component_id", 1)),
+        "{consumable_id}": str(test_data.get("consumable_id", 1)),
+        "{consumable_link_id}": str(test_data.get("consumable_link_id", 1)),
+        "{variant_id}": str(test_data.get("variant_id", 1)),
+        "{rev_number}": str(test_data.get("rev_number", 1)),
+        "{schedule_id}": str(test_data.get("schedule_id", 1)),
+        "{preset_id}": str(test_data.get("preset_id", 1)),
+        "{file_id}": str(test_data.get("file_id", 1)),
+        "{nozzle_id}": str(test_data.get("nozzle_id", 1)),
+        "{slot_number}": str(test_data.get("slot_number", 1)),
+        "{filename}": test_data.get("filename", "test.jpg"),
+        "{qr_code}": test_data.get("qr_code", "TEST_QR"),
+        "{code}": test_data.get("code", "0500040000020002"),
     }
     path = path_template
     for k, v in subs.items():
@@ -494,6 +786,12 @@ DESTRUCTIVE_SKIP = {
     "DELETE /api/backups/{backup_filename}",
     "DELETE /api/filaments/{filament_id}",
     "DELETE /api/license",
+    # New entries — could affect live test data or break the test session
+    "DELETE /api/sessions",               # Revokes ALL own sessions (breaks test runner tokens)
+    "DELETE /api/tokens/{token_id}",      # Could revoke the test API token
+    "DELETE /api/users/{user_id}",        # Could delete admin user (ID=1)
+    "DELETE /api/users/{user_id}/erase",  # Irreversible GDPR erase
+    "DELETE /api/print-files/{file_id}",  # Could delete test print file fixture data
 }
 
 
