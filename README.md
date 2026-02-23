@@ -4,10 +4,10 @@
 
 **Self-hosted 3D print farm management**
 
-[![Version](https://img.shields.io/badge/version-1.3.46-blue)](https://github.com/HughKantsime/runsodin/releases)
+[![Version](https://img.shields.io/github/v/release/HughKantsime/runsodin)](https://github.com/HughKantsime/runsodin/releases)
 [![License](https://img.shields.io/badge/license-BSL%201.1-orange)](LICENSE)
 [![CI](https://github.com/HughKantsime/runsodin/actions/workflows/ci.yml/badge.svg)](https://github.com/HughKantsime/runsodin/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-965%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/github/actions/workflow/status/HughKantsime/runsodin/ci.yml?label=tests)](#)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED)](https://github.com/HughKantsime/runsodin/pkgs/container/odin)
 [![Website](https://img.shields.io/badge/web-runsodin.com-black)](https://runsodin.com)
 
