@@ -1,4 +1,4 @@
-.PHONY: build test test-security test-e2e verify bump release logs shell help
+.PHONY: build test test-security test-e2e test-coverage scan verify bump release logs shell help
 
 build: ## Build and start the container
 	docker compose up -d --build
@@ -11,6 +11,19 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 
 test-security: ## Run Layer 3 security tests
 	pytest tests/security/ -v --tb=short
+
+test-coverage: ## RBAC route coverage gate — fails if new routes not in RBAC matrix
+	pytest tests/test_route_coverage.py -v --tb=short
+
+scan: ## Static security scan (bandit + pip-audit + npm audit) — mirrors CI
+	@echo "=== Bandit (Python static analysis) ==="
+	bandit -r backend/ -ll --exclude backend/vision_models_default/ -f txt || true
+	@echo ""
+	@echo "=== pip-audit (Python CVEs) ==="
+	pip-audit -r backend/requirements.txt --progress-spinner off --desc on || true
+	@echo ""
+	@echo "=== npm audit (frontend CVEs) ==="
+	cd frontend && npm audit || true
 
 test-e2e: ## Run E2E Playwright tests
 	pytest tests/test_e2e/ -v --tb=short

@@ -1,0 +1,119 @@
+name: Security & Code Quality
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # Job 1: Secret Scanning
+  # Catches credentials/keys committed to the repo.
+  # Belt-and-suspenders over the pre-commit gitleaks hook.
+  # ─────────────────────────────────────────────────────────
+  secrets-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for gitleaks)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────
+  # Job 2: Python Static Analysis + Dependency Audit
+  # Bandit catches common Python security mistakes.
+  # pip-audit flags CVEs in backend dependencies.
+  # ─────────────────────────────────────────────────────────
+  python-security:
+    name: Python Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scanning tools
+        run: pip install bandit pip-audit
+
+      - name: Bandit — static analysis (medium severity and above)
+        run: |
+          bandit -r backend/ \
+            -ll \
+            --exclude backend/vision_models_default/ \
+            -f txt \
+            -o bandit-report.txt || true
+          cat bandit-report.txt
+          # Fail on HIGH severity findings only (not medium — medium generates noise)
+          bandit -r backend/ \
+            -lll \
+            --exclude backend/vision_models_default/ \
+            -q
+
+      - name: pip-audit — dependency CVEs
+        run: |
+          pip-audit \
+            -r backend/requirements.txt \
+            --progress-spinner off \
+            --desc on \
+            --ignore-vuln GHSA-jfh8-c2jp-5 \
+            --ignore-vuln PYSEC-2025-49 \
+            --ignore-vuln GHSA-9wx4-h78v-vm56 \
+            || true
+          # Hard fail only on CRITICAL severity
+          pip-audit \
+            -r backend/requirements.txt \
+            --progress-spinner off \
+            --severity critical
+
+      - name: Upload bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.txt
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────
+  # Job 3: Frontend Dependency Audit
+  # npm audit catches CVEs in frontend dependencies.
+  # ─────────────────────────────────────────────────────────
+  frontend-security:
+    name: Frontend Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: npm audit (high and critical)
+        run: |
+          cd frontend
+          # Report everything for visibility
+          npm audit --json > npm-audit.json || true
+          npm audit || true
+          # Hard fail only on critical
+          npm audit --audit-level=critical
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: frontend/npm-audit.json
+          retention-days: 30
