@@ -473,7 +473,7 @@ def setup_network_info(request: Request, db: Session = Depends(get_db)):
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=401, content={"detail": "Authentication required"})
     # Best detection: use the Host header from the browser request
-    # When user hits http://192.168.70.200:8000, Host = "192.168.70.200:8000"
+    # When user hits http://192.168.x.x:8000, Host = "192.168.x.x:8000"
     detected_ip = ""
     host_header = request.headers.get("host", "")
     host_part = host_header.split(":")[0] if host_header else ""

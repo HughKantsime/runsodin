@@ -70,7 +70,7 @@ make release VERSION=1.3.46        # bump + commit + tag + push
 # GHCR workflow triggers on tag push
 
 # Production (manual, as end user)
-ssh root@192.168.71.211
+ssh root@YOUR_SERVER_IP
 cd /opt/odin/runsodin/runsodin
 docker compose pull && docker compose up -d
 ```

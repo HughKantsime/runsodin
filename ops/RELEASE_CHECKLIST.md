@@ -16,7 +16,7 @@
 
 ## Production (as end user)
 
-- [ ] SSH to prod: `ssh root@192.168.71.211`
+- [ ] SSH to prod: `ssh root@YOUR_SERVER_IP`
 - [ ] Pull and restart:
   ```bash
   cd /opt/odin/runsodin/runsodin
@@ -24,7 +24,7 @@
   docker compose pull
   docker compose up -d
   ```
-- [ ] Verify in browser: http://192.168.71.211:8000
+- [ ] Verify in browser: http://YOUR_SERVER_IP:8000
 - [ ] Check container health: `docker inspect odin --format '{{.State.Health.Status}}'`
 
 ## Rollback (if needed)

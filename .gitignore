@@ -88,6 +88,9 @@ PROJECTIONS.md
 MANAGER.md
 SESSION_STATE.md
 
+# Internal dev planning — not for public repo
+conductor/
+
 # Local backups / scratch
 *.bak
 *.bak.*
