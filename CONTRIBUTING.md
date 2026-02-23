@@ -37,23 +37,36 @@ The app will be available at `http://localhost:8000`.
 ```
 runsodin/
 ├── backend/
-│   ├── main.py           # FastAPI application (routes, models, logic)
-│   ├── auth.py           # JWT authentication
-│   ├── models.py         # SQLAlchemy models
+│   ├── main.py           # FastAPI app shell — wires routers, middleware, static files
+│   ├── routers/          # 13 router modules (printers, jobs, users, vision, orders, etc.)
+│   ├── deps.py           # Shared FastAPI dependencies (auth, RBAC, org scoping)
+│   ├── models.py         # SQLAlchemy ORM models
+│   ├── schemas.py        # Pydantic request/response schemas
+│   ├── auth.py           # JWT authentication helpers
 │   ├── mqtt_monitor.py   # Bambu MQTT telemetry daemon
-│   ├── moonraker_monitor.py  # Klipper telemetry daemon
+│   ├── moonraker_monitor.py  # Klipper/Moonraker WebSocket daemon
+│   ├── prusalink_monitor.py  # PrusaLink REST polling daemon
+│   ├── elegoo_monitor.py     # Elegoo SDCP WebSocket daemon
+│   ├── vision_monitor.py     # Vigil AI inference daemon
+│   ├── timelapse_capture.py  # Timelapse frame capture daemon
+│   ├── report_runner.py      # Scheduled report execution daemon
 │   └── ...
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx       # Main layout and routing
 │   │   ├── pages/        # Page components
 │   │   ├── components/   # Shared components
-│   │   └── api.js        # API client
+│   │   └── api.js        # Centralized API client (all pages use fetchAPI)
 │   └── ...
 ├── docker/
-│   ├── supervisord.conf  # Process manager config
-│   ├── entrypoint.sh     # Container startup script
+│   ├── supervisord.conf  # Process manager config (9 managed processes)
+│   ├── entrypoint.sh     # Container startup script + DB migrations
 │   └── go2rtc.yaml       # Camera streaming config
+├── tests/
+│   ├── test_features.py  # Integration tests
+│   ├── test_rbac.py      # RBAC auth expectations matrix (1507 tests)
+│   ├── test_route_coverage.py  # Ensures all routes have RBAC coverage
+│   └── test_security.py  # Security-specific tests
 ├── install/
 │   └── docker-compose.yml  # User-facing install file
 ├── docker-compose.yml    # Dev compose (builds from source)
@@ -64,13 +77,16 @@ runsodin/
 
 1. **Backend changes**: Edit files in `backend/`, then rebuild: `docker compose up -d --build`
 2. **Frontend changes**: Edit files in `frontend/src/`, then rebuild. The frontend is built at Docker build time (no hot-reload in production mode).
-3. **Test your changes**: Run through the UI manually. Check the browser console for errors. Check `docker logs odin` for backend errors.
+3. **Test your changes**: `make test` runs the full test suite (features + RBAC); `make test-coverage` runs the route coverage gate.
+4. **Security scan**: `make scan` runs bandit (Python static analysis), pip-audit (CVEs), and npm audit locally.
+5. **Logs**: `make logs` tails the container output. `make shell` opens a bash shell inside the container.
 
 ## Code Style
 
-- **Python**: Follow existing patterns in `main.py`. No strict linter enforced, but keep it clean.
-- **React**: Functional components with hooks. TailwindCSS for styling. No CSS modules.
-- **Commits**: Clear, descriptive messages. Reference issue numbers where applicable.
+- **Python**: Follow existing patterns in `backend/routers/`. CI runs bandit static analysis — high-severity findings block merge. Run `make scan` before submitting a PR.
+- **React**: Functional components with hooks. TailwindCSS for styling. No CSS modules. Use `fetchAPI` from `api.js` for all API calls — do not create local fetch wrappers.
+- **New endpoints**: Add auth expectations to `ENDPOINT_MATRIX` in `tests/test_rbac.py`. The route coverage gate (`make test-coverage`) will fail CI if you don't.
+- **Commits**: Clear, descriptive messages using conventional commit format (`feat:`, `fix:`, `security:`, `chore:`). Reference issue numbers where applicable.
 
 ## Pull Request Process
 

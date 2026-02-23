@@ -39,18 +39,25 @@ Email **security@runsodin.com** with:
 O.D.I.N. is designed for self-hosted, air-gapped environments. Key security features:
 
 ### Authentication & Authorization
-- JWT-based authentication with configurable secret keys
-- Role-based access control (Viewer / Operator / Admin) enforced on all 164 API endpoints
-- OIDC/SSO support for enterprise identity providers
-- Rate limiting (10 login attempts per 5-minute window per IP)
+- httpOnly session cookie auth (XSS-resistant); Bearer token and X-API-Key fallbacks for API clients
+- Role-based access control (Viewer / Operator / Admin) enforced on all 200+ API endpoints — auth expectations documented in a 1507-test RBAC matrix with CI coverage gate
+- OIDC/SSO support for enterprise identity providers (redirect_uri pinning, secure code exchange)
+- Rate limiting: 10 failed logins per 5-minute window per IP (account-level); global slowapi limiter (10 req/min auth, 30 req/min upload)
 - Account lockout after 5 failed attempts (15-minute cooldown)
 - Password complexity enforcement (8+ chars, upper + lower + number)
+- Password change immediately revokes all existing sessions
+- MFA (TOTP) pending tokens blacklisted on use — prevents session duplication
+- Scoped API tokens (read/write/admin scopes) with per-route enforcement
+- Container runs as non-root `odin` user; go2rtc HLS/API bound to 127.0.0.1 (no direct external access)
 
 ### Data Protection
-- Printer credentials encrypted at rest (Fernet symmetric encryption)
-- Auto-generated secrets on first run (no hardcoded defaults in production)
+- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, Discord/Slack/Telegram/ntfy webhook URLs, org-level webhook settings, OIDC auth codes
+- Camera RTSP credentials never persisted to DB — generated on-demand from the encrypted API key
+- API keys stripped from all printer API responses
+- Auto-generated secrets on first run (no hardcoded defaults in production); API_KEY startup warning if unset
 - No telemetry, no analytics, no data leaves your network
 - SQLite database with WAL mode for safe concurrent access
+- Docker base images pinned to SHA256 digests; go2rtc binary SHA256-verified at build time
 
 ### Network Security
 - All printer communication stays on your local network
@@ -68,6 +75,9 @@ O.D.I.N. is designed for self-hosted, air-gapped environments. Key security feat
 | Date | Version | Findings | Resolved |
 |------|---------|----------|----------|
 | 2026-02-09 | v1.0.0 | 53 findings (7 ship-blocking, 5 high, 12 medium, 8 low) | All 53 resolved |
+| 2026-02-21 | v1.3.57–1.3.59 | Exposure audit: api_key in responses, camera URL credential leak, SSRF, XXE, ZIP bomb, missing auth guards, JWT entropy, numeric field injection, httpOnly cookie migration, go2rtc network isolation, non-root container, rate limiting | All resolved |
+| 2026-02-21 | v1.3.61–1.3.67 | Authorization sweep: ~30 endpoints missing require_role(), 2 IDOR bugs (users export, groups detail), credential plaintext at rest (SMTP/MQTT/webhook/OIDC), OIDC redirect injection, frontend supply chain (CDN Three.js, VITE_API_KEY footgun), 8 path traversal issues, Docker supply chain | All resolved |
+| 2026-02-23 | v1.3.69 | RBAC matrix coverage: ~120 routes with undocumented auth expectations; 5 incorrect auth expectations (including IDOR cases); CI pipeline gaps | All resolved |
 
 ### Ship-blocking fixes in v1.0.0
 - RBAC enforcement on all mutating API endpoints

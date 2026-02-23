@@ -28,7 +28,7 @@ The only platform that combines multi-protocol printer support, AI failure detec
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
 - **Spool Inventory** — Filament tracking with QR label printing, AMS integration, and drying logs
 - **Enterprise Security** — RBAC (admin/operator/viewer), MFA, OIDC SSO, IP allowlisting, audit logs
-- **Single Container Deploy** — One `docker compose up`, ~256 MB RAM, all 7 services included
+- **Single Container Deploy** — One `docker compose up`, ~256 MB RAM, all 9 services included
 
 ## Quick Install
 
@@ -73,7 +73,7 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 - **Frontend** — React 18, Vite, TailwindCSS, React Query
 - **Streaming** — go2rtc (WebRTC, RTSP)
 - **AI** — ONNX Runtime (Vigil AI failure detection)
-- **Deploy** — Docker, supervisord (7 managed processes)
+- **Deploy** — Docker, supervisord (9 managed processes)
 
 ## Documentation
 

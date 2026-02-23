@@ -336,21 +336,24 @@
 - Aggregates stats by printer and model
 - Gated by Pro license tier (added in v1.3.16)
 
-### 10.9 Report Schedule Definitions (v1.3.0)
+### 10.9 Scheduled Reports (v1.3.0 definitions, v1.3.19 delivery)
 - CRUD for report schedule records: name, type, frequency (daily/weekly/monthly), recipients
 - Supported types: fleet utilization, job summary, filament consumption, failure analysis, chargeback summary
 - Toggle active/inactive, manage recipients
 - Report schedule management UI in Settings → System tab
-- *Note: Schedule definitions only — automated report generation and delivery is not yet implemented*
+- Report runner daemon (`report_runner.py`) — executes scheduled reports and delivers via SMTP with HTML body (v1.3.19)
+- "Run Now" button for on-demand report generation with immediate email delivery (v1.3.47)
+- Quiet hours digest — suppressed alerts batched and delivered after quiet window ends
 
 ---
 
 ## 11. Multi-User & Access Control
 
 ### 11.1 Authentication
-- JWT-based authentication with Bearer tokens
-- OIDC/SSO via Microsoft Entra ID with auto-user provisioning
+- httpOnly session cookie auth (XSS-resistant) — JWT stored in `Secure; SameSite=Strict` cookie; Bearer token and X-API-Key fallbacks preserved for API clients (v1.3.59)
+- OIDC/SSO via Microsoft Entra ID with auto-user provisioning; redirect_uri pinning to prevent Host-header injection (v1.3.67)
 - Unified JWT signing for local auth and OIDC
+- WebSocket tokens scoped to WebSocket connections only — cannot be replayed against REST endpoints (v1.3.63)
 
 ### 11.2 TOTP MFA (v1.3.0)
 - QR code setup flow via MFASetup component
@@ -359,7 +362,7 @@
 
 ### 11.3 RBAC (Role-Based Access Control)
 - Three roles: admin, operator, viewer
-- Enforced on all API endpoints (164+ as of v1.0.0, expanded since)
+- Enforced on all 200+ API endpoints with documented and tested auth expectations (1507 RBAC tests in CI)
 - Viewer: read-only + submit jobs (with approval mode)
 - Operator: day-to-day production (create/edit jobs, spools, models, orders, products, maintenance)
 - Admin: full system control (users, settings, branding, SSO, webhooks, backups, license, pricing)
@@ -395,12 +398,14 @@
 ## 12. Security
 
 ### 12.1 Authentication Security
-- Rate limiting: 10 failed login attempts per 5-minute window per IP (successful logins don't count — fixed in v1.3.17)
+- Rate limiting: 10 failed login attempts per 5-minute window per IP (successful logins don't count — v1.3.17); global API rate limiter via slowapi (10 req/min auth, 30 req/min upload — v1.3.59)
 - Account lockout: 5 failed attempts → 15-minute lock (in-memory, resets on restart)
 - Password complexity: minimum 8 characters, uppercase + lowercase + number
-- Login attempt audit trail with IP addresses
+- Login attempt audit trail with IP addresses; password change audit events (v1.3.58)
 - Setup/complete endpoint hardened against 500 errors after wizard completion (v1.3.15)
 - Settings and Audit routes guarded by `RoleGate` — direct URL access blocked for non-admins (v1.3.18)
+- Password change revokes all existing sessions (v1.3.66)
+- MFA pending token blacklisted immediately after use — prevents session duplication (v1.3.63)
 
 ### 12.2 IP Allowlisting (v1.3.0)
 - CIDR-based middleware enforcement
@@ -408,10 +413,12 @@
 - IPAllowlistSettings component
 
 ### 12.3 Data Protection
-- Fernet encryption for printer credentials at rest
+- Fernet encryption at rest for: printer API keys, SMTP passwords, MQTT republish passwords, camera URLs with embedded credentials, webhook URLs (Discord/Slack/Telegram/ntfy), org webhook settings, OIDC auth codes (v1.3.62–v1.3.67)
 - Ed25519 license key signing (production keys deployed, dev bypass removed)
 - SQL injection prevention: parameterized queries + column whitelist on user updates
-- Gitleaks pre-commit hook for secret scanning
+- Gitleaks pre-commit hook + CI secret scanning (gitleaks-action)
+- Camera RTSP credentials never persisted to DB — generated on-demand from encrypted API key (v1.3.62)
+- API keys stripped from all API responses (v1.3.57)
 
 ### 12.4 GDPR Compliance (v1.3.0)
 - Full JSON export of all user data
@@ -621,7 +628,8 @@
 ## 22. Deployment
 
 ### 22.1 Docker
-- Single container with supervisord managing all 7 processes
+- Single container with supervisord managing all 9 processes (backend, mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor, go2rtc, vision_monitor, timelapse_capture, report_runner)
+- Container runs as non-root `odin` user (v1.3.59)
 - `docker compose up` deployment
 - Volume mount for persistent data (database, backups, uploads, logs, secrets, timelapses)
 - Auto-generated secrets on first run
@@ -677,3 +685,27 @@
 | v1.3.16 | 2026-02-13 | Curl-pipe-bash installer, self-updating updater, installer test suite (59 tests), setup endpoint hardening, usage reports added to Pro tier, PRINTER_ERROR alert type, uppercase status enum consistency |
 | v1.3.17 | 2026-02-13 | Rate limiter fix (only count failed logins), RBAC test alignment, test suite hardening |
 | v1.3.18 | 2026-02-13 | Proactive stale schedule cleanup, Settings/Audit RBAC route guard, create_model field fix, 13 test failures resolved, test cheating eliminated (1022 passing) |
+| v1.3.19–1.3.22 | 2026-02-13 | Model versioning revert, revision picker in job form, bulk ops on Printers/Spools, report runner daemon (scheduled email delivery), org resource scoping, hardcoded credentials removed from test env |
+| v1.3.23–1.3.24 | 2026-02-13 | Local dev/test pipeline (Makefile, deploy_local.sh, macOS compat), login redirect loop fix, setup endpoint post-admin locking, license feature gating fix, Timeline click-to-inspect drawer, CameraModal live print context |
+| v1.3.25 | 2026-02-13 | Toast notification system, React Error Boundary, ConfirmModal, 404 page, Dashboard clickable cards, Timeline touch/auto-scroll, Models search, upload progress bar, Settings Access accordion, admin user search, AuditLogs user column, Analytics date range, Order/Spool/Camera UX improvements, modal accessibility (~15 modals) |
+| v1.3.26 | 2026-02-14 | Backend router split: main.py (11,550 lines) → 13 router modules + deps.py; CORS hardening; JWT secret fail-fast; Legal docs (ToS, Privacy Policy, Vigil disclaimer) |
+| v1.3.27 | 2026-02-14 | API versioning (/api/v1/ with /api/ backwards compat), CSP + security headers, Alembic migrations (27 tables), bulk CSV user import, education mode toggle, marketing site pages, Vision SQLAlchemy unification, UI industrial polish, "O.D.I.N." branding across 12 files |
+| v1.3.28 | 2026-02-14 | Implicit org scoping (get_org_scope helpers), UpgradeBanner/UpgradeModal, FERPA/COPPA/VPAT compliance docs, README rewrite with badges and comparison table |
+| v1.3.29–1.3.32 | 2026-02-15–16 | True light mode (150+ CSS overrides, all 15 brand variables), theme-aware Recharts, BrandingContext specificity fix, MutationObserver theme toggle reactivity |
+| v1.3.33–1.3.36 | 2026-02-16 | Printer command allowlist, monitor DB centralization, legal/compliance audit remediation (self-hosted fonts, MFA encryption guard, periodic session cleanup, error sanitization, GDPR export/erase UI), code smell remediation (25 bare excepts, deprecated utcnow(), dead code), frontend API consolidation (6 local API layers removed) |
+| v1.3.37–1.3.44 | 2026-02-16–17 | Doc updates, datetime mismatch fixes, Analytics styling, standardized page headers (23 pages), setup wizard fixes, JWT library migration (python-jose → PyJWT, unmaintained → maintained) |
+| v1.3.45–1.3.46 | 2026-02-17–18 | Org-level settings (quiet hours, default filament, webhook, branding overlay), installation-bound license activation (Ed25519 binding, offline activation), pricing finalized ($15/mo Pro), marketing site → Vercel |
+| v1.3.47–1.3.50 | 2026-02-20 | Scheduled Reports "Run Now" button (on-demand email delivery), WCAG improvements (aria-busy, sr-only live region), RBAC test suite: all 839 tests passing, browser notifications (native OS push, no external service), bugfixes (route ordering 422, scheduler timezone, spool weigh 500, macOS EDEADLK) |
+| v1.3.51–1.3.55 | 2026-02-20–21 | Internal stabilization and test hardening |
+| v1.3.56 | 2026-02-21 | Dispatch compatibility guardrails: bed dimension + API type guards at dispatch time; metadata extraction from gcode/3mf at upload; printer bed config fields; Models page compatibility badges; gcode/bgcode file support |
+| v1.3.57 | 2026-02-21 | Security hardening: api_key stripped from printer responses, camera URL credential sanitization in API, missing auth guards added, last-admin delete protection, SSRF blocklist, XXE prevention (defusedxml), ZIP bomb protection (100 MB upload / 500 MB decompressed), path traversal fix on revision upload, HSTS header, error message sanitization |
+| v1.3.58 | 2026-02-21 | Security hardening: JWT 256-bit entropy, numeric field bounds validation (Pydantic), camera URL scheme/SSRF/metachar validation, webhook SSRF validation, audit events for login + password change, GDPR export completeness (api_tokens, quota_usage) |
+| v1.3.59 | 2026-02-21 | Security hardening: httpOnly session cookie auth (XSS protection), go2rtc HLS/API bound to 127.0.0.1 (network isolation), container non-root user (odin), global rate limiting via slowapi (10/min auth, 30/min upload), API token scope enforcement (read/write/admin), WebSocket auth tokens |
+| v1.3.61 | 2026-02-21 | Auth coverage sweep: require_role() on all previously unguarded endpoints; Groups IDOR fix; OIDC default role changed viewer (was operator), auto_create_users default false; metrics endpoint auth; education usage report scoped to caller's group |
+| v1.3.62 | 2026-02-21 | Credential encryption: SMTP password, MQTT republish password, user-supplied camera URLs encrypted with Fernet at rest; Bambu RTSP credentials no longer persisted to DB |
+| v1.3.63 | 2026-02-21 | WebSocket token REST rejection (ws-token cannot replay against REST), MFA pending token blacklisted on use, revoke_all_sessions cookie-auth fix |
+| v1.3.64 | 2026-02-21 | Frontend security: Three.js bundled from npm (no CDN), CSP connect-src wildcards removed, OIDC code exchange fixed (frontend now handles ?oidc_code= param), Google Fonts CDN removed from Branding page |
+| v1.3.65 | 2026-02-21 | Path traversal fixes on timelapse serve/delete, vision training export, model revision revert; 100 MB limit on revision/backup uploads; 500 MB ONNX upload limit; backup trigger scan; label_class allowlist |
+| v1.3.66–1.3.67 | 2026-02-21 | OIDC login fix (httpOnly cookie on code exchange), logout blacklists Bearer JWT, password change revokes all sessions, Bambu SSRF check, stored_path removed from print-file responses; OIDC redirect_uri pinning, oidc_auth_codes Fernet-encrypted, org webhook_url encrypted, onnxruntime 1.20.1 (CVE-2024-25960), Docker base image digest pinning, go2rtc binary SHA256 verification, VITE_API_KEY footgun removed, webhook URL encryption, API_KEY startup warning |
+| v1.3.68 | 2026-02-21 | Spool label endpoint auth fix, GET /config accessible to viewer (non-sensitive fields only), package-lock.json sync |
+| v1.3.69 | 2026-02-23 | RBAC matrix: ~120 routes added (1507 total tests, all passing), CI security pipeline (gitleaks + bandit + pip-audit + npm audit), invoice PDF crash fix (em dash in fpdf), retention cleanup 500 fix |
