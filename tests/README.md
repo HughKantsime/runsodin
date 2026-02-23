@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-# On the server (192.168.70.200)
+# On the server (your-odin-host)
 cd /opt/printfarm-scheduler
 
 # Install dependencies

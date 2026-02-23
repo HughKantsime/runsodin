@@ -1,6 +1,6 @@
 # O.D.I.N. — Complete Feature Set
 
-> **Version:** v1.3.18 | **Last updated:** 2026-02-13
+> **Version:** See CHANGELOG | **Last updated:** See CHANGELOG
 > **This document catalogs every feature in O.D.I.N. with implementation details and version introduced.**
 
 ---
@@ -582,7 +582,7 @@
 - BSL 1.1 license — converts to Apache 2.0 after 3 years per version
 
 ### 20.3 License Manager
-- Separate Flask web app on dedicated server (192.168.70.6)
+- Separate Flask web app on a dedicated server
 - Issue, revoke, reissue, verify, download license files
 - Full audit trail
 - Ed25519 signing compatible with ODIN's odin-license-v1 format
