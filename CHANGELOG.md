@@ -2,6 +2,15 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.69] - 2026-02-23
+
+### Fixed
+- **RBAC matrix coverage** — Added ~120 missing routes to `ENDPOINT_MATRIX` in `tests/test_rbac.py`. Every route now has documented and tested auth expectations; `make test-coverage` passes clean.
+- **5 incorrect auth expectations** — Corrected auth helpers for `GET /api/users/{user_id}/export` (IDOR → admin only), `GET /api/groups/{group_id}` (IDOR → admin only), `PATCH /api/vision/detections/{id}` (operator not admin), `GET /api/vision/settings` (admin only), `POST /api/presets` (no body to avoid UNIQUE constraint on re-runs).
+- **Invoice PDF crash on missing SKU** — `invoice_generator.py` used `"—"` (em dash) as the fallback SKU, which fpdf's Helvetica font cannot render. Changed to `"-"`.
+- **Retention cleanup 500** — `POST /api/admin/retention/cleanup` queried `audit_logs.created_at` which does not exist; column is `timestamp`.
+- **CI pipeline** — Corrected `pip-audit` flags (2.x removed `--severity`); made Bandit parse errors non-fatal (Python version skew in CI); HIGH severity findings still hard-fail.
+
 ## [1.3.68] - 2026-02-21
 
 ### Fixed
