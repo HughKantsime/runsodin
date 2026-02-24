@@ -1524,14 +1524,24 @@ export default function Settings() {
               <span className="ml-2 text-farm-200">{usersData?.length || 0} / {lic.max_users === -1 ? '\u221E' : (lic.max_users || 1)}</span>
             </div>
           </div>
-          <a
-            href="https://runsodin.com/pricing"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg text-sm transition-colors"
-          >
-            Upgrade to Pro <ExternalLink size={14} />
-          </a>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="https://runsodin.com/pricing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg text-sm transition-colors"
+            >
+              Upgrade to Pro <ExternalLink size={14} />
+            </a>
+            <a
+              href="https://docs.runsodin.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-farm-800 hover:bg-farm-700 text-farm-200 font-semibold rounded-lg text-sm transition-colors border border-farm-700"
+            >
+              Documentation <ExternalLink size={14} />
+            </a>
+          </div>
         </div>
       )}
 
