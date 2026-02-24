@@ -91,6 +91,9 @@ SESSION_STATE.md
 # Internal dev planning — not for public repo
 conductor/
 
+# Corrupt git data (from prior crashes)
+.git-corrupt/
+
 # Local backups / scratch
 *.bak
 *.bak.*
