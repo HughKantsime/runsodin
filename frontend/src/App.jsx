@@ -54,6 +54,7 @@ import {
   FileText,
   Film,
   Archive,
+  SlidersHorizontal,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -94,6 +95,7 @@ import Timelapses from './pages/Timelapses'
 import Overlay from './pages/Overlay'
 import ResetPassword from './pages/ResetPassword'
 import ArchivesPage from './pages/Archives'
+import Profiles from './pages/Profiles'
 import { stats, printers, getEducationMode, pricingConfig, setup } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
@@ -297,6 +299,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {(canAccessPage("models") || canAccessPage("spools")) && <NavGroup label="Library" collapsed={collapsed && !mobileOpen} open={sections.library} onToggle={() => toggle("library")} />}
           {((collapsed && !mobileOpen) || sections.library) && <>
             {canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/models" icon={Box} onClick={handleNavClick}>Models</NavItem>}
+            <NavItem collapsed={collapsed && !mobileOpen} to="/profiles" icon={SlidersHorizontal} onClick={handleNavClick}>Profiles</NavItem>
             {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/products" icon={ShoppingBag} onClick={handleNavClick}>Products{!lic.isPro && <ProBadge />}</NavItem>}
             {canAccessPage('spools') && <NavItem collapsed={collapsed && !mobileOpen} to="/spools" icon={Circle} onClick={handleNavClick}>Spools</NavItem>}
             {adv && lic.isPro && !educationMode && canAccessPage('models') && <NavItem collapsed={collapsed && !mobileOpen} to="/consumables" icon={Package} onClick={handleNavClick}>Consumables{!lic.isPro && <ProBadge />}</NavItem>}
@@ -563,6 +566,7 @@ export default function App() {
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/printers" element={<Printers />} />
             <Route path="/models" element={<Models />} />
+            <Route path="/profiles" element={<Profiles />} />
             <Route path="/calculator" element={<CalculatorPage />} />
             <Route path="/analytics" element={<ProGate feature="analytics"><Analytics /></ProGate>} />
             <Route path="/utilization" element={<ProGate feature="analytics"><Utilization /></ProGate>} />

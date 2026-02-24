@@ -801,3 +801,36 @@ export const downloadBlob = async (endpoint, filename) => {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// ============== Profiles ==============
+export const profilesApi = {
+  list: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.slicer) q.set('slicer', params.slicer)
+    if (params.category) q.set('category', params.category)
+    if (params.printer_id) q.set('printer_id', params.printer_id)
+    if (params.filament_type) q.set('filament_type', params.filament_type)
+    if (params.search) q.set('search', params.search)
+    if (params.page) q.set('page', params.page)
+    const qs = q.toString()
+    return fetchAPI(`/profiles${qs ? '?' + qs : ''}`)
+  },
+  get: (id) => fetchAPI(`/profiles/${id}`),
+  create: (data) => fetchAPI('/profiles', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/profiles/${id}`, { method: 'DELETE' }),
+  exportUrl: (id) => `/api/profiles/${id}/export`,
+  apply: (id, printerId) => fetchAPI(`/profiles/${id}/apply`, {
+    method: 'POST', body: JSON.stringify({ printer_id: printerId }),
+  }),
+  import: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch('/api/profiles/import', { method: 'POST', body: formData, credentials: 'include' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || 'Import failed')
+    }
+    return res.json()
+  },
+}

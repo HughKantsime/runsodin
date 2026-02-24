@@ -717,7 +717,19 @@ ENDPOINT_MATRIX = [
     ("POST",   "/api/vision/training-data/{detection_id}/label", _admin_only(), {},   "Label detection for training"),
 
     # =========================================================================
-    # 63. Analytics
+    # 63. Profiles
+    # =========================================================================
+    ("GET",    "/api/profiles",                       _api_read(),   None, "List profiles"),
+    ("POST",   "/api/profiles",                       _op_write(),   {"name": "test", "slicer": "klipper", "category": "temperature", "raw_content": "{}"}, "Create profile (operator+)"),
+    ("POST",   "/api/profiles/import",                _op_write(),   None, "Import profile file (operator+)"),
+    ("GET",    "/api/profiles/{profile_id}",          _api_read(),   None, "Get profile"),
+    ("PUT",    "/api/profiles/{profile_id}",          _op_write(),   {"name": "updated"}, "Update profile (operator+)"),
+    ("DELETE", "/api/profiles/{profile_id}",          _op_write(),   None, "Delete profile (operator+)"),
+    ("GET",    "/api/profiles/{profile_id}/export",   _api_read(),   None, "Export profile download"),
+    ("POST",   "/api/profiles/{profile_id}/apply",    _op_write(),   {"printer_id": 1}, "Apply Klipper profile (operator+)"),
+
+    # =========================================================================
+    # 64. Analytics
     # =========================================================================
     ("GET", "/api/analytics/failures",      _api_read(), None, "Failure analytics"),
     ("GET", "/api/analytics/time-accuracy", _api_read(), None, "Time accuracy analytics"),
@@ -760,6 +772,7 @@ def _resolve_path(path_template, test_data):
         "{preset_id}": str(test_data.get("preset_id", 1)),
         "{file_id}": str(test_data.get("file_id", 1)),
         "{nozzle_id}": str(test_data.get("nozzle_id", 1)),
+        "{profile_id}": str(test_data.get("profile_id", 1)),
         "{slot_number}": str(test_data.get("slot_number", 1)),
         "{filename}": test_data.get("filename", "test.jpg"),
         "{qr_code}": test_data.get("qr_code", "TEST_QR"),
