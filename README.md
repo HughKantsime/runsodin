@@ -35,11 +35,21 @@ The only platform that combines multi-protocol printer support, AI failure detec
 
 ## Quick Install
 
+**Linux / macOS:**
+
 ```bash
 curl -fsSL https://get.runsodin.com/install.sh | bash
 ```
 
-Or with Docker Compose directly:
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.ps1 | iex
+```
+
+See [Windows Installation Guide](install/WINDOWS_INSTALL.md) for detailed instructions.
+
+**Or with Docker Compose directly:**
 
 ```bash
 mkdir odin && cd odin

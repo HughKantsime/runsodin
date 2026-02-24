@@ -2,6 +2,21 @@
 # O.D.I.N. Installer — curl -sfL https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.sh | bash
 set -euo pipefail
 
+# Windows detection: if running under Cygwin, MSYS2, or Git Bash, redirect to PowerShell installer
+case "$(uname -s 2>/dev/null)" in
+    CYGWIN*|MINGW*|MSYS*)
+        echo ""
+        echo "  This script is for Linux and macOS."
+        echo "  On Windows, use the PowerShell installer instead:"
+        echo ""
+        echo "    irm https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.ps1 | iex"
+        echo ""
+        echo "  See: install/WINDOWS_INSTALL.md for full instructions."
+        echo ""
+        exit 1
+        ;;
+esac
+
 ODIN_VERSION="1.3.70"
 ODIN_IMAGE="ghcr.io/hughkantsime/odin:latest"
 ODIN_REPO="https://raw.githubusercontent.com/HughKantsime/runsodin/master"
