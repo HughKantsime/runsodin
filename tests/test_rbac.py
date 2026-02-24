@@ -633,6 +633,7 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     ("GET",    "/api/printers/tags",                                         _api_read(),   None, "List printer tags"),
     ("GET",    "/api/printers/{printer_id}/hms-history",                     _api_read(),   None, "HMS history"),
+    ("GET",    "/api/printers/{printer_id}/nozzle-status",                   _api_read(),   None, "Nozzle status (H2D dual-nozzle aware)"),
     ("GET",    "/api/printers/{printer_id}/nozzle",                          _api_read(),   None, "Get current nozzle"),
     ("GET",    "/api/printers/{printer_id}/nozzle/history",                  _api_read(),   None, "Nozzle history"),
     ("POST",   "/api/printers/{printer_id}/nozzle",                          _op_write(),   {},   "Install nozzle"),

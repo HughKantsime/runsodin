@@ -405,6 +405,7 @@ export const printerTelemetry = {
   get: (printerId, hours = 24) => fetchAPI(`/printers/${printerId}/telemetry?hours=${hours}`),
   hmsHistory: (printerId, days = 30) => fetchAPI(`/printers/${printerId}/hms-history?days=${days}`),
   nozzle: (printerId) => fetchAPI(`/printers/${printerId}/nozzle`),
+  nozzleStatus: (printerId) => fetchAPI(`/printers/${printerId}/nozzle-status`),
   installNozzle: (printerId, data) => fetchAPI(`/printers/${printerId}/nozzle`, { method: 'POST', body: JSON.stringify(data) }),
   retireNozzle: (printerId, nozzleId) => fetchAPI(`/printers/${printerId}/nozzle/${nozzleId}/retire`, { method: 'PATCH' }),
   nozzleHistory: (printerId) => fetchAPI(`/printers/${printerId}/nozzle/history`),

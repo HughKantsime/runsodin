@@ -208,6 +208,9 @@ class Printer(Base):
     # Timelapse
     timelapse_enabled = Column(Boolean, default=False)
 
+    # H2D / machine variant detection
+    machine_type = Column(String(20), nullable=True)  # "X1C", "P1S", "H2D", etc.
+
     # Organization scoping
     org_id = Column(Integer, nullable=True)
     shared = Column(Boolean, default=False)

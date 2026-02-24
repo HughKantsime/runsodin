@@ -104,6 +104,8 @@ class PrinterBase(BaseModel):
     tags: List[str] = []
     # Timelapse
     timelapse_enabled: bool = False
+    # Machine type (H2D, X1C, P1S, etc.)
+    machine_type: Optional[str] = None
 
 
 class PrinterCreate(PrinterBase):

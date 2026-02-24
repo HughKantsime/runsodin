@@ -653,6 +653,12 @@ try:
 except Exception:
     pass  # Column already exists
 
+# Add machine_type to printers if missing (H2D dual-nozzle support)
+try:
+    conn.execute("ALTER TABLE printers ADD COLUMN machine_type TEXT")
+except Exception:
+    pass  # Column already exists
+
 conn.commit()
 conn.close()
 print("  ✓ Telemetry expansion tables ready")

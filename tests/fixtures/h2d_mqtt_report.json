@@ -1,0 +1,61 @@
+{
+  "_comment": "H2D MQTT report fixture — placeholder based on known Bambu MQTT patterns. Replace with a real capture from the live H2D printer via: mosquitto_sub -h {ip} -p 8883 -t 'device/{serial}/report' --cafile /path/to/cert",
+  "print": {
+    "printer_type": "BL-P003",
+    "gcode_state": "RUNNING",
+    "stg_cur": 14,
+    "bed_temper": 60.0,
+    "bed_target_temper": 60.0,
+    "nozzle_temper": 215.0,
+    "nozzle_target_temper": 215.0,
+    "nozzle_temper_1": 0.0,
+    "nozzle_target_temper_1": 0.0,
+    "nozzle_type": "stainless_steel",
+    "nozzle_diameter": "0.4",
+    "mc_percent": 42,
+    "mc_remaining_time": 87,
+    "layer_num": 32,
+    "total_layer_num": 76,
+    "subtask_name": "Benchy_H2D_dualcolor",
+    "gcode_file": "/sdcard/Benchy_H2D_dualcolor.3mf",
+    "job_id": "12345678",
+    "cooling_fan_speed": "80",
+    "lights_report": [{"mode": "on", "node": "chamber_light"}],
+    "hms": [],
+    "ams": {
+      "ams": [
+        {
+          "id": "0",
+          "humidity": "2",
+          "temp": "27.5",
+          "tray": [
+            {"id": "0", "tray_type": "PLA", "tray_color": "FF0000", "remain": 80},
+            {"id": "1", "tray_type": "PLA", "tray_color": "0000FF", "remain": 65},
+            {"id": "2", "tray_type": "PETG", "tray_color": "00FF00", "remain": 90},
+            {"id": "3", "tray_type": "PLA-S", "tray_color": "FFFFFF", "remain": 45}
+          ]
+        },
+        {
+          "id": "1",
+          "humidity": "3",
+          "temp": "28.0",
+          "tray": [
+            {"id": "0", "tray_type": "ABS", "tray_color": "000000", "remain": 70},
+            {"id": "1", "tray_type": "PLA", "tray_color": "FFFF00", "remain": 55},
+            {"id": "2", "tray_type": "TPU", "tray_color": "FF00FF", "remain": 85},
+            {"id": "3", "tray_type": "PLA", "tray_color": "808080", "remain": 30}
+          ]
+        }
+      ],
+      "ams_exist_bits": "3",
+      "tray_exist_bits": "FF",
+      "tray_now": "0",
+      "tray_tar": "0"
+    },
+    "ipcam": {
+      "rtsp_url": "/streaming/live/1",
+      "timelapse": "disable"
+    },
+    "wifi_signal": "-42dBm"
+  }
+}

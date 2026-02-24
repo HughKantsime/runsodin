@@ -211,6 +211,9 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
             <h3 className="font-display font-semibold text-base md:text-lg truncate">{printer.nickname || printer.name}</h3>
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs md:text-sm text-farm-500 truncate">{printer.model || 'Unknown model'}</span>
+              {printer.machine_type === 'H2D' && (
+                <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">H2D</span>
+              )}
               {printer.tags?.map(tag => (
                 <span key={tag} className="px-1.5 py-0.5 bg-print-600/20 text-print-400 text-[10px] rounded-full border border-print-600/30">{tag}</span>
               ))}
@@ -270,20 +273,34 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
             <span className="text-xs text-farm-600 ml-auto">(click to edit)</span>
           )}
         </div>
+        {printer.machine_type === 'H2D' && printer.filament_slots?.length > 4 && (
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] text-farm-500 font-medium">AMS Unit 0</span>
+          </div>
+        )}
         <div className={clsx(
           "grid gap-2",
           printer.filament_slots?.length <= 4 ? "grid-cols-4" : "grid-cols-4"
         )}>
-          {printer.filament_slots?.map((slot) => (
-            <FilamentSlotEditor 
-              printerId={printer.id}
-              spools={spools}
-              key={slot.id} 
-              slot={slot} 
-              allFilaments={allFilaments}
-              onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)} 
-            />
-          ))}
+          {printer.filament_slots?.map((slot, idx) => {
+            const el = (
+              <FilamentSlotEditor
+                printerId={printer.id}
+                spools={spools}
+                key={slot.id}
+                slot={slot}
+                allFilaments={allFilaments}
+                onSave={(data) => onUpdateSlot(printer.id, slot.slot_number, data)}
+              />
+            )
+            if (printer.machine_type === 'H2D' && idx === 4) {
+              return [
+                <div key="ams1-label" className="col-span-4 text-[10px] text-farm-500 font-medium mt-1">AMS Unit 1</div>,
+                el,
+              ]
+            }
+            return el
+          })}
         </div>
       </div>
       <div className="px-3 md:px-4 py-2 md:py-3 bg-farm-950 border-t border-farm-800">
@@ -313,10 +330,20 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
                 )}
               </div>
               <div className="flex items-center gap-3 text-farm-400">
-                {nozTemp != null && (
+                {nozTemp != null && printer.machine_type !== 'H2D' && (
                   <span className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
                     Nozzle {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
                   </span>
+                )}
+                {printer.machine_type === 'H2D' && nozTemp != null && (
+                  <>
+                    <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
+                      L {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
+                    </span>
+                    <span className={isHeating ? "text-orange-400" : "text-farm-400"} title="Right Nozzle">
+                      R —
+                    </span>
+                  </>
                 )}
                 {bedTemp != null && (
                   <span className={bedTarget > 0 ? "text-orange-400" : ""} title={bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}>

@@ -257,6 +257,19 @@ class PrinterMonitor:
                             except Exception as e:
                                 log.debug(f"[{self.name}] Model auto-detect failed: {e}")
 
+                        # Auto-detect machine_type (H2D, X1C, P1S, etc.) — always update
+                        if raw_pt:
+                            try:
+                                from threemf_parser import _friendly_printer_name as _fpn
+                                detected_type = _fpn(raw_pt) or raw_pt
+                                conn.execute(
+                                    "UPDATE printers SET machine_type = ? WHERE id = ? AND (machine_type IS NULL OR machine_type != ?)",
+                                    (detected_type, self.printer_id, detected_type)
+                                )
+                                conn.commit()
+                            except Exception as e:
+                                log.debug(f"[{self.name}] machine_type detect failed: {e}")
+
                         # Republish telemetry to external broker
                         if mqtt_republish:
                             try:
@@ -322,8 +335,29 @@ class PrinterMonitor:
                             except Exception as e:
                                 log.debug(f"[{self.name}] AMS env capture: {e}")
 
+                    # ---- H2D Dual-Nozzle Parsing ----
+                    # H2D printers have two nozzles. Parse second nozzle temps if present.
+                    # Gated on machine_type to avoid affecting non-H2D printers.
+                    h2d_nozzle_data = None
+                    try:
+                        with get_db() as h2d_conn:
+                            mt_row = h2d_conn.execute('SELECT machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()
+                            machine_type = mt_row[0] if mt_row else None
+                    except Exception:
+                        machine_type = None
+
+                    if machine_type == 'H2D':
+                        # H2D reports dual nozzle temps via nozzle_temper / nozzle_target_temper (nozzle 0)
+                        # and nozzle_temper_1 / nozzle_target_temper_1 (nozzle 1)
+                        noz1_t = self._state.get('nozzle_temper_1')
+                        noz1_tt = self._state.get('nozzle_target_temper_1')
+                        h2d_nozzle_data = {
+                            'nozzle_0': {'temp': noz_t, 'target': noz_tt},
+                            'nozzle_1': {'temp': noz1_t, 'target': noz1_tt},
+                        }
+
                     # Push telemetry to WebSocket clients
-                    ws_push('printer_telemetry', {
+                    ws_payload = {
                         'printer_id': self.printer_id,
                         'bed_temp': bed_t,
                         'bed_target': bed_tt,
@@ -335,7 +369,10 @@ class PrinterMonitor:
                         'current_layer': self._state.get('layer_num'),
                         'total_layers': self._state.get('total_layer_num'),
                         'gcode_file': self._state.get('subtask_name') or self._state.get('gcode_file'),
-                    })
+                    }
+                    if h2d_nozzle_data:
+                        ws_payload['h2d_nozzles'] = h2d_nozzle_data
+                    ws_push('printer_telemetry', ws_payload)
 
                     # Process HMS errors through universal handler for alerts
                     if hms_raw:
