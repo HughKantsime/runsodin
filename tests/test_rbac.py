@@ -691,9 +691,13 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     # 61. Timelapses
     # =========================================================================
-    ("GET",    "/api/timelapses",                      _api_read(),   None, "List timelapses"),
-    ("GET",    "/api/timelapses/{timelapse_id}/video", _api_read(),   None, "Download timelapse video"),
-    ("DELETE", "/api/timelapses/{timelapse_id}",       _admin_only(), None, "Delete timelapse"),
+    ("GET",    "/api/timelapses",                        _api_read(),   None, "List timelapses"),
+    ("GET",    "/api/timelapses/{timelapse_id}/video",  _api_read(),   None, "Download timelapse video"),
+    ("GET",    "/api/timelapses/{timelapse_id}/stream", _api_read(),   None, "Stream timelapse for playback"),
+    ("GET",    "/api/timelapses/{timelapse_id}/download", _api_read(), None, "Download timelapse as attachment"),
+    ("POST",   "/api/timelapses/{timelapse_id}/trim",   _op_write(),   {"start_seconds": 0, "end_seconds": 10}, "Trim timelapse (operator+)"),
+    ("POST",   "/api/timelapses/{timelapse_id}/speed",  _op_write(),   {"multiplier": 2.0}, "Speed-adjust timelapse (operator+)"),
+    ("DELETE", "/api/timelapses/{timelapse_id}",        _admin_only(), None, "Delete timelapse"),
 
     # =========================================================================
     # 62. Vision

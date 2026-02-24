@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { timelapses, printers } from '../api'
-import { Film, Trash2, Download, ChevronLeft, ChevronRight, Clock, HardDrive, Loader2 } from 'lucide-react'
+import { Film, Trash2, Download, ChevronLeft, ChevronRight, Clock, HardDrive, Loader2, Scissors, Gauge, X } from 'lucide-react'
 import ConfirmModal from '../components/ConfirmModal'
 
 const STATUS_COLORS = {
@@ -26,6 +26,186 @@ function formatSize(mb) {
   return `${mb.toFixed(1)} MB`
 }
 
+const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 4, 8]
+
+function formatMMSS(sec) {
+  const m = Math.floor(sec / 60)
+  const s = Math.floor(sec % 60)
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
+  const videoRef = useRef(null)
+  const [duration, setDuration] = useState(timelapse.duration_seconds || 0)
+  const [trimStart, setTrimStart] = useState(0)
+  const [trimEnd, setTrimEnd] = useState(timelapse.duration_seconds || 0)
+  const [trimming, setTrimming] = useState(false)
+  const [speeding, setSpeeding] = useState(false)
+  const [confirmTrim, setConfirmTrim] = useState(false)
+
+  const handleLoadedMetadata = useCallback(() => {
+    if (videoRef.current) {
+      const dur = videoRef.current.duration
+      if (dur && isFinite(dur)) {
+        setDuration(dur)
+        setTrimEnd(dur)
+      }
+    }
+  }, [])
+
+  const handleTrimStartChange = (val) => {
+    const v = parseFloat(val)
+    setTrimStart(v)
+    if (videoRef.current) videoRef.current.currentTime = v
+  }
+
+  const handleTrimEndChange = (val) => {
+    const v = parseFloat(val)
+    setTrimEnd(v)
+    if (videoRef.current) videoRef.current.currentTime = v
+  }
+
+  const handleTrim = async () => {
+    setConfirmTrim(false)
+    setTrimming(true)
+    try {
+      await timelapses.trim(timelapse.id, trimStart, trimEnd)
+      toast.success('Timelapse trimmed')
+      onUpdated()
+    } catch (e) {
+      const msg = e?.detail || e?.message || 'Trim failed'
+      toast.error(msg)
+    } finally {
+      setTrimming(false)
+    }
+  }
+
+  const handleSpeed = async (multiplier) => {
+    setSpeeding(true)
+    try {
+      await timelapses.speed(timelapse.id, multiplier)
+      toast.success(`${multiplier}x speed timelapse saved`)
+      onUpdated()
+    } catch (e) {
+      const msg = e?.detail || e?.message || 'Speed adjustment failed'
+      toast.error(msg)
+    } finally {
+      setSpeeding(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="max-w-5xl w-full bg-farm-900 rounded-xl border border-farm-700 overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-farm-800">
+          <div className="flex items-center gap-3">
+            <Film className="text-print-400" size={20} />
+            <span className="font-medium text-farm-200">{timelapse.printer_name}</span>
+            {timelapse.created_at && (
+              <span className="text-xs text-farm-500">
+                {new Date(timelapse.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} className="text-farm-400 hover:text-white"><X size={18} /></button>
+        </div>
+
+        {/* Video */}
+        <div className="bg-black">
+          <video
+            ref={videoRef}
+            src={timelapses.streamUrl(timelapse.id)}
+            controls
+            autoPlay
+            className="w-full max-h-[50vh]"
+            onLoadedMetadata={handleLoadedMetadata}
+          />
+        </div>
+
+        {/* Editor controls */}
+        <div className="p-4 space-y-4">
+          {/* Trim */}
+          <div className="bg-farm-800 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-3">
+              <Scissors size={14} className="text-amber-400" />
+              <span className="text-sm font-medium text-farm-200">Trim</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mb-3">
+              <div>
+                <label className="text-xs text-farm-400 block mb-1">Start ({formatMMSS(trimStart)})</label>
+                <input
+                  type="range" min={0} max={duration} step={0.1} value={trimStart}
+                  onChange={e => handleTrimStartChange(e.target.value)}
+                  className="w-full accent-amber-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-farm-400 block mb-1">End ({formatMMSS(trimEnd)})</label>
+                <input
+                  type="range" min={0} max={duration} step={0.1} value={trimEnd}
+                  onChange={e => handleTrimEndChange(e.target.value)}
+                  className="w-full accent-amber-500"
+                />
+              </div>
+            </div>
+            <button
+              onClick={() => setConfirmTrim(true)}
+              disabled={trimming || trimStart >= trimEnd}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              {trimming ? <Loader2 size={12} className="animate-spin" /> : <Scissors size={12} />}
+              Apply Trim ({formatMMSS(trimEnd - trimStart)})
+            </button>
+          </div>
+
+          {/* Speed */}
+          <div className="bg-farm-800 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-3">
+              <Gauge size={14} className="text-blue-400" />
+              <span className="text-sm font-medium text-farm-200">Speed (saves as new timelapse)</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SPEED_OPTIONS.map(s => (
+                <button
+                  key={s}
+                  onClick={() => handleSpeed(s)}
+                  disabled={speeding}
+                  className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                >
+                  {s}x
+                </button>
+              ))}
+              {speeding && <Loader2 size={14} className="animate-spin text-blue-400 self-center" />}
+            </div>
+          </div>
+
+          {/* Download */}
+          <div className="flex gap-2">
+            <a
+              href={timelapses.downloadUrl(timelapse.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors"
+            >
+              <Download size={12} /> Download
+            </a>
+          </div>
+        </div>
+
+        <ConfirmModal
+          open={confirmTrim}
+          title="Trim Timelapse"
+          message="This will overwrite the original timelapse. This cannot be undone. Continue?"
+          confirmText="Trim"
+          confirmVariant="danger"
+          onConfirm={handleTrim}
+          onCancel={() => setConfirmTrim(false)}
+        />
+      </div>
+    </div>
+  )
+}
+
+
 export default function Timelapses() {
   const queryClient = useQueryClient()
   const [printerFilter, setPrinterFilter] = useState('')
@@ -35,6 +215,7 @@ export default function Timelapses() {
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [editorTimelapse, setEditorTimelapse] = useState(null)
   const limit = 24
 
   const { data: printersData } = useQuery({
@@ -138,6 +319,18 @@ export default function Timelapses() {
             Clear selection
           </button>
         </div>
+      )}
+
+      {/* Timelapse Editor Modal */}
+      {editorTimelapse && (
+        <TimelapseEditorModal
+          timelapse={editorTimelapse}
+          onClose={() => setEditorTimelapse(null)}
+          onUpdated={() => {
+            queryClient.invalidateQueries({ queryKey: ['timelapses'] })
+            setEditorTimelapse(null)
+          }}
+        />
       )}
 
       {/* Video Player Modal */}
@@ -254,9 +447,14 @@ export default function Timelapses() {
                 {/* Actions */}
                 {t.status === 'ready' && (
                   <div className="flex items-center gap-2 mt-2 pt-2 border-t border-farm-700">
+                    <button
+                      onClick={() => setEditorTimelapse(t)}
+                      className="flex items-center gap-1 text-xs text-farm-400 hover:text-print-400 transition-colors"
+                    >
+                      <Scissors size={12} /> Edit
+                    </button>
                     <a
-                      href={timelapses.videoUrl(t.id)}
-                      download
+                      href={timelapses.downloadUrl(t.id)}
                       className="flex items-center gap-1 text-xs text-farm-400 hover:text-amber-400 transition-colors"
                     >
                       <Download size={12} /> Download

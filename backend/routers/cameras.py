@@ -9,10 +9,12 @@ from typing import Optional
 import logging
 import os
 import shutil
+import subprocess
+import tempfile
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, Request, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -116,6 +118,195 @@ def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_u
     db.delete(t)
     db.commit()
     log_audit(db, "delete", "timelapse", t.id, {"printer_id": t.printer_id})
+
+
+def _check_ffmpeg() -> bool:
+    """Check if ffmpeg is available."""
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)  # noqa: S603 S607
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _get_timelapse_path(t: Timelapse) -> Path:
+    """Resolve and validate timelapse video path."""
+    video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
+    if not str(video_path).startswith("/data/timelapses/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    if not video_path.is_file():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    return video_path
+
+
+@router.get("/timelapses/{timelapse_id}/stream", tags=["Timelapses"])
+def stream_timelapse(
+    timelapse_id: int,
+    token: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Stream timelapse video for in-browser playback (no Content-Disposition)."""
+    if not current_user and token:
+        token_data = decode_token(token)
+        if token_data:
+            user = db.execute(text("SELECT * FROM users WHERE username = :username"),
+                              {"username": token_data.username}).fetchone()
+            if user:
+                current_user = dict(user._mapping)
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    if t.status != "ready":
+        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
+    video_path = _get_timelapse_path(t)
+    return FileResponse(str(video_path), media_type="video/mp4")
+
+
+@router.get("/timelapses/{timelapse_id}/download", tags=["Timelapses"])
+def download_timelapse(
+    timelapse_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Download timelapse as attachment."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    if t.status != "ready":
+        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
+    video_path = _get_timelapse_path(t)
+    safe_name = f"odin_timelapse_{t.id}.mp4"
+    return FileResponse(
+        str(video_path),
+        media_type="video/mp4",
+        filename=safe_name,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
+@router.post("/timelapses/{timelapse_id}/trim", tags=["Timelapses"])
+def trim_timelapse(
+    timelapse_id: int,
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("operator")),
+):
+    """Trim timelapse to start/end points using ffmpeg. Overwrites original."""
+    if not _check_ffmpeg():
+        raise HTTPException(status_code=501, detail="ffmpeg is not installed — timelapse editing is unavailable")
+    start_seconds = body.get("start_seconds", 0)
+    end_seconds = body.get("end_seconds")
+    if end_seconds is None:
+        raise HTTPException(status_code=400, detail="end_seconds is required")
+    if start_seconds < 0 or end_seconds <= start_seconds:
+        raise HTTPException(status_code=400, detail="Invalid time range")
+
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    if t.status != "ready":
+        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
+    video_path = _get_timelapse_path(t)
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", dir=video_path.parent, delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-ss", str(start_seconds), "-to", str(end_seconds),
+            "-i", str(video_path), "-c", "copy", tmp_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)  # noqa: S603
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail="ffmpeg trim failed")
+        os.replace(tmp_path, str(video_path))
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="ffmpeg timed out")
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    new_duration = end_seconds - start_seconds
+    t.duration_seconds = new_duration
+    file_stat = video_path.stat()
+    t.file_size_mb = round(file_stat.st_size / (1024 * 1024), 2)
+    db.commit()
+    log_audit(db, "update", "timelapse", t.id, {"action": "trim", "start": start_seconds, "end": end_seconds})
+
+    return {
+        "id": t.id, "duration_seconds": t.duration_seconds,
+        "file_size_mb": t.file_size_mb, "status": t.status,
+    }
+
+
+VALID_SPEED_MULTIPLIERS = {0.5, 1.0, 1.5, 2.0, 4.0, 8.0}
+
+
+@router.post("/timelapses/{timelapse_id}/speed", tags=["Timelapses"])
+def speed_timelapse(
+    timelapse_id: int,
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("operator")),
+):
+    """Create speed-adjusted copy of timelapse using ffmpeg."""
+    if not _check_ffmpeg():
+        raise HTTPException(status_code=501, detail="ffmpeg is not installed — timelapse editing is unavailable")
+    multiplier = body.get("multiplier")
+    if multiplier is None or float(multiplier) not in VALID_SPEED_MULTIPLIERS:
+        raise HTTPException(status_code=400, detail=f"multiplier must be one of {sorted(VALID_SPEED_MULTIPLIERS)}")
+    multiplier = float(multiplier)
+
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    if t.status != "ready":
+        raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
+    video_path = _get_timelapse_path(t)
+
+    speed_label = str(multiplier).replace(".", "_")
+    out_name = f"{video_path.stem}_{speed_label}x.mp4"
+    out_path = video_path.parent / out_name
+    setpts = round(1.0 / multiplier, 4)
+
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", str(video_path),
+            "-vf", f"setpts={setpts}*PTS", "-an", str(out_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=600)  # noqa: S603
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail="ffmpeg speed adjustment failed")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="ffmpeg timed out")
+
+    file_stat = out_path.stat()
+    new_duration = (t.duration_seconds or 0) / multiplier
+    new_tl = Timelapse(
+        printer_id=t.printer_id,
+        print_job_id=t.print_job_id,
+        filename=str(Path(t.filename).parent / out_name),
+        frame_count=t.frame_count,
+        duration_seconds=round(new_duration, 1),
+        file_size_mb=round(file_stat.st_size / (1024 * 1024), 2),
+        status="ready",
+        created_at=datetime.utcnow(),
+        completed_at=datetime.utcnow(),
+    )
+    db.add(new_tl)
+    db.commit()
+    db.refresh(new_tl)
+    log_audit(db, "create", "timelapse", new_tl.id, {"action": "speed", "multiplier": multiplier, "source_id": t.id})
+
+    return {
+        "id": new_tl.id, "duration_seconds": new_tl.duration_seconds,
+        "file_size_mb": new_tl.file_size_mb, "status": new_tl.status,
+        "filename": new_tl.filename,
+    }
 
 
 # ====================================================================

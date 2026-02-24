@@ -709,10 +709,15 @@ export const timelapses = {
     const qs = query.toString()
     return fetchAPI(`/timelapses${qs ? '?' + qs : ''}`)
   },
-  videoUrl: (id) => {
-    // Session cookie is sent automatically for same-origin requests
-    return `/api/timelapses/${id}/video`
-  },
+  videoUrl: (id) => `/api/timelapses/${id}/video`,
+  streamUrl: (id) => `/api/timelapses/${id}/stream`,
+  downloadUrl: (id) => `/api/timelapses/${id}/download`,
+  trim: (id, startSeconds, endSeconds) => fetchAPI(`/timelapses/${id}/trim`, {
+    method: 'POST', body: JSON.stringify({ start_seconds: startSeconds, end_seconds: endSeconds }),
+  }),
+  speed: (id, multiplier) => fetchAPI(`/timelapses/${id}/speed`, {
+    method: 'POST', body: JSON.stringify({ multiplier }),
+  }),
   delete: (id) => fetchAPI(`/timelapses/${id}`, { method: 'DELETE' }),
 }
 
