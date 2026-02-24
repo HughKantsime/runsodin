@@ -50,6 +50,8 @@ def _settings_to_dict(s: VisionSettings) -> dict:
         "first_layer_threshold": s.first_layer_threshold,
         "detachment_enabled": s.detachment_enabled,
         "detachment_threshold": s.detachment_threshold,
+        "build_plate_empty_enabled": s.build_plate_empty_enabled,
+        "build_plate_empty_threshold": s.build_plate_empty_threshold,
         "auto_pause": s.auto_pause,
         "capture_interval_sec": s.capture_interval_sec,
         "collect_training_data": s.collect_training_data,
@@ -167,6 +169,7 @@ async def get_printer_vision_settings(
         "spaghetti_enabled": 1, "spaghetti_threshold": 0.65,
         "first_layer_enabled": 1, "first_layer_threshold": 0.60,
         "detachment_enabled": 1, "detachment_threshold": 0.70,
+        "build_plate_empty_enabled": 0, "build_plate_empty_threshold": 0.70,
         "auto_pause": 0, "capture_interval_sec": 10,
         "collect_training_data": 0,
     }
@@ -189,6 +192,7 @@ async def update_printer_vision_settings(
         "enabled", "spaghetti_enabled", "spaghetti_threshold",
         "first_layer_enabled", "first_layer_threshold",
         "detachment_enabled", "detachment_threshold",
+        "build_plate_empty_enabled", "build_plate_empty_threshold",
         "auto_pause", "capture_interval_sec", "collect_training_data",
     }
     updates = {k: v for k, v in body.items() if k in allowed}
@@ -311,7 +315,7 @@ async def upload_vision_model(
     db: Session = Depends(get_db),
 ):
     """Upload a custom ONNX model."""
-    if detection_type not in ('spaghetti', 'first_layer', 'detachment'):
+    if detection_type not in ('spaghetti', 'first_layer', 'detachment', 'build_plate_empty'):
         raise HTTPException(status_code=400, detail="Invalid detection_type")
 
     if not file.filename.endswith('.onnx'):

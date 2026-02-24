@@ -70,7 +70,7 @@ MODEL_RELOAD_INTERVAL = 60  # seconds between model reload checks
 ALERT_COOLDOWN = 60  # minimum seconds between same-type alerts per printer
 FRAME_CLEANUP_INTERVAL = 3600  # hourly frame cleanup
 
-DETECTION_TYPES = ['spaghetti', 'first_layer', 'detachment']
+DETECTION_TYPES = ['spaghetti', 'first_layer', 'detachment', 'build_plate_empty']
 
 
 class VisionInferenceEngine:
@@ -311,6 +311,7 @@ class PrinterVisionThread(threading.Thread):
         settings: dict,
         current_layer: Optional[int],
         print_job_id: Optional[int],
+        gcode_state: Optional[str] = None,
     ):
         super().__init__(daemon=True)
         self.printer_id = printer_id
@@ -319,6 +320,7 @@ class PrinterVisionThread(threading.Thread):
         self.settings = settings
         self.current_layer = current_layer
         self.print_job_id = print_job_id
+        self.gcode_state = gcode_state or 'RUNNING'
         self._running = True
 
         # Confirmation buffers: track consecutive detections
@@ -326,6 +328,7 @@ class PrinterVisionThread(threading.Thread):
             'spaghetti': [],
             'first_layer': [],
             'detachment': [],
+            'build_plate_empty': [],
         }
         # Alert cooldown tracking: detection_type → last alert timestamp
         self._last_alert: Dict[str, float] = {}
@@ -333,9 +336,11 @@ class PrinterVisionThread(threading.Thread):
     def stop(self):
         self._running = False
 
-    def update_layer(self, layer: Optional[int], job_id: Optional[int]):
+    def update_layer(self, layer: Optional[int], job_id: Optional[int], gcode_state: Optional[str] = None):
         self.current_layer = layer
         self.print_job_id = job_id
+        if gcode_state:
+            self.gcode_state = gcode_state
 
     def run(self):
         log.info(f"[{self.printer_name}] Vision thread started")
@@ -384,6 +389,54 @@ class PrinterVisionThread(threading.Thread):
                 self._on_detection(detection_type, best, frame)
                 # Reset history after triggering
                 self._history[detection_type].clear()
+
+        # Build plate empty detection — runs when printer is IDLE, not during printing
+        if (self.settings.get('build_plate_empty_enabled', 0)
+                and self.gcode_state in ('IDLE', 'FINISH', 'FINISHED')):
+            threshold = self.settings.get('build_plate_empty_threshold', 0.70)
+            is_empty, confidence = self._detect_build_plate_empty(frame)
+            above = is_empty and confidence >= threshold
+            self._update_history('build_plate_empty', above)
+            if self._should_trigger('build_plate_empty'):
+                # Synthetic detection dict for _on_detection
+                det = {'confidence': confidence, 'bbox': []}
+                self._on_detection('build_plate_empty', det, frame)
+                self._history['build_plate_empty'].clear()
+
+    def _detect_build_plate_empty(self, frame: np.ndarray) -> tuple:
+        """Heuristic baseline for empty plate detection (Option B).
+
+        Crops to center 60% of frame and checks color uniformity.
+        Returns (is_empty: bool, confidence: float).
+        If an ONNX model is available for 'build_plate_empty', uses that instead.
+        """
+        # Option A: use ONNX model if available
+        if self.engine.has_model('build_plate_empty'):
+            detections = self.engine.infer('build_plate_empty', frame)
+            best = max(detections, key=lambda d: d['confidence'], default=None)
+            if best:
+                return (True, best['confidence'])
+            return (False, 0.0)
+
+        # Option B: heuristic — check if center region is uniform
+        h, w = frame.shape[:2]
+        # Crop to center 60%
+        y1, y2 = int(h * 0.2), int(h * 0.8)
+        x1, x2 = int(w * 0.2), int(w * 0.8)
+        crop = frame[y1:y2, x1:x2]
+
+        # Convert to grayscale for uniformity analysis
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        std_dev = float(np.std(gray))
+        mean_val = float(np.mean(gray))
+
+        # Empty plate heuristic: low standard deviation = uniform surface
+        # Typical empty plate: std < 25, not too dark (mean > 40)
+        if std_dev < 25 and mean_val > 40:
+            # Higher confidence when more uniform
+            confidence = max(0.0, min(1.0, 1.0 - (std_dev / 50.0)))
+            return (True, confidence)
+        return (False, 0.0)
 
     def _capture_frame(self) -> Optional[np.ndarray]:
         """Fetch a JPEG frame from go2rtc snapshot API."""
@@ -451,6 +504,7 @@ class PrinterVisionThread(threading.Thread):
             'spaghetti': 'spaghetti_detected',
             'first_layer': 'first_layer_issue',
             'detachment': 'detachment_detected',
+            'build_plate_empty': 'build_plate_empty_detected',
         }
         alert_type = alert_type_map[detection_type]
 
@@ -458,12 +512,14 @@ class PrinterVisionThread(threading.Thread):
             'spaghetti': 'critical',
             'first_layer': 'warning',
             'detachment': 'critical',
+            'build_plate_empty': 'info',
         }
 
         title_map = {
             'spaghetti': f"Spaghetti Detected: {self.printer_name}",
             'first_layer': f"First Layer Issue: {self.printer_name}",
             'detachment': f"Print Detachment: {self.printer_name}",
+            'build_plate_empty': f"Plate Ready: {self.printer_name}",
         }
 
         # Dispatch alert through existing pipeline
@@ -674,13 +730,15 @@ class VisionMonitorDaemon:
             with get_db(row_factory=sqlite3.Row) as conn:
                 cur = conn.cursor()
 
-                # Find printers: active, camera enabled, camera URL set, currently printing
+                # Find printers: active, camera enabled, camera URL set,
+                # either printing (for failure detection) or idle with build_plate_empty enabled
                 cur.execute("""
                     SELECT p.id, p.name, p.nickname, p.gcode_state,
                            pj.id as print_job_id, pj.current_layer,
                            vs.enabled, vs.spaghetti_enabled, vs.spaghetti_threshold,
                            vs.first_layer_enabled, vs.first_layer_threshold,
                            vs.detachment_enabled, vs.detachment_threshold,
+                           vs.build_plate_empty_enabled, vs.build_plate_empty_threshold,
                            vs.auto_pause, vs.capture_interval_sec,
                            vs.collect_training_data
                     FROM printers p
@@ -690,7 +748,9 @@ class VisionMonitorDaemon:
                     WHERE p.is_active = 1
                       AND p.camera_enabled = 1
                       AND p.camera_url IS NOT NULL
-                      AND p.gcode_state = 'RUNNING'
+                      AND (p.gcode_state = 'RUNNING'
+                           OR (p.gcode_state IN ('IDLE', 'FINISH', 'FINISHED')
+                               AND COALESCE(vs.build_plate_empty_enabled, 0) = 1))
                 """)
                 rows = cur.fetchall()
         except Exception as e:
@@ -714,15 +774,17 @@ class VisionMonitorDaemon:
                 'first_layer_threshold': row['first_layer_threshold'] or 0.60,
                 'detachment_enabled': row['detachment_enabled'] if row['detachment_enabled'] is not None else 1,
                 'detachment_threshold': row['detachment_threshold'] or 0.70,
+                'build_plate_empty_enabled': row['build_plate_empty_enabled'] if row['build_plate_empty_enabled'] is not None else 0,
+                'build_plate_empty_threshold': row['build_plate_empty_threshold'] or 0.70,
                 'auto_pause': row['auto_pause'] or 0,
                 'capture_interval_sec': row['capture_interval_sec'] or 10,
                 'collect_training_data': row['collect_training_data'] or 0,
             }
 
             if pid in self._threads:
-                # Update layer info on existing thread
+                # Update layer info and gcode_state on existing thread
                 self._threads[pid].update_layer(
-                    row['current_layer'], row['print_job_id']
+                    row['current_layer'], row['print_job_id'], row['gcode_state']
                 )
             else:
                 # Start new thread
@@ -733,6 +795,7 @@ class VisionMonitorDaemon:
                     settings=settings,
                     current_layer=row['current_layer'],
                     print_job_id=row['print_job_id'],
+                    gcode_state=row['gcode_state'],
                 )
                 thread.start()
                 self._threads[pid] = thread

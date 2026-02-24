@@ -11,6 +11,7 @@ const TYPE_META = {
   spaghetti: { label: 'Spaghetti', color: 'text-red-400', bg: 'bg-red-500/20' },
   first_layer: { label: 'First Layer', color: 'text-amber-400', bg: 'bg-amber-500/20' },
   detachment: { label: 'Detachment', color: 'text-orange-400', bg: 'bg-orange-500/20' },
+  build_plate_empty: { label: 'Plate Ready', color: 'text-green-400', bg: 'bg-green-500/20' },
 }
 
 const STATUS_META = {

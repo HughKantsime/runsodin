@@ -908,6 +908,8 @@ class VisionSettings(Base):
     first_layer_threshold = Column(Float, default=0.60)
     detachment_enabled = Column(Integer, default=1)
     detachment_threshold = Column(Float, default=0.70)
+    build_plate_empty_enabled = Column(Integer, default=0)
+    build_plate_empty_threshold = Column(Float, default=0.70)
     auto_pause = Column(Integer, default=0)
     capture_interval_sec = Column(Integer, default=10)
     collect_training_data = Column(Integer, default=0)

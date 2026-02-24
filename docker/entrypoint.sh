@@ -736,11 +736,23 @@ conn.execute("""CREATE TABLE IF NOT EXISTS vision_settings (
     first_layer_threshold REAL DEFAULT 0.60,
     detachment_enabled INTEGER DEFAULT 1,
     detachment_threshold REAL DEFAULT 0.70,
+    build_plate_empty_enabled INTEGER DEFAULT 0,
+    build_plate_empty_threshold REAL DEFAULT 0.70,
     auto_pause INTEGER DEFAULT 0,
     capture_interval_sec INTEGER DEFAULT 10,
     collect_training_data INTEGER DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 )""")
+
+# Migrate: add build_plate_empty columns if missing (existing installs)
+try:
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(vision_settings)").fetchall()]
+    if 'build_plate_empty_enabled' not in cols:
+        conn.execute("ALTER TABLE vision_settings ADD COLUMN build_plate_empty_enabled INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE vision_settings ADD COLUMN build_plate_empty_threshold REAL DEFAULT 0.70")
+        conn.commit()
+except Exception:
+    pass
 
 conn.execute("""CREATE TABLE IF NOT EXISTS vision_models (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
