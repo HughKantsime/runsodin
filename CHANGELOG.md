@@ -17,6 +17,12 @@ All notable changes to O.D.I.N. are documented here.
 - **Self-service password reset** — Forgot-password flow on login page with 1-hour email token, single-use enforcement, and session revocation on reset
 - **Admin password reset email** — Admin can trigger password reset email for any user from user management
 - **Print archive** — Auto-captures completed prints with job name, printer, status, duration, filament used, thumbnail, and user attribution; dedicated `/archives` page with filters, search, detail modal, editable notes, and admin delete
+- **Timelapse editor** — In-app trim (start/end via range sliders), speed adjustment (0.5×–8×), and download; ffmpeg-backed with graceful 501 fallback
+- **Build plate empty detection** — New Vigil AI detection category; ONNX inference identifies empty build plates for job-complete confirmation
+- **Slicer & printer profiles library** — Upload, tag, version, and distribute OrcaSlicer (.json), Bambu Studio (.json), PrusaSlicer (.ini), and Klipper (.cfg) profiles; revision history with diff and rollback
+- **H2D dual-nozzle AMS support** — Auto-detected `machine_type` column; dual nozzle temps (L/R), dual AMS unit labels, H2D badge on printer cards, `GET /api/printers/{id}/nozzle-status` endpoint
+- **Windows PowerShell installer** — `install.ps1` with preflight checks (Docker, WSL2, disk, ports), interactive config, and WINDOWS_INSTALL.md guide
+- **Documentation wiki** — Docusaurus 3 site at docs.runsodin.com with 19 pages (installation, configuration, features, API reference, troubleshooting); Documentation link in Settings page
 - **Compare page (runsodin.com)** — Feature-by-feature comparison against BambuBuddy and SimplyPrint across 7 categories
 - **Reviews page (runsodin.com)** — User testimonial cards with star ratings and submit-review CTA
 - **Features page update (runsodin.com)** — Added Vigil AI, Enterprise Security, and Business Operations sections with mixed-fleet banner and compare CTA

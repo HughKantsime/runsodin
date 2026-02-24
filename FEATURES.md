@@ -32,6 +32,7 @@
 - AMS slot display with loaded filament colors and material types
 - AMS humidity and temperature monitoring (5-minute capture interval, 7-day retention)
 - AMS environment chart (Recharts) on printer detail panel
+- **H2D dual-nozzle support** — auto-detected via `machine_type` column; dual nozzle temps (L/R), dual AMS unit labels, H2D badge on printer cards, `GET /api/printers/{id}/nozzle-status` endpoint
 
 ### 1.5 Printer Controls
 - **Emergency Stop** — floating red button visible on every page, sends stop to all connected printers (operator/admin)
@@ -112,6 +113,7 @@
 - API: paginated list with printer/status filters, serve MP4 (supports `?token=` for `<video>` elements), delete (admin-only)
 - Gallery page with grid view, video player modal, printer/status filters, pagination, download + delete actions
 - Nav item with Film icon under Cameras
+- **Timelapse editor** — in-app trim (start/end), speed adjustment (0.5×–8×), download via ffmpeg; editor modal with video player, range sliders, and speed presets
 
 ### 2.8 OBS Streaming Overlay
 - Dedicated route: `/overlay/:printerId` — no authentication required (for OBS browser source)
@@ -143,7 +145,7 @@
 
 ### 3.1 Detection Engine
 - Supervised daemon (`vision_monitor.py`) managed by supervisord
-- ONNX model inference for three failure types: spaghetti, first layer defects, detachment
+- ONNX model inference for four failure types: spaghetti, first layer defects, detachment, build plate empty
 - Per-printer monitoring threads that capture frames from go2rtc camera streams
 - Confidence filtering with configurable thresholds per detection type
 - Non-maximum suppression (NMS) for deduplication
@@ -244,6 +246,21 @@
 - Revision history panel per model (accessible via History button on model cards)
 - Upload new .3mf revisions with changelog notes
 - Browse revision history with version numbers, dates, and uploader
+
+---
+
+## 5b. Slicer & Printer Profiles
+
+### 5b.1 Profile Library
+- Upload, tag, version, and distribute slicer and printer configuration profiles across your farm
+- Supported formats: `.json` (OrcaSlicer, Bambu Studio), `.ini` (PrusaSlicer), `.cfg` (Klipper)
+- Categorized by type: slicer_profile, printer_profile, filament_profile
+- Search and filter by printer model, slicer, material, tags
+
+### 5b.2 Profile Versioning
+- Revision history with diff viewing and rollback
+- Upload new revisions with changelog notes
+- API: `GET/POST /api/profiles`, `GET/PUT/DELETE /api/profiles/{id}`, `POST /api/profiles/{id}/revisions`, `POST /api/profiles/{id}/revert/{revision}`
 
 ---
 
@@ -695,6 +712,19 @@
 - Security hardening: no `eval`, `.env` permissions locked to 0600, SIGINT traps for clean abort
 - Test suite (`tests/test_installer.sh`) — 59 unit + integration tests validating installer behavior
 
+### 22.5 Windows Installer
+- PowerShell one-liner: `irm https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.ps1 | iex`
+- Preflight checks: Windows version, Docker Desktop, WSL2 backend, disk space, port availability
+- Interactive config: host IP detection, timezone, compose download, env generation
+- Health check with automatic browser open on success
+- Step-by-step WINDOWS_INSTALL.md guide with prerequisites, manual steps, troubleshooting
+
+### 22.6 Documentation Wiki
+- Docusaurus 3 site at `docs.runsodin.com`
+- 19 pages: introduction, getting started (4), configuration (5), features (4), API reference (2), troubleshooting (3)
+- Dark mode default with ODIN brand colors
+- Documentation link in Settings page
+
 ### 22.3 Database Migrations
 - Idempotent column additions via `entrypoint.sh`
 - Tables: api_tokens, active_sessions, token_blacklist, quota_usage, model_revisions, report_schedules, timelapses (v1.2.0–v1.3.0)
@@ -756,3 +786,4 @@
 | v1.3.66–1.3.67 | 2026-02-21 | OIDC login fix (httpOnly cookie on code exchange), logout blacklists Bearer JWT, password change revokes all sessions, Bambu SSRF check, stored_path removed from print-file responses; OIDC redirect_uri pinning, oidc_auth_codes Fernet-encrypted, org webhook_url encrypted, onnxruntime 1.20.1 (CVE-2024-25960), Docker base image digest pinning, go2rtc binary SHA256 verification, VITE_API_KEY footgun removed, webhook URL encryption, API_KEY startup warning |
 | v1.3.68 | 2026-02-21 | Spool label endpoint auth fix, GET /config accessible to viewer (non-sensitive fields only), package-lock.json sync |
 | v1.3.69 | 2026-02-23 | RBAC matrix: ~120 routes added (1507 total tests, all passing), CI security pipeline (gitleaks + bandit + pip-audit + npm audit), invoice PDF crash fix (em dash in fpdf), retention cleanup 500 fix |
+| v1.3.70 | 2026-02-24 | Competitive parity (HMS expansion, skip objects, speed adjust, resizable cards, OBS overlay, log viewer, support bundle, email onboarding, password reset, print archive); platform expansion (timelapse editor, build plate detection, slicer profiles, H2D dual-nozzle AMS, Windows installer, docs wiki) |

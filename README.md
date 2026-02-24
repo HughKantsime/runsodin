@@ -21,7 +21,7 @@ The only platform that combines multi-protocol printer support, AI failure detec
 
 ## Key Features
 
-- **Multi-Protocol Fleet** — Bambu MQTT, Klipper/Moonraker, PrusaLink, and Elegoo SDCP from one dashboard
+- **Multi-Protocol Fleet** — Bambu MQTT (X1C, P1S, A1, H2D), Klipper/Moonraker, PrusaLink, and Elegoo SDCP from one dashboard
 - **Vigil AI Failure Detection** — ONNX-based spaghetti/detachment/first-layer detection with auto-pause
 - **Smart Job Scheduling** — Color-match scoring, time-window matching, drag-and-drop queue
 - **Mid-Print Controls** — Skip objects, adjust speed (25%–200%), and clear HMS errors during active prints
@@ -90,6 +90,7 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 
 ## Documentation
 
+- [Full Documentation](https://docs.runsodin.com) — Installation, configuration, features, API reference, troubleshooting
 - [Install Guide](https://runsodin.com/install) — Setup, configuration, and updating
 - [Features](https://runsodin.com/features) — Full feature catalog
 - [Pricing](https://runsodin.com/pricing) — Community, Pro, Education, Enterprise tiers

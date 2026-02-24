@@ -13,6 +13,12 @@ Updated — see CHANGELOG for current version.
 - ~~Self-service password reset~~ (forgot-password flow via SMTP with 1-hour token)
 - ~~Print archive~~ (auto-capture on job completion, archive browser with filters/search/detail modal)
 - ~~Marketing site: Compare page, Reviews page, updated Features, updated nav~~ (runsodin.com)
+- ~~Timelapse editor~~ (in-app trim, speed adjustment 0.5×–8×, download via ffmpeg)
+- ~~Build plate empty detection~~ (Vigil AI — ONNX inference for empty build plate confirmation)
+- ~~Slicer & printer profiles library~~ (OrcaSlicer, Bambu Studio, PrusaSlicer, Klipper; versioning with diff and rollback)
+- ~~H2D dual-nozzle AMS support~~ (auto-detected machine_type, dual nozzle temps, dual AMS unit labels, nozzle-status endpoint)
+- ~~Windows PowerShell installer~~ (`install.ps1` with preflight checks, interactive config, WINDOWS_INSTALL.md)
+- ~~Documentation wiki~~ (Docusaurus 3 at docs.runsodin.com — 19 pages covering install, config, features, API, troubleshooting)
 
 ## Shipped in v1.2.0
 
