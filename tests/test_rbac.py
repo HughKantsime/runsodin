@@ -300,11 +300,11 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/maintenance/tasks", _op_write(), {"name": "RBAC Temp"}, "Create task"),
     ("PATCH", "/api/maintenance/tasks/{maintenance_task_id}", _op_write(),
      {"description": "rbac"}, "Update task"),
-    ("DELETE", "/api/maintenance/tasks/{maintenance_task_id}", _op_write(), None, "Delete task — SKIP"),
+    ("DELETE", "/api/maintenance/tasks/{maintenance_task_id}", _admin_only(), None, "Delete task"),
     ("GET",  "/api/maintenance/logs", _api_read(), None, "List logs"),
     ("POST", "/api/maintenance/logs", _op_write(),
      {"printer_id": 1, "task_name": "RBAC Temp"}, "Create log"),
-    ("DELETE", "/api/maintenance/logs/{maintenance_log_id}", _op_write(), None, "Delete log — SKIP"),
+    ("DELETE", "/api/maintenance/logs/{maintenance_log_id}", _admin_only(), None, "Delete log"),
     ("GET",  "/api/maintenance/status", _api_read(), None, "Maintenance status"),
     ("POST", "/api/maintenance/seed-defaults", _admin_only(), None, "Seed defaults"),
 
@@ -805,26 +805,115 @@ def _resolve_body(body, test_data):
 # Parametrize
 # ---------------------------------------------------------------------------
 
+# Endpoints where DELETE should never run (session-breaking or not re-creatable)
 DESTRUCTIVE_SKIP = {
-    "DELETE /api/printers/{printer_id}",
-    "DELETE /api/jobs/{job_id}",
-    "DELETE /api/models/{model_id}",
-    "DELETE /api/spools/{spool_id}",
-    "DELETE /api/products/{product_id}",
-    "DELETE /api/orders/{order_id}",
-    "DELETE /api/webhooks/{webhook_id}",
-    "DELETE /api/maintenance/tasks/{maintenance_task_id}",
-    "DELETE /api/maintenance/logs/{maintenance_log_id}",
-    "DELETE /api/backups/{backup_filename}",
-    "DELETE /api/filaments/{filament_id}",
-    "DELETE /api/license",
-    # New entries — could affect live test data or break the test session
+    "DELETE /api/license",                # License can't be re-created in test
     "DELETE /api/sessions",               # Revokes ALL own sessions (breaks test runner tokens)
-    "DELETE /api/tokens/{token_id}",      # Could revoke the test API token
-    "DELETE /api/users/{user_id}",        # Could delete admin user (ID=1)
-    "DELETE /api/users/{user_id}/erase",  # Irreversible GDPR erase
-    "DELETE /api/print-files/{file_id}",  # Could delete test print file fixture data
 }
+
+# Mapping: DELETE endpoint → (POST create endpoint, create body, id key in response)
+# For these, we create a disposable resource before each DELETE test.
+_EPHEMERAL_CREATE = {
+    "DELETE /api/printers/{printer_id}": (
+        "/api/printers", {"name": "DEL_test_printer", "model": "Test", "api_type": "bambu", "slot_count": 4, "is_active": True}, "id",
+    ),
+    "DELETE /api/jobs/{job_id}": (
+        "/api/jobs", {"item_name": "DEL_test_job", "priority": 1}, "id",
+    ),
+    "DELETE /api/models/{model_id}": (
+        "/api/models", {"name": "DEL_test_model", "build_time_hours": 0.5}, "id",
+    ),
+    "DELETE /api/spools/{spool_id}": None,  # needs filament_id — handled specially
+    "DELETE /api/products/{product_id}": (
+        "/api/products", {"name": "DEL_test_product", "price": 1.00}, "id",
+    ),
+    "DELETE /api/orders/{order_id}": (
+        "/api/orders", {}, "id",
+    ),
+    "DELETE /api/webhooks/{webhook_id}": (
+        "/api/webhooks", {}, "id",
+    ),
+    "DELETE /api/maintenance/tasks/{maintenance_task_id}": (
+        "/api/maintenance/tasks", {"name": "DEL_test_maint", "interval_days": 30}, "id",
+    ),
+    "DELETE /api/maintenance/logs/{maintenance_log_id}": None,  # needs printer_id — handled specially
+    "DELETE /api/backups/{backup_filename}": (
+        "/api/backups", None, "filename",
+    ),
+    "DELETE /api/filaments/{filament_id}": (
+        "/api/filaments", {"brand": "DEL Test", "name": "DEL PLA", "material": "PLA", "color_hex": "#000000"}, "id",
+    ),
+    "DELETE /api/tokens/{token_id}": (
+        "/api/tokens", {"name": "DEL_test_token"}, "id",
+    ),
+    "DELETE /api/users/{user_id}": None,  # handled specially (create user)
+    "DELETE /api/users/{user_id}/erase": None,  # handled specially (create user)
+    "DELETE /api/print-files/{file_id}": None,  # can't easily create — fall back to 404 tolerance
+}
+
+
+def _create_ephemeral(endpoint_key, admin_token, test_data):
+    """Create a disposable resource for a destructive DELETE test.
+    Returns the resolved path with the new resource ID, or None if creation failed."""
+    import uuid
+
+    spec = _EPHEMERAL_CREATE.get(endpoint_key)
+
+    # Special cases that need dependent data
+    if endpoint_key == "DELETE /api/spools/{spool_id}":
+        fid = test_data.get("filament_id", 1)
+        resp = make_request("POST", "/api/spools", "jwt", admin_token, {
+            "filament_id": fid, "initial_weight_g": 500, "spool_weight_g": 200,
+        })
+        if resp.status_code == 200:
+            return f"/api/spools/{resp.json().get('id')}"
+        return None
+
+    if endpoint_key == "DELETE /api/maintenance/logs/{maintenance_log_id}":
+        pid = test_data.get("printer_id", 1)
+        resp = make_request("POST", "/api/maintenance/logs", "jwt", admin_token, {
+            "printer_id": pid, "task_name": "DEL_test_log",
+        })
+        if resp.status_code == 200:
+            return f"/api/maintenance/logs/{resp.json().get('id')}"
+        return None
+
+    if endpoint_key in ("DELETE /api/users/{user_id}", "DELETE /api/users/{user_id}/erase"):
+        tag = uuid.uuid4().hex[:6]
+        resp = make_request("POST", "/api/users", "jwt", admin_token, {
+            "username": f"del_test_{tag}", "email": f"del_{tag}@test.local",
+            "password": "DelTestPass1!", "role": "viewer",
+        })
+        if resp.status_code == 200:
+            uid = resp.json().get("id")
+            if "erase" in endpoint_key:
+                return f"/api/users/{uid}/erase"
+            return f"/api/users/{uid}"
+        return None
+
+    if endpoint_key == "DELETE /api/print-files/{file_id}":
+        return None  # Can't easily create print files via API
+
+    if spec is None:
+        return None
+
+    create_path, create_body, id_key = spec
+    resp = make_request("POST", create_path, "jwt", admin_token, create_body)
+    if resp.status_code in (200, 201):
+        data = resp.json()
+        rid = data.get(id_key)
+        if rid is not None:
+            # Reconstruct DELETE path with the new ID
+            path_template = endpoint_key.replace("DELETE ", "")
+            # Replace the template param with actual ID
+            for param in ["{printer_id}", "{job_id}", "{model_id}", "{spool_id}",
+                          "{product_id}", "{order_id}", "{webhook_id}",
+                          "{maintenance_task_id}", "{maintenance_log_id}",
+                          "{backup_filename}", "{filament_id}", "{token_id}",
+                          "{file_id}"]:
+                if param in path_template:
+                    return path_template.replace(param, str(rid))
+    return None
 
 
 def _generate_params():
@@ -839,15 +928,25 @@ def _generate_params():
 
 
 @pytest.mark.parametrize("method, path_template, role, expected_status, body, notes", _generate_params())
-def test_rbac(method, path_template, role, expected_status, body, notes, tokens, test_data, api_key_enabled):
+def test_rbac(method, path_template, role, expected_status, body, notes, tokens, test_data, api_key_enabled, admin_token):
     """RBAC matrix test with three-client auth model."""
 
-    # Skip destructive admin/operator calls to preserve test data
     endpoint_key = f"{method} {path_template}"
+
+    # Hard-skip for truly session-breaking endpoints
     if role in ("admin", "operator") and endpoint_key in DESTRUCTIVE_SKIP:
         pytest.skip(f"Skipping destructive call: {endpoint_key} [{role}]")
 
-    path = _resolve_path(path_template, test_data)
+    # For destructive DELETEs, create ephemeral test data so we can actually test
+    if role in ("admin", "operator") and endpoint_key in _EPHEMERAL_CREATE:
+        ephemeral_path = _create_ephemeral(endpoint_key, admin_token, test_data)
+        if ephemeral_path:
+            path = ephemeral_path
+        else:
+            path = _resolve_path(path_template, test_data)
+    else:
+        path = _resolve_path(path_template, test_data)
+
     resolved_body = _resolve_body(body, test_data)
     token = tokens.get(role)
 

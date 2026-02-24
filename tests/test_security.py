@@ -73,7 +73,7 @@ def admin_token():
 def viewer_token():
     """Get viewer JWT. Uses credentials from .env.test."""
     username = os.getenv("TEST_VIEWER_USERNAME", "test_viewer_rbac")
-    password = os.getenv("TEST_VIEWER_PASSWORD", "ViewerTestPass1")
+    password = os.getenv("TEST_VIEWER_PASSWORD", "ViewerTestPass1!")
     token = _login(username, password)
     if not token:
         pytest.skip(f"Viewer test user ({username}) not available — run full test suite first to create test users")
@@ -84,7 +84,7 @@ def viewer_token():
 def operator_token():
     """Get operator JWT."""
     username = os.getenv("TEST_OPERATOR_USERNAME", "test_operator_rbac")
-    password = os.getenv("TEST_OPERATOR_PASSWORD", "OperatorTestPass1")
+    password = os.getenv("TEST_OPERATOR_PASSWORD", "OperatorTestPass1!")
     token = _login(username, password)
     if not token:
         pytest.skip("Operator test user not available — run conftest setup first")
@@ -657,12 +657,11 @@ class TestRateLimiting:
         # For CI we just verify the lockout response includes retry info
         lockout_user = f"expire_test_{uuid.uuid4().hex[:8]}"
 
-        # Trigger lockout
+        # Trigger lockout (form data — OAuth2PasswordRequestForm)
         for i in range(12):
             r = requests.post(
                 f"{BASE_URL}/api/auth/login",
-                json={"username": lockout_user, "password": "WrongPass1!"},
-                headers=_no_auth_headers(),
+                data={"username": lockout_user, "password": "WrongPass1!"},
                 timeout=10,
             )
             if r.status_code in (423, 429):

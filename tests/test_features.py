@@ -182,7 +182,7 @@ def first_product_id(admin_headers):
 
 @pytest.fixture(scope="module")
 def first_alert_id(admin_headers):
-    """Get the first alert ID, or None."""
+    """Get the first alert ID, or create a test alert if none exist."""
     r = requests.get(f"{BASE_URL}/api/alerts", headers=admin_headers)
     if r.status_code == 200:
         alerts = r.json()
@@ -190,6 +190,18 @@ def first_alert_id(admin_headers):
             return alerts[0]["id"]
         elif isinstance(alerts, dict) and alerts.get("alerts"):
             return alerts["alerts"][0]["id"]
+    # Create a test alert via direct DB insert (no POST endpoint for alerts)
+    import subprocess
+    result = subprocess.run(
+        ["docker", "exec", "odin", "python3", "-c",
+         "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+         "c.execute(\"INSERT INTO alerts (user_id, alert_type, severity, title, message, is_read, is_dismissed, created_at) "
+         "VALUES (1, 'print_complete', 'info', 'Test alert', 'Created by test suite', 0, 0, datetime('now'))\"); "
+         "c.commit(); print(c.execute('SELECT last_insert_rowid()').fetchone()[0])"],
+        capture_output=True, text=True, timeout=10
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return int(result.stdout.strip())
     return None
 
 
@@ -324,6 +336,7 @@ class TestJobManagement:
         """F12: Print Again / clone job endpoint."""
         # Try common endpoint patterns
         for path in [
+            f"/api/jobs/{first_job_id}/repeat",
             f"/api/jobs/{first_job_id}/clone",
             f"/api/jobs/{first_job_id}/duplicate",
             f"/api/jobs/{first_job_id}/print-again",

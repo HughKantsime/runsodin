@@ -58,6 +58,9 @@ def _login(username, password):
     return _shared_login(BASE_URL, username, password, api_key=API_KEY or None)
 
 
+_SSE_ENDPOINTS = {"/api/admin/logs/stream"}
+
+
 def make_request(method, path, auth_mode, token=None, body=None):
     """
     Make an API request with one of three auth modes:
@@ -77,6 +80,12 @@ def make_request(method, path, auth_mode, token=None, body=None):
         if token:
             headers["Authorization"] = f"Bearer {token}"
     # "no_headers" sends nothing
+
+    # SSE endpoints stream forever — use stream=True to get status without blocking
+    if path in _SSE_ENDPOINTS:
+        resp = requests.request(method, url, json=body, headers=headers, timeout=5, stream=True)
+        resp.close()
+        return resp
 
     return requests.request(method, url, json=body, headers=headers, timeout=15)
 
