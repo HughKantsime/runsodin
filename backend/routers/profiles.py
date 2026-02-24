@@ -38,10 +38,10 @@ def _profile_row_to_dict(row) -> dict:
         "file_format": row.file_format, "filament_type": row.filament_type,
         "is_shared": row.is_shared, "is_default": row.is_default,
         "tags": row.tags,
-        "last_applied_at": row.last_applied_at.isoformat() if row.last_applied_at else None,
+        "last_applied_at": row.last_applied_at if isinstance(row.last_applied_at, str) else (row.last_applied_at.isoformat() if row.last_applied_at else None),
         "last_applied_printer_id": row.last_applied_printer_id,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "created_at": row.created_at if isinstance(row.created_at, str) else (row.created_at.isoformat() if row.created_at else None),
+        "updated_at": row.updated_at if isinstance(row.updated_at, str) else (row.updated_at.isoformat() if row.updated_at else None),
     }
 
 

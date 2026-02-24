@@ -348,9 +348,10 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/auth/reset-password", _pub(), {"token": "invalid", "new_password": "Test1234!"}, "Reset password"),
     ("GET",  "/api/auth/capabilities", _pub(), None, "Auth capabilities"),
     ("GET",  "/api/archives", _api_read(), None, "List print archives"),
-    ("GET",  "/api/archives/1", _api_read(), None, "Get print archive"),
-    ("PATCH", "/api/archives/1", _op_write(), {"notes": "test"}, "Update archive notes"),
-    ("DELETE", "/api/archives/1", _admin_only(), None, "Delete archive"),
+    ("GET",  "/api/archives/{archive_id}", _api_read(), None, "Get print archive"),
+    ("PATCH", "/api/archives/{archive_id}", _op_write(), {"notes": "test"}, "Update archive notes"),
+    ("DELETE", "/api/archives/{archive_id}", _admin_only(), None, "Delete archive"),
+    ("GET",  "/api/overlay/{printer_id}", _pub(), None, "OBS streaming overlay (public, no auth)"),
 
     # =========================================================================
     # 22. Push
