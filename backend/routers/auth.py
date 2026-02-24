@@ -1195,13 +1195,65 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
     users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users")).fetchall()
     return [dict(u._mapping) for u in users]
 
+def _send_odin_email(db, to_email: str, subject: str, html_body: str):
+    """Send an email using the configured SMTP settings. Returns True on success."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    if not config:
+        return False
+    smtp = config.value
+    if not smtp.get("enabled") or not smtp.get("host"):
+        return False
+
+    password = smtp.get("password", "")
+    if password:
+        try:
+            import crypto
+            password = crypto.decrypt(password)
+        except Exception:
+            pass
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp.get("from_address", smtp.get("username", "odin@localhost"))
+    msg["To"] = to_email
+    msg.attach(MIMEText(html_body, "html"))
+
+    try:
+        if smtp.get("use_tls", True):
+            server = smtplib.SMTP(smtp["host"], smtp.get("port", 587), timeout=10)
+            server.starttls()
+        else:
+            server = smtplib.SMTP(smtp["host"], smtp.get("port", 25), timeout=10)
+        if smtp.get("username") and password:
+            server.login(smtp["username"], password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        log.error(f"SMTP send failed: {e}")
+        return False
+
+
 @router.post("/users", tags=["Users"])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     # Check license user limit
     current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
     check_user_limit(current_count)
 
-    password_hash = hash_password(user.password)
+    import secrets as _secrets
+    password = user.password
+    if user.send_welcome_email and user.email:
+        # Auto-generate a secure random password for welcome email flow
+        password = _secrets.token_urlsafe(16)
+
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required")
+
+    password_hash = hash_password(password)
     try:
         db.execute(text("""
             INSERT INTO users (username, email, password_hash, role, group_id)
@@ -1210,7 +1262,60 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
         db.commit()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Username or email already exists")
+
+    if user.send_welcome_email and user.email:
+        html = f"""
+        <html><body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
+        <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
+            <h2 style="color: #3b82f6; margin-top: 0;">Welcome to O.D.I.N.</h2>
+            <p>Your account has been created. Here are your login details:</p>
+            <p><strong>Username:</strong> {user.username}<br>
+               <strong>Temporary Password:</strong> {password}</p>
+            <p>Please change your password after your first login.</p>
+            <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
+            <p style="color: #888; font-size: 12px;">O.D.I.N. — Orchestrated Dispatch &amp; Inventory Network</p>
+        </div></body></html>
+        """
+        _send_odin_email(db, user.email, "Your O.D.I.N. Account", html)
+
     return {"status": "created"}
+
+
+@router.post("/users/{user_id}/reset-password-email", tags=["Users"])
+async def reset_password_email(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Admin action: generate a new random password and email it to the user."""
+    import secrets as _secrets
+
+    user_row = db.execute(text("SELECT username, email FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not user_row:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user_row[1]:
+        raise HTTPException(status_code=400, detail="User has no email address")
+
+    new_password = _secrets.token_urlsafe(16)
+    password_hash = hash_password(new_password)
+    db.execute(text("UPDATE users SET password_hash = :h WHERE id = :id"), {"h": password_hash, "id": user_id})
+    db.commit()
+
+    html = f"""
+    <html><body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
+    <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
+        <h2 style="color: #3b82f6; margin-top: 0;">Password Reset — O.D.I.N.</h2>
+        <p>Your password has been reset by an administrator.</p>
+        <p><strong>Username:</strong> {user_row[0]}<br>
+           <strong>New Password:</strong> {new_password}</p>
+        <p>Please change your password after logging in.</p>
+        <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
+        <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
+    </div></body></html>
+    """
+    sent = _send_odin_email(db, user_row[1], "O.D.I.N. Password Reset", html)
+    if not sent:
+        raise HTTPException(status_code=503, detail="SMTP is not configured or send failed")
+
+    log_audit(db, "user.password_reset_email", "user", user_id,
+              {"actor_user_id": current_user["id"], "target_user_id": user_id})
+    return {"status": "password_reset_email_sent"}
 
 @router.patch("/users/{user_id}", tags=["Users"])
 async def update_user(user_id: int, updates: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
@@ -1634,3 +1739,116 @@ def reset_permissions(current_user: dict = Depends(require_role("admin")), db: S
         "page_access": RBAC_DEFAULT_PAGE_ACCESS,
         "action_access": RBAC_DEFAULT_ACTION_ACCESS,
     }
+
+
+# =============================================================================
+# Self-Service Password Reset
+# =============================================================================
+
+class ForgotPasswordRequest(PydanticBaseModel):
+    email: str
+
+class ResetPasswordRequest(PydanticBaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/auth/forgot-password", tags=["Auth"])
+async def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Request a password reset link. Always returns 200 to prevent user enumeration."""
+    import secrets as _secrets
+
+    # Check SMTP is configured
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    smtp = config.value if config else {}
+    if not smtp.get("enabled") or not smtp.get("host"):
+        raise HTTPException(status_code=503, detail="Password reset requires SMTP to be configured.")
+
+    # Find user by email — always return 200
+    user_row = db.execute(
+        text("SELECT id, username FROM users WHERE email = :email AND is_active = 1"),
+        {"email": body.email},
+    ).fetchone()
+
+    if user_row:
+        token = _secrets.token_urlsafe(32)
+        expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        db.execute(
+            text("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (:uid, :tok, :exp)"),
+            {"uid": user_row[0], "tok": token, "exp": expires},
+        )
+        db.commit()
+
+        # Determine the base URL
+        base_url_row = db.execute(
+            text("SELECT value FROM system_config WHERE key = 'base_url'")
+        ).fetchone()
+        base_url = base_url_row[0].strip('"') if base_url_row else ""
+
+        reset_link = f"{base_url}/reset-password?token={token}"
+        html = f"""
+        <html><body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
+        <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
+            <h2 style="color: #3b82f6; margin-top: 0;">Password Reset — O.D.I.N.</h2>
+            <p>A password reset was requested for your account <strong>{user_row[1]}</strong>.</p>
+            <p><a href="{reset_link}" style="color: #3b82f6;">Click here to reset your password</a></p>
+            <p style="color: #888; font-size: 12px;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+            <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
+            <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
+        </div></body></html>
+        """
+        _send_odin_email(db, body.email, "O.D.I.N. Password Reset", html)
+
+    return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/auth/reset-password", tags=["Auth"])
+async def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Reset password using a valid token."""
+    row = db.execute(
+        text("SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token = :tok"),
+        {"tok": body.token},
+    ).fetchone()
+
+    if not row or row[3]:  # not found or already used
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if datetime.fromisoformat(row[2]) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    # Validate password
+    pw_valid, pw_msg = _validate_password(body.new_password)
+    if not pw_valid:
+        raise HTTPException(status_code=400, detail=pw_msg)
+
+    # Update password
+    user_id = row[1]
+    password_hash = hash_password(body.new_password)
+    db.execute(text("UPDATE users SET password_hash = :h WHERE id = :id"), {"h": password_hash, "id": user_id})
+
+    # Mark token used
+    db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE id = :id"), {"id": row[0]})
+
+    # Blacklist all existing sessions
+    sessions = db.execute(
+        text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}
+    ).fetchall()
+    expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    for s in sessions:
+        db.execute(
+            text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+            {"jti": s[0], "exp": expiry},
+        )
+    db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
+    db.commit()
+
+    return {"status": "ok", "message": "Password updated. Please log in."}
+
+
+@router.get("/auth/capabilities", tags=["Auth"])
+async def auth_capabilities(db: Session = Depends(get_db)):
+    """Public endpoint to check available auth features (SMTP, OIDC, etc.)."""
+    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
+    smtp = config.value if config else {}
+    smtp_enabled = bool(smtp.get("enabled") and smtp.get("host"))
+    return {"smtp_enabled": smtp_enabled}

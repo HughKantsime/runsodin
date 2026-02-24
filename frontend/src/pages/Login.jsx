@@ -21,6 +21,17 @@ export default function Login() {
   const [mfaCode, setMfaCode] = useState('')
   const mfaInputRef = useRef(null)
 
+  // Forgot password state
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSent, setForgotSent] = useState(false)
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [smtpEnabled, setSmtpEnabled] = useState(false)
+
+  useEffect(() => {
+    api.auth.capabilities().then(c => setSmtpEnabled(c?.smtp_enabled || false)).catch(() => {})
+  }, [])
+
 
   // Handle OIDC callback parameters
   useEffect(() => {
@@ -284,9 +295,52 @@ const handleSubmit = async (e) => {
                 <div className="flex-1 border-t" style={{ borderColor: 'var(--brand-input-border)' }} />
               </div>
               <SSOButton />
-              <p className="text-center text-xs mt-6" style={{ color: 'var(--brand-text-muted)' }}>
-                Forgot your password? Contact your administrator.
-              </p>
+              <div className="text-center text-xs mt-6" style={{ color: 'var(--brand-text-muted)' }}>
+                {smtpEnabled ? (
+                  showForgot ? (
+                    forgotSent ? (
+                      <p className="text-green-400">If that email is registered, a reset link has been sent.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <p>Enter your email to receive a reset link</p>
+                        <input
+                          type="email"
+                          value={forgotEmail}
+                          onChange={(e) => setForgotEmail(e.target.value)}
+                          placeholder="you@example.com"
+                          className="w-full px-3 py-2 rounded-lg text-sm"
+                          style={{ backgroundColor: 'var(--brand-input-bg)', border: '1px solid var(--brand-input-border)', color: 'var(--brand-text-primary)' }}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              if (!forgotEmail) return
+                              setForgotLoading(true)
+                              try { await api.auth.forgotPassword(forgotEmail); setForgotSent(true) }
+                              catch { setForgotSent(true) }
+                              setForgotLoading(false)
+                            }}
+                            disabled={forgotLoading || !forgotEmail}
+                            className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                            style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
+                          >
+                            {forgotLoading ? 'Sending...' : 'Send Reset Link'}
+                          </button>
+                          <button onClick={() => setShowForgot(false)} className="px-3 py-2 rounded-lg text-sm" style={{ color: 'var(--brand-text-muted)' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    <button onClick={() => setShowForgot(true)} className="hover:underline" style={{ color: 'var(--brand-text-muted)' }}>
+                      Forgot your password?
+                    </button>
+                  )
+                ) : (
+                  <p>Forgot your password? Contact your administrator.</p>
+                )}
+              </div>
             </>
           )}
         </div>

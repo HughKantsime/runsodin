@@ -123,6 +123,9 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/printers/{printer_id}/resume", _op_write(), None, "Resume"),
     ("POST", "/api/printers/{printer_id}/lights", _op_write(), None, "Lights"),
     ("POST", "/api/printers/{printer_id}/sync-ams", _op_write(), None, "Sync AMS"),
+    ("POST", "/api/printers/{printer_id}/clear-errors", _op_write(), None, "Clear HMS errors (Bambu)"),
+    ("POST", "/api/printers/{printer_id}/skip-objects", _op_write(), {"object_ids": [0]}, "Skip objects (Bambu)"),
+    ("POST", "/api/printers/{printer_id}/speed", _op_write(), {"speed": 2}, "Set print speed (Bambu)"),
     ("GET",  "/api/printers/{printer_id}/live-status", _api_read(), None, "Live status"),
     ("GET",  "/api/printers/live-status", _api_read(), None, "All live status"),
 
@@ -337,6 +340,17 @@ ENDPOINT_MATRIX = [
      {"enabled": False, "host": "", "port": 587, "username": "", "password": "", "from_address": "", "use_tls": True},
      "Update SMTP"),
     ("POST", "/api/alerts/test-email", _admin_only(), None, "Test email"),
+    ("GET",  "/api/admin/logs", _admin_only(), None, "Get log lines"),
+    ("GET",  "/api/admin/logs/stream", _admin_only(), None, "Stream logs (SSE)"),
+    ("GET",  "/api/admin/support-bundle", _admin_only(), None, "Download support bundle"),
+    ("POST", "/api/users/{user_id}/reset-password-email", _admin_only(), None, "Reset password & email"),
+    ("POST", "/api/auth/forgot-password", _pub(), {"email": "test@test.com"}, "Forgot password"),
+    ("POST", "/api/auth/reset-password", _pub(), {"token": "invalid", "new_password": "Test1234!"}, "Reset password"),
+    ("GET",  "/api/auth/capabilities", _pub(), None, "Auth capabilities"),
+    ("GET",  "/api/archives", _api_read(), None, "List print archives"),
+    ("GET",  "/api/archives/1", _api_read(), None, "Get print archive"),
+    ("PATCH", "/api/archives/1", _op_write(), {"notes": "test"}, "Update archive notes"),
+    ("DELETE", "/api/archives/1", _admin_only(), None, "Delete archive"),
 
     # =========================================================================
     # 22. Push

@@ -94,7 +94,7 @@ def _restart_backend():
             ["docker", "exec", "odin", "supervisorctl", "restart", "backend"],
             capture_output=True, timeout=15,
         )
-        time.sleep(3)  # Wait for backend to come back up
+        time.sleep(8)  # Wait for backend to come back up (supervisord startsecs=5)
     except Exception:
         pass  # Best-effort; may fail if not running in Docker
 

@@ -28,6 +28,7 @@ from slowapi.errors import RateLimitExceeded
 from routers import (
     alerts,
     analytics,
+    archives,
     auth,
     cameras,
     jobs,
@@ -321,6 +322,7 @@ async def authenticate_request(request: Request, call_next):
         or path.endswith("/label")
         or path.endswith("/labels/batch")
         or _api_path.startswith("/auth")
+        or _api_path.startswith("/overlay/")
         or _api_path.startswith("/setup")
         or _api_path == "/license"
         or (_api_path == "/branding" and request.method == "GET")
@@ -463,6 +465,7 @@ _all_routers = [
     alerts.router,
     system.router,
     vision.router,
+    archives.router,
 ]
 
 for _router in _all_routers:

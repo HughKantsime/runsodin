@@ -24,6 +24,9 @@ The only platform that combines multi-protocol printer support, AI failure detec
 - **Multi-Protocol Fleet** — Bambu MQTT, Klipper/Moonraker, PrusaLink, and Elegoo SDCP from one dashboard
 - **Vigil AI Failure Detection** — ONNX-based spaghetti/detachment/first-layer detection with auto-pause
 - **Smart Job Scheduling** — Color-match scoring, time-window matching, drag-and-drop queue
+- **Mid-Print Controls** — Skip objects, adjust speed (25%–200%), and clear HMS errors during active prints
+- **Print Archive** — Auto-captures every completed print with metadata, thumbnails, and searchable history
+- **OBS Streaming Overlay** — Auth-free `/overlay/:printerId` page for live streaming with camera, progress, and temps
 - **Order-to-Ship Workflow** — Products, BOM, orders, invoicing, cost tracking, and shipping in one system
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
 - **Spool Inventory** — Filament tracking with QR label printing, AMS integration, and drying logs

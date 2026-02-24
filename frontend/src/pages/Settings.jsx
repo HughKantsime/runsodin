@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import usePushNotifications from '../hooks/usePushNotifications'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye, ChevronDown, ChevronRight, ExternalLink, Zap } from 'lucide-react'
+import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Download, Trash2, HardDrive, Plus, AlertTriangle, FileSpreadsheet, Bell, Mail, Smartphone, Settings as SettingsIcon, Users, Shield, Palette , Key, Webhook, FileText, Upload, Wifi, Eye, ChevronDown, ChevronRight, ExternalLink, Zap, ScrollText } from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -19,7 +19,8 @@ import BackupRestore from '../components/BackupRestore'
 import OrgManager from '../components/OrgManager'
 import ReportScheduleManager from '../components/ReportScheduleManager'
 import ChargebackReport from '../components/ChargebackReport'
-import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi, gdpr, fetchAPI, backups as backupsApi, config as configApi, pricingConfig, printers, vision, license as licenseApi, downloadBlob } from '../api'
+import LogViewer from '../components/LogViewer'
+import { alertPreferences, smtpConfig, getEducationMode, setEducationMode, users as usersApi, gdpr, fetchAPI, backups as backupsApi, config as configApi, pricingConfig, printers, vision, license as licenseApi, downloadBlob, adminBundle } from '../api'
 import { getApprovalSetting, setApprovalSetting } from '../api'
 import { useLicense } from '../LicenseContext'
 import ProBadge from '../components/ProBadge'
@@ -1114,6 +1115,7 @@ export default function Settings() {
     ...(uiMode === 'advanced' ? [{ id: 'vision', label: 'Vigil AI', icon: Eye }] : []),
     { id: 'branding', label: 'Branding', icon: Palette },
     { id: 'system', label: 'System', icon: Database },
+    { id: 'logs', label: 'Logs', icon: ScrollText },
   ]
   const TABS = ALL_TABS.map(t => ({
     ...t,
@@ -1713,6 +1715,25 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* Support Bundle */}
+      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Support Bundle</h3>
+            <p className="text-xs text-farm-500 mt-1">Download a privacy-filtered diagnostic ZIP for issue reporting</p>
+          </div>
+          <button
+            onClick={async () => {
+              try { await adminBundle.download(); toast.success('Bundle downloaded') }
+              catch { toast.error('Failed to generate bundle') }
+            }}
+            className="flex items-center gap-2 px-3 py-2 bg-print-600 hover:bg-print-700 rounded-lg text-sm transition-colors"
+          >
+            <Download size={14} /> Download
+          </button>
+        </div>
+      </div>
+
       {/* Database Backups */}
       <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -1886,6 +1907,16 @@ export default function Settings() {
         <LicenseTab />
       </div>
 
+      </div>}
+
+      {activeTab === 'logs' && <div className="max-w-6xl">
+        <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
+          <div className="flex items-center gap-2 md:gap-3 mb-4">
+            <ScrollText size={18} className="text-print-400" />
+            <h2 className="text-base md:text-lg font-semibold">Application Logs</h2>
+          </div>
+          <LogViewer />
+        </div>
       </div>}
     </div>
   )

@@ -721,6 +721,13 @@ def job_completed(
             "scheduled_job_id": scheduled_job_id,
         })
 
+        # Auto-capture print archive
+        try:
+            from archive import create_print_archive
+            create_print_archive(print_job_id, printer_id, success)
+        except Exception as ae:
+            log.warning(f"Print archive capture failed: {ae}")
+
     except Exception as e:
         log.error(f"Failed to record job completion for printer {printer_id}: {e}")
 

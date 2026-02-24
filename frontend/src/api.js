@@ -41,6 +41,9 @@ export const printers = {
     fetchAPI('/printers/' + printerId + '/slots/' + slotNumber, { method: 'PATCH', body: JSON.stringify(data) }),
   testConnection: (data) => fetchAPI('/printers/test-connection', { method: 'POST', body: JSON.stringify(data) }),
   syncAms: (printerId) => fetchAPI(`/printers/${printerId}/sync-ams`, { method: 'POST' }),
+  clearErrors: (printerId) => fetchAPI(`/printers/${printerId}/clear-errors`, { method: 'POST' }),
+  skipObjects: (printerId, objectIds) => fetchAPI(`/printers/${printerId}/skip-objects`, { method: 'POST', body: JSON.stringify({ object_ids: objectIds }) }),
+  setSpeed: (printerId, speed) => fetchAPI(`/printers/${printerId}/speed`, { method: 'POST', body: JSON.stringify({ speed }) }),
   assignSlotSpool: (printerId, slotNumber, spoolId) => fetchAPI(`/printers/${printerId}/slots/${slotNumber}/assign?spool_id=${spoolId}`, { method: 'POST' }),
   getCameras: () => fetchAPI('/cameras'),
 }
@@ -98,6 +101,23 @@ export const analytics = {
   timeAccuracy: (days = 30) => fetchAPI(`/analytics/time-accuracy?days=${days}`),
   failures: (days = 30) => fetchAPI(`/analytics/failures?days=${days}`),
 }
+
+export const archives = {
+  list: (params = {}) => {
+    const q = new URLSearchParams()
+    if (params.page) q.set('page', params.page)
+    if (params.per_page) q.set('per_page', params.per_page)
+    if (params.printer_id) q.set('printer_id', params.printer_id)
+    if (params.status) q.set('status', params.status)
+    if (params.search) q.set('search', params.search)
+    if (params.start_date) q.set('start_date', params.start_date)
+    if (params.end_date) q.set('end_date', params.end_date)
+    return fetchAPI(`/archives?${q}`)
+  },
+  get: (id) => fetchAPI(`/archives/${id}`),
+  update: (id, data) => fetchAPI(`/archives/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/archives/${id}`, { method: 'DELETE' }),
+};
 
 export const educationReports = {
   getUsageReport: (days = 30) => fetchAPI(`/education/usage-report?days=${days}`),
@@ -201,6 +221,15 @@ export const auth = {
     method: 'POST',
     body: JSON.stringify({ code }),
   }),
+  forgotPassword: (email) => fetchAPI('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  }),
+  resetPassword: (token, new_password) => fetchAPI('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, new_password }),
+  }),
+  capabilities: () => fetchAPI('/auth/capabilities'),
 }
 
 // Session management
@@ -323,6 +352,7 @@ export const users = {
   create: (data) => fetchAPI('/users', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => fetchAPI(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (id) => fetchAPI(`/users/${id}`, { method: 'DELETE' }),
+  resetPasswordEmail: (id) => fetchAPI(`/users/${id}/reset-password-email`, { method: 'POST' }),
   importCsv: async (file) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -516,6 +546,37 @@ export const smtpConfig = {
     body: JSON.stringify(data),
   }),
   testEmail: () => fetchAPI('/alerts/test-email', { method: 'POST' }),
+};
+
+export const adminBundle = {
+  download: () => fetch('/api/admin/support-bundle', { credentials: 'include' })
+    .then(res => {
+      if (!res.ok) throw new Error('Failed to generate bundle')
+      return res.blob()
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `odin-support-bundle-${new Date().toISOString().slice(0, 10)}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    }),
+};
+
+export const adminLogs = {
+  get: (source = 'backend', lines = 200, level = null, search = null) => {
+    const params = new URLSearchParams({ source, lines })
+    if (level) params.set('level', level)
+    if (search) params.set('search', search)
+    return fetchAPI(`/admin/logs?${params}`)
+  },
+  streamUrl: (source = 'backend', level = null, search = null) => {
+    const params = new URLSearchParams({ source })
+    if (level) params.set('level', level)
+    if (search) params.set('search', search)
+    return `/api/admin/logs/stream?${params}`
+  },
 };
 
 export const pushNotifications = {

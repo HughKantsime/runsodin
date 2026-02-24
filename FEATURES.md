@@ -21,7 +21,8 @@
 - Progress percentage and ETA displayed on printer cards and job views
 
 ### 1.3 HMS Error System (Bambu)
-- 42 translated Bambu HMS error codes with human-readable descriptions
+- 500+ translated Bambu HMS error codes with human-readable descriptions (expanded from 42)
+- Clear HMS errors from UI — `POST /api/printers/{id}/clear-errors` sends reset via MQTT (operator/admin)
 - HMS error history logging on change detection (90-day retention)
 - HMS history panel on printer cards with toggle button
 - Alerts dispatched on HMS errors
@@ -37,6 +38,9 @@
 - **Pause / Resume** — pause active prints, resume paused ones (operator/admin)
 - **Light Toggle** — chamber light on/off for Bambu printers with cooldown (operator/admin)
 - **Smart Plug Control** — on/off/status for configured smart plugs (operator/admin)
+- **Skip Objects** — exclude specific objects mid-print for Bambu printers via `POST /api/printers/{id}/skip-objects` (operator/admin)
+- **Speed Adjustment** — change print speed mid-print (25%–200%) for Bambu printers via `POST /api/printers/{id}/speed` (operator/admin)
+- Speed slider with percentage display on printer cards during active prints
 
 ### 1.6 Smart Plug Integration
 - Supported plug types: Tasmota (HTTP), MQTT, Home Assistant (REST API)
@@ -57,6 +61,7 @@
 - Panels render inline within their card
 - Camera URL field for P1S/A1 vision AI support (v1.1.0)
 - Timelapse enable/disable toggle per printer (v1.2.0)
+- Resizable printer cards — S/M/L/XL sizes with persistent preference (localStorage)
 
 ---
 
@@ -107,6 +112,30 @@
 - API: paginated list with printer/status filters, serve MP4 (supports `?token=` for `<video>` elements), delete (admin-only)
 - Gallery page with grid view, video player modal, printer/status filters, pagination, download + delete actions
 - Nav item with Film icon under Cameras
+
+### 2.8 OBS Streaming Overlay
+- Dedicated route: `/overlay/:printerId` — no authentication required (for OBS browser source)
+- Full-screen dark overlay with camera feed (left 70%) and status panel (right 30%)
+- Displays: printer name, job name, progress bar, layer count, ETA, nozzle/bed temps
+- Auto-polls `/api/overlay/{printerId}` every 5 seconds
+- Query params: `?camera=false` (hide camera), `?theme=dark|light`
+- Copy-overlay-URL button on printer cards for quick OBS setup
+
+---
+
+## 2b. Print Archive
+
+### 2b.1 Auto-Capture
+- Automatically creates an archive record when any print job completes (success, failure, or cancellation)
+- Hooks into `printer_events.job_completed()` for all printer protocols
+- Captures: job name, printer, status, start/end time, duration, filament used, thumbnail, file path, user attribution
+
+### 2b.2 Archive Browser
+- Dedicated `/archives` page with table view (thumbnail, name, printer, status badge, duration, filament, date)
+- Filters: text search, printer dropdown, status dropdown
+- Pagination (50 per page)
+- Detail modal with full metadata, editable notes field (operator+), and delete action (admin-only)
+- API: `GET /api/archives` (paginated, filterable), `GET /api/archives/{id}`, `PATCH /api/archives/{id}`, `DELETE /api/archives/{id}`
 
 ---
 
@@ -354,6 +383,10 @@
 - OIDC/SSO via Microsoft Entra ID with auto-user provisioning; redirect_uri pinning to prevent Host-header injection (v1.3.67)
 - Unified JWT signing for local auth and OIDC
 - WebSocket tokens scoped to WebSocket connections only — cannot be replayed against REST endpoints (v1.3.63)
+- **Email-based user onboarding** — admin creates user with "Send welcome email" option; system generates random password and sends invite email via configured SMTP
+- **Self-service password reset** — forgot-password link on login page sends a 1-hour reset token via email; `password_reset_tokens` table with single-use enforcement
+- **Admin password reset email** — admin can trigger a password reset email for any user from the user management table
+- `GET /auth/capabilities` — public endpoint returning `{smtp_enabled}` for frontend feature gating
 
 ### 11.2 TOTP MFA (v1.3.0)
 - QR code setup flow via MFASetup component
@@ -538,6 +571,20 @@
 - 7 tabs (consolidated from 12 in v1.1.0)
 - Simple/Advanced view toggle
 - Sub-sections: General, Access, Notifications, Integrations, Branding, Vigil, System
+
+### 16.8 Live Application Log Viewer
+- Real-time log viewer in Settings → Logs tab (admin-only)
+- 9 log sources: backend, MQTT monitor, Moonraker, PrusaLink, Elegoo, go2rtc, supervisord, timelapse, vision
+- Level filter buttons (ERROR, WARNING, INFO, DEBUG)
+- Text search with keyword highlighting
+- SSE streaming mode for live tail (`GET /api/admin/logs/stream`)
+- Static log fetch with pagination (`GET /api/admin/logs`)
+
+### 16.9 Support Bundle Generator
+- One-click diagnostic ZIP download from Settings → System tab (admin-only)
+- Bundle contents: system_info.json, connectivity.json, settings_safe.json, recent_errors.txt, db_health.json, bundle_metadata.json
+- Privacy filtering: IP addresses, credentials, and secrets are redacted before packaging
+- `GET /api/admin/support-bundle` returns ZIP as streaming download
 
 ---
 

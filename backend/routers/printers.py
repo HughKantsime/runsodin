@@ -431,6 +431,47 @@ def reorder_printers(
     return {"success": True, "order": printer_ids}
 
 
+# ── Public overlay endpoint (no auth) ────────────────────────────────────
+@router.get("/overlay/{printer_id}", tags=["Overlay"])
+def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
+    """Public endpoint for OBS streaming overlay. Returns cached printer status."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    # Determine go2rtc camera stream URL
+    camera_url = None
+    if printer.api_type == "bambu" and printer.api_host:
+        camera_url = f"/api/cameras/{printer_id}/stream"
+    elif printer.camera_url:
+        camera_url = printer.camera_url
+    # Progress/layer/job data lives in print_jobs, not printers
+    job_row = db.execute(
+        text(
+            "SELECT job_name, progress_percent, current_layer, total_layers, remaining_minutes "
+            "FROM print_jobs WHERE printer_id = :pid AND status = 'running' "
+            "ORDER BY started_at DESC LIMIT 1"
+        ),
+        {"pid": printer_id},
+    ).fetchone()
+    return {
+        "printer_id": printer.id,
+        "printer_name": printer.nickname or printer.name,
+        "model": printer.model,
+        "gcode_state": printer.gcode_state,
+        "print_stage": printer.print_stage,
+        "print_progress": job_row[1] if job_row else None,
+        "current_layer": job_row[2] if job_row else None,
+        "total_layers": job_row[3] if job_row else None,
+        "time_remaining_min": job_row[4] if job_row else None,
+        "nozzle_temp": printer.nozzle_temp,
+        "nozzle_target_temp": printer.nozzle_target_temp,
+        "bed_temp": printer.bed_temp,
+        "bed_target_temp": printer.bed_target_temp,
+        "job_name": job_row[0] if job_row else None,
+        "camera_url": camera_url,
+    }
+
+
 # Static route registered before /printers/{printer_id} to prevent FastAPI
 # from treating "live-status" as a printer_id integer.
 @router.get("/printers/live-status", tags=["Printers"])
@@ -1728,6 +1769,90 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
         db.execute(text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"), {"id": printer_id})
         db.commit()
         return {"success": True, "message": "Print resumed"}
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+# ====================================================================
+# Bambu-specific printer controls
+# ====================================================================
+
+def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
+    """Call a BambuPrinter method directly (for commands not in the generic allowlist)."""
+    from bambu_adapter import BambuPrinter
+    import time as _time
+    try:
+        creds = crypto.decrypt(printer.api_key)
+        serial, access_code = creds.split("|", 1)
+        adapter = BambuPrinter(
+            printer.api_host, serial, access_code,
+            client_id=f"odin_cmd_{printer.id}_{int(_time.time())}"
+        )
+        if adapter.connect():
+            method = getattr(adapter, method_name, None)
+            if method is None:
+                return False
+            success = method(*args, **kwargs)
+            _time.sleep(0.3)
+            adapter.disconnect()
+            return success
+    except Exception as e:
+        log.error(f"Bambu {method_name} failed for printer {printer.id}: {e}")
+    return False
+
+
+@router.post("/printers/{printer_id}/clear-errors", tags=["Printers"])
+async def clear_printer_errors(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Clear HMS/print errors on a Bambu printer."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if printer.api_type != "bambu":
+        raise HTTPException(status_code=400, detail="Clear errors is only supported on Bambu printers")
+    if _bambu_command_direct(printer, "clear_print_errors"):
+        return {"success": True, "message": "Error clear command sent"}
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+@router.post("/printers/{printer_id}/skip-objects", tags=["Printers"])
+async def skip_printer_objects(
+    printer_id: int,
+    body: dict,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """Skip objects during an active Bambu print. Body: {"object_ids": [0, 1]}"""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if printer.api_type != "bambu":
+        raise HTTPException(status_code=400, detail="Skip objects is only supported on Bambu printers")
+    object_ids = body.get("object_ids", [])
+    if not object_ids or not isinstance(object_ids, list):
+        raise HTTPException(status_code=422, detail="object_ids must be a non-empty list of integers")
+    if _bambu_command_direct(printer, "skip_objects", object_ids):
+        return {"success": True, "message": f"Skip command sent for objects {object_ids}"}
+    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+
+@router.post("/printers/{printer_id}/speed", tags=["Printers"])
+async def set_printer_speed(
+    printer_id: int,
+    body: dict,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """Set print speed on a Bambu printer. Body: {"speed": 2} (1=Silent, 2=Standard, 3=Sport, 4=Ludicrous)"""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if printer.api_type != "bambu":
+        raise HTTPException(status_code=400, detail="Speed control is only supported on Bambu printers")
+    speed = body.get("speed")
+    if speed not in (1, 2, 3, 4):
+        raise HTTPException(status_code=422, detail="speed must be 1 (Silent), 2 (Standard), 3 (Sport), or 4 (Ludicrous)")
+    if _bambu_command_direct(printer, "set_print_speed", speed):
+        speed_names = {1: "Silent", 2: "Standard", 3: "Sport", 4: "Ludicrous"}
+        return {"success": True, "message": f"Speed set to {speed_names[speed]}"}
     raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
 

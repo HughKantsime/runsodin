@@ -35,9 +35,10 @@ class TokenData(BaseModel):
 class UserCreate(BaseModel):
     username: str
     email: str
-    password: str
+    password: str = ""
     role: str = "operator"
     group_id: Optional[int] = None
+    send_welcome_email: bool = False
 
 
 class UserResponse(BaseModel):

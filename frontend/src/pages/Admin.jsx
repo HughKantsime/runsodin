@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLicense } from '../LicenseContext'
 import { groups as groupsApi, users as usersApi } from '../api'
-import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search, Upload, FileSpreadsheet, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search, Upload, FileSpreadsheet, CheckCircle, AlertTriangle, KeyRound } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ConfirmModal'
@@ -29,6 +29,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
     role: user?.role || 'operator',
     is_active: user?.is_active ?? true,
     group_id: user?.group_id || '',
+    send_welcome_email: false,
   })
 
   const handleSubmit = (e) => {
@@ -54,11 +55,19 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
             <label className="block text-sm text-farm-400 mb-1">Email</label>
             <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
           </div>
+          {!user && formData.email && (
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="send_welcome" checked={formData.send_welcome_email} onChange={(e) => setFormData({ ...formData, send_welcome_email: e.target.checked })} className="rounded-lg" />
+              <label htmlFor="send_welcome" className="text-sm text-farm-400">Send welcome email with auto-generated password</label>
+            </div>
+          )}
+          {!formData.send_welcome_email && (
           <div>
             <label className="block text-sm text-farm-400 mb-1">{user ? 'New Password (leave blank to keep)' : 'Password'}</label>
-            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user} placeholder={user ? '' : 'Min 8 characters'} />
+            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user && !formData.send_welcome_email} placeholder={user ? '' : 'Min 8 characters'} />
             {!user && <p className="text-xs text-farm-500 mt-1">Min 8 characters with uppercase, lowercase, and a number</p>}
           </div>
+          )}
           <div>
             <label className="block text-sm text-farm-400 mb-1">Role</label>
             <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500">
@@ -423,6 +432,10 @@ export default function Admin() {
                       <td className="py-3 px-3 md:px-4">
                         <div className="flex justify-end gap-1">
                           <button onClick={() => handleEdit(user)} className="p-1.5 md:p-2 hover:bg-farm-800 rounded-lg transition-colors" title="Edit"><Edit2 size={14} /></button>
+                          {user.email && <button onClick={async () => {
+                            try { await usersApi.resetPasswordEmail(user.id); toast.success('Password reset email sent') }
+                            catch { toast.error('Failed — is SMTP configured?') }
+                          }} className="p-1.5 md:p-2 hover:bg-farm-800 rounded-lg transition-colors text-farm-400" title="Reset password & email"><KeyRound size={14} /></button>}
                           <button onClick={() => handleDelete(user)} className="p-1.5 md:p-2 hover:bg-red-900/50 text-farm-400 hover:text-red-400 rounded-lg transition-colors" title="Delete"><Trash2 size={14} /></button>
                         </div>
                       </td>

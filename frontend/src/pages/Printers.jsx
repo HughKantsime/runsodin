@@ -1,7 +1,7 @@
 import QRScannerModal from '../components/QRScannerModal';
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug, Printer as PrinterIcon, Lock } from 'lucide-react'
+import { Plus, Trash2, Power, PowerOff, Palette, X, Settings, Search, GripVertical, RefreshCw, AlertTriangle, Lightbulb, Activity, CircleDot, Filter, ArrowUpDown, Video, QrCode, Thermometer, Plug, Printer as PrinterIcon, Lock, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from '../components/AmsEnvironmentChart'
@@ -227,6 +227,9 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="View camera">
             <Video size={16} />
           </button>}
+          <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/overlay/${printer.id}`); toast.success('Overlay URL copied') }} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL">
+            <ExternalLink size={16} />
+          </button>
           {printer.plug_type && onPlugToggle && (
             <button
               onClick={() => onPlugToggle(printer.id)}
@@ -328,6 +331,29 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
           )
         })()}
       </div>
+      {/* Bambu speed control — active prints only */}
+      {printer.api_type === 'bambu' && printer.gcode_state && ['RUNNING', 'PAUSE'].includes(printer.gcode_state.toUpperCase()) && (
+        <div className="px-3 md:px-4 py-2 border-t border-farm-800">
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-farm-500 mr-1">Speed</span>
+            {[
+              { level: 1, label: 'Silent', icon: '🐢' },
+              { level: 2, label: 'Standard', icon: '▶' },
+              { level: 3, label: 'Sport', icon: '⚡' },
+              { level: 4, label: 'Ludicrous', icon: '🚀' },
+            ].map(s => (
+              <button
+                key={s.level}
+                onClick={(e) => { e.stopPropagation(); printers.setSpeed(printer.id, s.level) }}
+                className="px-2 py-1 rounded text-xs transition-colors bg-farm-800 text-farm-400 hover:bg-farm-700 hover:text-farm-200"
+                title={s.label}
+              >
+                {s.icon}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Data & Diagnostics toolbar */}
       <div className="px-3 md:px-4 py-2 border-t border-farm-800 flex items-center gap-1">
         <span className="text-xs text-farm-600 mr-1">Data</span>
@@ -359,7 +385,7 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
       {activePanel === 'ams' && <AmsEnvironmentChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'telemetry' && <PrinterTelemetryChart printerId={printer.id} onClose={() => setActivePanel(null)} />}
       {activePanel === 'nozzle' && <NozzleStatusCard printerId={printer.id} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'hms' && <HmsHistoryPanel printerId={printer.id} apiType={printer.api_type} onClose={() => setActivePanel(null)} />}
     </div>
   )
 }
@@ -921,6 +947,7 @@ export default function Printers() {
     }
   }
   const [editingPrinter, setEditingPrinter] = useState(null)
+  const [cardSize, setCardSize] = useState(() => localStorage.getItem('printerCardSize') || 'M')
   const [orderedPrinters, setOrderedPrinters] = useState([])
   const [draggedId, setDraggedId] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
@@ -1146,6 +1173,17 @@ export default function Printers() {
               Showing {filteredPrinters.length} of {orderedPrinters.length} printers
             </span>
           )}
+          <div className="flex items-center gap-0.5 ml-auto border border-farm-700 rounded-lg overflow-hidden">
+            {['S', 'M', 'L', 'XL'].map(size => (
+              <button
+                key={size}
+                onClick={() => { setCardSize(size); localStorage.setItem('printerCardSize', size) }}
+                className={`px-2 py-1.5 text-xs font-medium transition-colors ${cardSize === size ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1174,7 +1212,12 @@ export default function Printers() {
             </label>
           </div>
         )}
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 items-start">
+        <div className={clsx('grid gap-4 md:gap-6 items-start', {
+          'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4': cardSize === 'S',
+          'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3': cardSize === 'M',
+          'grid-cols-1 lg:grid-cols-2': cardSize === 'L',
+          'grid-cols-1': cardSize === 'XL',
+        })}>
           {filteredPrinters.map((printer) => (
             <div key={printer.id} className="relative">
               {canDo('printers.edit') && (

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { printerTelemetry } from '../api'
+import { printers, printerTelemetry } from '../api'
 
 const SEVERITY_COLORS = {
   critical: 'bg-red-600/20 text-red-400',
@@ -8,10 +8,11 @@ const SEVERITY_COLORS = {
   info: 'bg-blue-600/20 text-blue-400',
 }
 
-export default function HmsHistoryPanel({ printerId, onClose }) {
+export default function HmsHistoryPanel({ printerId, apiType, onClose }) {
   const [data, setData] = useState({ entries: [], frequency: {}, total: 0 })
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
+  const [clearing, setClearing] = useState(false)
 
   useEffect(() => { loadData() }, [printerId, days])
 
@@ -48,6 +49,19 @@ export default function HmsHistoryPanel({ printerId, onClose }) {
               {d}d
             </button>
           ))}
+          {apiType === 'bambu' && data.total > 0 && (
+            <button
+              onClick={async () => {
+                setClearing(true)
+                try { await printers.clearErrors(printerId); loadData() } catch {}
+                setClearing(false)
+              }}
+              disabled={clearing}
+              className="px-2 py-1 rounded-lg text-xs bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors disabled:opacity-50"
+            >
+              {clearing ? 'Clearing...' : 'Clear Errors'}
+            </button>
+          )}
           {onClose && (
             <button onClick={onClose} className="ml-2 text-farm-500 hover:text-farm-300 text-xs">✕</button>
           )}

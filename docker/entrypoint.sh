@@ -210,6 +210,13 @@ conn.execute("""CREATE TABLE IF NOT EXISTS token_blacklist (
     jti VARCHAR(64) PRIMARY KEY,
     expires_at DATETIME NOT NULL
 )""")
+conn.execute("""CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    used INTEGER DEFAULT 0
+)""")
 conn.commit()
 conn.close()
 print("  ✓ Sessions tables ready")
@@ -438,6 +445,36 @@ conn.commit()
 conn.close()
 print("  ✓ Print files table ready")
 PRINTFILESEOF
+
+# ── Create print_archives table ──
+python3 << 'ARCHIVESEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS print_archives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER,
+    print_job_id INTEGER,
+    printer_id INTEGER,
+    user_id INTEGER,
+    print_name TEXT,
+    status TEXT,
+    started_at DATETIME,
+    completed_at DATETIME,
+    actual_duration_seconds INTEGER,
+    filament_used_grams REAL,
+    cost_estimate REAL,
+    thumbnail_b64 TEXT,
+    file_path TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_archives_printer ON print_archives(printer_id)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_archives_status ON print_archives(status)")
+conn.execute("CREATE INDEX IF NOT EXISTS idx_print_archives_created ON print_archives(created_at)")
+conn.commit()
+conn.close()
+print("  ✓ Print archives table ready")
+ARCHIVESEOF
 
 # ── Create oidc_config table ──
 python3 << 'OIDCEOF'

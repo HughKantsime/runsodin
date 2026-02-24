@@ -289,6 +289,54 @@ class BambuPrinter:
         """Turn chamber light off."""
         return self._send_gcode("M355 S0")
 
+    def clear_print_errors(self) -> bool:
+        """Clear HMS/print errors on the printer."""
+        if not self._connected:
+            return False
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "clean_print_error"
+            }
+        }
+        return self._publish(payload)
+
+    def skip_objects(self, object_ids: list) -> bool:
+        """Skip objects during an active print.
+
+        Args:
+            object_ids: List of object indices to skip (0-based).
+        """
+        if not self._connected:
+            return False
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "skip_objects",
+                "obj_list": [str(oid) for oid in object_ids]
+            }
+        }
+        return self._publish(payload)
+
+    def set_print_speed(self, speed_level: int) -> bool:
+        """Set print speed profile.
+
+        Args:
+            speed_level: 1=Silent, 2=Standard, 3=Sport, 4=Ludicrous
+        """
+        if not self._connected:
+            return False
+        if speed_level not in (1, 2, 3, 4):
+            return False
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "print_speed",
+                "param": str(speed_level)
+            }
+        }
+        return self._publish(payload)
+
     def upload_file(self, local_path: str, remote_filename: str = None) -> bool:
         """Upload a .3mf file to the printer via implicit FTPS (port 990).
 

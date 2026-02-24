@@ -53,6 +53,7 @@ import {
   Eye,
   FileText,
   Film,
+  Archive,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -90,6 +91,9 @@ import Detections from './pages/Detections'
 import EducationReports from './pages/EducationReports'
 import AuditLogs from './pages/AuditLogs'
 import Timelapses from './pages/Timelapses'
+import Overlay from './pages/Overlay'
+import ResetPassword from './pages/ResetPassword'
+import ArchivesPage from './pages/Archives'
 import { stats, printers, getEducationMode, pricingConfig, setup } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
@@ -278,6 +282,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {canAccessPage('printers') && <NavItem collapsed={collapsed && !mobileOpen} to="/printers" icon={Printer} onClick={handleNavClick}>Printers</NavItem>}
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>Cameras</NavItem>}
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
+          <NavItem collapsed={collapsed && !mobileOpen} to="/archives" icon={Archive} onClick={handleNavClick}>Archives</NavItem>
           {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
 
           {/* Work */}
@@ -507,6 +512,16 @@ export default function App() {
     return <Login />
   }
 
+  // Password reset — no auth, no sidebar
+  if (location.pathname === '/reset-password') {
+    return <ResetPassword />
+  }
+
+  // OBS streaming overlay — no auth, no sidebar
+  if (location.pathname.startsWith('/overlay/')) {
+    return <Routes><Route path="/overlay/:printerId" element={<Overlay />} /></Routes>
+  }
+
   // TV dashboard mode — full viewport, no sidebar
   if (location.pathname === '/tv') {
     return <ProtectedRoute><TVDashboard /></ProtectedRoute>
@@ -567,6 +582,7 @@ export default function App() {
             <Route path="/detections" element={<Detections />} />
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
+            <Route path="/archives" element={<ArchivesPage />} />
             <Route path="/audit" element={<RoleGate page="audit"><AuditLogs /></RoleGate>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

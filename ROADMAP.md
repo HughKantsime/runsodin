@@ -2,6 +2,18 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.3.70
+
+- ~~500+ HMS error codes~~ (expanded from 42), clear HMS errors from UI, skip objects mid-print, print speed adjustment (25%–200%)
+- ~~Resizable printer cards~~ (S/M/L/XL with persistent preference)
+- ~~OBS streaming overlay~~ (`/overlay/:printerId` — no-auth page for OBS browser source)
+- ~~Live application log viewer~~ (9 sources, level filter, search, SSE streaming)
+- ~~Support bundle generator~~ (privacy-filtered diagnostic ZIP download)
+- ~~Email-based user onboarding~~ (admin creates user → welcome email with random password)
+- ~~Self-service password reset~~ (forgot-password flow via SMTP with 1-hour token)
+- ~~Print archive~~ (auto-capture on job completion, archive browser with filters/search/detail modal)
+- ~~Marketing site: Compare page, Reviews page, updated Features, updated nav~~ (runsodin.com)
+
 ## Shipped in v1.2.0
 
 - ~~Fleet Failure Analytics Dashboard~~

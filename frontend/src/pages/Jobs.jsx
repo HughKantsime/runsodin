@@ -1,14 +1,6 @@
-import { resolveColor } from "../utils/colorMap"
-
-function formatHours(h) {
-  if (!h) return "—"
-  if (h < 1) return Math.round(h * 60) + "m"
-  const hrs = Math.floor(h)
-  const mins = Math.round((h - hrs) * 60)
-  return mins > 0 ? hrs + "h " + mins + "m" : hrs + "h"
-}
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { resolveColor } from "../utils/colorMap"
 import { Plus, Play, CheckCircle, XCircle, RotateCcw, Trash2, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, MessageSquare, AlertTriangle, Calendar, Flag, History, Pencil, GripVertical, Briefcase, Send, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
 import clsx from 'clsx'
@@ -19,6 +11,14 @@ import FailureReasonModal from '../components/FailureReasonModal'
 import { updateJobFailure } from '../api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ConfirmModal'
+
+function formatHours(h) {
+  if (!h) return "—"
+  if (h < 1) return Math.round(h * 60) + "m"
+  const hrs = Math.floor(h)
+  const mins = Math.round((h - hrs) * 60)
+  return mins > 0 ? hrs + "h " + mins + "m" : hrs + "h"
+}
 
 const statusOptions = [
   { value: '', label: 'All Status' },

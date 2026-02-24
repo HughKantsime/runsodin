@@ -2,6 +2,26 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.70] - 2026-02-24
+
+### Added
+- **HMS error expansion** — Expanded from 42 to 500+ translated Bambu HMS error codes with human-readable descriptions
+- **Clear HMS errors** — `POST /api/printers/{id}/clear-errors` sends reset command via MQTT; UI button on printer cards
+- **Skip objects during print** — `POST /api/printers/{id}/skip-objects` excludes selected objects mid-print for Bambu printers
+- **Print speed adjustment** — `POST /api/printers/{id}/speed` changes speed 25%–200% mid-print; slider control on printer cards
+- **Resizable printer cards** — S/M/L/XL card sizes with persistent preference (localStorage)
+- **OBS streaming overlay** — `/overlay/:printerId` page with camera feed, progress, temps, and job info; no auth required for OBS browser source
+- **Live application log viewer** — Settings → Logs tab with 9 log sources, level filtering, text search, and SSE live streaming (admin-only)
+- **Support bundle generator** — One-click diagnostic ZIP download from Settings → System with privacy-filtered system info, connectivity, settings, and recent errors (admin-only)
+- **Email-based user onboarding** — Admin creates user with "Send welcome email" option; system generates random password and sends invite via SMTP
+- **Self-service password reset** — Forgot-password flow on login page with 1-hour email token, single-use enforcement, and session revocation on reset
+- **Admin password reset email** — Admin can trigger password reset email for any user from user management
+- **Print archive** — Auto-captures completed prints with job name, printer, status, duration, filament used, thumbnail, and user attribution; dedicated `/archives` page with filters, search, detail modal, editable notes, and admin delete
+- **Compare page (runsodin.com)** — Feature-by-feature comparison against BambuBuddy and SimplyPrint across 7 categories
+- **Reviews page (runsodin.com)** — User testimonial cards with star ratings and submit-review CTA
+- **Features page update (runsodin.com)** — Added Vigil AI, Enterprise Security, and Business Operations sections with mixed-fleet banner and compare CTA
+- **Site navigation update (runsodin.com)** — Added Compare, Reviews, Docs, and Discord links to header and footer
+
 ## [1.3.69] - 2026-02-23
 
 ### Fixed
