@@ -913,7 +913,7 @@ export default function Settings() {
       try {
         const data = await alertPreferences.get()
         // Ensure we have all 4 types
-        const types = ['print_complete', 'print_failed', 'spool_low', 'maintenance_overdue']
+        const types = ['print_complete', 'print_failed', 'spool_low', 'maintenance_overdue', 'bed_cooled', 'queue_added', 'queue_skipped', 'queue_failed_start']
         const prefs = types.map(type => {
           const existing = data.find(p => p.alert_type === type || p.alert_type === type.toUpperCase())
           return existing || { alert_type: type, in_app: true, browser_push: false, email: false, threshold_value: type === 'spool_low' ? 100 : null }
@@ -927,6 +927,10 @@ export default function Settings() {
           { alert_type: 'print_failed', in_app: true, browser_push: true, email: false, threshold_value: null },
           { alert_type: 'spool_low', in_app: true, browser_push: false, email: false, threshold_value: 100 },
           { alert_type: 'maintenance_overdue', in_app: true, browser_push: false, email: false, threshold_value: null },
+          { alert_type: 'bed_cooled', in_app: true, browser_push: false, email: false, threshold_value: 40 },
+          { alert_type: 'queue_added', in_app: false, browser_push: false, email: false, threshold_value: null },
+          { alert_type: 'queue_skipped', in_app: true, browser_push: false, email: false, threshold_value: null },
+          { alert_type: 'queue_failed_start', in_app: true, browser_push: true, email: false, threshold_value: null },
         ])
       } finally {
         setAlertPrefsLoading(false)
@@ -971,6 +975,10 @@ export default function Settings() {
     'job_submitted': { label: 'Job Submitted', desc: 'When a user submits a job for approval', icon: '📋' },
     'job_approved': { label: 'Job Approved', desc: 'When a submitted job is approved', icon: '👍' },
     'job_rejected': { label: 'Job Rejected', desc: 'When a submitted job is rejected', icon: '👎' },
+    'bed_cooled': { label: 'Bed Cooled', desc: 'When bed temp drops below threshold after print', icon: '🧊' },
+    'queue_added': { label: 'Job Queued', desc: 'When a job enters the print queue', icon: '📥' },
+    'queue_skipped': { label: 'Job Skipped', desc: 'When a job is skipped (filament/printer mismatch)', icon: '⏭' },
+    'queue_failed_start': { label: 'Job Failed to Start', desc: 'When a job fails to dispatch to printer', icon: '⚠' },
   }
 
   const normalizeType = (type) => type.toLowerCase()

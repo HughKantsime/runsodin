@@ -11,6 +11,7 @@ their own DB logic. This ensures consistent behavior across printer brands.
 import sqlite3
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
@@ -728,6 +729,10 @@ def job_completed(
         except Exception as ae:
             log.warning(f"Print archive capture failed: {ae}")
 
+        # Start bed-cooled monitoring if enabled and print was successful
+        if success:
+            _start_bed_cooled_monitor(printer_id, printer_name)
+
     except Exception as e:
         log.error(f"Failed to record job completion for printer {printer_id}: {e}")
 
@@ -967,3 +972,78 @@ def check_low_spool(
 
     except Exception as e:
         log.error(f"Failed to check low spool for printer {printer_id}: {e}")
+
+
+# =============================================================================
+# BED-COOLED MONITORING
+# =============================================================================
+
+_bed_cooled_monitors = {}  # printer_id -> threading.Event (cancel flag)
+
+
+def _start_bed_cooled_monitor(printer_id: int, printer_name: str):
+    """Start background thread to monitor bed temp after print completion.
+
+    Checks every 30 seconds until bed temp drops below the configured
+    threshold (default 40°C), then dispatches a bed_cooled alert.
+    Times out after 2 hours.
+    """
+    # Cancel any existing monitor for this printer
+    cancel = _bed_cooled_monitors.pop(printer_id, None)
+    if cancel:
+        cancel.set()
+
+    stop_event = threading.Event()
+    _bed_cooled_monitors[printer_id] = stop_event
+
+    def _monitor():
+        import time
+        threshold = 40
+        max_checks = 240  # 2 hours at 30s intervals
+
+        # Read threshold from alert preferences if available
+        try:
+            with get_db(row_factory=sqlite3.Row) as conn:
+                row = conn.execute("""
+                    SELECT threshold_value FROM alert_preferences
+                    WHERE UPPER(alert_type) = 'BED_COOLED' AND threshold_value IS NOT NULL
+                    LIMIT 1
+                """).fetchone()
+                if row and row['threshold_value']:
+                    threshold = float(row['threshold_value'])
+        except Exception:
+            pass
+
+        for _ in range(max_checks):
+            if stop_event.is_set():
+                return
+            time.sleep(30)
+            if stop_event.is_set():
+                return
+
+            try:
+                with get_db(row_factory=sqlite3.Row) as conn:
+                    row = conn.execute(
+                        "SELECT bed_temp FROM printers WHERE id = ?", (printer_id,)
+                    ).fetchone()
+                    if row and row['bed_temp'] is not None:
+                        bed_temp = float(row['bed_temp'])
+                        if bed_temp < threshold:
+                            dispatch_alert(
+                                alert_type="bed_cooled",
+                                severity="info",
+                                title=f"Bed Cooled: {printer_name}",
+                                message=f"Bed temperature dropped to {bed_temp:.0f}°C — safe to remove print",
+                                printer_id=printer_id,
+                            )
+                            _bed_cooled_monitors.pop(printer_id, None)
+                            return
+            except Exception as e:
+                log.debug(f"Bed cooled check failed for printer {printer_id}: {e}")
+
+        # Timeout - clean up
+        _bed_cooled_monitors.pop(printer_id, None)
+        log.debug(f"Bed cooled monitor timed out for printer {printer_id}")
+
+    t = threading.Thread(target=_monitor, daemon=True, name=f"bed-cool-{printer_id}")
+    t.start()

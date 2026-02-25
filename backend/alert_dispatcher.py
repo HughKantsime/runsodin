@@ -58,6 +58,10 @@ DEFAULT_PREFERENCES = [
     {"alert_type": AlertType.SPAGHETTI_DETECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.FIRST_LAYER_ISSUE, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
     {"alert_type": AlertType.DETACHMENT_DETECTED, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.BED_COOLED, "in_app": True, "browser_push": False, "email": False, "threshold_value": 40.0},
+    {"alert_type": AlertType.QUEUE_ADDED, "in_app": False, "browser_push": False, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.QUEUE_SKIPPED, "in_app": True, "browser_push": False, "email": False, "threshold_value": None},
+    {"alert_type": AlertType.QUEUE_FAILED_START, "in_app": True, "browser_push": True, "email": False, "threshold_value": None},
 ]
 
 
