@@ -1168,6 +1168,40 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     return {"username": current_user["username"], "email": current_user["email"], "role": current_user["role"], "group_id": current_user.get("group_id")}
 
 
+@router.get("/auth/me/theme", tags=["Auth"])
+async def get_theme(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get the current user's theme preferences."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    row = db.execute(
+        text("SELECT theme_json FROM users WHERE id = :id"),
+        {"id": current_user["id"]},
+    ).fetchone()
+    if row and row[0]:
+        import json as _json
+        try:
+            return _json.loads(row[0])
+        except Exception:
+            pass
+    return {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"}
+
+
+@router.put("/auth/me/theme", tags=["Auth"])
+async def set_theme(request: Request, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Set the current user's theme preferences."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    import json as _json
+    body = await request.json()
+    theme_json = _json.dumps(body)
+    db.execute(
+        text("UPDATE users SET theme_json = :t WHERE id = :id"),
+        {"t": theme_json, "id": current_user["id"]},
+    )
+    db.commit()
+    return body
+
+
 @router.post("/auth/ws-token", tags=["Auth"])
 async def get_ws_token(current_user: dict = Depends(get_current_user)):
     """Issue a short-lived JWT for WebSocket authentication.

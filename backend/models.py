@@ -299,11 +299,18 @@ class Spool(Base):
 
     # Organization scoping
     org_id = Column(Integer, nullable=True)
-    
+
+    # Pressure advance profile and low-stock threshold
+    pa_profile = Column(String(50), nullable=True)  # K-factor or profile name
+    low_stock_threshold_g = Column(Integer, default=50)
+
+    # Spoolman link
+    spoolman_spool_id = Column(Integer, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
+
     # Relationships
     filament = relationship("FilamentLibrary", back_populates="spools")
     printer = relationship("Printer", foreign_keys=[location_printer_id])

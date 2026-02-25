@@ -90,6 +90,8 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     ("POST", "/api/auth/login", {"no_headers": 200, "api_key_only": None, "viewer": None, "operator": None, "admin": None},
      {"username": "x", "password": "x"}, "Login (will 401/422 but won't crash)"),
+    ("GET",  "/api/auth/me/theme", _api_read(), None, "Get user theme"),
+    ("PUT",  "/api/auth/me/theme", _api_read(), {"accent_color": "#ff0000"}, "Set user theme"),
     ("GET",  "/api/auth/me", {"no_headers": 401, "api_key_only": 200, "viewer": 200, "operator": 200, "admin": 200},
      None, "Current user — api_key_only returns null user or 200"),
     ("GET",  "/api/auth/oidc/config", _pub(), None, "OIDC config (public for login page)"),
@@ -231,6 +233,7 @@ ENDPOINT_MATRIX = [
     # 11. Spools
     # =========================================================================
     ("GET",  "/api/spools/export", _api_read(), None, "Export spools CSV"),
+    ("GET",  "/api/spools/low-stock", _api_read(), None, "Low stock spools"),
     ("GET",  "/api/spools", _api_read(), None, "List spools"),
     ("POST", "/api/spools", _op_write(), {"filament_id": 1}, "Create spool"),
     ("GET",  "/api/spools/{spool_id}", _api_read(), None, "Get spool"),

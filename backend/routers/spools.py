@@ -465,6 +465,30 @@ def export_spools_csv(
     )
 
 
+@router.get("/spools/low-stock", tags=["Spools"])
+def low_stock_spools(
+    current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
+):
+    """List spools below their low-stock threshold."""
+    spools = db.query(Spool).filter(Spool.status == SpoolStatus.ACTIVE).all()
+    result = []
+    for s in spools:
+        threshold = s.low_stock_threshold_g or 50
+        remaining = s.remaining_weight_g or 0
+        if remaining < threshold:
+            result.append({
+                "id": s.id,
+                "filament_brand": s.filament.brand if s.filament else None,
+                "filament_name": s.filament.name if s.filament else None,
+                "filament_material": s.filament.material if s.filament else None,
+                "remaining_weight_g": remaining,
+                "low_stock_threshold_g": threshold,
+                "location_printer_id": s.location_printer_id,
+            })
+    return result
+
+
 @router.get("/spools", tags=["Spools"])
 def list_spools(
     status: Optional[str] = None,
@@ -514,6 +538,9 @@ def list_spools(
             "filament_name": s.filament.name if s.filament else None,
             "filament_material": s.filament.material if s.filament else None,
             "filament_color_hex": s.color_hex or (s.filament.color_hex if s.filament else None),
+            "pa_profile": s.pa_profile,
+            "low_stock_threshold_g": s.low_stock_threshold_g,
+            "is_low_stock": (s.remaining_weight_g or 0) < (s.low_stock_threshold_g or 50),
         }
         result.append(spool_dict)
 

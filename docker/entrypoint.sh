@@ -244,6 +244,7 @@ for col, coldef in [
     ("quota_hours", "REAL"),
     ("quota_jobs", "INTEGER"),
     ("quota_period", "VARCHAR(20) DEFAULT 'monthly'"),
+    ("theme_json", "TEXT"),
 ]:
     try:
         conn.execute(f"ALTER TABLE users ADD COLUMN {col} {coldef}")
@@ -718,6 +719,24 @@ conn.commit()
 conn.close()
 print("  ✓ Telemetry expansion tables ready")
 TELEMETRYEOF
+
+# ── Migrate spools table: add pa_profile, low_stock_threshold_g, spoolman_spool_id ──
+python3 << 'SPOOLMIGRATEEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+existing = {r[1] for r in conn.execute("PRAGMA table_info(spools)")}
+spool_migrations = [
+    ("pa_profile", "TEXT"),
+    ("low_stock_threshold_g", "INTEGER DEFAULT 50"),
+    ("spoolman_spool_id", "INTEGER"),
+]
+for col, col_type in spool_migrations:
+    if col not in existing:
+        conn.execute(f"ALTER TABLE spools ADD COLUMN {col} {col_type}")
+        print(f"  ✓ Migrated spools: added {col}")
+conn.commit()
+conn.close()
+SPOOLMIGRATEEOF
 
 # ── Create consumables tables (DUAL SCHEMA: also in backend/models.py Consumable/ProductConsumable/ConsumableUsage) ──
 python3 << 'CONSUMABLESEOF'
