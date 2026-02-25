@@ -2,6 +2,16 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.3.75
+
+- ~~Multi-plate reprint~~ — plate selector in archive reprint and model schedule modals
+- ~~H2D external spools~~ — Ext-L/Ext-R parsed from vt_tray MQTT, displayed on printer cards
+- ~~Scheduler target types~~ — specific/model/protocol targeting with filament compatibility check
+- ~~Bed cooled + queue notifications~~ — BED_COOLED, QUEUE_ADDED, QUEUE_SKIPPED, QUEUE_FAILED_START alert types
+- ~~Filament auto-deduction~~ — deduct from spool on print completion, sync to Spoolman
+- ~~Italian locale~~ — it.json with 180 keys
+- ~~Projects page~~ — UI for grouping archives into projects
+
 ## Shipped in v1.3.74
 
 - ~~Archive depth~~ — Print log with CSV export, archive comparison, tag management (add/remove/rename/bulk), reprint with AMS mapping preview

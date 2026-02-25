@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.75] - 2026-02-25
+
+### Added
+- **Multi-plate reprint** — plate selector in archive reprint modal and model schedule modal for multi-plate 3MF files; `plate_count` exposed in variants endpoint
+- **H2D external spools** — parse `vt_tray` from MQTT for Ext-L / Ext-R spool positions; display material, color, and remaining percentage on printer cards
+- **Scheduler target types** — jobs can target specific printer, machine model, or protocol; `target_type` and `target_filter` columns; filament compatibility check endpoint
+- **Bed cooled notification** — monitor thread polls bed temp after job completion, dispatches alert when below threshold (default 40°C)
+- **Queue notifications** — QUEUE_ADDED, QUEUE_SKIPPED, QUEUE_FAILED_START alert types with configurable preferences
+- **Filament auto-deduction** — deduct consumed filament from assigned spool on print completion; sync to Spoolman if linked
+- **Italian locale** — it.json with 180 translation keys
+- **Projects page** — card grid, create modal, detail drill-down with archive assignment at `/projects`
+
 ## [1.3.74] - 2026-02-25
 
 ### Added

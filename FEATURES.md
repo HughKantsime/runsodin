@@ -33,6 +33,7 @@
 - AMS humidity and temperature monitoring (5-minute capture interval, 7-day retention)
 - AMS environment chart (Recharts) on printer detail panel
 - **H2D dual-nozzle support** — auto-detected via `machine_type` column; dual nozzle temps (L/R), dual AMS unit labels, H2D badge on printer cards, `GET /api/printers/{id}/nozzle-status` endpoint
+- **H2D external spools** — Ext-L / Ext-R spool positions parsed from `vt_tray` MQTT field; material, color, and remaining percentage displayed on printer cards
 - **AMS RFID re-read** — trigger filament re-scan from UI via MQTT `ams_change_filament` command
 - **AMS slot configuration** — set material type, color hex, and K-factor per slot via MQTT `ams_filament_setting` command
 
@@ -162,6 +163,7 @@
 
 ### 2b.6 Reprint from Archive
 - One-click reprint from any archive entry with AMS filament mapping preview
+- **Multi-plate support** — plate selector when reprinting multi-plate 3MF files
 - Creates a new pending job with original model and printer assignment
 - API: `POST /api/archives/{id}/reprint`, `GET /api/archives/{id}/ams-preview`
 
@@ -216,6 +218,7 @@
 
 ### 4.2 Scheduling
 - Smart scheduler with color-match scoring to minimize filament swaps
+- **Target type filtering** — jobs can target a specific printer, any printer matching a machine model, or any printer using a protocol (specific/model/protocol)
 - Time-window job matching strategy — evaluates printer availability windows, not single-point checks (v1.3.13)
 - Stale schedule cleanup — reactive per-printer cleanup on print start (v1.3.13), proactive fleet-wide cleanup on every scheduler run (v1.3.18)
 - Auto-create jobs on print completion for reprint tracking (v1.3.10)
@@ -223,6 +226,7 @@
 - Quick Print button on upload success screen — creates pending job immediately (v1.0.26)
 - Quick-schedule presets for common configurations (v1.2.0)
 - Due dates and priority levels: low / normal / high / urgent with color badges
+- **Filament compatibility check** — `GET /api/jobs/filament-check` validates printer's loaded filament against job requirements
 
 ### 4.3 Queue Management
 - Drag-and-drop queue reorder (operator/admin)
@@ -273,6 +277,7 @@
 - Object checklist — individual objects in the build plate with checkboxes
 - Wipe tower auto-unchecked
 - `quantity_per_bed` calculated from checked objects and persisted
+- **Multi-plate scheduling** — plate selector in schedule modal for multi-plate 3MF files; `plate_count` exposed in variants endpoint
 
 ### 5.2 Library Management
 - Search by name, material, or tags
@@ -335,7 +340,8 @@
 
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
-- Foundation for bidirectional sync (pull spools from Spoolman, push consumption back)
+- Bidirectional sync: pull spools from Spoolman, push consumption back on print completion
+- **Auto-deduction** — filament consumption auto-deducted from assigned spool on print completion; consumption_json stored in archive; syncs to Spoolman if linked
 
 ### 6.7 Filament Drying Log (v1.2.0)
 - Log drying sessions per spool: start time, duration, temperature
@@ -574,7 +580,7 @@
 
 ### 13.3 In-App Alerts
 - Alert bell icon with unread count in header
-- Alert types: print_complete, print_failed, printer_error (v1.3.15), spool_low, maintenance_overdue, job_submitted, job_approved, job_rejected
+- Alert types: print_complete, print_failed, printer_error (v1.3.15), spool_low, maintenance_overdue, job_submitted, job_approved, job_rejected, bed_cooled, queue_added, queue_skipped, queue_failed_start
 - Filterable Alerts page
 - Mark individual alerts as read
 - Delete alerts (operator/admin)
@@ -646,7 +652,7 @@
 - Installable web app (v1.2.0)
 
 ### 16.5 Internationalization
-- Multi-language: EN, DE, JA, ES (181 keys)
+- Multi-language: EN, DE, JA, ES, IT (181 keys)
 
 ### 16.6 Dashboard Layout
 - Full-width stacked printer card layout (v1.1.0)
