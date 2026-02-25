@@ -2,6 +2,28 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.74] - 2026-02-25
+
+### Added
+- **Print Log** — Dense table view at `/print-log` with sortable columns, pagination, and CSV export (`GET /api/archives/log`)
+- **Archive comparison** — Side-by-side diff of any two archives (`GET /api/archives/compare?ids=1,2`)
+- **Archive tag management** — Add, remove, rename, and bulk-manage tags on archive entries (`GET/POST/DELETE /api/archives/tags`)
+- **Reprint from archive** — One-click reprint with AMS filament mapping preview (`POST /api/archives/{id}/reprint`, `GET /api/archives/{id}/ams-preview`)
+- **Projects** — Group archives into named projects with full CRUD, bulk assign, ZIP export/import (`/api/projects/*`)
+- **Fan speed control** — Set part cooling, auxiliary, and chamber fan speeds for Bambu printers (`POST /api/printers/{id}/fan`)
+- **AMS RFID re-read** — Trigger AMS filament re-scan via MQTT (`POST /api/printers/{id}/ams/refresh`)
+- **AMS slot configuration** — Set material, color, and K-factor per AMS slot (`PUT /api/printers/{id}/ams/{ams_id}/slots/{slot_id}`)
+- **Plate cleared confirmation** — Confirm build plate cleared to unblock next queued job (`POST /api/printers/{id}/plate-cleared`)
+- **Batch job send** — Send the same job to multiple printers in one operation with queue-only mode (`POST /api/jobs/batch`)
+- **File duplicate detection** — SHA-256 hash on upload with duplicate warning and existing file reference
+- **WhatsApp notifications** — Meta Business API integration for alert dispatch and test webhook
+- **Pushover notifications** — Native Pushover API with priority mapping for alert dispatch and test webhook
+- **Low-stock spool alerts** — Configurable per-spool threshold with `GET /api/spools/low-stock` endpoint and `is_low_stock` flag
+- **Pressure advance profiles** — Per-spool PA profile field for storing calibrated values
+- **Spoolman integration** — `spoolman_spool_id` field linking O.D.I.N. spools to external Spoolman instance
+- **Spool CSV export** — Export full inventory as CSV via `GET /api/spools/export`
+- **User theme preferences** — Server-side accent color and sidebar style per user (`GET/PUT /api/auth/me/theme`)
+
 ## [1.3.73] - 2026-02-24
 
 ### Fixed

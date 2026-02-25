@@ -33,6 +33,8 @@
 - AMS humidity and temperature monitoring (5-minute capture interval, 7-day retention)
 - AMS environment chart (Recharts) on printer detail panel
 - **H2D dual-nozzle support** — auto-detected via `machine_type` column; dual nozzle temps (L/R), dual AMS unit labels, H2D badge on printer cards, `GET /api/printers/{id}/nozzle-status` endpoint
+- **AMS RFID re-read** — trigger filament re-scan from UI via MQTT `ams_change_filament` command
+- **AMS slot configuration** — set material type, color hex, and K-factor per slot via MQTT `ams_filament_setting` command
 
 ### 1.5 Printer Controls
 - **Emergency Stop** — floating red button visible on every page, sends stop to all connected printers (operator/admin)
@@ -42,6 +44,10 @@
 - **Skip Objects** — exclude specific objects mid-print for Bambu printers via `POST /api/printers/{id}/skip-objects` (operator/admin)
 - **Speed Adjustment** — change print speed mid-print (25%–200%) for Bambu printers via `POST /api/printers/{id}/speed` (operator/admin)
 - Speed slider with percentage display on printer cards during active prints
+- **Fan Speed Control** — set part cooling, auxiliary, and chamber fan speeds (0–255) for Bambu printers via `POST /api/printers/{id}/fan` (operator/admin)
+- **AMS RFID Re-read** — trigger AMS RFID re-scan via `POST /api/printers/{id}/ams/refresh` (operator/admin)
+- **AMS Slot Configuration** — set material, color, and K-factor per AMS slot via `PUT /api/printers/{id}/ams/{ams_id}/slots/{slot_id}` (operator/admin)
+- **Plate Cleared Confirmation** — confirm build plate cleared to unblock next queued job via `POST /api/printers/{id}/plate-cleared` (operator/admin)
 
 ### 1.6 Smart Plug Integration
 - Supported plug types: Tasmota (HTTP), MQTT, Home Assistant (REST API)
@@ -139,6 +145,33 @@
 - Detail modal with full metadata, editable notes field (operator+), and delete action (admin-only)
 - API: `GET /api/archives` (paginated, filterable), `GET /api/archives/{id}`, `PATCH /api/archives/{id}`, `DELETE /api/archives/{id}`
 
+### 2b.3 Print Log
+- Dense table view of all archived prints at `/print-log` with sortable columns
+- CSV export of filtered print log data
+- API: `GET /api/archives/log` with pagination, filters, and CSV export via `Accept: text/csv`
+
+### 2b.4 Archive Comparison
+- Side-by-side comparison of any two archive entries (duration, filament usage, settings)
+- API: `GET /api/archives/compare?ids=1,2`
+
+### 2b.5 Tag Management
+- Add, remove, and rename tags on archive entries
+- Bulk tag operations across multiple archives
+- Filter archives by tag
+- API: `GET /api/archives/tags`, `POST /api/archives/{id}/tags`, `DELETE /api/archives/{id}/tags/{tag}`, `PUT /api/archives/tags/rename`
+
+### 2b.6 Reprint from Archive
+- One-click reprint from any archive entry with AMS filament mapping preview
+- Creates a new pending job with original model and printer assignment
+- API: `POST /api/archives/{id}/reprint`, `GET /api/archives/{id}/ams-preview`
+
+### 2b.7 Projects
+- Group related archive entries into named projects for organization
+- Full CRUD: create, rename, delete projects
+- Bulk assign archives to projects
+- ZIP export of project data; ZIP import to restore projects
+- API: `GET /api/projects`, `POST /api/projects`, `GET/PUT/DELETE /api/projects/{id}`, `POST /api/projects/{id}/archives`, `GET /api/projects/{id}/export`, `POST /api/projects/import`
+
 ---
 
 ## 3. Vigil AI — Print Failure Detection
@@ -202,6 +235,11 @@
 - One-click clone of any completed or failed job
 - Creates new pending job with same model and printer assignment
 
+### 4.10 Batch Send
+- Send the same job to multiple printers in one operation
+- Queue-only mode stages jobs without auto-dispatch
+- API: `POST /api/jobs/batch` with printer_ids list, optional model_id, priority, filament requirements
+
 ### 4.5 Failure Logging
 - Failure reason dropdown (nozzle clog, adhesion failure, filament tangle, etc.) + free-text notes
 - Failure analytics with correlation data (v1.2.0) — which printer fails most, which model, patterns
@@ -247,6 +285,11 @@
 - Upload new .3mf revisions with changelog notes
 - Browse revision history with version numbers, dates, and uploader
 
+### 5.4 File Duplicate Detection
+- SHA-256 hash computed on file upload for all .3mf and .gcode files
+- Duplicate warning returned in upload response when hash matches existing file
+- API response includes existing file ID and name for reference
+
 ---
 
 ## 5b. Slicer & Printer Profiles
@@ -277,7 +320,24 @@
 - Scan via camera (HTTPS required), USB barcode scanner, or manual entry
 - Scanning opens dialog to associate spool with printer + AMS slot
 
-### 6.3 Filament Drying Log (v1.2.0)
+### 6.3 Pressure Advance Profiles
+- Per-spool PA profile field for storing calibrated pressure advance values
+- PA profile displayed in spool list and detail views
+
+### 6.4 Low-Stock Alerts
+- Configurable low-stock threshold per spool (default: 50g)
+- `GET /api/spools/low-stock` returns all active spools below their threshold
+- `is_low_stock` flag included in spool list responses for UI badge display
+
+### 6.5 CSV Export
+- Export full spool inventory as CSV via `GET /api/spools/export`
+- Includes all spool fields: material, color, brand, weight, status, PA profile
+
+### 6.6 Spoolman Integration
+- `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
+- Foundation for bidirectional sync (pull spools from Spoolman, push consumption back)
+
+### 6.7 Filament Drying Log (v1.2.0)
 - Log drying sessions per spool: start time, duration, temperature
 - Track filament condition over time
 
@@ -503,6 +563,8 @@
 - **Webhooks** — Discord/Slack integration with configurable events
 - **ntfy** — lightweight push via HTTP POST
 - **Telegram** — Bot API integration
+- **WhatsApp** — Meta Business API integration with phone_number_id, recipient, and bearer token
+- **Pushover** — Native Pushover API with priority mapping (critical → priority 1, others → priority 0)
 
 ### 13.2 Quiet Hours
 - Configurable time window for notification suppression
@@ -540,6 +602,10 @@
 - Swagger UI at `/api/docs`
 - ReDoc at `/api/redoc`
 
+### 14.5 Spoolman
+- Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
+- Foundation for bidirectional sync: pull spool inventory, push filament consumption
+
 ---
 
 ## 15. White-Label Branding
@@ -558,6 +624,8 @@
 ### 16.1 Themes
 - Light/dark mode toggle (sun/moon icon in header)
 - Persisted to localStorage
+- **User theme preferences** — accent color and sidebar style stored server-side per user via `GET/PUT /api/auth/me/theme`
+- Theme settings persist across devices via user account (not just localStorage)
 
 ### 16.2 Navigation
 - Sidebar with all page links; collapses to hamburger on mobile
@@ -787,3 +855,4 @@
 | v1.3.68 | 2026-02-21 | Spool label endpoint auth fix, GET /config accessible to viewer (non-sensitive fields only), package-lock.json sync |
 | v1.3.69 | 2026-02-23 | RBAC matrix: ~120 routes added (1507 total tests, all passing), CI security pipeline (gitleaks + bandit + pip-audit + npm audit), invoice PDF crash fix (em dash in fpdf), retention cleanup 500 fix |
 | v1.3.70 | 2026-02-24 | Competitive parity (HMS expansion, skip objects, speed adjust, resizable cards, OBS overlay, log viewer, support bundle, email onboarding, password reset, print archive); platform expansion (timelapse editor, build plate detection, slicer profiles, H2D dual-nozzle AMS, Windows installer, docs wiki) |
+| v1.3.74 | 2026-02-25 | Feature depth track: archive depth (print log, comparison, tags, reprint, projects), printer controls (fan speed, AMS RFID refresh, AMS slot config, plate-cleared), batch job send, file duplicate detection, WhatsApp + Pushover notifications, low-stock spool alerts, PA profiles, Spoolman link, CSV spool export, user theme preferences |

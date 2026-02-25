@@ -29,7 +29,8 @@ The only platform that combines multi-protocol printer support, AI failure detec
 - **OBS Streaming Overlay** — Auth-free `/overlay/:printerId` page for live streaming with camera, progress, and temps
 - **Order-to-Ship Workflow** — Products, BOM, orders, invoicing, cost tracking, and shipping in one system
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
-- **Spool Inventory** — Filament tracking with QR label printing, AMS integration, and drying logs
+- **Spool Inventory** — Filament tracking with QR labels, AMS integration, PA profiles, low-stock alerts, Spoolman link, and CSV export
+- **Notifications** — Discord, Slack, Telegram, ntfy, WhatsApp, Pushover, email, and browser push
 - **Enterprise Security** — RBAC (admin/operator/viewer), MFA, OIDC SSO, IP allowlisting, audit logs
 - **Single Container Deploy** — One `docker compose up`, ~256 MB RAM, all 9 services included
 

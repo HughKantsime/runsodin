@@ -2,6 +2,20 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.3.74
+
+- ~~Archive depth~~ — Print log with CSV export, archive comparison, tag management (add/remove/rename/bulk), reprint with AMS mapping preview
+- ~~Projects~~ — Group archives into named projects; CRUD, bulk assign, ZIP export/import
+- ~~Printer controls~~ — Fan speed control (part/aux/chamber), AMS RFID re-read, AMS slot config (material/color/K-factor), plate-cleared confirmation
+- ~~Batch job send~~ — Send jobs to multiple printers in one operation with queue-only mode
+- ~~File duplicate detection~~ — SHA-256 hash on upload with duplicate warning
+- ~~WhatsApp + Pushover notifications~~ — Two new alert providers
+- ~~Low-stock spool alerts~~ — Per-spool threshold with dedicated endpoint and UI flag
+- ~~Pressure advance profiles~~ — Per-spool PA profile field
+- ~~Spoolman integration~~ — Spool linking via `spoolman_spool_id`
+- ~~Spool CSV export~~ — Full inventory export
+- ~~User theme preferences~~ — Server-side accent color and sidebar style per user
+
 ## Shipped in v1.3.70
 
 - ~~500+ HMS error codes~~ (expanded from 42), clear HMS errors from UI, skip objects mid-print, print speed adjustment (25%–200%)
