@@ -200,6 +200,7 @@ ENDPOINT_MATRIX = [
     ("PATCH", "/api/jobs/{job_id}/move", _op_write(),
      {"printer_id": 1, "scheduled_start": "2026-03-01T00:00:00"}, "Move job"),
     ("PATCH", "/api/jobs/{job_id}/failure", _op_write(), {}, "Update failure reason"),
+    ("GET",  "/api/jobs/filament-check", _api_read(), None, "Filament compatibility check"),
     ("GET",  "/api/failure-reasons", _pub(), None, "Failure reasons (public)"),
 
     # =========================================================================

@@ -147,6 +147,9 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         due_date=job.due_date,
         charged_to_user_id=current_user["id"] if current_user else None,
         charged_to_org_id=current_user.get("group_id") if current_user else None,
+        required_tags=job.required_tags or [],
+        target_type=job.target_type or "specific",
+        target_filter=job.target_filter,
     )
     db.add(db_job)
     db.commit()
@@ -181,6 +184,38 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
             logger.warning(f"Failed to dispatch job_submitted alert: {e}")
 
     return db_job
+
+
+@router.get("/jobs/filament-check", tags=["Jobs"])
+def check_filament_compatibility(
+    printer_id: int,
+    filament_type: Optional[str] = None,
+    colors: Optional[str] = None,
+    current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
+):
+    """Check if a printer has compatible filament loaded. Advisory only — never blocks job creation."""
+    from models import Printer, FilamentSlot
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    warnings = []
+    slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all()
+
+    if filament_type and slots:
+        loaded_types = {s.filament_type.value.upper() if s.filament_type else '' for s in slots}
+        if filament_type.upper() not in loaded_types and 'EMPTY' not in loaded_types:
+            warnings.append(f"Job requires {filament_type} but printer has {', '.join(t for t in loaded_types if t)} loaded")
+
+    if colors and slots:
+        required = [c.strip().lower() for c in colors.split(',') if c.strip()]
+        loaded_colors = {(s.color or '').lower() for s in slots if s.color}
+        for req_color in required:
+            if req_color not in loaded_colors:
+                warnings.append(f"Required color '{req_color}' not found in loaded filament slots")
+
+    return {"filament_warnings": warnings, "printer_id": printer_id}
 
 
 @router.post("/jobs/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])

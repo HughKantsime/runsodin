@@ -258,6 +258,8 @@ class JobBase(BaseModel):
     hold: bool = False
     due_date: Optional[datetime] = None
     required_tags: List[str] = []
+    target_type: Optional[str] = "specific"  # specific, model, protocol
+    target_filter: Optional[str] = None  # machine_type or protocol name when target_type != specific
 
     @field_validator('priority', mode='before')
     @classmethod

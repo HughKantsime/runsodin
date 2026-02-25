@@ -515,6 +515,8 @@ class Job(Base):
 
     # Scheduler constraints
     required_tags = Column(JSON, default=list)  # Only schedule on printers with these tags
+    target_type = Column(String(20), default="specific")  # specific, model, protocol
+    target_filter = Column(String(100), nullable=True)  # machine_type or protocol name
 
     # Queue ordering
     queue_position = Column(Integer, nullable=True)
@@ -959,6 +961,10 @@ class AlertType(str, Enum):
     SPAGHETTI_DETECTED = "spaghetti_detected"
     FIRST_LAYER_ISSUE = "first_layer_issue"
     DETACHMENT_DETECTED = "detachment_detected"
+    BED_COOLED = "bed_cooled"
+    QUEUE_ADDED = "queue_added"
+    QUEUE_SKIPPED = "queue_skipped"
+    QUEUE_FAILED_START = "queue_failed_start"
 
 
 class AlertSeverity(str, Enum):

@@ -652,6 +652,16 @@ try:
 except Exception:
     pass  # Column already exists
 
+# Add target_type and target_filter columns to jobs if missing
+try:
+    conn.execute("ALTER TABLE jobs ADD COLUMN target_type TEXT DEFAULT 'specific'")
+except Exception:
+    pass  # Column already exists
+try:
+    conn.execute("ALTER TABLE jobs ADD COLUMN target_filter TEXT")
+except Exception:
+    pass  # Column already exists
+
 conn.commit()
 
 # Add timelapse_enabled column to printers if missing

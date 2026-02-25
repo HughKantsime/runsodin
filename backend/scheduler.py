@@ -418,6 +418,19 @@ class Scheduler:
                 printer_tags = state.printer.tags or []
                 if not all(t in printer_tags for t in required_tags):
                     continue
+
+            # Target type constraint: filter by machine_type or protocol
+            job_target_type = getattr(job, 'target_type', 'specific') or 'specific'
+            job_target_filter = getattr(job, 'target_filter', None)
+            if job_target_type == 'model' and job_target_filter:
+                machine_type = getattr(state.printer, 'machine_type', None) or ''
+                if machine_type.lower() != job_target_filter.lower():
+                    continue
+            elif job_target_type == 'protocol' and job_target_filter:
+                printer_protocol = getattr(state.printer, 'api_type', None) or ''
+                if printer_protocol.lower() != job_target_filter.lower():
+                    continue
+
             # Calculate color match score (0-100)
             color_score = self._calculate_color_score(state.colors, required_colors)
             requires_setup = self._requires_setup(state.colors, required_colors)

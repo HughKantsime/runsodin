@@ -257,6 +257,8 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData, p
     due_date: '',
     required_tags: '',
     printer_id: '',
+    target_type: 'specific',
+    target_filter: '',
   })
   const [presetName, setPresetName] = useState('')
   const [showPresetInput, setShowPresetInput] = useState(false)
@@ -286,8 +288,10 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData, p
       due_date: formData.due_date || null,
       required_tags: tags,
       printer_id: formData.printer_id ? Number(formData.printer_id) : null,
+      target_type: formData.target_type || 'specific',
+      target_filter: formData.target_filter || null,
     })
-    setFormData({ item_name: '', model_id: '', model_revision_id: '', priority: 3, quantity: 1, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '', printer_id: '' })
+    setFormData({ item_name: '', model_id: '', model_revision_id: '', priority: 3, quantity: 1, duration_hours: '', colors_required: '', notes: '', due_date: '', required_tags: '', printer_id: '', target_type: 'specific', target_filter: '' })
     onClose()
   }
 
@@ -353,19 +357,50 @@ function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, modelsData, p
             </div>
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Assign Printer (optional)</label>
-            <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
-              <option value="">Auto-assign</option>
-              {printersData?.map(p => (
-                <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
+            <label className="block text-sm text-farm-400 mb-1">Printer Target</label>
+            <div className="flex gap-2 mb-2">
+              {[
+                { value: 'specific', label: 'Specific Printer' },
+                { value: 'model', label: 'Any Model Type' },
+                { value: 'protocol', label: 'Any Protocol' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, target_type: opt.value, printer_id: '', target_filter: '' }))}
+                  className={`px-3 py-1 rounded text-xs border transition-colors ${formData.target_type === opt.value ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 text-farm-400 hover:border-farm-500'}`}
+                >
+                  {opt.label}
+                </button>
               ))}
-            </select>
-            <BedMismatchWarning
-              modelId={formData.model_id}
-              printerId={formData.printer_id}
-              modelsData={modelsData}
-              printersData={printersData}
-            />
+            </div>
+            {formData.target_type === 'specific' && (
+              <>
+                <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Auto-assign</option>
+                  {printersData?.map(p => (
+                    <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
+                  ))}
+                </select>
+                <BedMismatchWarning modelId={formData.model_id} printerId={formData.printer_id} modelsData={modelsData} printersData={printersData} />
+              </>
+            )}
+            {formData.target_type === 'model' && (
+              <select value={formData.target_filter} onChange={(e) => setFormData(prev => ({ ...prev, target_filter: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                <option value="">Select machine type...</option>
+                {[...new Set((printersData || []).map(p => p.machine_type).filter(Boolean))].map(mt => (
+                  <option key={mt} value={mt}>{mt}</option>
+                ))}
+              </select>
+            )}
+            {formData.target_type === 'protocol' && (
+              <select value={formData.target_filter} onChange={(e) => setFormData(prev => ({ ...prev, target_filter: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+                <option value="">Select protocol...</option>
+                {[...new Set((printersData || []).map(p => p.api_type).filter(Boolean))].map(pt => (
+                  <option key={pt} value={pt}>{pt}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
