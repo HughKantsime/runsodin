@@ -402,12 +402,12 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
     enabled: isOpen && !!model?.id
   })
   const [selectedPrinter, setSelectedPrinter] = useState(null)
-  const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1, due_date: '', notes: '' })
+  const [scheduleOpts, setScheduleOpts] = useState({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: 0 })
 
   useEffect(() => {
     if (isOpen) {
       setSelectedPrinter(null)
-      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '' })
+      setScheduleOpts({ priority: 3, quantity: 1, due_date: '', notes: '', plate_index: 0 })
     }
   }, [isOpen])
 
@@ -513,6 +513,33 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
           <label className="block text-xs text-farm-400 mb-1">Notes (optional)</label>
           <textarea value={scheduleOpts.notes} onChange={(e) => setScheduleOpts(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm" rows={2} />
         </div>
+
+        {/* Plate selector for multi-plate files */}
+        {(() => {
+          const maxPlates = Math.max(...(variants.map(v => v.plate_count || 1)), 1)
+          if (maxPlates <= 1) return null
+          return (
+            <div className="mb-4">
+              <label className="block text-xs text-farm-400 mb-1">Plate</label>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: maxPlates }, (_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setScheduleOpts(prev => ({ ...prev, plate_index: i }))}
+                    className={clsx('px-3 py-1 rounded text-xs border transition-colors',
+                      scheduleOpts.plate_index === i
+                        ? 'border-print-500 bg-print-900/30 text-print-400'
+                        : 'border-farm-700 text-farm-400 hover:border-farm-500'
+                    )}
+                  >
+                    Plate {i + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
         <p className="text-sm text-farm-400 mb-2">Assign to Printer</p>
         <div className="flex flex-wrap gap-2 mb-6">

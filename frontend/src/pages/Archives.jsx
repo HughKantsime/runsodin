@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../api'
 import { canDo } from '../permissions'
-import { Archive, Search, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag } from 'lucide-react'
+import { Archive, Search, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_BADGES = {
@@ -136,10 +136,32 @@ function CompareModal({ a, b, onClose }) {
   )
 }
 
-function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate }) {
+function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate, printerList }) {
   const [notes, setNotes] = useState(archive.notes || '')
   const [saving, setSaving] = useState(false)
   const [archiveTags, setArchiveTags] = useState(archive.tags || [])
+  const [showReprint, setShowReprint] = useState(false)
+  const [reprintPrinterId, setReprintPrinterId] = useState('')
+  const [reprintPlate, setReprintPlate] = useState(0)
+  const [reprinting, setReprinting] = useState(false)
+
+  const plateCount = archive.plate_count || 1
+
+  const handleReprint = async () => {
+    if (!reprintPrinterId) return toast.error('Select a printer')
+    setReprinting(true)
+    try {
+      const result = await archives.reprint(archive.id, {
+        printer_id: parseInt(reprintPrinterId),
+        plate_index: reprintPlate,
+      })
+      toast.success(result.message || 'Reprint job created')
+      setShowReprint(false)
+    } catch (e) {
+      toast.error(e.message || 'Reprint failed')
+    }
+    setReprinting(false)
+  }
 
   const saveNotes = async () => {
     setSaving(true)
@@ -231,6 +253,69 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
             >
               {saving ? 'Saving...' : 'Save Notes'}
             </button>
+          </div>
+        )}
+
+        {/* Reprint */}
+        {canDo('printers.edit') && archive.file_path && (
+          <div className="mb-4">
+            {!showReprint ? (
+              <button
+                onClick={() => setShowReprint(true)}
+                className="w-full py-2 rounded-lg text-sm text-print-400 bg-print-600/10 hover:bg-print-600/20 transition-colors flex items-center justify-center gap-2"
+              >
+                <RotateCcw size={14} /> Reprint
+              </button>
+            ) : (
+              <div className="bg-farm-800 border border-farm-700 rounded-lg p-3 space-y-3">
+                <label className="block text-xs text-farm-500">Target Printer</label>
+                <select
+                  value={reprintPrinterId}
+                  onChange={e => setReprintPrinterId(e.target.value)}
+                  className="w-full bg-farm-900 border border-farm-700 rounded px-2 py-1.5 text-sm"
+                >
+                  <option value="">Select printer...</option>
+                  {(printerList || []).filter(p => p.is_active).map(p => (
+                    <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
+                  ))}
+                </select>
+                {plateCount > 1 && (
+                  <>
+                    <label className="block text-xs text-farm-500">Plate</label>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from({ length: plateCount }, (_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setReprintPlate(i)}
+                          className={`px-3 py-1 rounded text-xs border transition-colors ${
+                            reprintPlate === i
+                              ? 'border-print-500 bg-print-900/30 text-print-400'
+                              : 'border-farm-700 text-farm-400 hover:border-farm-500'
+                          }`}
+                        >
+                          Plate {i + 1}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowReprint(false)}
+                    className="flex-1 py-1.5 rounded text-xs bg-farm-700 hover:bg-farm-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleReprint}
+                    disabled={reprinting || !reprintPrinterId}
+                    className="flex-1 py-1.5 rounded text-xs bg-print-600 hover:bg-print-500 transition-colors disabled:opacity-50"
+                  >
+                    {reprinting ? 'Creating...' : 'Reprint'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -475,6 +560,7 @@ export default function ArchivesPage() {
             archives.updateTags(id, tags)
             queryClient.invalidateQueries({ queryKey: ['archives'] })
           }}
+          printerList={printerList}
         />
       )}
 

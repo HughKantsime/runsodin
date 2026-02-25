@@ -940,7 +940,7 @@ def get_model_variants(model_id: int, current_user: dict = Depends(require_role(
     variants = db.execute(text("""
         SELECT id, filename, printer_model, print_time_seconds, total_weight_grams,
                nozzle_diameter, layer_height, uploaded_at,
-               bed_x_mm, bed_y_mm, compatible_api_types
+               bed_x_mm, bed_y_mm, compatible_api_types, plate_count
         FROM print_files WHERE model_id = :model_id ORDER BY uploaded_at DESC
     """), {"model_id": model_id}).fetchall()
 
@@ -952,6 +952,7 @@ def get_model_variants(model_id: int, current_user: dict = Depends(require_role(
             "print_time_seconds": v[3], "print_time_hours": round(v[3]/3600.0, 2) if v[3] else 0,
             "total_weight_grams": v[4], "nozzle_diameter": v[5], "layer_height": v[6], "uploaded_at": v[7],
             "bed_x_mm": v[8], "bed_y_mm": v[9], "compatible_api_types": v[10],
+            "plate_count": v[11] or 1,
         } for v in variants]
     }
 
