@@ -6,12 +6,14 @@ import en from '../i18n/en.json'
 import de from '../i18n/de.json'
 import ja from '../i18n/ja.json'
 import es from '../i18n/es.json'
+import it from '../i18n/it.json'
 
-const translations = { en, de, ja, es }
+const translations = { en, de, ja, es, it }
 
 const LANGUAGES = [
   { code: 'en', name: 'English', flag: '🇺🇸' },
   { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
+  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
   { code: 'ja', name: '日本語', flag: '🇯🇵' },
   { code: 'es', name: 'Español', flag: '🇪🇸' },
 ]
