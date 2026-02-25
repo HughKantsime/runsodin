@@ -302,6 +302,33 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
             return el
           })}
         </div>
+        {/* H2D External Spools (Ext-L / Ext-R) */}
+        {printer.machine_type === 'H2D' && printer.external_spools && (
+          <div className="mt-2 pt-2 border-t border-farm-800/50">
+            <span className="text-[10px] text-farm-500 font-medium">External Spools</span>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {['left', 'right'].map(side => {
+                const ext = printer.external_spools?.[side]
+                return (
+                  <div key={side} className="flex items-center gap-1.5 bg-farm-800/50 rounded px-2 py-1">
+                    <span className="text-[10px] text-farm-500 uppercase w-7">Ext-{side === 'left' ? 'L' : 'R'}</span>
+                    {ext ? (
+                      <>
+                        <div className="w-3 h-3 rounded-full border border-farm-600" style={{ backgroundColor: ext.color || '#666' }} />
+                        <span className="text-[10px] text-farm-300">{ext.material}</span>
+                        {ext.remain_percent != null && (
+                          <span className="text-[10px] text-farm-500 ml-auto">{ext.remain_percent}%</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-farm-600">Empty</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
       <div className="px-3 md:px-4 py-2 md:py-3 bg-farm-950 border-t border-farm-800">
         {(() => {
@@ -340,9 +367,16 @@ function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, 
                     <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
                       L {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
                     </span>
-                    <span className={isHeating ? "text-orange-400" : "text-farm-400"} title="Right Nozzle">
-                      R —
-                    </span>
+                    {(() => {
+                      const n1 = printer.h2d_nozzles?.nozzle_1
+                      const n1t = n1?.temp != null ? Math.round(n1.temp) : null
+                      const n1tt = n1?.target != null ? Math.round(n1.target) : null
+                      return (
+                        <span className={(n1tt && n1tt > 0) ? "text-orange-400" : "text-farm-400"} title="Right Nozzle">
+                          R {n1t != null ? `${n1t}°${n1tt > 0 ? `/${n1tt}°` : ''}` : '—'}
+                        </span>
+                      )
+                    })()}
                   </>
                 )}
                 {bedTemp != null && (

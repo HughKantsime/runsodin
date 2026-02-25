@@ -339,6 +339,7 @@ class PrinterMonitor:
                     # H2D printers have two nozzles. Parse second nozzle temps if present.
                     # Gated on machine_type to avoid affecting non-H2D printers.
                     h2d_nozzle_data = None
+                    external_spools = None
                     try:
                         with get_db() as h2d_conn:
                             mt_row = h2d_conn.execute('SELECT machine_type FROM printers WHERE id=?', (self.printer_id,)).fetchone()
@@ -356,6 +357,24 @@ class PrinterMonitor:
                             'nozzle_1': {'temp': noz1_t, 'target': noz1_tt},
                         }
 
+                        # H2D external spools (Ext-L / Ext-R) via vt_tray in AMS payload
+                        ams_raw = self._state.get('ams', {})
+                        vt_tray = ams_raw.get('vt_tray') if isinstance(ams_raw, dict) else None
+                        if vt_tray:
+                            ext_spools = vt_tray if isinstance(vt_tray, list) else [vt_tray]
+                            external_spools = {}
+                            for idx, ext in enumerate(ext_spools[:2]):
+                                if isinstance(ext, dict) and ext.get('tray_type'):
+                                    side = 'left' if idx == 0 else 'right'
+                                    color_raw = ext.get('tray_color', '')
+                                    external_spools[side] = {
+                                        'material': ext.get('tray_type', ''),
+                                        'color': f"#{color_raw}" if color_raw and not color_raw.startswith('#') else color_raw,
+                                        'remain_percent': int(ext.get('remain', 0)) if ext.get('remain') is not None else None,
+                                    }
+                            if not external_spools:
+                                external_spools = None
+
                     # Push telemetry to WebSocket clients
                     ws_payload = {
                         'printer_id': self.printer_id,
@@ -372,6 +391,8 @@ class PrinterMonitor:
                     }
                     if h2d_nozzle_data:
                         ws_payload['h2d_nozzles'] = h2d_nozzle_data
+                    if external_spools:
+                        ws_payload['external_spools'] = external_spools
                     ws_push('printer_telemetry', ws_payload)
 
                     # Process HMS errors through universal handler for alerts

@@ -95,6 +95,8 @@ export default function useWebSocket() {
                     layer_num: d.current_layer ?? p.layer_num,
                     total_layer_num: d.total_layers ?? p.total_layer_num,
                     gcode_file: d.gcode_file ?? p.gcode_file,
+                    h2d_nozzles: d.h2d_nozzles ?? p.h2d_nozzles,
+                    external_spools: d.external_spools ?? p.external_spools,
                     last_seen: new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0],
                   }
                 })

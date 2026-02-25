@@ -50,7 +50,11 @@
       "ams_exist_bits": "3",
       "tray_exist_bits": "FF",
       "tray_now": "0",
-      "tray_tar": "0"
+      "tray_tar": "0",
+      "vt_tray": [
+        {"id": "254", "tray_type": "PLA", "tray_color": "FF6600", "remain": 72},
+        {"id": "255", "tray_type": "PETG", "tray_color": "0099FF", "remain": 58}
+      ]
     },
     "ipcam": {
       "rtsp_url": "/streaming/live/1",
