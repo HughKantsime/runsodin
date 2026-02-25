@@ -149,6 +149,16 @@ export const archives = {
   previewModel: (fileId) => `${window.location.origin}/api/files/${fileId}/preview-model`,
 };
 
+export const projects = {
+  list: (status) => fetchAPI('/projects' + (status ? '?status=' + status : '')),
+  get: (id) => fetchAPI(`/projects/${id}`),
+  create: (data) => fetchAPI('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => fetchAPI(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id) => fetchAPI(`/projects/${id}`, { method: 'DELETE' }),
+  assignArchives: (id, archiveIds) => fetchAPI(`/projects/${id}/archives`, { method: 'POST', body: JSON.stringify({ archive_ids: archiveIds }) }),
+  removeArchive: (projectId, archiveId) => fetchAPI(`/projects/${projectId}/archives/${archiveId}`, { method: 'DELETE' }),
+}
+
 export const tags = {
   list: () => fetchAPI('/tags'),
   rename: (oldTag, newTag) => fetchAPI('/tags/rename', { method: 'POST', body: JSON.stringify({ old: oldTag, new: newTag }) }),
