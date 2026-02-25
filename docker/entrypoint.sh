@@ -699,6 +699,14 @@ try:
     conn.execute("ALTER TABLE print_files ADD COLUMN compatible_api_types TEXT")
 except Exception:
     pass  # Column already exists
+try:
+    conn.execute("ALTER TABLE print_files ADD COLUMN file_hash TEXT")
+except Exception:
+    pass  # Column already exists
+try:
+    conn.execute("ALTER TABLE print_files ADD COLUMN plate_count INTEGER DEFAULT 1")
+except Exception:
+    pass  # Column already exists
 
 # Add machine_type to printers if missing (H2D dual-nozzle support)
 try:

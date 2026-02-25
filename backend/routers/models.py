@@ -396,6 +396,19 @@ async def upload_3mf(
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large. Maximum upload size is 100 MB.")
 
+    # Compute file hash for duplicate detection
+    import hashlib
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    # Check for existing file with same hash
+    existing = db.execute(
+        text("SELECT id, filename FROM print_files WHERE file_hash = :h LIMIT 1"),
+        {"h": file_hash},
+    ).fetchone()
+    duplicate_info = None
+    if existing:
+        duplicate_info = {"duplicate": True, "existing_file_id": existing[0], "existing_file_name": existing[1]}
+
     # Save to temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp.write(content)
@@ -435,11 +448,13 @@ async def upload_3mf(
                 INSERT INTO print_files (
                     filename, project_name, print_time_seconds, total_weight_grams,
                     layer_count, layer_height, nozzle_diameter, printer_model,
-                    supports_used, bed_type, filaments_json, thumbnail_b64, mesh_data
+                    supports_used, bed_type, filaments_json, thumbnail_b64, mesh_data,
+                    file_hash
                 ) VALUES (
                     :filename, :project_name, :print_time_seconds, :total_weight_grams,
                     :layer_count, :layer_height, :nozzle_diameter, :printer_model,
-                    :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json
+                    :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json,
+                    :file_hash
                 )
             """), {
                 "filename": file.filename,
@@ -460,7 +475,8 @@ async def upload_3mf(
                     "used_grams": f.used_grams
                 } for f in metadata.filaments]),
                 "thumbnail_b64": metadata.thumbnail_b64,
-                "mesh_json": mesh_json
+                "mesh_json": mesh_json,
+                "file_hash": file_hash,
             })
             db.commit()
 
@@ -558,6 +574,7 @@ async def upload_3mf(
                 "bed_x_mm": meta["bed_x_mm"],
                 "bed_y_mm": meta["bed_y_mm"],
                 "compatible_api_types": meta["compatible_api_types"],
+                "duplicate": duplicate_info,
             }
 
         else:
@@ -568,14 +585,15 @@ async def upload_3mf(
 
             result = db.execute(text("""
                 INSERT INTO print_files (
-                    filename, project_name, filaments_json
+                    filename, project_name, filaments_json, file_hash
                 ) VALUES (
-                    :filename, :project_name, :filaments_json
+                    :filename, :project_name, :filaments_json, :file_hash
                 )
             """), {
                 "filename": file.filename,
                 "project_name": project_name,
                 "filaments_json": json.dumps([]),
+                "file_hash": file_hash,
             })
             db.commit()
             file_id = result.lastrowid
@@ -639,6 +657,7 @@ async def upload_3mf(
                 "bed_x_mm": meta["bed_x_mm"],
                 "bed_y_mm": meta["bed_y_mm"],
                 "compatible_api_types": meta["compatible_api_types"],
+                "duplicate": duplicate_info,
             }
     finally:
         # Clean up temp file

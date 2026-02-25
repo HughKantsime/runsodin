@@ -192,6 +192,7 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/jobs/{job_id}/reset", _op_write(), None, "Reset job"),
     # approve/reject/resubmit: STATEFUL — 403 means "wrong state" not "wrong role"
     # Skip these from pure RBAC test; test in Phase 3 with proper state fixtures
+    ("POST", "/api/jobs/batch", _op_write(), {"item_name": "batch_test", "printer_ids": [1]}, "Batch send job"),
     ("POST", "/api/jobs/{job_id}/repeat", _op_write(), None, "Repeat job"),
     ("POST", "/api/jobs/{job_id}/link-print", _op_write(), None, "Link to print"),
     ("PATCH", "/api/jobs/{job_id}/move", _op_write(),
@@ -229,6 +230,7 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     # 11. Spools
     # =========================================================================
+    ("GET",  "/api/spools/export", _api_read(), None, "Export spools CSV"),
     ("GET",  "/api/spools", _api_read(), None, "List spools"),
     ("POST", "/api/spools", _op_write(), {"filament_id": 1}, "Create spool"),
     ("GET",  "/api/spools/{spool_id}", _api_read(), None, "Get spool"),

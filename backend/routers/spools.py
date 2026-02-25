@@ -423,6 +423,48 @@ def delete_filament(filament_id: str, current_user: dict = Depends(require_role(
 # Spool CRUD
 # ====================================================================
 
+@router.get("/spools/export", tags=["Spools"])
+def export_spools_csv(
+    current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
+):
+    """Export all spools as CSV."""
+    import csv as csv_mod
+    import io as io_mod
+    from fastapi.responses import StreamingResponse
+
+    spools = db.query(Spool).all()
+    output = io_mod.StringIO()
+    writer = csv_mod.writer(output)
+    writer.writerow([
+        "ID", "Brand", "Name", "Material", "Color", "Initial Weight (g)",
+        "Remaining Weight (g)", "% Remaining", "Status", "Vendor", "Price",
+        "Storage Location", "Notes",
+    ])
+    for s in spools:
+        writer.writerow([
+            s.id,
+            s.filament.brand if s.filament else "",
+            s.filament.name if s.filament else "",
+            s.filament.material if s.filament else "",
+            s.color_hex or (s.filament.color_hex if s.filament else ""),
+            s.initial_weight_g,
+            s.remaining_weight_g,
+            s.percent_remaining,
+            s.status.value if s.status else "",
+            s.vendor or "",
+            s.price or "",
+            s.storage_location or "",
+            s.notes or "",
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=spools_export.csv"},
+    )
+
+
 @router.get("/spools", tags=["Spools"])
 def list_spools(
     status: Optional[str] = None,

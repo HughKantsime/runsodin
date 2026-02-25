@@ -222,6 +222,36 @@ async def test_webhook(
                 timeout=10
             )
 
+        elif wtype == "pushover":
+            # Pushover: url format "user_key|api_token"
+            if "|" not in webhook["url"]:
+                return {"success": False, "message": "Invalid Pushover config. Format: user_key|api_token"}
+            user_key, api_token = webhook["url"].split("|", 1)
+            resp = httpx.post("https://api.pushover.net/1/messages.json", data={
+                "token": api_token.strip(),
+                "user": user_key.strip(),
+                "title": "O.D.I.N. Test",
+                "message": "Webhook connection successful!",
+            }, timeout=10)
+
+        elif wtype == "whatsapp":
+            # WhatsApp: url format "phone_number_id|recipient_phone|bearer_token"
+            parts = webhook["url"].split("|")
+            if len(parts) < 3:
+                return {"success": False, "message": "Invalid WhatsApp config. Format: phone_id|recipient|token"}
+            phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
+            resp = httpx.post(
+                f"https://graph.facebook.com/v18.0/{phone_id}/messages",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": recipient,
+                    "type": "text",
+                    "text": {"body": "\U0001f5a8\ufe0f O.D.I.N. Test — Webhook connection successful!"},
+                },
+                timeout=10,
+            )
+
         else:
             # Generic webhook — POST JSON
             payload = {
@@ -311,6 +341,35 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
                             "text": f"{emoji} *{title}*\n{message or ''}",
                             "parse_mode": "Markdown"
                         }, timeout=10)
+
+                elif wtype == "pushover":
+                    # url format: "user_key|api_token"
+                    if "|" in url:
+                        user_key, api_token = url.split("|", 1)
+                        httpx.post("https://api.pushover.net/1/messages.json", data={
+                            "token": api_token.strip(),
+                            "user": user_key.strip(),
+                            "title": title,
+                            "message": message or title,
+                            "priority": 1 if severity == "critical" else 0,
+                        }, timeout=10)
+
+                elif wtype == "whatsapp":
+                    # url format: "phone_number_id|recipient_phone|bearer_token"
+                    parts = url.split("|")
+                    if len(parts) >= 3:
+                        phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                        httpx.post(
+                            f"https://graph.facebook.com/v18.0/{phone_id}/messages",
+                            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                            json={
+                                "messaging_product": "whatsapp",
+                                "to": recipient,
+                                "type": "text",
+                                "text": {"body": f"{emoji} {title}\n{message or ''}"},
+                            },
+                            timeout=10,
+                        )
 
                 else:
                     httpx.post(url, json={

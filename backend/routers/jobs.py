@@ -231,6 +231,73 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
     return db_jobs
 
 
+class JobBatchRequest(PydanticBaseModel):
+    """Send the same job to multiple printers simultaneously."""
+    item_name: str
+    model_id: Optional[int] = None
+    printer_ids: List[int]
+    priority: int = 3
+    duration_hours: Optional[float] = None
+    colors_required: Optional[str] = None
+    filament_type: Optional[str] = None
+    notes: Optional[str] = None
+    queue_only: bool = False
+
+
+@router.post("/jobs/batch", tags=["Jobs"])
+def create_jobs_batch(
+    body: JobBatchRequest,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """Send the same job to multiple printers at once (batch production).
+
+    Creates one job per printer_id and returns all created jobs.
+    """
+    from routers.models import calculate_job_cost
+
+    if not body.printer_ids:
+        raise HTTPException(status_code=400, detail="printer_ids cannot be empty")
+    if len(body.printer_ids) > 50:
+        raise HTTPException(status_code=400, detail="Maximum 50 printers per batch")
+
+    # Validate all printers exist
+    printers = db.query(Printer).filter(Printer.id.in_(body.printer_ids)).all()
+    found_ids = {p.id for p in printers}
+    missing = set(body.printer_ids) - found_ids
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Printer IDs not found: {sorted(missing)}")
+
+    estimated_cost, suggested_price = None, None
+    if body.model_id:
+        estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=body.model_id)
+
+    created = []
+    for pid in body.printer_ids:
+        db_job = Job(
+            item_name=body.item_name,
+            model_id=body.model_id,
+            quantity=1,
+            priority=body.priority,
+            printer_id=pid,
+            duration_hours=body.duration_hours,
+            colors_required=body.colors_required,
+            filament_type=body.filament_type,
+            notes=body.notes,
+            hold=body.queue_only,
+            status=JobStatus.PENDING,
+            estimated_cost=estimated_cost,
+            suggested_price=suggested_price,
+            charged_to_user_id=current_user.get("id"),
+            charged_to_org_id=current_user.get("group_id"),
+        )
+        db.add(db_job)
+        created.append(db_job)
+
+    db.commit()
+    return [{"id": j.id, "printer_id": j.printer_id, "status": j.status.value if hasattr(j.status, 'value') else str(j.status)} for j in created]
+
+
 # Static route registered before /jobs/{job_id} to prevent FastAPI from
 # treating "reorder" as a job_id integer.
 class JobReorderRequest(PydanticBaseModel):
