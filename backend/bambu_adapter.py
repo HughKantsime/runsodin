@@ -289,6 +289,70 @@ class BambuPrinter:
         """Turn chamber light off."""
         return self._send_gcode("M355 S0")
 
+    def set_fan_speed(self, fan: str, speed: int) -> bool:
+        """Set fan speed via G-code M106.
+
+        Args:
+            fan: 'part_cooling' (P1), 'auxiliary' (P2), or 'chamber' (P3)
+            speed: 0-255
+        """
+        fan_map = {"part_cooling": 1, "auxiliary": 2, "chamber": 3}
+        p = fan_map.get(fan)
+        if p is None:
+            return False
+        speed = max(0, min(255, speed))
+        return self._send_gcode(f"M106 P{p} S{speed}")
+
+    def refresh_ams_rfid(self) -> bool:
+        """Trigger AMS RFID re-read for all trays."""
+        if not self._connected:
+            return False
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "ams_change_filament",
+                "target": 255,  # 255 = trigger re-read without changing
+                "curr_temp": 0,
+                "tar_temp": 0
+            }
+        }
+        return self._publish(payload)
+
+    def set_ams_filament(self, ams_id: int, slot_id: int, material: str,
+                         color: str, k_factor: float = 0.0) -> bool:
+        """Configure an AMS slot's filament settings via MQTT.
+
+        Args:
+            ams_id: AMS unit index (0-based)
+            slot_id: Tray index within the AMS (0-3)
+            material: Filament type string (e.g., 'PLA', 'PETG')
+            color: Hex color without # (e.g., 'FF5500FF')
+            k_factor: Pressure advance K-factor
+        """
+        if not self._connected:
+            return False
+        # Pad color to 8 hex chars (RRGGBBAA) if needed
+        color = color.lstrip("#")
+        if len(color) == 6:
+            color = color + "FF"
+        tray_id = ams_id * 4 + slot_id
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "ams_filament_setting",
+                "ams_id": ams_id,
+                "tray_id": tray_id,
+                "tray_info_idx": material,
+                "tray_color": color.upper(),
+                "nozzle_temp_min": 190,
+                "nozzle_temp_max": 240,
+                "tray_type": material,
+                "setting_id": "",
+                "k": k_factor
+            }
+        }
+        return self._publish(payload)
+
     def clear_print_errors(self) -> bool:
         """Clear HMS/print errors on the printer."""
         if not self._connected:

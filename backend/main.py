@@ -37,6 +37,7 @@ from routers import (
     orgs,
     printers,
     profiles,
+    projects,
     scheduler,
     spools,
     system,
@@ -468,6 +469,7 @@ _all_routers = [
     vision.router,
     archives.router,
     profiles.router,
+    projects.router,
 ]
 
 for _router in _all_routers:

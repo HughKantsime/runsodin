@@ -55,6 +55,7 @@ import {
   Film,
   Archive,
   SlidersHorizontal,
+  ClipboardList,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from './BrandingContext'
@@ -95,6 +96,7 @@ import Timelapses from './pages/Timelapses'
 import Overlay from './pages/Overlay'
 import ResetPassword from './pages/ResetPassword'
 import ArchivesPage from './pages/Archives'
+import PrintLog from './pages/PrintLog'
 import Profiles from './pages/Profiles'
 import { stats, printers, getEducationMode, pricingConfig, setup } from './api'
 import useWebSocket from './hooks/useWebSocket'
@@ -285,6 +287,7 @@ function Sidebar({ mobileOpen, onMobileClose }) {
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/cameras" icon={Video} onClick={handleNavClick}>Cameras</NavItem>}
           {canAccessPage('cameras') && <NavItem collapsed={collapsed && !mobileOpen} to="/timelapses" icon={Film} onClick={handleNavClick}>Timelapses</NavItem>}
           <NavItem collapsed={collapsed && !mobileOpen} to="/archives" icon={Archive} onClick={handleNavClick}>Archives</NavItem>
+          <NavItem collapsed={collapsed && !mobileOpen} to="/print-log" icon={ClipboardList} onClick={handleNavClick}>Print Log</NavItem>
           {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
 
           {/* Work */}
@@ -587,6 +590,7 @@ export default function App() {
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
             <Route path="/archives" element={<ArchivesPage />} />
+            <Route path="/print-log" element={<PrintLog />} />
             <Route path="/audit" element={<RoleGate page="audit"><AuditLogs /></RoleGate>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

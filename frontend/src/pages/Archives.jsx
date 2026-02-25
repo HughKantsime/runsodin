@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../api'
 import { canDo } from '../permissions'
-import { Archive, Search, X, Trash2, Clock, Layers, Droplets, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Archive, Search, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_BADGES = {
@@ -23,9 +23,123 @@ function formatDate(d) {
   return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate }) {
+function TagChips({ tags, onTagClick }) {
+  if (!tags || tags.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1">
+      {tags.map(t => (
+        <button
+          key={t}
+          onClick={e => { e.stopPropagation(); onTagClick?.(t) }}
+          className="px-1.5 py-0.5 bg-print-600/20 text-print-400 rounded text-[10px] hover:bg-print-600/30 transition-colors"
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function TagEditor({ tags, onChange }) {
+  const [input, setInput] = useState('')
+
+  const addTag = () => {
+    const tag = input.trim()
+    if (tag && !tags.includes(tag)) {
+      onChange([...tags, tag])
+    }
+    setInput('')
+  }
+
+  return (
+    <div>
+      <label className="block text-xs text-farm-500 mb-1">Tags</label>
+      <div className="flex flex-wrap gap-1 mb-2">
+        {tags.map(t => (
+          <span key={t} className="flex items-center gap-1 px-2 py-0.5 bg-print-600/20 text-print-400 rounded text-xs">
+            {t}
+            <button onClick={() => onChange(tags.filter(x => x !== t))} className="hover:text-red-400">
+              <X size={10} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-1">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag() } }}
+          placeholder="Add tag..."
+          className="flex-1 bg-farm-800 border border-farm-700 rounded px-2 py-1 text-xs"
+        />
+        <button onClick={addTag} className="px-2 py-1 bg-print-600 hover:bg-print-700 rounded text-xs">Add</button>
+      </div>
+    </div>
+  )
+}
+
+function CompareModal({ a, b, onClose }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['archive-compare', a.id, b.id],
+    queryFn: () => archives.compare(a.id, b.id),
+  })
+
+  const fields = [
+    { key: 'printer_display', label: 'Printer' },
+    { key: 'status', label: 'Status' },
+    { key: 'actual_duration_seconds', label: 'Duration', fmt: formatDuration },
+    { key: 'filament_used_grams', label: 'Filament (g)', fmt: v => v ? `${v.toFixed(1)}g` : '--' },
+    { key: 'cost_estimate', label: 'Cost', fmt: v => v ? `$${v.toFixed(2)}` : '--' },
+    { key: 'started_at', label: 'Started', fmt: formatDate },
+    { key: 'completed_at', label: 'Completed', fmt: formatDate },
+  ]
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-farm-900 rounded-xl border border-farm-800 w-full max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2"><GitCompare size={18} /> Compare Archives</h2>
+          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
+        </div>
+
+        {isLoading ? (
+          <div className="text-center py-8 text-farm-500">Loading...</div>
+        ) : data ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-farm-400 text-xs border-b border-farm-800">
+                  <th className="py-2 px-3 text-left">Field</th>
+                  <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.a.print_name}</th>
+                  <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.b.print_name}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fields.map(f => {
+                  const isDiff = data.diff && f.key in data.diff
+                  const fmt = f.fmt || (v => v ?? '--')
+                  return (
+                    <tr key={f.key} className={`border-t border-farm-800 ${isDiff ? 'bg-amber-900/20' : ''}`}>
+                      <td className="py-2 px-3 text-farm-400">{f.label}</td>
+                      <td className="py-2 px-3">{fmt(data.a[f.key])}</td>
+                      <td className="py-2 px-3">{fmt(data.b[f.key])}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate }) {
   const [notes, setNotes] = useState(archive.notes || '')
   const [saving, setSaving] = useState(false)
+  const [archiveTags, setArchiveTags] = useState(archive.tags || [])
 
   const saveNotes = async () => {
     setSaving(true)
@@ -34,6 +148,14 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate }) {
       toast.success('Notes saved')
     } catch { toast.error('Failed to save') }
     setSaving(false)
+  }
+
+  const saveTags = async (newTags) => {
+    setArchiveTags(newTags)
+    try {
+      await onTagsUpdate(archive.id, newTags)
+      toast.success('Tags saved')
+    } catch { toast.error('Failed to save tags') }
   }
 
   return (
@@ -79,6 +201,18 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate }) {
           </div>
         </div>
 
+        {/* Tags */}
+        {canDo('printers.edit') ? (
+          <div className="mb-4">
+            <TagEditor tags={archiveTags} onChange={saveTags} />
+          </div>
+        ) : archiveTags.length > 0 ? (
+          <div className="mb-4">
+            <label className="block text-xs text-farm-500 mb-1">Tags</label>
+            <TagChips tags={archiveTags} />
+          </div>
+        ) : null}
+
         {/* Notes */}
         {canDo('printers.edit') && (
           <div className="mb-4">
@@ -121,7 +255,10 @@ export default function ArchivesPage() {
   const [searchInput, setSearchInput] = useState('')
   const [filterPrinter, setFilterPrinter] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [filterTag, setFilterTag] = useState('')
   const [selected, setSelected] = useState(null)
+  const [compareIds, setCompareIds] = useState(new Set())
+  const [showCompare, setShowCompare] = useState(false)
 
   const { data: printerList } = useQuery({
     queryKey: ['printers-list'],
@@ -129,13 +266,14 @@ export default function ArchivesPage() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['archives', page, search, filterPrinter, filterStatus],
+    queryKey: ['archives', page, search, filterPrinter, filterStatus, filterTag],
     queryFn: () => archives.list({
       page,
       per_page: 50,
       search: search || undefined,
       printer_id: filterPrinter || undefined,
       status: filterStatus || undefined,
+      tag: filterTag || undefined,
     }),
   })
 
@@ -147,9 +285,19 @@ export default function ArchivesPage() {
     },
   })
 
+  const toggleCompare = (id) => {
+    setCompareIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < 2) next.add(id)
+      return next
+    })
+  }
+
   const items = data?.items || []
   const total = data?.total || 0
   const totalPages = Math.ceil(total / 50) || 1
+  const compareArr = [...compareIds]
 
   return (
     <div className="p-4 md:p-6">
@@ -195,6 +343,22 @@ export default function ArchivesPage() {
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        {filterTag && (
+          <button
+            onClick={() => { setFilterTag(''); setPage(1) }}
+            className="flex items-center gap-1 px-2 py-2 bg-print-600/20 text-print-400 rounded-lg text-sm"
+          >
+            <Tag size={12} /> {filterTag} <X size={12} />
+          </button>
+        )}
+        {compareArr.length === 2 && (
+          <button
+            onClick={() => setShowCompare(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-print-600 hover:bg-print-700 rounded-lg text-sm text-white transition-colors"
+          >
+            <GitCompare size={14} /> Compare
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -212,6 +376,9 @@ export default function ArchivesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-farm-900 text-farm-400 text-xs">
+                  <th className="py-2 px-2 w-8">
+                    <span className="sr-only">Compare</span>
+                  </th>
                   <th className="py-2 px-3 text-left w-10"></th>
                   <th className="py-2 px-3 text-left">Name</th>
                   <th className="py-2 px-3 text-left hidden md:table-cell">Printer</th>
@@ -228,6 +395,15 @@ export default function ArchivesPage() {
                     onClick={() => setSelected(item)}
                     className="border-t border-farm-800 hover:bg-farm-800/50 cursor-pointer transition-colors"
                   >
+                    <td className="py-2 px-2" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={compareIds.has(item.id)}
+                        onChange={() => toggleCompare(item.id)}
+                        disabled={!compareIds.has(item.id) && compareIds.size >= 2}
+                        className="accent-print-500"
+                      />
+                    </td>
                     <td className="py-2 px-3">
                       {item.thumbnail_b64 ? (
                         <img src={`data:image/png;base64,${item.thumbnail_b64}`} alt="" className="w-8 h-8 rounded object-cover" />
@@ -237,7 +413,12 @@ export default function ArchivesPage() {
                         </div>
                       )}
                     </td>
-                    <td className="py-2 px-3 font-medium truncate max-w-[200px]">{item.print_name}</td>
+                    <td className="py-2 px-3">
+                      <div className="font-medium truncate max-w-[200px]">{item.print_name}</div>
+                      {item.tags && item.tags.length > 0 && (
+                        <TagChips tags={item.tags} onTagClick={t => { setFilterTag(t); setPage(1) }} />
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-farm-400 hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3">
                       <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGES[item.status] || 'bg-farm-800 text-farm-400'}`}>
@@ -290,6 +471,19 @@ export default function ArchivesPage() {
           onClose={() => setSelected(null)}
           onDelete={(id) => deleteMutation.mutate(id)}
           onNotesUpdate={(id, notes) => archives.update(id, { notes })}
+          onTagsUpdate={(id, tags) => {
+            archives.updateTags(id, tags)
+            queryClient.invalidateQueries({ queryKey: ['archives'] })
+          }}
+        />
+      )}
+
+      {/* Compare modal */}
+      {showCompare && compareArr.length === 2 && (
+        <CompareModal
+          a={items.find(i => i.id === compareArr[0]) || { id: compareArr[0] }}
+          b={items.find(i => i.id === compareArr[1]) || { id: compareArr[1] }}
+          onClose={() => setShowCompare(false)}
         />
       )}
     </div>

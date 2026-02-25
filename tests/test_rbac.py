@@ -154,10 +154,15 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/printers/{printer_id}/plug/state", _api_read(), None, "Plug state"),
 
     # =========================================================================
-    # 5. AMS Environment
+    # 5. AMS Environment & Fan Controls
     # =========================================================================
     ("GET", "/api/printers/{printer_id}/ams/environment", _api_read(), None, "AMS environment"),
     ("GET", "/api/printers/{printer_id}/ams/current", _api_read(), None, "AMS current"),
+    ("POST", "/api/printers/{printer_id}/fan", _op_write(), {"fan": "auxiliary", "speed": 128}, "Set fan speed (Bambu)"),
+    ("POST", "/api/printers/{printer_id}/ams/refresh", _op_write(), None, "AMS RFID re-read (Bambu)"),
+    ("PUT",  "/api/printers/{printer_id}/ams/{ams_id}/slots/{slot_id}", _op_write(),
+     {"material": "PLA", "color": "#FF0000"}, "Configure AMS slot (Bambu)"),
+    ("POST", "/api/printers/{printer_id}/plate-cleared", _op_write(), None, "Plate cleared confirmation"),
 
     # =========================================================================
     # 6. Bambu-Specific
@@ -264,6 +269,18 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/products/{product_id}/components", _op_write(), {"model_id": 1}, "Add BOM component"),
 
     # =========================================================================
+    # 13b. Projects
+    # =========================================================================
+    ("GET",    "/api/projects",                          _api_read(), None,                       "List projects"),
+    ("POST",   "/api/projects",                          _op_write(), {"name": "RBAC Test Proj"}, "Create project"),
+    ("GET",    "/api/projects/{project_id}",             _api_read(), None,                       "Get project"),
+    ("PUT",    "/api/projects/{project_id}",             _op_write(), {"name": "Updated"},        "Update project"),
+    ("DELETE", "/api/projects/{project_id}",             _admin_only(), None,                     "Delete project (soft)"),
+    ("POST",   "/api/projects/{project_id}/archives",    _op_write(), {"archive_ids": []},        "Bulk assign archives"),
+    ("GET",    "/api/projects/{project_id}/export",      _op_write(), None,                       "Export project ZIP"),
+    ("POST",   "/api/projects/import",                   _op_write(), None,                       "Import project ZIP"),
+
+    # =========================================================================
     # 14. Orders — DELETE: grep line 7381 → require_role("operator")
     # =========================================================================
     ("GET",  "/api/orders", _api_read(), None, "List orders"),
@@ -348,9 +365,19 @@ ENDPOINT_MATRIX = [
     ("POST", "/api/auth/reset-password", _pub(), {"token": "invalid", "new_password": "Test1234!"}, "Reset password"),
     ("GET",  "/api/auth/capabilities", _pub(), None, "Auth capabilities"),
     ("GET",  "/api/archives", _api_read(), None, "List print archives"),
+    ("GET",  "/api/archives/compare", _api_read(), None, "Compare two archives"),
+    ("GET",  "/api/archives/log", _api_read(), None, "Print log"),
+    ("GET",  "/api/archives/log/export", _api_read(), None, "Export print log CSV"),
     ("GET",  "/api/archives/{archive_id}", _api_read(), None, "Get print archive"),
     ("PATCH", "/api/archives/{archive_id}", _op_write(), {"notes": "test"}, "Update archive notes"),
+    ("PATCH", "/api/archives/{archive_id}/tags", _op_write(), {"tags": ["test"]}, "Update archive tags"),
+    ("GET",  "/api/archives/{archive_id}/ams-preview", _api_read(), None, "AMS preview for archive"),
+    ("POST", "/api/archives/{archive_id}/reprint", _op_write(), {"printer_id": 1}, "Reprint archive"),
     ("DELETE", "/api/archives/{archive_id}", _admin_only(), None, "Delete archive"),
+    ("GET",  "/api/tags", _api_read(), None, "List all tags"),
+    ("POST", "/api/tags/rename", _admin_only(), {"old": "test", "new": "test2"}, "Rename tag"),
+    ("DELETE", "/api/tags/{tag}", _admin_only(), None, "Delete tag"),
+    ("GET",  "/api/files/{file_id}/preview-model", _api_read(), None, "3D model preview"),
     ("GET",  "/api/overlay/{printer_id}", _pub(), None, "OBS streaming overlay (public, no auth)"),
 
     # =========================================================================
@@ -776,6 +803,9 @@ def _resolve_path(path_template, test_data):
         "{nozzle_id}": str(test_data.get("nozzle_id", 1)),
         "{profile_id}": str(test_data.get("profile_id", 1)),
         "{slot_number}": str(test_data.get("slot_number", 1)),
+        "{ams_id}": str(test_data.get("ams_id", 0)),
+        "{slot_id}": str(test_data.get("slot_id", 0)),
+        "{project_id}": str(test_data.get("project_id", 1)),
         "{filename}": test_data.get("filename", "test.jpg"),
         "{qr_code}": test_data.get("qr_code", "TEST_QR"),
         "{code}": test_data.get("code", "0500040000020002"),
@@ -824,6 +854,9 @@ _EPHEMERAL_CREATE = {
         "/api/models", {"name": "DEL_test_model", "build_time_hours": 0.5}, "id",
     ),
     "DELETE /api/spools/{spool_id}": None,  # needs filament_id — handled specially
+    "DELETE /api/projects/{project_id}": (
+        "/api/projects", {"name": "DEL_test_project"}, "id",
+    ),
     "DELETE /api/products/{product_id}": (
         "/api/products", {"name": "DEL_test_product", "price": 1.00}, "id",
     ),

@@ -471,10 +471,57 @@ conn.execute("""CREATE TABLE IF NOT EXISTS print_archives (
 conn.execute("CREATE INDEX IF NOT EXISTS idx_print_archives_printer ON print_archives(printer_id)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_print_archives_status ON print_archives(status)")
 conn.execute("CREATE INDEX IF NOT EXISTS idx_print_archives_created ON print_archives(created_at)")
+
+# Migrate: add columns for tags, multi-plate, and file reference
+existing = {r[1] for r in conn.execute("PRAGMA table_info(print_archives)")}
+archive_migrations = [
+    ("tags", "TEXT DEFAULT ''"),
+    ("plate_count", "INTEGER DEFAULT 1"),
+    ("plate_thumbnails", "TEXT"),
+    ("print_file_id", "INTEGER"),
+]
+for col, col_type in archive_migrations:
+    if col not in existing:
+        conn.execute(f"ALTER TABLE print_archives ADD COLUMN {col} {col_type}")
+        print(f"  ✓ Migrated print_archives: added {col}")
+
+archive_extra_migrations = [
+    ("project_id", "INTEGER"),
+    ("energy_kwh", "REAL"),
+    ("energy_cost", "REAL"),
+    ("consumption_json", "TEXT"),
+    ("file_hash", "TEXT"),
+]
+for col, col_type in archive_extra_migrations:
+    if col not in existing:
+        conn.execute(f"ALTER TABLE print_archives ADD COLUMN {col} {col_type}")
+        print(f"  ✓ Migrated print_archives: added {col}")
+
 conn.commit()
 conn.close()
 print("  ✓ Print archives table ready")
 ARCHIVESEOF
+
+# ── Create projects table ──
+python3 << 'PROJECTSEOF'
+import sqlite3
+conn = sqlite3.connect("/data/odin.db")
+conn.execute("""CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_by INTEGER,
+    org_id INTEGER,
+    name TEXT NOT NULL,
+    description TEXT,
+    color TEXT DEFAULT '#6366f1',
+    status TEXT DEFAULT 'active',
+    expected_parts INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)""")
+conn.commit()
+conn.close()
+print("  ✓ Projects table ready")
+PROJECTSEOF
 
 # ── Create oidc_config table ──
 python3 << 'OIDCEOF'

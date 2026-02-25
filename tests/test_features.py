@@ -861,3 +861,181 @@ class TestDashboardSystem:
         """Job approval workflow config."""
         r = requests.get(f"{BASE_URL}/api/config/require-job-approval", headers=admin_headers)
         assert r.status_code in (200, 404)
+
+
+# =========================================================================
+# Phase 1 — Print Archive Depth
+# =========================================================================
+
+class TestArchiveDepth:
+    """Tests for Phase 1 archive depth features: tags, log, compare, reprint."""
+
+    def test_archive_log_pagination(self, admin_headers):
+        """Print log endpoint returns paginated results."""
+        r = requests.get(f"{BASE_URL}/api/archives/log?page=1&per_page=10", headers=admin_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert data["page"] == 1
+
+    def test_archive_log_export_csv(self, admin_headers):
+        """Print log CSV export returns valid CSV."""
+        r = requests.get(f"{BASE_URL}/api/archives/log/export", headers=admin_headers)
+        assert r.status_code == 200
+        assert "text/csv" in r.headers.get("content-type", "")
+        reader = csv.reader(io.StringIO(r.text))
+        header = next(reader)
+        assert "Print Name" in header
+        assert "Printer" in header
+
+    def test_tag_crud(self, admin_headers):
+        """Tag lifecycle: set tags, list tags, rename, delete."""
+        # Create an archive to tag
+        import subprocess
+        subprocess.run([
+            "docker", "exec", "odin", "python3", "-c",
+            "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+            "c.execute(\"INSERT INTO print_archives (print_name, status, tags) "
+            "VALUES ('tag_test_print', 'completed', '')\"); c.commit(); c.close()"
+        ], capture_output=True)
+
+        # Find the archive
+        r = requests.get(f"{BASE_URL}/api/archives?search=tag_test_print", headers=admin_headers)
+        assert r.status_code == 200
+        items = r.json().get("items", [])
+        assert len(items) > 0
+        archive_id = items[0]["id"]
+
+        # Set tags
+        r = requests.patch(
+            f"{BASE_URL}/api/archives/{archive_id}/tags",
+            headers=admin_headers,
+            json={"tags": ["voron", "pla", "test_tag"]},
+        )
+        assert r.status_code == 200
+        assert "voron" in r.json()["tags"]
+
+        # List tags
+        r = requests.get(f"{BASE_URL}/api/tags", headers=admin_headers)
+        assert r.status_code == 200
+        tag_names = [t["name"] for t in r.json()["tags"]]
+        assert "voron" in tag_names
+
+        # Rename tag
+        r = requests.post(
+            f"{BASE_URL}/api/tags/rename",
+            headers=admin_headers,
+            json={"old": "voron", "new": "voron-2.4"},
+        )
+        assert r.status_code == 200
+        assert r.json()["updated"] >= 1
+
+        # Verify rename
+        r = requests.get(f"{BASE_URL}/api/archives/{archive_id}", headers=admin_headers)
+        assert r.status_code == 200
+        assert "voron-2.4" in r.json()["tags"]
+
+        # Delete tag
+        r = requests.delete(f"{BASE_URL}/api/tags/test_tag", headers=admin_headers)
+        assert r.status_code == 200
+
+        # Verify deletion
+        r = requests.get(f"{BASE_URL}/api/archives/{archive_id}", headers=admin_headers)
+        assert "test_tag" not in r.json()["tags"]
+
+        # Cleanup
+        requests.delete(f"{BASE_URL}/api/archives/{archive_id}", headers=admin_headers)
+
+    def test_archive_compare(self, admin_headers):
+        """Compare two archives returns diff."""
+        # Create two archives
+        import subprocess
+        for name in ["compare_a", "compare_b"]:
+            duration = 3600 if name == "compare_a" else 7200
+            subprocess.run([
+                "docker", "exec", "odin", "python3", "-c",
+                f"import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+                f"c.execute(\"INSERT INTO print_archives (print_name, status, actual_duration_seconds) "
+                f"VALUES ('{name}', 'completed', {duration})\"); c.commit(); c.close()"
+            ], capture_output=True)
+
+        # Find them
+        r = requests.get(f"{BASE_URL}/api/archives?search=compare_a", headers=admin_headers)
+        id_a = r.json()["items"][0]["id"]
+        r = requests.get(f"{BASE_URL}/api/archives?search=compare_b", headers=admin_headers)
+        id_b = r.json()["items"][0]["id"]
+
+        # Compare
+        r = requests.get(f"{BASE_URL}/api/archives/compare?a={id_a}&b={id_b}", headers=admin_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert "a" in data and "b" in data
+        assert "diff" in data
+        assert "actual_duration_seconds" in data["diff"]
+
+        # Cleanup
+        requests.delete(f"{BASE_URL}/api/archives/{id_a}", headers=admin_headers)
+        requests.delete(f"{BASE_URL}/api/archives/{id_b}", headers=admin_headers)
+
+    def test_reprint_missing_file(self, admin_headers):
+        """Reprint returns 400 when original file is missing."""
+        # Create archive without a file
+        import subprocess
+        subprocess.run([
+            "docker", "exec", "odin", "python3", "-c",
+            "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+            "c.execute(\"INSERT INTO print_archives (print_name, status) "
+            "VALUES ('reprint_test', 'completed')\"); c.commit(); c.close()"
+        ], capture_output=True)
+
+        r = requests.get(f"{BASE_URL}/api/archives?search=reprint_test", headers=admin_headers)
+        archive_id = r.json()["items"][0]["id"]
+
+        # Attempt reprint — should fail with 400 (no file)
+        r = requests.post(
+            f"{BASE_URL}/api/archives/{archive_id}/reprint",
+            headers=admin_headers,
+            json={"printer_id": 1},
+        )
+        assert r.status_code == 400
+        assert "file" in r.json()["detail"].lower()
+
+        # Cleanup
+        requests.delete(f"{BASE_URL}/api/archives/{archive_id}", headers=admin_headers)
+
+    def test_ams_preview(self, admin_headers):
+        """AMS preview endpoint returns expected structure."""
+        # Create a test archive
+        import subprocess
+        subprocess.run([
+            "docker", "exec", "odin", "python3", "-c",
+            "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+            "c.execute(\"INSERT INTO print_archives (print_name, status) "
+            "VALUES ('ams_test', 'completed')\"); c.commit(); c.close()"
+        ], capture_output=True)
+
+        r = requests.get(f"{BASE_URL}/api/archives?search=ams_test", headers=admin_headers)
+        archive_id = r.json()["items"][0]["id"]
+
+        r = requests.get(f"{BASE_URL}/api/archives/{archive_id}/ams-preview", headers=admin_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert "required" in data
+        assert "available" in data
+        assert "suggested_mapping" in data
+
+        # Cleanup
+        requests.delete(f"{BASE_URL}/api/archives/{archive_id}", headers=admin_headers)
+
+    def test_archive_tag_filter(self, admin_headers):
+        """Archives can be filtered by tag."""
+        r = requests.get(f"{BASE_URL}/api/archives?tag=nonexistent_tag_xyz", headers=admin_headers)
+        assert r.status_code == 200
+        assert r.json()["total"] == 0
+
+    def test_file_preview_model_404(self, admin_headers):
+        """Preview model returns 404 for non-existent file."""
+        r = requests.get(f"{BASE_URL}/api/files/999999/preview-model", headers=admin_headers)
+        assert r.status_code == 404

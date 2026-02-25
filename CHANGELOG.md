@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.73] - 2026-02-24
+
+### Fixed
+- **Test suite hardening** — Resolved 36 skipped tests and 1 failure (1631 → 1797 passing). SSE endpoint streaming, ephemeral resource creation for RBAC DELETE tests, maintenance DELETE RBAC matrix correction (admin-only, not operator), password credential mismatches in test fixtures, lockout test using form-data instead of JSON, job clone test path, alert fixture enum validation.
+- **Profiles datetime serialization** — Handle SQLite string dates in GET /api/profiles response (fixes 500 error)
+- **Git repository corruption** — Repacked and cleaned corrupt .git directory
+
 ## [1.3.70] - 2026-02-24
 
 ### Added
