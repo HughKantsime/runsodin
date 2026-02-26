@@ -724,7 +724,7 @@
 - Air-gap friendly — works without network after install
 - Frontend gating via ProGate component + LicenseContext
 - License upload via Settings UI (admin-only)
-- BSL 1.1 license — converts to Apache 2.0 after 3 years per version
+- BSL 1.1 license — converts to Apache 2.0 after 4 years per version (2029-02-07 for initial release)
 
 ### 20.3 License Manager
 - Separate Flask web app on a dedicated server
