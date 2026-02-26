@@ -2,6 +2,10 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.1
+
+- ~~Route sub-router decomposition~~ — 8 oversized module route files (7,450 lines total) split into 25 focused sub-router files within `routes/` packages; max file 595 lines; no URL or logic changes
+
 ## Shipped in v1.4.0
 
 - ~~Modular architecture refactor~~ — 12 domain modules, app factory with topological module loading, InMemoryEventBus, ModuleRegistry DI container, module-owned SQL migrations, 171 contract tests with import boundary enforcement; `main.py` 524→12 lines, `entrypoint.sh` 960→347 lines

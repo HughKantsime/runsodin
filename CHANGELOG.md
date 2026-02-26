@@ -2,6 +2,11 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.1] - 2026-02-26
+
+### Changed
+- **Route sub-router decomposition** — 8 oversized module `routes.py` files (607–1,338 lines) split into 25 focused sub-router files within `routes/` packages; each package assembles sub-routers in `__init__.py`; no URL, logic, or import path changes; OpenAPI spec preserved (578 paths)
+
 ## [1.4.0] - 2026-02-26
 
 ### Changed
@@ -13,7 +18,6 @@ All notable changes to O.D.I.N. are documented here.
 - **Module manifests** — each module's `__init__.py` declares `MODULE_ID`, `ROUTES`, `TABLES`, `PUBLISHES`, `SUBSCRIBES`, `IMPLEMENTS`, `REQUIRES`, `DAEMONS`, and a `register(app, registry)` function
 - **Contract tests** — 171 new tests including import boundary enforcement (`test_no_cross_module_imports`), module manifest validation, event bus contracts, and interface ABC compliance
 - `main.py` reduced from 524 → 12 lines; `entrypoint.sh` from 960 → 347 lines
-- **Route sub-router decomposition** — 8 oversized module `routes.py` files (600–1096 lines each) split into focused sub-router packages; each `routes/` package assembles sub-routers in `__init__.py`; no URL or logic changes
 
 ### Fixed
 - Missing Pydantic schemas in orders module (`ProductConsumableCreate`, `ConsumableCreate`, etc.) — 27 endpoints were silently dropped
