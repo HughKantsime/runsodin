@@ -2,6 +2,11 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.2] - 2026-02-26
+
+### Changed
+- **Frontend modular refactor** — monolithic `api.js` (883 lines, ~80 exports) split into `api/` directory with 14 domain modules + `client.js` + `index.js` (max file 165 lines); 34 pages grouped into 12 domain subdirectories under `pages/`; 38 components grouped into `shared/` + 9 domain subdirectories under `components/`; all import paths updated; zero functional changes; 113 files, 1801 tests passing
+
 ## [1.4.1] - 2026-02-26
 
 ### Changed

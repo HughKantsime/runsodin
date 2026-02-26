@@ -2,6 +2,10 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.2
+
+- ~~Frontend modular refactor~~ — `api.js` split into 14 domain modules + `client.js` + `index.js` (max 165L); 34 pages into 12 subdirectories; 38 components into `shared/` + 9 domain subdirectories; 113 files changed, zero functional changes
+
 ## Shipped in v1.4.1
 
 - ~~Route sub-router decomposition~~ — 8 oversized module route files (7,450 lines total) split into 25 focused sub-router files within `routes/` packages; max file 595 lines; no URL or logic changes
@@ -213,7 +217,6 @@ Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/co
 
 ## Next Up
 
-- [ ] Frontend modular refactor — split api.js into 14 domain modules, group pages/components by domain directories mirroring backend modules [PRIORITY: high]
 - [ ] Cross-module violation cleanup — extract `calculate_job_cost` to service layer, replace `_get_org_settings` imports with OrgSettingsProvider registry interface, move `compute_printer_online()` to printers module [PRIORITY: medium]
 - [ ] Oversized page splitting — Settings.jsx (1,941L), Spools.jsx (1,458L), Printers.jsx (1,346L), Jobs.jsx (1,225L), Orders.jsx (1,098L) into focused sub-components [PRIORITY: medium]
 - [ ] Large backend file splits — mqtt_monitor.py (1,204L), event_dispatcher.py (1,041L), vision/monitor.py (880L) into focused sub-modules [PRIORITY: low]
