@@ -21,7 +21,9 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from deps import get_db, get_current_user, require_role
+from core.db import get_db
+from core.dependencies import get_current_user
+from core.rbac import require_role
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -531,7 +533,7 @@ def ams_preview(
     # Get target printer's AMS state if provided
     available = []
     if printer_id:
-        from models import Printer, FilamentSlot
+        from modules.printers.models import Printer, FilamentSlot
         printer = db.query(Printer).filter(Printer.id == printer_id).first()
         if printer:
             slots = db.query(FilamentSlot).filter(
@@ -595,13 +597,13 @@ def reprint_archive(
         )
 
     # Verify target printer exists
-    from models import Printer
+    from modules.printers.models import Printer
     printer = db.query(Printer).filter(Printer.id == body.printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
 
     # Create a new job pointing to the same file
-    from models import Job
+    from modules.jobs.models import Job
     new_job = Job(
         item_name=f"Reprint: {ad.get('print_name', 'Unknown')}",
         printer_id=body.printer_id,

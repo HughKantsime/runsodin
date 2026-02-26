@@ -26,7 +26,7 @@ log = logging.getLogger("odin.dispatch")
 
 # Graceful import — ws_hub may not be running in all contexts
 try:
-    from ws_hub import push_event as _ws_push
+    from core.ws_hub import push_event as _ws_push
 except ImportError:
     def _ws_push(*a, **kw): pass
 
@@ -50,8 +50,8 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
     Returns None if the printer can't be loaded.
     """
     import sqlite3
-    import crypto
-    from db_utils import get_db
+    import core.crypto as crypto
+    from core.db_utils import get_db
 
     try:
         with get_db(row_factory=sqlite3.Row) as conn:
@@ -138,7 +138,7 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
 def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
     """Find the next SCHEDULED job for this printer that has a stored file on disk."""
     import sqlite3
-    from db_utils import get_db
+    from core.db_utils import get_db
 
     try:
         with get_db(row_factory=sqlite3.Row) as conn:
@@ -166,7 +166,7 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
 def _load_job(job_id: int) -> Optional[dict]:
     """Load a specific job's dispatch info from the DB."""
     import sqlite3
-    from db_utils import get_db
+    from core.db_utils import get_db
 
     try:
         with get_db(row_factory=sqlite3.Row) as conn:
@@ -194,7 +194,7 @@ def _load_job(job_id: int) -> Optional[dict]:
 
 def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
     """Dispatch to a Bambu printer: implicit FTPS upload + MQTT project_file."""
-    from bambu_adapter import BambuPrinter
+    from modules.printers.adapters.bambu import BambuPrinter
 
     printer = BambuPrinter(
         ip=creds["ip"],
@@ -224,7 +224,7 @@ def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: 
 
 def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
     """Dispatch to a Moonraker printer: HTTP multipart upload + REST start."""
-    from moonraker_adapter import MoonrakerPrinter
+    from modules.printers.adapters.moonraker import MoonrakerPrinter
 
     printer = MoonrakerPrinter(
         host=creds["ip"],
@@ -246,7 +246,7 @@ def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, cre
 
 def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
     """Dispatch to a PrusaLink printer: multipart upload + auto-start."""
-    from prusalink_adapter import PrusaLinkPrinter
+    from modules.printers.adapters.prusalink import PrusaLinkPrinter
 
     printer = PrusaLinkPrinter(
         host=creds["ip"],
@@ -276,7 +276,7 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     Returns:
         (success, message) tuple.
     """
-    from db_utils import get_db
+    from core.db_utils import get_db
 
     # Load job
     job = _load_job(job_id)

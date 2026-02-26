@@ -50,7 +50,7 @@ def get_smtp_config(session):
     # Decrypt password — migration-safe: crypto.decrypt() falls back to raw on failure
     if config.get("password"):
         try:
-            import crypto
+            import core.crypto as crypto
             config = dict(config)
             config["password"] = crypto.decrypt(config["password"])
         except Exception:
@@ -382,7 +382,7 @@ def process_due_reports(session):
 def process_quiet_hours_digest(session):
     """Send digest email when quiet hours end."""
     try:
-        from quiet_hours import is_quiet_time, get_queued_alerts_for_digest, format_digest_html, _get_config
+        from modules.notifications.quiet_hours import is_quiet_time, get_queued_alerts_for_digest, format_digest_html, _get_config
     except ImportError:
         return
 

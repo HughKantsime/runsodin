@@ -13,17 +13,21 @@ from pydantic import BaseModel as PydanticBaseModel
 import json
 import logging
 
-from deps import (get_db, get_current_user, require_role, log_audit,
-                  _get_org_filter, get_org_scope, check_org_access,
-                  compute_printer_online, _get_period_key, _get_quota_usage)
-from models import (
-    Job, JobStatus, Printer, Model, Spool, SpoolUsage, SpoolStatus,
-    SystemConfig, AlertType, AlertSeverity, FilamentType, PrintPreset,
-)
-from schemas import (
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.printer_utils import compute_printer_online
+from core.quota import _get_period_key, _get_quota_usage
+from core.config import settings
+from core.base import JobStatus, AlertType, AlertSeverity, FilamentType, SpoolStatus
+from modules.jobs.models import Job, PrintPreset
+from modules.printers.models import Printer
+from modules.models_library.models import Model
+from modules.inventory.models import Spool, SpoolUsage
+from core.models import SystemConfig
+from modules.jobs.schemas import (
     JobCreate, JobUpdate, JobResponse, JobSummary,
 )
-from config import settings
 from license_manager import require_feature
 
 log = logging.getLogger("odin.api")
@@ -85,7 +89,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     requests. The approval workflow logic checks current_user["role"] internally.
     """
     # Import here to avoid circular at module level
-    from routers.models import calculate_job_cost
+    from modules.models_library.routes import calculate_job_cost
 
     # Check print quota before creating job
     if current_user:
@@ -127,7 +131,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     effective_filament_type = job.filament_type
     effective_colors = job.colors_required
     if current_user and current_user.get("group_id") and not effective_filament_type:
-        from routers.orgs import _get_org_settings
+        from modules.organizations.routes import _get_org_settings
         org_settings = _get_org_settings(db, current_user["group_id"])
         if org_settings.get("default_filament_type"):
             effective_filament_type = org_settings["default_filament_type"]
@@ -173,7 +177,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     # If submitted for approval, notify group owner (or all operators/admins as fallback)
     if initial_status == "submitted":
         try:
-            from alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
+            from modules.notifications.alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
             owner_id = get_group_owner_id(db, current_user["id"])
             target_ids = [owner_id] if owner_id else get_operator_admin_ids(db)
             dispatch_alert(
@@ -200,7 +204,7 @@ def check_filament_compatibility(
     db: Session = Depends(get_db),
 ):
     """Check if a printer has compatible filament loaded. Advisory only — never blocks job creation."""
-    from models import Printer, FilamentSlot
+    from modules.printers.models import Printer, FilamentSlot
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
@@ -226,12 +230,12 @@ def check_filament_compatibility(
 @router.post("/jobs/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
-    from routers.models import calculate_job_cost
+    from modules.models_library.routes import calculate_job_cost
 
     # Pre-load org settings for default filament
     org_settings = {}
     if current_user and current_user.get("group_id"):
-        from routers.orgs import _get_org_settings
+        from modules.organizations.routes import _get_org_settings
         org_settings = _get_org_settings(db, current_user["group_id"])
 
     db_jobs = []
@@ -294,7 +298,7 @@ def create_jobs_batch(
 
     Creates one job per printer_id and returns all created jobs.
     """
-    from routers.models import calculate_job_cost
+    from modules.models_library.routes import calculate_job_cost
 
     if not body.printer_ids:
         raise HTTPException(status_code=400, detail="printer_ids cannot be empty")
@@ -622,7 +626,7 @@ def dispatch_job_to_printer(
         raise HTTPException(status_code=400, detail="Job is not assigned to a printer")
 
     try:
-        from printer_dispatch import dispatch_job
+        from modules.printers.dispatch import dispatch_job
         success, message = dispatch_job(job.printer_id, job_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dispatch error: {e}")
@@ -663,7 +667,7 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
     # Notify the student who submitted
     if job.submitted_by:
         try:
-            from alert_dispatcher import dispatch_alert
+            from modules.notifications.alert_dispatcher import dispatch_alert
             dispatch_alert(
                 db=db,
                 alert_type=AlertType.JOB_APPROVED,
@@ -703,7 +707,7 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
     # Notify the student who submitted
     if job.submitted_by:
         try:
-            from alert_dispatcher import dispatch_alert
+            from modules.notifications.alert_dispatcher import dispatch_alert
             dispatch_alert(
                 db=db,
                 alert_type=AlertType.JOB_REJECTED,
@@ -745,7 +749,7 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
 
     # Re-notify group owner (or all operators/admins as fallback)
     try:
-        from alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
+        from modules.notifications.alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
         owner_id = get_group_owner_id(db, current_user["id"])
         target_ids = [owner_id] if owner_id else get_operator_admin_ids(db)
         dispatch_alert(

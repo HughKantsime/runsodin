@@ -22,22 +22,22 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-import printer_events
-from db_utils import get_db
+import modules.notifications.event_dispatcher as printer_events
+from core.db_utils import get_db
 
 # WebSocket push (same as mqtt_monitor / moonraker_monitor)
 try:
-    from ws_hub import push_event as ws_push
+    from core.ws_hub import push_event as ws_push
 except ImportError:
     def ws_push(*a, **kw): pass
 
 # MQTT republish (same as mqtt_monitor / moonraker_monitor)
 try:
-    import mqtt_republish as _mqtt_republish
+    import modules.notifications.mqtt_republish as _mqtt_republish
 except ImportError:
     _mqtt_republish = None
 
-from prusalink_adapter import PrusaLinkPrinter, PrusaLinkState
+from modules.printers.adapters.prusalink import PrusaLinkPrinter, PrusaLinkState
 
 log = logging.getLogger(__name__)
 
@@ -333,7 +333,7 @@ def start_prusalink_monitors():
             api_key = ""
             if api_key_raw:
                 try:
-                    from crypto import decrypt
+                    from core.crypto import decrypt
                     decrypted = decrypt(api_key_raw)
                     # Format: "username|password" or just "api_key"
                     if "|" in decrypted:

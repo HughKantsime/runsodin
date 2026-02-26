@@ -20,9 +20,9 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-import auth as auth_module
-from auth import decode_token, verify_password
-from models import AuditLog
+import core.auth as auth_module
+from core.auth import decode_token, verify_password
+from core.models import AuditLog
 from core.db import get_db
 
 log = logging.getLogger("odin.api")

@@ -22,7 +22,7 @@ import json
 import logging
 
 try:
-    from quiet_hours import should_suppress_notification
+    from modules.notifications.quiet_hours import should_suppress_notification
 except ImportError:
     def should_suppress_notification(org_id=None): return False
 import smtplib
@@ -35,10 +35,9 @@ from typing import Optional, List
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from models import (
-    Alert, AlertPreference, AlertType, AlertSeverity,
-    PushSubscription, SystemConfig
-)
+from core.base import AlertType, AlertSeverity
+from core.models import SystemConfig
+from modules.notifications.models import Alert, AlertPreference, PushSubscription
 
 logger = logging.getLogger("alert_dispatcher")
 
@@ -199,7 +198,7 @@ def _get_smtp_config(db):
     # Decrypt password — migration-safe: crypto.decrypt() falls back to raw on failure
     if smtp.get("password"):
         try:
-            import crypto
+            import core.crypto as crypto
             smtp = dict(smtp)  # copy to avoid mutating the cached ORM value
             smtp["password"] = crypto.decrypt(smtp["password"])
         except Exception:
@@ -377,7 +376,7 @@ def dispatch_alert(
     # Org-level webhook dispatch
     if _printer_org_id:
         try:
-            from routers.orgs import _get_org_settings
+            from modules.organizations.routes import _get_org_settings
             org_settings = _get_org_settings(db, _printer_org_id)
             org_webhook_url = org_settings.get("webhook_url")
             if org_webhook_url:

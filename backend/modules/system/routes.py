@@ -20,20 +20,24 @@ import shutil
 
 import httpx
 
-from deps import (
-    get_db, get_current_user, require_role, log_audit, _validate_password, SessionLocal,
-)
+from core.db import get_db, SessionLocal
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role
+from core.auth_helpers import _validate_password
 from datetime import timezone
-from models import (
-    Printer, FilamentSlot, FilamentType, SystemConfig, MaintenanceTask, MaintenanceLog,
-    Model, Job, Spool, FilamentLibrary,
-)
-from schemas import HealthCheck
-from config import settings
-from auth import hash_password, create_access_token
+from core.base import FilamentType
+from modules.printers.models import Printer, FilamentSlot
+from modules.system.models import MaintenanceTask, MaintenanceLog
+from core.models import SystemConfig
+from modules.models_library.models import Model
+from modules.jobs.models import Job
+from modules.inventory.models import Spool, FilamentLibrary
+from modules.system.schemas import HealthCheck
+from core.config import settings
+from core.auth import hash_password, create_access_token
 from license_manager import get_license, save_license_file, get_installation_id
-from branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
-import crypto
+from modules.organizations.branding import Branding, get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
+import core.crypto as crypto
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -331,13 +335,13 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
     """Test printer connection during setup. Wraps existing test logic."""
     if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
-    from routers.printers import _check_ssrf_blocklist
+    from modules.printers.routes import _check_ssrf_blocklist
     _check_ssrf_blocklist(request.api_host)
     if request.api_type.lower() == "bambu":
         if not request.serial or not request.access_code:
             raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
         try:
-            from bambu_adapter import BambuPrinter
+            from modules.printers.adapters.bambu import BambuPrinter
             import time
 
             bambu = BambuPrinter(
@@ -354,7 +358,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
 
             # Model detection — best-effort, never raises
             try:
-                from printer_models import normalize_model_name
+                from modules.printers.printer_models import normalize_model_name
                 detected_model = normalize_model_name("bambu", bambu_status.printer_type)
             except Exception:
                 detected_model = None
@@ -441,7 +445,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
                 #   or {"printer": "MK4S"}               (older firmware)
                 detected_model = None
                 try:
-                    from printer_models import normalize_model_name
+                    from modules.printers.printer_models import normalize_model_name
                     printer_field = info.get("printer", None)
                     if isinstance(printer_field, dict):
                         raw_type = printer_field.get("type", "") or ""
@@ -485,7 +489,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
         # Model detection via UDP unicast M99999 probe — best-effort, never raises
         detected_model = None
         try:
-            from printer_models import normalize_model_name
+            from modules.printers.printer_models import normalize_model_name
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(3.0)
             try:
@@ -645,7 +649,7 @@ async def setup_save_network(request: Request, db: Session = Depends(get_db), cu
     else:
         db.execute(text("INSERT INTO system_config (key, value) VALUES ('host_ip', :v)"), {"v": host_ip})
     db.commit()
-    from routers.printers import sync_go2rtc_config
+    from modules.printers.routes import sync_go2rtc_config
     sync_go2rtc_config(db)
     return {"success": True, "host_ip": host_ip}
 
@@ -1113,7 +1117,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
 async def lookup_hms(code: str, current_user: dict = Depends(require_role("viewer"))):
     """Look up human-readable description for a Bambu HMS error code."""
     try:
-        from hms_codes import lookup_hms_code, get_code_count
+        from modules.printers.hms_codes import lookup_hms_code, get_code_count
         return {
             "code": code,
             "message": lookup_hms_code(code),
@@ -1169,7 +1173,7 @@ async def update_quiet_hours_config(request: Request, current_user: dict = Depen
 
     # Invalidate cache
     try:
-        from quiet_hours import invalidate_cache
+        from modules.notifications.quiet_hours import invalidate_cache
         invalidate_cache()
     except Exception:
         pass
@@ -1179,7 +1183,7 @@ async def update_quiet_hours_config(request: Request, current_user: dict = Depen
 
 # ============== MQTT Republish Configuration ==============
 try:
-    import mqtt_republish
+    import modules.notifications.mqtt_republish as mqtt_republish
 except ImportError:
     mqtt_republish = None
 

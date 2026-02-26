@@ -14,17 +14,20 @@ from datetime import datetime, timedelta, timezone
 import csv, io, json, logging, os, re
 from urllib.parse import quote
 
-from deps import (get_db, get_current_user, require_role, log_audit,
-                  _validate_password, _check_rate_limit, _record_login_attempt,
-                  _is_locked_out, SessionLocal, oauth2_scheme,
-                  _get_period_key, _get_quota_usage)
-import auth as auth_module
-from auth import hash_password, create_access_token, verify_password, decode_token, UserCreate, UserResponse
-from models import SystemConfig
-from config import settings
+from core.db import get_db, SessionLocal
+from core.dependencies import get_current_user, log_audit, oauth2_scheme
+from core.rbac import require_role
+from core.auth_helpers import (
+    _validate_password, _check_rate_limit, _record_login_attempt, _is_locked_out
+)
+from core.quota import _get_period_key, _get_quota_usage
+import core.auth as auth_module
+from core.auth import hash_password, create_access_token, verify_password, decode_token, UserCreate, UserResponse
+from core.models import SystemConfig
+from core.config import settings
 from license_manager import require_feature, check_user_limit
-from rate_limit import limiter
-from config import settings as _settings
+from core.rate_limit import limiter
+from core.config import settings as _settings
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -193,7 +196,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     if not user or not user.mfa_enabled or not user.mfa_secret:
         raise HTTPException(status_code=400, detail="MFA not configured for this user")
 
-    from crypto import decrypt
+    from core.crypto import decrypt
     secret = decrypt(user.mfa_secret)
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
@@ -253,7 +256,7 @@ async def mfa_setup(current_user: dict = Depends(require_role("viewer")), db: Se
     qr_b64 = base64.b64encode(buf.getvalue()).decode()
 
     # Store secret temporarily (encrypted) — not enabled until confirmed
-    from crypto import encrypt, get_fernet
+    from core.crypto import encrypt, get_fernet
     if not get_fernet():
         raise HTTPException(
             status_code=503,
@@ -288,7 +291,7 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     if user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is already enabled")
 
-    from crypto import decrypt
+    from core.crypto import decrypt
     secret = decrypt(user.mfa_secret)
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
@@ -316,7 +319,7 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
     # Require TOTP code to disable (unless admin is disabling for another user)
     code = (body or {}).get("code", "")
     if code:
-        from crypto import decrypt
+        from core.crypto import decrypt
         secret = decrypt(user.mfa_secret)
         totp = pyotp.TOTP(secret)
         if not totp.verify(code, valid_window=1):
@@ -874,7 +877,7 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
 @router.get("/auth/oidc/login", tags=["Auth"])
 async def oidc_login(request: Request, db: Session = Depends(get_db)):
     """Initiate OIDC login flow. Redirects to identity provider."""
-    from oidc_handler import create_handler_from_config
+    from modules.organizations.oidc_handler import create_handler_from_config
 
     row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled = 1 LIMIT 1")).fetchone()
     if not row:
@@ -907,7 +910,7 @@ async def oidc_callback(
     db: Session = Depends(get_db)
 ):
     """Handle OIDC callback from identity provider."""
-    from oidc_handler import create_handler_from_config
+    from modules.organizations.oidc_handler import create_handler_from_config
     from fastapi.responses import RedirectResponse
 
     # Handle errors from provider
@@ -1019,7 +1022,7 @@ async def oidc_callback(
         # This avoids leaking the JWT in the redirect URL (browser history, Referer header, logs).
         # The token itself is Fernet-encrypted so a SQLite dump doesn't yield usable JWTs.
         import secrets as _secrets
-        from crypto import encrypt as _crypto_encrypt
+        from core.crypto import encrypt as _crypto_encrypt
         oidc_code = _secrets.token_urlsafe(48)
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
         db.execute(text(
@@ -1074,7 +1077,7 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
         raise HTTPException(status_code=400, detail="Code expired")
 
     # Decrypt the stored token (encrypted at storage time to protect against DB dump)
-    from crypto import decrypt as _crypto_decrypt, is_encrypted as _crypto_is_encrypted
+    from core.crypto import decrypt as _crypto_decrypt, is_encrypted as _crypto_is_encrypted
     raw_token = row.access_token
     access_token = _crypto_decrypt(raw_token) if _crypto_is_encrypted(raw_token) else raw_token
 
@@ -1136,7 +1139,7 @@ async def update_oidc_config(
     # Encrypt client secret if provided
     client_secret = data.get("client_secret")
     if client_secret:
-        from crypto import encrypt
+        from core.crypto import encrypt
         data["client_secret_encrypted"] = encrypt(client_secret)
         del data["client_secret"]
 
@@ -1250,7 +1253,7 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
     password = smtp.get("password", "")
     if password:
         try:
-            import crypto
+            import core.crypto as crypto
             password = crypto.decrypt(password)
         except Exception:
             pass

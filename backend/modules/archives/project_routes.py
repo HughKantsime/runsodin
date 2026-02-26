@@ -21,7 +21,9 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from deps import get_db, get_current_user, require_role
+from core.db import get_db
+from core.dependencies import get_current_user
+from core.rbac import require_role
 
 log = logging.getLogger("odin.api")
 router = APIRouter()

@@ -23,7 +23,9 @@ from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from deps import get_db, get_current_user, require_role, log_audit
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -372,7 +374,7 @@ async def apply_profile(
         raise HTTPException(status_code=400, detail="Invalid profile JSON content")
 
     # Build GCode commands based on category
-    from moonraker_adapter import MoonrakerPrinter
+    from modules.printers.adapters.moonraker import MoonrakerPrinter
     adapter = MoonrakerPrinter(printer.api_host)
 
     gcodes = []

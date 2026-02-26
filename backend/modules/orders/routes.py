@@ -12,13 +12,17 @@ from datetime import datetime, timezone
 import json
 import logging
 
-from deps import get_db, get_current_user, require_role, log_audit, _get_org_filter
-from models import (
-    Product, ProductComponent, Order, OrderItem, OrderStatus,
-    Consumable, ProductConsumable, ConsumableUsage,
-    Model, Job, JobStatus, SystemConfig, FilamentLibrary,
-)
-from schemas import (
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter
+from core.config import settings
+from core.base import OrderStatus, JobStatus
+from core.models import SystemConfig
+from modules.orders.models import Product, ProductComponent, Order, OrderItem
+from modules.inventory.models import Consumable, ProductConsumable, ConsumableUsage, FilamentLibrary
+from modules.models_library.models import Model
+from modules.jobs.models import Job
+from modules.orders.schemas import (
     ProductResponse, ProductCreate, ProductUpdate,
     ProductComponentResponse, ProductComponentCreate,
     ProductConsumableResponse, ProductConsumableCreate,
@@ -26,7 +30,6 @@ from schemas import (
     OrderItemResponse, OrderItemCreate, OrderItemUpdate, OrderShipRequest,
     ConsumableCreate, ConsumableUpdate, ConsumableResponse, ConsumableAdjust,
 )
-from config import settings
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -551,11 +554,11 @@ def get_order_invoice(
         raise HTTPException(status_code=404, detail="Order not found")
 
     try:
-        from branding import get_or_create_branding, branding_to_dict
+        from modules.organizations.branding import get_or_create_branding, branding_to_dict
         enriched = _enrich_order_response(order, db)
         branding = branding_to_dict(get_or_create_branding(db))
 
-        from invoice_generator import InvoiceGenerator
+        from modules.orders.invoice_generator import InvoiceGenerator
         gen = InvoiceGenerator(branding, enriched.model_dump())
         pdf_bytes = bytes(gen.generate())
     except Exception as e:

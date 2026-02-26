@@ -11,15 +11,18 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 import logging
 
-from deps import get_db, get_current_user, require_role
-from models import (
-    Job, JobStatus, Printer, SchedulerRun,
-)
-from schemas import (
+from core.db import get_db
+from core.dependencies import get_current_user
+from core.rbac import require_role
+from core.base import JobStatus
+from modules.jobs.models import Job, SchedulerRun
+from modules.printers.models import Printer
+from modules.jobs.schemas import (
     SchedulerConfig as SchedulerConfigSchema, ScheduleResult, SchedulerRunResponse,
-    JobSummary, TimelineResponse, TimelineSlot, PrinterSummary,
+    JobSummary, TimelineResponse, TimelineSlot,
 )
-from scheduler import Scheduler, SchedulerConfig, run_scheduler
+from modules.printers.schemas import PrinterSummary
+from modules.jobs.scheduler import Scheduler, SchedulerConfig, run_scheduler
 
 log = logging.getLogger("odin.api")
 

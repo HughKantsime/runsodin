@@ -16,8 +16,8 @@ import time
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
-from db_utils import get_db
-import crypto
+from core.db_utils import get_db
+import core.crypto as crypto
 
 log = logging.getLogger("smart_plug")
 

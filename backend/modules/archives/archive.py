@@ -7,7 +7,7 @@ Called from printer_events.job_completed().
 
 import logging
 
-from db_utils import get_db
+from core.db_utils import get_db
 
 log = logging.getLogger("odin.archive")
 

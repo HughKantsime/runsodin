@@ -12,8 +12,11 @@ from datetime import datetime
 import json
 import logging
 
-import crypto
-from deps import get_db, require_role, log_audit, _validate_webhook_url
+import core.crypto as crypto
+from core.db import get_db
+from core.rbac import require_role
+from core.dependencies import log_audit
+from core.webhook_utils import _validate_webhook_url
 
 log = logging.getLogger("odin.api")
 router = APIRouter()

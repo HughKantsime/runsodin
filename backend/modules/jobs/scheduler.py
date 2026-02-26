@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from models import Printer, Job, JobStatus, SchedulerRun
+from core.base import JobStatus
+from modules.printers.models import Printer
+from modules.jobs.models import Job, SchedulerRun
 
 
 @dataclass

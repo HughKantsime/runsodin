@@ -24,22 +24,22 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-import printer_events
-from db_utils import get_db
+import modules.notifications.event_dispatcher as printer_events
+from core.db_utils import get_db
 
 # WebSocket push (same as all other monitors)
 try:
-    from ws_hub import push_event as ws_push
+    from core.ws_hub import push_event as ws_push
 except ImportError:
     def ws_push(*a, **kw): pass
 
 # MQTT republish (same as all other monitors)
 try:
-    import mqtt_republish as _mqtt_republish
+    import modules.notifications.mqtt_republish as _mqtt_republish
 except ImportError:
     _mqtt_republish = None
 
-from elegoo_adapter import ElegooPrinter, ElegooStatus, SDCPCurrentStatus, SDCPPrintStatus
+from modules.printers.adapters.elegoo import ElegooPrinter, ElegooStatus, SDCPCurrentStatus, SDCPPrintStatus
 
 log = logging.getLogger(__name__)
 
@@ -336,7 +336,7 @@ def start_elegoo_monitors():
             # api_key stores mainboard_id for Elegoo (no auth needed)
             if row["api_key"]:
                 try:
-                    from crypto import decrypt
+                    from core.crypto import decrypt
                     mainboard_id = decrypt(row["api_key"])
                 except Exception:
                     mainboard_id = row["api_key"]

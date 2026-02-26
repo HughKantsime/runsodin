@@ -20,16 +20,16 @@ from datetime import datetime, timezone
 from threading import Thread, Lock
 from typing import Dict, Optional, Any
 
-import crypto
-from bambu_adapter import BambuPrinter
-from db_utils import get_db
-import printer_events
+import core.crypto as crypto
+from modules.printers.adapters.bambu import BambuPrinter
+from core.db_utils import get_db
+import modules.notifications.event_dispatcher as printer_events
 try:
-    import mqtt_republish
+    import modules.notifications.mqtt_republish as mqtt_republish
 except ImportError:
     mqtt_republish = None
 try:
-    from ws_hub import push_event as ws_push
+    from core.ws_hub import push_event as ws_push
 except ImportError:
     def ws_push(*a, **kw): pass
 
@@ -247,7 +247,7 @@ class PrinterMonitor:
                         raw_pt = self._state.get('printer_type', '')
                         if raw_pt:
                             try:
-                                from threemf_parser import _friendly_printer_name
+                                from modules.models_library.threemf_parser import _friendly_printer_name
                                 friendly = _friendly_printer_name(raw_pt) or raw_pt
                                 conn.execute(
                                     "UPDATE printers SET model = ? WHERE id = ? AND (model IS NULL OR model = '' OR model = 'Unknown')",
@@ -260,7 +260,7 @@ class PrinterMonitor:
                         # Auto-detect machine_type (H2D, X1C, P1S, etc.) — always update
                         if raw_pt:
                             try:
-                                from threemf_parser import _friendly_printer_name as _fpn
+                                from modules.models_library.threemf_parser import _friendly_printer_name as _fpn
                                 detected_type = _fpn(raw_pt) or raw_pt
                                 conn.execute(
                                     "UPDATE printers SET machine_type = ? WHERE id = ? AND (machine_type IS NULL OR machine_type != ?)",

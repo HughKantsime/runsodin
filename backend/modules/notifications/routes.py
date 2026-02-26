@@ -13,20 +13,21 @@ import json
 import logging
 import threading
 
-import crypto
-from deps import get_db, get_current_user, require_role, log_audit, _get_org_filter, _validate_webhook_url
-from models import (
-    Alert, AlertType, AlertSeverity, AlertPreference, PushSubscription,
-    SystemConfig,
-)
-from schemas import (
+import core.crypto as crypto
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter
+from core.webhook_utils import _validate_webhook_url
+from core.config import settings
+from core.base import AlertType, AlertSeverity
+from core.models import SystemConfig
+from modules.notifications.models import Alert, AlertPreference, PushSubscription
+from modules.notifications.schemas import (
     AlertResponse, AlertSummary,
     AlertPreferenceResponse, AlertPreferencesUpdate,
     SmtpConfigBase, SmtpConfigResponse,
     PushSubscriptionCreate,
 )
-from config import settings
-import crypto
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -548,7 +549,7 @@ async def get_alert_preferences(
     ).all()
 
     if not prefs:
-        from alert_dispatcher import seed_alert_preferences
+        from modules.notifications.alert_dispatcher import seed_alert_preferences
         seed_alert_preferences(db, current_user["id"])
         prefs = db.query(AlertPreference).filter(
             AlertPreference.user_id == current_user["id"]
@@ -648,7 +649,7 @@ async def send_test_email(
     db: Session = Depends(get_db)
 ):
     """Send a test email to the current user (admin only)."""
-    from alert_dispatcher import _get_smtp_config, _deliver_email
+    from modules.notifications.alert_dispatcher import _get_smtp_config, _deliver_email
 
     smtp = _get_smtp_config(db)
     if not smtp:

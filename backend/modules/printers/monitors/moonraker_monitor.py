@@ -27,19 +27,19 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from moonraker_adapter import MoonrakerPrinter, MoonrakerState
-from db_utils import get_db
-import printer_events
+from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
+from core.db_utils import get_db
+import modules.notifications.event_dispatcher as printer_events
 
 # WebSocket push (same as mqtt_monitor)
 try:
-    from ws_hub import push_event as ws_push
+    from core.ws_hub import push_event as ws_push
 except ImportError:
     def ws_push(*a, **kw): pass
 
 # MQTT republish (same as mqtt_monitor)
 try:
-    import mqtt_republish
+    import modules.notifications.mqtt_republish as mqtt_republish
 except ImportError:
     mqtt_republish = None
 
@@ -670,7 +670,7 @@ def start_moonraker_monitors():
             api_key = ""
             if api_key_raw:
                 try:
-                    from crypto import decrypt
+                    from core.crypto import decrypt
                     api_key = decrypt(api_key_raw)
                 except Exception:
                     api_key = api_key_raw

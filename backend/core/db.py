@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 from core.config import settings
-from models import Base  # Single Base instance shared across all models
+from core.base import Base  # Single Base instance shared across all models
 
 engine = create_engine(
     settings.database_url,

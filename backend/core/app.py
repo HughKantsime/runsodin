@@ -156,7 +156,7 @@ ws_manager = ConnectionManager()
 
 async def _ws_broadcaster():
     """Background task: read events from ws_events table, broadcast to WebSocket clients."""
-    from ws_hub import read_events_since
+    from core.ws_hub import read_events_since
 
     last_id = 0
     while True:
@@ -170,7 +170,7 @@ async def _ws_broadcaster():
 
 async def _periodic_cleanup():
     """Background task: hourly cleanup of stale login attempts, sessions, and expired tokens."""
-    from deps import SessionLocal
+    from core.db import SessionLocal
 
     while True:
         await asyncio.sleep(3600)
@@ -246,8 +246,8 @@ def _check_schema_drift(engine, Base):
 
 def _setup_middleware(app: FastAPI) -> None:
     """Attach CORS, rate limiting, and security-headers middleware to the app."""
-    from config import settings
-    from rate_limit import limiter
+    from core.config import settings
+    from core.rate_limit import limiter
     from slowapi import _rate_limit_exceeded_handler
     from slowapi.errors import RateLimitExceeded
 
@@ -275,7 +275,7 @@ def _setup_middleware(app: FastAPI) -> None:
 
 def _register_http_middleware(app: FastAPI) -> None:
     """Register @app.middleware("http") handlers for security headers and auth."""
-    from config import settings
+    from core.config import settings
 
     _CSP_SKIP_PREFIXES = (
         "/api/docs", "/api/redoc", "/api/v1/docs", "/api/v1/redoc", "/openapi.json"
@@ -313,7 +313,7 @@ def _register_http_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
         """Check IP allowlist and API key for all routes."""
-        from deps import SessionLocal
+        from core.db import SessionLocal
         from fastapi.responses import JSONResponse
 
         path = request.url.path
@@ -400,9 +400,9 @@ def create_app() -> FastAPI:
 
     Returns the fully configured app object. Uvicorn finds it via main:app.
     """
-    from config import settings
-    from deps import engine, Base
-    from auth import decode_token
+    from core.config import settings
+    from core.db import engine, Base
+    from core.auth import decode_token
     from core.registry import ModuleRegistry
 
     # -----------------------------------------------------------------------
@@ -427,7 +427,7 @@ def create_app() -> FastAPI:
 
         Base.metadata.create_all(bind=engine)
 
-        from ws_hub import ensure_table as _ws_ensure
+        from core.ws_hub import ensure_table as _ws_ensure
         _ws_ensure()
 
         _check_schema_drift(engine, Base)

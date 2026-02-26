@@ -46,10 +46,10 @@ try:
 except ImportError:
     ort = None
 
-import printer_events
-from db_utils import get_db
+import modules.notifications.event_dispatcher as printer_events
+from core.db_utils import get_db
 try:
-    from ws_hub import push_event as ws_push
+    from core.ws_hub import push_event as ws_push
 except ImportError:
     def ws_push(*a, **kw): pass
 
@@ -616,13 +616,13 @@ class PrinterVisionThread(threading.Thread):
             success = False
 
             if api_type == 'moonraker':
-                from moonraker_adapter import MoonrakerPrinter
+                from modules.printers.adapters.moonraker import MoonrakerPrinter
                 adapter = MoonrakerPrinter(api_host)
                 success = adapter.pause_print()
 
             elif api_type == 'bambu':
-                from bambu_adapter import BambuPrinter
-                from crypto import decrypt
+                from modules.printers.adapters.bambu import BambuPrinter
+                from core.crypto import decrypt
                 creds = decrypt(api_key)
                 serial, access_code = creds.split('|', 1)
                 adapter = BambuPrinter(api_host, serial, access_code)
@@ -631,7 +631,7 @@ class PrinterVisionThread(threading.Thread):
                     adapter.disconnect()
 
             elif api_type == 'prusalink':
-                from prusalink_adapter import PrusaLinkPrinter
+                from modules.printers.adapters.prusalink import PrusaLinkPrinter
                 adapter = PrusaLinkPrinter(api_host, api_key=api_key or '')
                 # PrusaLink pause requires job_id; try current running job
                 with get_db() as conn2:
@@ -646,7 +646,7 @@ class PrinterVisionThread(threading.Thread):
                     success = adapter.pause_print(int(jrow[0]))
 
             elif api_type == 'elegoo':
-                from elegoo_adapter import ElegooPrinter
+                from modules.printers.adapters.elegoo import ElegooPrinter
                 adapter = ElegooPrinter(api_host)
                 success = adapter.pause_print()
 

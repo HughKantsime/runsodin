@@ -16,12 +16,16 @@ import csv
 import io
 import httpx
 
-from deps import get_db, get_current_user, require_role, log_audit, _get_org_filter
-from models import (
-    Printer, Model, Job, JobStatus, Spool, SpoolUsage, AuditLog,
-    SystemConfig, FilamentLibrary,
-)
-from config import settings
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter
+from core.config import settings
+from core.base import JobStatus
+from core.models import SystemConfig, AuditLog
+from modules.printers.models import Printer
+from modules.models_library.models import Model
+from modules.jobs.models import Job
+from modules.inventory.models import Spool, SpoolUsage, FilamentLibrary
 from license_manager import require_feature
 
 log = logging.getLogger("odin.api")
@@ -981,7 +985,7 @@ async def run_report_now(schedule_id: int, current_user: dict = Depends(require_
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    from report_runner import run_report
+    from modules.reporting.report_runner import run_report
     try:
         run_report(dict(row._mapping))
     except RuntimeError as e:

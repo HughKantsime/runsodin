@@ -96,7 +96,7 @@ def _record_login_attempt(ip: str, username: str, success: bool, db=None):
 
     # Log to audit trail if db available
     if db:
-        from models import AuditLog
+        from core.models import AuditLog
         try:
             audit_entry = AuditLog(
                 action="login_success" if success else "login_failed",

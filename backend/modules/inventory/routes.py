@@ -24,17 +24,15 @@ from pydantic import BaseModel as PydanticBaseModel, ConfigDict, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from deps import (
-    get_db, get_current_user, require_role, log_audit,
-    _get_org_filter, get_org_scope, check_org_access, SessionLocal,
-)
-from models import (
-    Spool, SpoolUsage, SpoolStatus, FilamentSlot, FilamentLibrary,
-    Printer, DryingLog, HYGROSCOPIC_TYPES,
-)
-from schemas import SpoolmanSpool, SpoolmanSyncResult
-from config import settings
-import crypto
+from core.db import get_db, SessionLocal
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.config import settings
+from core.base import SpoolStatus, HYGROSCOPIC_TYPES
+import core.crypto as crypto
+from modules.inventory.models import Spool, SpoolUsage, FilamentLibrary, DryingLog
+from modules.printers.models import FilamentSlot, Printer
+from modules.printers.schemas import SpoolmanSpool, SpoolmanSyncResult
 
 log = logging.getLogger("odin.api")
 router = APIRouter()

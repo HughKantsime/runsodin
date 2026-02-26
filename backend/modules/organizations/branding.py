@@ -13,7 +13,7 @@ from sqlalchemy.sql import func
 from datetime import datetime
 import os
 
-from models import Base
+from core.base import Base
 
 
 # ============== Model ==============

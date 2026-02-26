@@ -32,7 +32,7 @@ log = logging.getLogger("oidc")
 def _state_db_store(state: str, expires: datetime):
     """Persist an OIDC state token to SQLite."""
     try:
-        from deps import SessionLocal
+        from core.db import SessionLocal
         from sqlalchemy import text
         db = SessionLocal()
         try:
@@ -49,7 +49,7 @@ def _state_db_store(state: str, expires: datetime):
 def _state_db_validate(state: str) -> bool:
     """Check and consume an OIDC state token from SQLite. Returns True if valid."""
     try:
-        from deps import SessionLocal
+        from core.db import SessionLocal
         from sqlalchemy import text
         db = SessionLocal()
         try:
@@ -76,7 +76,7 @@ def _state_db_validate(state: str) -> bool:
 def _state_db_cleanup():
     """Remove expired OIDC state tokens from SQLite."""
     try:
-        from deps import SessionLocal
+        from core.db import SessionLocal
         from sqlalchemy import text
         db = SessionLocal()
         try:
@@ -270,7 +270,7 @@ class OIDCHandler:
 
 def create_handler_from_config(config: Dict[str, Any], redirect_uri: str) -> OIDCHandler:
     """Create OIDCHandler from database config row."""
-    from crypto import decrypt
+    from core.crypto import decrypt
     
     client_secret = config.get("client_secret_encrypted")
     if client_secret:

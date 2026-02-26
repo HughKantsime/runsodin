@@ -23,7 +23,7 @@ import logging
 import threading
 import sqlite3
 from typing import Optional, Dict, Any
-from db_utils import get_db
+from core.db_utils import get_db
 
 log = logging.getLogger("mqtt_republish")
 
@@ -57,7 +57,7 @@ def _get_config() -> Optional[Dict[str, Any]]:
         # Decrypt password — migration-safe: crypto.decrypt() falls back to raw on failure
         if raw_password:
             try:
-                import crypto
+                import core.crypto as crypto
                 raw_password = crypto.decrypt(raw_password)
             except Exception:
                 pass

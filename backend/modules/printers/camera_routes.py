@@ -22,10 +22,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from auth import decode_token
-from deps import get_db, get_current_user, require_role, log_audit
-from models import Printer, Timelapse
-from routers.printers import get_camera_url, sync_go2rtc_config
+from core.auth import decode_token
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role
+from modules.printers.models import Printer
+from modules.archives.models import Timelapse
+from modules.printers.routes import get_camera_url, sync_go2rtc_config
 
 log = logging.getLogger("odin.api")
 router = APIRouter()

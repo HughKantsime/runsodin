@@ -87,7 +87,18 @@ echo "  ✓ Supervisor environment written"
 # ── Initialize database (creates tables if needed) ──
 cd /app/backend
 python3 -c "
-from models import Base
+from core.base import Base
+# Import all ORM models so SQLAlchemy registers them with Base.metadata
+import modules.printers.models
+import modules.jobs.models
+import modules.inventory.models
+import modules.models_library.models
+import modules.vision.models
+import modules.notifications.models
+import modules.orders.models
+import modules.archives.models
+import modules.system.models
+import core.models
 from sqlalchemy import create_engine
 engine = create_engine('${DATABASE_URL:-sqlite:////data/odin.db}')
 Base.metadata.create_all(bind=engine)

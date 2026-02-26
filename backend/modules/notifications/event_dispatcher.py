@@ -20,7 +20,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from db_utils import get_db
+from core.db_utils import get_db
 from core.event_bus import get_event_bus
 from core.interfaces.event_bus import Event
 from core import events as ev
@@ -30,7 +30,7 @@ log = logging.getLogger("printer_events")
 # hms_codes is a pure lookup utility in the printers module — kept as a direct
 # import because it has no side effects and no circular dependency risk.
 try:
-    from hms_codes import lookup_hms_code
+    from modules.printers.hms_codes import lookup_hms_code
 except ImportError:
     def lookup_hms_code(code): return f"HMS Error {code}"
 

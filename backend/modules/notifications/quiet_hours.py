@@ -15,7 +15,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
-from db_utils import get_db
+from core.db_utils import get_db
 
 log = logging.getLogger("quiet_hours")
 

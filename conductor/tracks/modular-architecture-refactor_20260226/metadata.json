@@ -12,10 +12,10 @@
     "checkpoints": {
       "EXECUTE": {
         "status": "PASSED",
-        "phase": "Phase 6",
-        "tasks_completed": 45,
-        "commits": ["e38627c", "7bbc7ad", "7719306", "3b82a18", "2d30c5e", "f485255", "0ccf490"],
-        "notes": "Phase 6 complete. Created core/registry.py (ModuleRegistry with register_provider, get_provider, record_requires, validate_dependencies). Created core/app.py (create_app() factory: module discovery via _discover_modules(), topological sort via _resolve_load_order(), all middleware/CORS/lifespan extracted from main.py). Added register(app, registry) to all 11 module __init__.py files with accurate ROUTES/DAEMONS manifests. Rewrote main.py from 524 lines to 12 lines. Key implementation decision: module register() calls happen at app-creation time (not in lifespan) so routes are registered before the SPA catch-all route. 578 routes registered. Container healthy. make test baseline unchanged (1 failed, 54 passed, 10 skipped, 81 errors). SHA 0ccf490."
+        "phase": "Phase 7",
+        "tasks_completed": 51,
+        "commits": ["e38627c", "7bbc7ad", "7719306", "3b82a18", "2d30c5e", "f485255", "0ccf490", "TBD-phase7"],
+        "notes": "Phase 7 complete. Removed all re-export facades. Updated all module files (40+ Python files) to use canonical import paths (core.*, modules.*.*). Created 3 new core utility files (printer_utils.py, quota.py, webhook_utils.py) for unique logic from deps.py. Deleted 27 backend root stubs, models.py, schemas.py, deps.py, auth.py, config.py, crypto.py, ws_hub.py, rate_limit.py, db_utils.py, and entire routers/ directory. Updated entrypoint.sh to import from core.base and all domain modules. Fixed test files (test_printer_models.py, test_print_file_meta.py, test_mqtt_linking.py) to use canonical paths. Updated CLAUDE.md architecture section. make test baseline unchanged: 1 failed (pre-existing), 54 passed, 10 skipped, 81 errors."
       }
     }
   }

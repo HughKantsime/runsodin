@@ -119,20 +119,24 @@ def _run_job_started(db_path, printer_id, mqtt_state):
     Instantiate a PrinterMonitor with mocked dependencies, set state,
     and call _job_started(). Returns the monitor instance for inspection.
     """
-    # Import with mocked dependencies
+    # Import with mocked dependencies — patch at the module level the monitor actually imports
+    mock_event_dispatcher = MagicMock()
+    mock_event_dispatcher.__name__ = "modules.notifications.event_dispatcher"
     with patch.dict("sys.modules", {
-        "crypto": MagicMock(),
-        "bambu_adapter": MagicMock(),
-        "printer_events": MagicMock(),
-        "ws_hub": MagicMock(),
+        "core.crypto": MagicMock(),
+        "modules.printers.adapters.bambu": MagicMock(),
+        "modules.notifications": MagicMock(),
+        "modules.notifications.event_dispatcher": mock_event_dispatcher,
+        "modules.notifications.mqtt_republish": MagicMock(),
+        "core.ws_hub": MagicMock(),
         "moonraker_monitor": MagicMock(),
     }):
         # Patch DB_PATH before importing
         with patch.dict(os.environ, {"DATABASE_PATH": db_path}):
             # Force reimport to pick up patched DB_PATH
-            if "mqtt_monitor" in sys.modules:
-                del sys.modules["mqtt_monitor"]
-            import mqtt_monitor
+            if "modules.printers.monitors.mqtt_monitor" in sys.modules:
+                del sys.modules["modules.printers.monitors.mqtt_monitor"]
+            import modules.printers.monitors.mqtt_monitor as mqtt_monitor
             mqtt_monitor.DB_PATH = db_path
 
             monitor = mqtt_monitor.PrinterMonitor(

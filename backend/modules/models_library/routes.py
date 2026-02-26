@@ -5,7 +5,7 @@
 # Owns tables: models, model_revisions
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File
-from rate_limit import limiter
+from core.rate_limit import limiter
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
@@ -16,15 +16,18 @@ import os
 import re
 import tempfile
 
-from deps import (get_db, get_current_user, require_role, log_audit,
-                  _get_org_filter, get_org_scope, check_org_access)
-from models import (
-    Model, Job, JobStatus, SystemConfig, FilamentLibrary, FilamentType,
-)
-from schemas import (
+from core.db import get_db
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.config import settings
+from core.base import JobStatus, FilamentType
+from core.models import SystemConfig
+from modules.models_library.models import Model
+from modules.jobs.models import Job
+from modules.inventory.models import FilamentLibrary
+from modules.models_library.schemas import (
     ModelCreate, ModelUpdate, ModelResponse,
 )
-from config import settings
 
 log = logging.getLogger("odin.api")
 logger = log
@@ -422,7 +425,7 @@ async def upload_3mf(
     try:
         if ext == ".3mf":
             # --- .3mf path: full metadata parse ---
-            from threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
+            from modules.models_library.threemf_parser import parse_3mf, extract_objects_from_plate, extract_mesh_from_3mf
 
             # Zip bomb check: reject files where uncompressed size exceeds 500 MB
             import zipfile as _zf

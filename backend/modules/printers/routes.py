@@ -25,27 +25,28 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from deps import (
-    get_db, get_current_user, require_role, log_audit,
-    _get_org_filter, get_org_scope, check_org_access,
-    compute_printer_online, get_printer_api_key,
-    SessionLocal,
+from core.db import get_db, SessionLocal
+from core.dependencies import get_current_user, log_audit
+from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.printer_utils import compute_printer_online, get_printer_api_key
+from core.config import settings
+import core.crypto as crypto
+from modules.printers.models import (
+    Printer, FilamentSlot, NozzleLifecycle,
 )
-from models import (
-    Printer, FilamentSlot, FilamentType, FilamentLibrary,
-    Spool, SpoolStatus, NozzleLifecycle,
-)
-from schemas import (
+from modules.inventory.models import Spool
+from modules.printers.schemas import (
     PrinterCreate, PrinterUpdate, PrinterResponse, PrinterSummary,
     FilamentSlotCreate, FilamentSlotUpdate, FilamentSlotResponse,
     NozzleInstall, NozzleLifecycleResponse,
 )
-from config import settings
-import crypto
+from core.base import FilamentType
+from modules.inventory.models import FilamentLibrary
+from core.base import SpoolStatus
 
 # Bambu Lab Integration
 try:
-    from bambu_integration import (
+    from modules.printers.bambu_integration import (
         test_bambu_connection, sync_ams_filaments, slot_to_dict,
         map_bambu_filament_type, BAMBU_FILAMENT_TYPE_MAP, MQTT_AVAILABLE,
     )
@@ -53,7 +54,7 @@ try:
 except ImportError:
     BAMBU_AVAILABLE = False
 
-import smart_plug
+import modules.printers.smart_plug as smart_plug
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -242,7 +243,7 @@ def _bambu_command(printer, action: str) -> bool:
     Uses a unique client_id so we don't collide with the monitor daemon's
     persistent connection on the same broker.
     """
-    from bambu_adapter import BambuPrinter
+    from modules.printers.adapters.bambu import BambuPrinter
     import time as _time
     try:
         creds = crypto.decrypt(printer.api_key)
@@ -263,7 +264,7 @@ def _bambu_command(printer, action: str) -> bool:
 
 def _prusalink_command(printer, action: str) -> bool:
     """Send a command to a PrusaLink printer."""
-    from prusalink_adapter import PrusaLinkPrinter
+    from modules.printers.adapters.prusalink import PrusaLinkPrinter
     try:
         decrypted = crypto.decrypt(printer.api_key) if printer.api_key else ""
         if "|" in decrypted:
@@ -284,7 +285,7 @@ def _prusalink_command(printer, action: str) -> bool:
 
 def _elegoo_command(printer, action: str) -> bool:
     """Send a command to an Elegoo printer."""
-    from elegoo_adapter import ElegooPrinter
+    from modules.printers.adapters.elegoo import ElegooPrinter
     try:
         mainboard_id = crypto.decrypt(printer.api_key) if printer.api_key else ""
         adapter = ElegooPrinter(printer.api_host, mainboard_id=mainboard_id)
@@ -303,7 +304,7 @@ def _send_printer_command(printer, action: str) -> bool:
         log.error(f"Rejected unknown printer command: {action}")
         return False
     if printer.api_type == "moonraker":
-        from moonraker_adapter import MoonrakerPrinter
+        from modules.printers.adapters.moonraker import MoonrakerPrinter
         adapter = MoonrakerPrinter(printer.api_host)
         return _call_adapter_method(adapter, action)
     elif printer.api_type == "prusalink":
@@ -644,7 +645,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
 
     # ---- Moonraker / Klipper MMU sync ----
     if printer.api_type.lower() == "moonraker":
-        from moonraker_adapter import MoonrakerPrinter
+        from modules.printers.adapters.moonraker import MoonrakerPrinter
         api_host = (printer.api_host or "").strip()
         host, port = api_host, 80
         if ":" in api_host:
@@ -733,7 +734,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
 
     # Connect to printer
     try:
-        from bambu_adapter import BambuPrinter
+        from modules.printers.adapters.bambu import BambuPrinter
 
         bambu = BambuPrinter(
             ip=printer.api_host,
@@ -1182,7 +1183,7 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
     turn_on = not printer.lights_on
 
     try:
-        from bambu_adapter import BambuPrinter
+        from modules.printers.adapters.bambu import BambuPrinter
 
         bambu = BambuPrinter(
             ip=printer.api_host,
@@ -1296,7 +1297,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
 
         try:
-            from bambu_adapter import BambuPrinter
+            from modules.printers.adapters.bambu import BambuPrinter
 
             bambu = BambuPrinter(
                 ip=request.api_host,
@@ -1317,7 +1318,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 
             # Model detection — best-effort, never raises
             try:
-                from printer_models import normalize_model_name
+                from modules.printers.printer_models import normalize_model_name
                 detected_model = normalize_model_name("bambu", bambu_status.printer_type)
             except Exception:
                 detected_model = None
@@ -1405,7 +1406,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                 #   or {"printer": "MK4S"}               (older firmware)
                 detected_model = None
                 try:
-                    from printer_models import normalize_model_name
+                    from modules.printers.printer_models import normalize_model_name
                     printer_field = info.get("printer", None)
                     if isinstance(printer_field, dict):
                         raw_type = printer_field.get("type", "") or ""
@@ -1448,7 +1449,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         # Model detection via UDP unicast M99999 probe — best-effort, never raises
         detected_model = None
         try:
-            from printer_models import normalize_model_name
+            from modules.printers.printer_models import normalize_model_name
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(3.0)
             try:
@@ -1735,7 +1736,7 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
     except Exception:
         return {"error": "Could not decrypt credentials"}
 
-    from bambu_adapter import BambuPrinter
+    from modules.printers.adapters.bambu import BambuPrinter
 
     status_data = {}
     def on_status(s):
@@ -1883,7 +1884,7 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
 
 def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     """Call a BambuPrinter method directly (for commands not in the generic allowlist)."""
-    from bambu_adapter import BambuPrinter
+    from modules.printers.adapters.bambu import BambuPrinter
     import time as _time
     try:
         creds = crypto.decrypt(printer.api_key)

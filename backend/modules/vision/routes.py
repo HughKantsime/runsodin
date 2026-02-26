@@ -13,9 +13,12 @@ import logging
 import os
 import re
 
-from deps import get_db, require_role
-from models import Printer, SystemConfig, VisionDetection, VisionSettings, VisionModel
-from config import settings
+from core.db import get_db
+from core.rbac import require_role
+from core.config import settings
+from core.models import SystemConfig
+from modules.printers.models import Printer
+from modules.vision.models import VisionDetection, VisionSettings, VisionModel
 
 log = logging.getLogger("odin.api")
 router = APIRouter()

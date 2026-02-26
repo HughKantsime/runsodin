@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import Depends, HTTPException
 
-from auth import has_permission
+from core.auth import has_permission
 
 
 def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[int]:
