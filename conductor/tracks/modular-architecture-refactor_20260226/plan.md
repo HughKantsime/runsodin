@@ -721,7 +721,7 @@ Before any task executes:
 
 ---
 
-### Task 6.1: Create core/registry.py — module registry <!-- PENDING COMMIT -->
+### Task 6.1: Create core/registry.py — module registry <!-- 0ccf490 -->
 
 - **Status:** [x] Complete
 - **Files:**
@@ -734,7 +734,7 @@ Before any task executes:
 
 ---
 
-### Task 6.2: Create core/app.py — app factory with module discovery <!-- PENDING COMMIT -->
+### Task 6.2: Create core/app.py — app factory with module discovery <!-- 0ccf490 -->
 
 - **Status:** [x] Complete
 - **Files:**
@@ -750,7 +750,7 @@ Before any task executes:
 
 ---
 
-### Task 6.3: Add register() function to each module __init__.py <!-- PENDING COMMIT -->
+### Task 6.3: Add register() function to each module __init__.py <!-- 0ccf490 -->
 
 - **Status:** [x] Complete
 - **Files (all 11 module __init__.py files modified — no organizations omitted):**
@@ -771,7 +771,7 @@ Before any task executes:
 
 ---
 
-### Task 6.4: Update main.py to use create_app() <!-- PENDING COMMIT -->
+### Task 6.4: Update main.py to use create_app() <!-- 0ccf490 -->
 
 - **Status:** [x] Complete
 - **Files:**
@@ -786,7 +786,7 @@ Before any task executes:
 
 ---
 
-### Task 6.5: Phase 6 commit <!-- PENDING COMMIT -->
+### Task 6.5: Phase 6 commit <!-- 0ccf490 -->
 
 - **Status:** [x] Complete
 - **Files:** All from tasks 6.1–6.4
