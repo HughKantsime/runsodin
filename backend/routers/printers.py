@@ -1431,10 +1431,15 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         import json as _json
 
         # Primary reachability check: HTTP probe on port 3030
+        reachable = False
         try:
             httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+            reachable = True
+        except Exception:
+            pass
+
+        if not reachable:
+            return {"success": False, "error": "Cannot reach Elegoo printer on port 3030"}
 
         # Model detection via UDP unicast M99999 probe — best-effort, never raises
         detected_model = None
