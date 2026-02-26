@@ -2,7 +2,10 @@ MODULE_ID = "archives"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Print archive history, projects, and timelapse management"
 
-ROUTES = []
+ROUTES = [
+    "archives.routes",
+    "archives.project_routes",
+]
 
 TABLES = [
     "print_archives",
@@ -21,7 +24,18 @@ IMPLEMENTS = []
 
 REQUIRES = []
 
-DAEMONS = []
+DAEMONS = [
+    "archives.timelapse_capture",
+]
+
+
+def register(app, registry) -> None:
+    """Register the archives module routes."""
+    from modules.archives import routes, project_routes
+
+    for router in (routes.router, project_routes.router):
+        app.include_router(router, prefix="/api")
+        app.include_router(router, prefix="/api/v1")
 
 
 def register_subscribers(bus) -> None:

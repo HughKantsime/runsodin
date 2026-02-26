@@ -2,7 +2,9 @@ MODULE_ID = "inventory"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Spool and filament inventory, consumables, and drying logs"
 
-ROUTES = []
+ROUTES = [
+    "inventory.routes",
+]
 
 TABLES = [
     "spools",
@@ -27,3 +29,11 @@ IMPLEMENTS = []
 REQUIRES = []
 
 DAEMONS = []
+
+
+def register(app, registry) -> None:
+    """Register the inventory module routes."""
+    from modules.inventory import routes
+
+    app.include_router(routes.router, prefix="/api")
+    app.include_router(routes.router, prefix="/api/v1")

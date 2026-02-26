@@ -2,7 +2,10 @@ MODULE_ID = "printers"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Printer communication, adapters, monitors, and fleet management"
 
-ROUTES = []
+ROUTES = [
+    "printers.routes",
+    "printers.camera_routes",
+]
 
 TABLES = [
     "printers",
@@ -36,6 +39,18 @@ DAEMONS = [
     "printers.monitors.prusalink_monitor",
     "printers.monitors.elegoo_monitor",
 ]
+
+
+def register(app, registry) -> None:
+    """Register the printers module: routes and PrinterStateProvider."""
+    import modules.printers as _self
+    from modules.printers import routes, camera_routes
+
+    for router in (routes.router, camera_routes.router):
+        app.include_router(router, prefix="/api")
+        app.include_router(router, prefix="/api/v1")
+
+    registry.register_provider("PrinterStateProvider", _self)
 
 
 def register_subscribers(bus) -> None:

@@ -2,7 +2,9 @@ MODULE_ID = "notifications"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Alert dispatch, push notifications, webhooks, and quiet hours"
 
-ROUTES = []
+ROUTES = [
+    "notifications.routes",
+]
 
 TABLES = [
     "alerts",
@@ -34,6 +36,17 @@ IMPLEMENTS = ["NotificationDispatcher"]
 REQUIRES = ["OrgSettingsProvider"]
 
 DAEMONS = []
+
+
+def register(app, registry) -> None:
+    """Register the notifications module: routes and NotificationDispatcher."""
+    import modules.notifications as _self
+    from modules.notifications import routes
+
+    app.include_router(routes.router, prefix="/api")
+    app.include_router(routes.router, prefix="/api/v1")
+
+    registry.register_provider("NotificationDispatcher", _self)
 
 
 def register_subscribers(bus) -> None:

@@ -2,7 +2,10 @@ MODULE_ID = "jobs"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Job scheduling, print queue, and timeline management"
 
-ROUTES = []
+ROUTES = [
+    "jobs.routes",
+    "jobs.scheduler_routes",
+]
 
 TABLES = [
     "jobs",
@@ -29,3 +32,15 @@ IMPLEMENTS = ["JobStateProvider"]
 REQUIRES = ["PrinterStateProvider"]
 
 DAEMONS = []
+
+
+def register(app, registry) -> None:
+    """Register the jobs module: routes and JobStateProvider."""
+    import modules.jobs as _self
+    from modules.jobs import routes, scheduler_routes
+
+    for router in (routes.router, scheduler_routes.router):
+        app.include_router(router, prefix="/api")
+        app.include_router(router, prefix="/api/v1")
+
+    registry.register_provider("JobStateProvider", _self)

@@ -2,7 +2,10 @@ MODULE_ID = "system"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "System config, health, maintenance, backups, admin logs, and slicer profiles"
 
-ROUTES = []
+ROUTES = [
+    "system.routes",
+    "system.profile_routes",
+]
 
 TABLES = [
     "maintenance_tasks",
@@ -23,3 +26,12 @@ IMPLEMENTS = []
 REQUIRES = []
 
 DAEMONS = []
+
+
+def register(app, registry) -> None:
+    """Register the system module routes."""
+    from modules.system import routes, profile_routes
+
+    for router in (routes.router, profile_routes.router):
+        app.include_router(router, prefix="/api")
+        app.include_router(router, prefix="/api/v1")
