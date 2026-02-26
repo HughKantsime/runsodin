@@ -2,7 +2,7 @@
 
 Updated — see CHANGELOG for current version.
 
-## Shipped in v1.3.77
+## Shipped in v1.4.0
 
 - ~~Modular architecture refactor~~ — 12 domain modules, app factory with topological module loading, InMemoryEventBus, ModuleRegistry DI container, module-owned SQL migrations, 171 contract tests with import boundary enforcement; `main.py` 524→12 lines, `entrypoint.sh` 960→347 lines
 

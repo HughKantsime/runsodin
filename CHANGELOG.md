@@ -2,7 +2,7 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [1.3.77] - 2026-02-26
+## [1.4.0] - 2026-02-26
 
 ### Changed
 - **Modular architecture refactor** — monolithic backend decomposed into 12 domain modules (`core`, `printers`, `jobs`, `inventory`, `models_library`, `vision`, `notifications`, `organizations`, `orders`, `archives`, `reporting`, `system`)
