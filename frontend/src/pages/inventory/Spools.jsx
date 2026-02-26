@@ -7,9 +7,10 @@ import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import { bulkOps, spools as spoolsApi, filaments as filamentApi, printers as printersApi } from '../../api'
 import ConfirmModal from '../../components/shared/ConfirmModal'
-import SpoolCard from '../../components/inventory/SpoolCard'
 import FilamentLibraryView from '../../components/inventory/FilamentLibraryView'
-import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal, EditSpoolModal } from '../../components/inventory/SpoolModals'
+import SpoolGrid from '../../components/inventory/SpoolGrid'
+import { CreateSpoolModal, LoadSpoolModal, UseSpoolModal, DryingModal } from '../../components/inventory/SpoolModals'
+import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
 
 export default function Spools() {
   const org = useOrg()
@@ -305,73 +306,22 @@ export default function Spools() {
           {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
           {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
           {!isLoading && spools?.length > 0 && (
-          (() => {
-            if (!spools) return null;
-            let sorted = [...spools];
-
-            // Apply text search
-            if (searchQuery.trim()) {
-              const q = searchQuery.toLowerCase()
-              sorted = sorted.filter(s =>
-                (s.filament_brand || '').toLowerCase().includes(q) ||
-                (s.filament_name || '').toLowerCase().includes(q) ||
-                (s.filament_material || '').toLowerCase().includes(q)
-              )
-            }
-
-            if (sortBy === "printer") {
-              sorted.sort((a, b) => {
-                if (a.location_printer_id !== b.location_printer_id) return (a.location_printer_id || 999) - (b.location_printer_id || 999);
-                return (a.location_slot || 999) - (b.location_slot || 999);
-              });
-            } else if (sortBy === "name") {
-              sorted.sort((a, b) => `${a.filament_brand} ${a.filament_name}`.localeCompare(`${b.filament_brand} ${b.filament_name}`));
-            } else if (sortBy === "remaining") {
-              sorted.sort((a, b) => (a.percent_remaining || 0) - (b.percent_remaining || 0));
-            } else if (sortBy === "material") {
-              sorted.sort((a, b) => (a.filament_material || "").localeCompare(b.filament_material || ""));
-            }
-
-            if (groupByPrinter && sortBy === "printer") {
-              const groups = {};
-              sorted.forEach(s => {
-                const key = s.location_printer_id ? (printers?.find(p => p.id === s.location_printer_id)?.nickname || printers?.find(p => p.id === s.location_printer_id)?.name || `Printer ${s.location_printer_id}`) : "Unassigned";
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(s);
-              });
-
-              return Object.entries(groups).map(([group, groupSpools]) => (
-                <div key={group} className="mb-4 md:mb-6">
-                  <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-                    {groupSpools.map(spool => (
-                      <div key={spool.id} className="relative">
-                        {canDo('spools.edit') && (
-                          <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => toggleSpoolSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-farm-600" />
-                        )}
-                        <div className={canDo('spools.edit') ? 'pl-7' : ''}>
-                        <SpoolCard spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ));
-            }
-
-            return (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-                {sorted.map(spool => (
-                  <div key={spool.id} className="relative">
-                    {canDo('spools.edit') && (
-                      <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => toggleSpoolSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-farm-600" />
-                    )}
-                    <SpoolCard spool={spool} onLoad={setLoadingSpool} onUnload={handleUnload} onUse={setUsingSpool} onArchive={handleArchive} onEdit={setEditingSpool} onDry={setDryingSpool} printers={printers} />
-                  </div>
-                ))}
-              </div>
-            );
-          })())}
+            <SpoolGrid
+              spools={spools}
+              printers={printers}
+              sortBy={sortBy}
+              groupByPrinter={groupByPrinter}
+              searchQuery={searchQuery}
+              selectedSpools={selectedSpools}
+              onToggleSelect={toggleSpoolSelect}
+              onLoad={setLoadingSpool}
+              onUnload={handleUnload}
+              onUse={setUsingSpool}
+              onArchive={handleArchive}
+              onEdit={setEditingSpool}
+              onDry={setDryingSpool}
+            />
+          )}
         </>
       )}
 

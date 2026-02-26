@@ -4,7 +4,7 @@ import { Plus, Pencil, Trash2, Palette } from 'lucide-react'
 import clsx from 'clsx'
 import { filaments as filamentApi } from '../../api'
 import { canDo } from '../../permissions'
-import { EditFilamentModal } from './SpoolModals'
+import { EditFilamentModal } from './SpoolEditModals'
 
 export default function FilamentLibraryView() {
   const queryClient = useQueryClient()

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { orders, products, orderInvoice } from '../../api'
-import { ShoppingCart, Plus, Trash2, Eye, Pencil, RefreshCw, Search, Ban, Play, Truck, FileText } from 'lucide-react'
+import { ShoppingCart, Plus, RefreshCw, Search } from 'lucide-react'
 import { canDo } from '../../permissions'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { CreateOrderModal, OrderDetailModal, ShippingModal, EditOrderModal } from '../../components/orders/OrderModals'
+import OrderTable from '../../components/orders/OrderTable'
 
 const STATUS_CLASSES = {
   pending: 'bg-status-pending/20 text-status-pending',
@@ -15,6 +16,29 @@ const STATUS_CLASSES = {
   cancelled: 'bg-status-failed/20 text-status-failed',
 }
 
+const EMPTY_ORDER_FORM = { order_number: '', platform: 'etsy', customer_name: '', customer_email: '', revenue: '', platform_fees: '', payment_fees: '', shipping_charged: '', shipping_cost: '', notes: '' }
+
+function OrderStats({ orders }) {
+  if (!orders.length) return null
+  const stats = [
+    { label: 'Pending', count: orders.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
+    { label: 'In Progress', count: orders.filter(o => o.status === 'in_progress').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+    { label: 'Fulfilled', count: orders.filter(o => o.status === 'fulfilled').length, color: 'text-green-400', bg: 'bg-green-400/10' },
+    { label: 'Shipped', count: orders.filter(o => o.status === 'shipped').length, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+    { label: 'Revenue', count: '$' + orders.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0), color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+  ]
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-6">
+      {stats.map(({ label, count, color, bg }) => (
+        <div key={label} className={`${bg} rounded-lg p-3 text-center border border-farm-800`}>
+          <div className={`text-lg md:text-xl font-bold tabular-nums ${color}`}>{count}</div>
+          <div className="text-xs text-farm-500 uppercase tracking-wide">{label}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function Orders() {
   const [orderList, setOrderList] = useState([])
   const [productList, setProductList] = useState([])
@@ -23,18 +47,7 @@ export default function Orders() {
   const [showModal, setShowModal] = useState(false)
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
-  const [formData, setFormData] = useState({
-    order_number: '',
-    platform: 'etsy',
-    customer_name: '',
-    customer_email: '',
-    revenue: '',
-    platform_fees: '',
-    payment_fees: '',
-    shipping_charged: '',
-    shipping_cost: '',
-    notes: ''
-  })
+  const [formData, setFormData] = useState(EMPTY_ORDER_FORM)
   const [items, setItems] = useState([])
   const [editingOrder, setEditingOrder] = useState(null)
   const [editFormData, setEditFormData] = useState({})
@@ -50,51 +63,20 @@ export default function Orders() {
   }, [statusFilter])
 
   useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === 'Escape') {
-        if (shippingOrder) setShippingOrder(null)
-        else if (editingOrder) setEditingOrder(null)
-        else if (showDetailModal) setShowDetailModal(false)
-        else if (showModal) setShowModal(false)
-      }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
+    const onKey = (e) => { if (e.key !== 'Escape') return; if (shippingOrder) setShippingOrder(null); else if (editingOrder) setEditingOrder(null); else if (showDetailModal) setShowDetailModal(false); else if (showModal) setShowModal(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
   }, [shippingOrder, editingOrder, showDetailModal, showModal])
 
   const loadData = async () => {
     try {
-      const [ords, prods, all] = await Promise.all([
-        orders.list(statusFilter || null),
-        products.list(),
-        statusFilter ? orders.list(null) : null
-      ])
-      setOrderList(ords)
-      setProductList(prods)
-      setAllOrders(statusFilter ? all : ords)
-    } catch (err) {
-      console.error('Failed to load:', err)
-    } finally {
-      setLoading(false)
-    }
+      const [ords, prods, all] = await Promise.all([orders.list(statusFilter || null), products.list(), statusFilter ? orders.list(null) : null])
+      setOrderList(ords); setProductList(prods); setAllOrders(statusFilter ? all : ords)
+    } catch (err) { console.error('Failed to load:', err) }
+    finally { setLoading(false) }
   }
 
-  const openCreateModal = () => {
-    setFormData({
-      order_number: '',
-      platform: 'etsy',
-      customer_name: '',
-      customer_email: '',
-      revenue: '',
-      platform_fees: '',
-      payment_fees: '',
-      shipping_charged: '',
-      shipping_cost: '',
-      notes: ''
-    })
-    setItems([])
-    setShowModal(true)
-  }
+  const openCreateModal = () => { setFormData(EMPTY_ORDER_FORM); setItems([]); setShowModal(true) }
 
   const openDetailModal = async (order) => {
     try {
@@ -211,90 +193,17 @@ export default function Orders() {
     }
   }
 
-  const handleDelete = (id) => {
-    setConfirmAction({
-      title: 'Delete Order',
-      message: 'Delete this order? This cannot be undone.',
-      onConfirm: async () => {
-        try {
-          await orders.delete(id)
-          toast.success('Order deleted')
-          loadData()
-        } catch (err) {
-          toast.error('Failed to delete order')
-        }
-        setConfirmAction(null)
-      }
-    })
-  }
+  const handleDelete = (id) => setConfirmAction({ title: 'Delete Order', message: 'Delete this order? This cannot be undone.', onConfirm: async () => { try { await orders.delete(id); toast.success('Order deleted'); loadData() } catch { toast.error('Failed to delete order') } setConfirmAction(null) } })
 
-  const handleSchedule = async (id) => {
-    try {
-      const result = await orders.schedule(id)
-      toast.success(`Created ${result.jobs_created} jobs for this order`)
-      loadData()
-      if (selectedOrder?.id === id) {
-        const full = await orders.get(id)
-        setSelectedOrder(full)
-      }
-    } catch (err) {
-      console.error('Failed to schedule:', err)
-      toast.error('Failed to schedule order')
-    }
-  }
+  const handleSchedule = async (id) => { try { const r = await orders.schedule(id); toast.success(`Created ${r.jobs_created} jobs for this order`); loadData(); if (selectedOrder?.id === id) { const full = await orders.get(id); setSelectedOrder(full) } } catch { toast.error('Failed to schedule order') } }
 
-  const handleShip = (order) => {
-    setShippingForm({ tracking_number: order.tracking_number || '', carrier: '' })
-    setShippingOrder(order)
-  }
+  const handleShip = (order) => { setShippingForm({ tracking_number: order.tracking_number || '', carrier: '' }); setShippingOrder(order) }
 
-  const submitShipping = async () => {
-    try {
-      await orders.ship(shippingOrder.id, {
-        tracking_number: shippingForm.tracking_number || null
-      })
-      toast.success('Order marked as shipped')
-      loadData()
-      if (selectedOrder?.id === shippingOrder.id) {
-        const full = await orders.get(shippingOrder.id)
-        setSelectedOrder(full)
-      }
-      setShippingOrder(null)
-    } catch (err) {
-      console.error('Failed to ship:', err)
-      toast.error('Failed to mark as shipped')
-    }
-  }
+  const submitShipping = async () => { try { await orders.ship(shippingOrder.id, { tracking_number: shippingForm.tracking_number || null }); toast.success('Order marked as shipped'); loadData(); if (selectedOrder?.id === shippingOrder.id) { const full = await orders.get(shippingOrder.id); setSelectedOrder(full) } setShippingOrder(null) } catch { toast.error('Failed to mark as shipped') } }
 
-  const handleCancel = (order) => {
-    setConfirmAction({
-      title: 'Cancel Order',
-      message: `Cancel order ${order.order_number || '#' + order.id}? This will set the status to cancelled.`,
-      onConfirm: async () => {
-        try {
-          await orders.update(order.id, { status: 'cancelled' })
-          toast.success('Order cancelled')
-          loadData()
-          if (selectedOrder?.id === order.id) {
-            const full = await orders.get(order.id)
-            setSelectedOrder(full)
-          }
-        } catch (err) {
-          toast.error('Failed to cancel order')
-        }
-        setConfirmAction(null)
-      }
-    })
-  }
+  const handleCancel = (order) => setConfirmAction({ title: 'Cancel Order', message: `Cancel order ${order.order_number || '#' + order.id}?`, onConfirm: async () => { try { await orders.update(order.id, { status: 'cancelled' }); toast.success('Order cancelled'); loadData(); if (selectedOrder?.id === order.id) { const full = await orders.get(order.id); setSelectedOrder(full) } } catch { toast.error('Failed to cancel order') } setConfirmAction(null) } })
 
-  const handleDownloadInvoice = async (order) => {
-    try {
-      await orderInvoice(order.id, order.order_number)
-    } catch (err) {
-      console.error('Invoice download failed:', err)
-      toast.error('Failed to download invoice')
-    }
-  }
+  const handleDownloadInvoice = async (order) => { try { await orderInvoice(order.id, order.order_number) } catch { toast.error('Failed to download invoice') } }
 
   const filteredOrders = searchQuery.trim()
     ? orderList.filter(o => {
@@ -352,23 +261,7 @@ export default function Orders() {
         </div>
       </div>
 
-      {/* Order Summary */}
-      {(allOrders.length > 0 || orderList.length > 0) && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-6">
-          {[
-            { label: 'Pending', count: allOrders.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
-            { label: 'In Progress', count: allOrders.filter(o => o.status === 'in_progress').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-            { label: 'Fulfilled', count: allOrders.filter(o => o.status === 'fulfilled').length, color: 'text-green-400', bg: 'bg-green-400/10' },
-            { label: 'Shipped', count: allOrders.filter(o => o.status === 'shipped').length, color: 'text-purple-400', bg: 'bg-purple-400/10' },
-            { label: 'Revenue', count: '$' + allOrders.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0), color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
-          ].map(({ label, count, color, bg }) => (
-            <div key={label} className={`${bg} rounded-lg p-3 text-center border border-farm-800`}>
-              <div className={`text-lg md:text-xl font-bold tabular-nums ${color}`}>{count}</div>
-              <div className="text-xs text-farm-500 uppercase tracking-wide">{label}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <OrderStats orders={allOrders} />
 
       {filteredOrders.length === 0 ? (
         <div className="text-center py-12 text-farm-500">
@@ -376,132 +269,16 @@ export default function Orders() {
           <p>No orders yet. Create your first order to start tracking.</p>
         </div>
       ) : (
-        <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
-          {/* Mobile card view */}
-          <div className="block md:hidden divide-y divide-farm-800">
-            {filteredOrders.map(order => (
-              <div key={order.id} className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <button
-                    onClick={() => openDetailModal(order)}
-                    className="font-medium text-print-400 hover:text-print-300"
-                  >
-                    {order.order_number || `#${order.id}`}
-                  </button>
-                  <span className={`px-2 py-1 rounded-lg text-xs ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
-                    {order.status?.replace('_', ' ')}
-                  </span>
-                </div>
-                <div className="text-sm space-y-1 text-farm-400 mb-3">
-                  <div>Platform: {order.platform || '-'}</div>
-                  <div>Customer: {order.customer_name || '-'}</div>
-                  <div>Items: {order.item_count || 0}</div>
-                  <div>Revenue: {order.revenue ? `$${order.revenue.toFixed(2)}` : '-'}</div>
-                  {order.created_at && <div>Date: {new Date(order.created_at).toLocaleDateString()}</div>}
-                </div>
-                <div className="flex gap-1">
-                  <button onClick={() => openDetailModal(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="View Details">
-                    <Eye size={14} />
-                  </button>
-                  {canDo('orders.edit') && (
-                    <button onClick={() => openEditModal(order)} className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Order">
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                  {canDo('orders.edit') && order.status === 'pending' && (
-                    <button onClick={() => handleSchedule(order.id)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Schedule Jobs">
-                      <Play size={14} />
-                    </button>
-                  )}
-                  {canDo('orders.ship') && order.status === 'fulfilled' && (
-                    <button onClick={() => handleShip(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Mark Shipped">
-                      <Truck size={14} />
-                    </button>
-                  )}
-                  {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
-                    <button onClick={() => handleCancel(order)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Cancel Order">
-                      <Ban size={14} />
-                    </button>
-                  )}
-                  {canDo('orders.delete') && (
-                    <button onClick={() => handleDelete(order.id)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop table view */}
-          <table className="w-full hidden md:table">
-            <thead className="bg-farm-950">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Order #</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Date</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Platform</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Customer</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Items</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Revenue</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-farm-400">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-farm-800">
-              {filteredOrders.map(order => (
-                <tr key={order.id} className="hover:bg-farm-800/50 transition-colors">
-                  <td className="px-4 py-3">
-                    <button onClick={() => openDetailModal(order)} className="font-medium text-print-400 hover:text-print-300">
-                      {order.order_number || `#${order.id}`}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-farm-400 text-sm">
-                    {order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}
-                  </td>
-                  <td className="px-4 py-3 capitalize text-farm-300">{order.platform || '-'}</td>
-                  <td className="px-4 py-3 text-farm-300">{order.customer_name || '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-lg text-sm ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
-                      {order.status?.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-farm-300">{order.item_count || 0}</td>
-                  <td className="px-4 py-3 text-farm-200">{order.revenue ? `$${order.revenue.toFixed(2)}` : '-'}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => openDetailModal(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="View Details">
-                      <Eye size={14} />
-                    </button>
-                    {canDo('orders.edit') && (
-                      <button onClick={() => openEditModal(order)} className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Order">
-                        <Pencil size={14} />
-                      </button>
-                    )}
-                    {canDo('orders.edit') && order.status === 'pending' && (
-                      <button onClick={() => handleSchedule(order.id)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Schedule Jobs">
-                        <Play size={14} />
-                      </button>
-                    )}
-                    {canDo('orders.ship') && order.status === 'fulfilled' && (
-                      <button onClick={() => handleShip(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Mark Shipped">
-                        <Truck size={14} />
-                      </button>
-                    )}
-                    {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
-                      <button onClick={() => handleCancel(order)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Cancel Order">
-                        <Ban size={14} />
-                      </button>
-                    )}
-                    {canDo('orders.delete') && (
-                      <button onClick={() => handleDelete(order.id)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <OrderTable
+          orders={filteredOrders}
+          STATUS_CLASSES={STATUS_CLASSES}
+          onDetail={openDetailModal}
+          onEdit={openEditModal}
+          onSchedule={handleSchedule}
+          onShip={handleShip}
+          onCancel={handleCancel}
+          onDelete={handleDelete}
+        />
       )}
 
       <CreateOrderModal

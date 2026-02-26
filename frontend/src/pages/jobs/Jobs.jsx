@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Play, CheckCircle, XCircle, Filter, Search, ArrowUp, ArrowDown, ArrowUpDown, ShoppingCart, Layers, Zap, RefreshCw, Clock, History, Briefcase } from 'lucide-react'
+import { Plus, Filter, Search, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
 import clsx from 'clsx'
-import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps } from '../../api'
+import { jobs, models, printers as printersApi, scheduler, getApprovalSetting, presets, bulkOps } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import FailureReasonModal from '../../components/jobs/FailureReasonModal'
@@ -10,53 +10,12 @@ import { updateJobFailure } from '../../api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import JobRow from '../../components/jobs/JobRow'
+import RecentlyCompleted from '../../components/jobs/RecentlyCompleted'
 import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs/JobModals'
 import { statusOptions, statusOrder } from '../../components/jobs/jobUtils'
+import { useJobMutations } from '../../hooks/useJobMutations'
+import JobTableHeader from '../../components/jobs/JobTableHeader'
 
-function SortIcon({ field, sortField, sortDirection }) {
-  if (sortField !== field) return <ArrowUpDown size={12} className="opacity-30" />
-  return sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
-}
-
-function RecentlyCompleted({ jobs: jobList }) {
-  const recent = jobList
-    ?.filter(j => j.status === 'completed' || j.status === 'failed')
-    .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
-    .slice(0, 8)
-
-  if (!recent || recent.length === 0) return null
-
-  return (
-    <div className="mt-6">
-      <h3 className="text-sm font-display font-semibold text-farm-400 mb-3 flex items-center gap-2">
-        <History size={14} />
-        Recently Completed
-      </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-        {recent.map(job => (
-          <div key={job.id} className={`bg-farm-900 rounded-lg border p-3 ${
-            job.status === 'failed' ? 'border-red-900/50' : 'border-farm-800'
-          }`}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium truncate">{job.item_name}</span>
-              {job.status === 'completed'
-                ? <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
-                : <XCircle size={14} className="text-red-400 flex-shrink-0" />
-              }
-            </div>
-            <div className="text-xs text-farm-500">
-              {job.printer?.name || 'Unknown printer'}
-              {job.duration_hours ? ` · ${job.duration_hours}h` : ''}
-            </div>
-            {job.fail_reason && (
-              <div className="text-xs text-red-400 mt-1 truncate">⚠ {job.fail_reason.replace(/_/g, ' ')}</div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 const jobTypeTabs = [
   { value: 'all', label: 'All Jobs', icon: Layers },
@@ -68,15 +27,17 @@ const jobTypeTabs = [
 export default function Jobs() {
   const org = useOrg()
   const queryClient = useQueryClient()
+  const {
+    createJob, updateJob, startJob, completeJob, cancelJob,
+    deleteJob, repeatJob, dispatchJob, approveJobMut, rejectJobMut, resubmitJobMut,
+  } = useJobMutations()
+
   const runScheduler = useMutation({
     mutationFn: scheduler.run,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
-      queryClient.invalidateQueries({ queryKey: ['stats'] })
-      toast.success('Scheduler run complete')
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }); toast.success('Scheduler run complete') },
     onError: (err) => toast.error('Scheduler failed: ' + (err.message || 'Unknown error')),
   })
+
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -89,85 +50,16 @@ export default function Jobs() {
   const [editingJob, setEditingJob] = useState(null)
   const [selectedJobs, setSelectedJobs] = useState(new Set())
   const [confirmAction, setConfirmAction] = useState(null)
-  const toggleJobSelect = (id) => setSelectedJobs(prev => {
-    const next = new Set(prev)
-    next.has(id) ? next.delete(id) : next.add(id)
-    return next
-  })
-  const toggleSelectAll = (jobIds) => {
-    setSelectedJobs(prev => prev.size === jobIds.length ? new Set() : new Set(jobIds))
-  }
-  const bulkAction = useMutation({
-    mutationFn: ({ action, extra }) => bulkOps.jobs([...selectedJobs], action, extra),
-    onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
-      setSelectedJobs(new Set())
-      toast.success(`Bulk ${vars.action} completed`)
-    },
-    onError: (err, vars) => toast.error(`Bulk ${vars.action} failed: ${err.message}`),
-  })
-  // Drag-and-drop queue reorder
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
-  const handleDragStart = (e, jobId) => {
-    setDraggedId(jobId)
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', jobId)
-    e.currentTarget.style.opacity = '0.4'
-  }
-  const handleDragEnd = (e) => {
-    e.currentTarget.style.opacity = '1'
-    setDraggedId(null)
-    setDragOverId(null)
-  }
-  const handleDragOver = (e, jobId) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (jobId !== draggedId) setDragOverId(jobId)
-  }
-  const handleDrop = async (e, targetId) => {
-    e.preventDefault()
-    setDragOverId(null)
-    setDraggedId(null)
-    if (!draggedId || draggedId === targetId) return
-    const currentJobs = (jobsData || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
-    const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
-    const toIdx = currentJobs.findIndex(j => j.id === targetId)
-    if (fromIdx === -1 || toIdx === -1) return
-    const reordered = [...currentJobs]
-    const [moved] = reordered.splice(fromIdx, 1)
-    reordered.splice(toIdx, 0, moved)
-    try {
-      await jobs.reorder(reordered.map(j => j.id))
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
-    } catch (err) {
-      toast.error('Reorder failed: ' + (err.message || 'Unknown error'))
-    }
-  }
 
-  const { data: approvalSetting } = useQuery({
-    queryKey: ['approval-setting'],
-    queryFn: getApprovalSetting,
-  })
+  const toggleJobSelect = (id) => setSelectedJobs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleSelectAll = (jobIds) => setSelectedJobs(prev => prev.size === jobIds.length ? new Set() : new Set(jobIds))
 
-  const { data: jobsData, isLoading } = useQuery({
-    queryKey: ['jobs', statusFilter, org.orgId],
-    queryFn: () => jobs.list(statusFilter || null, org.orgId),
-  })
-
-  const { data: modelsData } = useQuery({
-    queryKey: ['models', org.orgId],
-    queryFn: () => models.list(org.orgId),
-  })
-
-  const { data: printersData } = useQuery({
-    queryKey: ['printers'],
-    queryFn: () => printersApi.list(),
-  })
-
-  const { data: presetsData } = useQuery({
-    queryKey: ['presets'],
-    queryFn: () => presets.list(),
+  const bulkAction = useMutation({
+    mutationFn: ({ action, extra }) => bulkOps.jobs([...selectedJobs], action, extra),
+    onSuccess: (_, vars) => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); setSelectedJobs(new Set()); toast.success(`Bulk ${vars.action} completed`) },
+    onError: (err, vars) => toast.error(`Bulk ${vars.action} failed: ${err.message}`),
   })
 
   const schedulePreset = useMutation({
@@ -175,89 +67,37 @@ export default function Jobs() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Preset scheduled') },
     onError: (err) => toast.error('Schedule preset failed: ' + err.message),
   })
-
   const deletePreset = useMutation({
     mutationFn: presets.delete,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['presets'] }); toast.success('Preset deleted') },
     onError: (err) => toast.error('Delete preset failed: ' + err.message),
   })
-
   const createPreset = useMutation({
     mutationFn: presets.create,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['presets'] }); toast.success('Preset saved') },
     onError: (err) => toast.error('Save preset failed: ' + err.message),
   })
 
-  const updateJob = useMutation({
-    mutationFn: ({ id, data }) => jobs.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job updated') },
-    onError: (err) => toast.error('Update job failed: ' + err.message),
-  })
+  const { data: approvalSetting } = useQuery({ queryKey: ['approval-setting'], queryFn: getApprovalSetting })
+  const { data: jobsData, isLoading } = useQuery({ queryKey: ['jobs', statusFilter, org.orgId], queryFn: () => jobs.list(statusFilter || null, org.orgId) })
+  const { data: modelsData } = useQuery({ queryKey: ['models', org.orgId], queryFn: () => models.list(org.orgId) })
+  const { data: printersData } = useQuery({ queryKey: ['printers'], queryFn: () => printersApi.list() })
+  const { data: presetsData } = useQuery({ queryKey: ['presets'], queryFn: () => presets.list() })
 
-  const createJob = useMutation({
-    mutationFn: jobs.create,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job created') },
-    onError: (err) => toast.error('Create job failed: ' + err.message),
-  })
-
-  const startJob = useMutation({
-    mutationFn: jobs.start,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job started') },
-    onError: (err) => toast.error('Start job failed: ' + err.message),
-  })
-
-  const completeJob = useMutation({
-    mutationFn: jobs.complete,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job completed') },
-    onError: (err) => toast.error('Complete job failed: ' + err.message),
-  })
-
-  const cancelJob = useMutation({
-    mutationFn: jobs.cancel,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job cancelled') },
-    onError: (err) => toast.error('Cancel job failed: ' + err.message),
-  })
-
-  const deleteJob = useMutation({
-    mutationFn: jobs.delete,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job deleted') },
-    onError: (err) => toast.error('Delete job failed: ' + err.message),
-  })
-
-  const repeatJob = useMutation({
-    mutationFn: async (jobId) => {
-      return jobs.repeat(jobId)
-    },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job duplicated') },
-    onError: (err) => toast.error('Repeat job failed: ' + err.message),
-  })
-
-  const dispatchJob = useMutation({
-    mutationFn: jobs.dispatch,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
-      toast.success('Print dispatched — file uploading to printer')
-    },
-    onError: (err) => toast.error('Dispatch failed: ' + (err.message || 'Unknown error')),
-  })
-
-  const approveJobMut = useMutation({
-    mutationFn: approveJob,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job approved') },
-    onError: (err) => toast.error('Approve job failed: ' + err.message),
-  })
-
-  const rejectJobMut = useMutation({
-    mutationFn: ({ jobId, reason }) => rejectJob(jobId, reason),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job rejected') },
-    onError: (err) => toast.error('Reject job failed: ' + err.message),
-  })
-
-  const resubmitJobMut = useMutation({
-    mutationFn: resubmitJob,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Job resubmitted') },
-    onError: (err) => toast.error('Resubmit job failed: ' + err.message),
-  })
+  const handleDragStart = (e, jobId) => { setDraggedId(jobId); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', jobId); e.currentTarget.style.opacity = '0.4' }
+  const handleDragEnd = (e) => { e.currentTarget.style.opacity = '1'; setDraggedId(null); setDragOverId(null) }
+  const handleDragOver = (e, jobId) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (jobId !== draggedId) setDragOverId(jobId) }
+  const handleDrop = async (e, targetId) => {
+    e.preventDefault(); setDragOverId(null); setDraggedId(null)
+    if (!draggedId || draggedId === targetId) return
+    const currentJobs = (jobsData || []).filter(j => j.status === 'pending' || j.status === 'scheduled')
+    const fromIdx = currentJobs.findIndex(j => j.id === draggedId)
+    const toIdx = currentJobs.findIndex(j => j.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const reordered = [...currentJobs]; const [moved] = reordered.splice(fromIdx, 1); reordered.splice(toIdx, 0, moved)
+    try { await jobs.reorder(reordered.map(j => j.id)); queryClient.invalidateQueries({ queryKey: ['jobs'] }) }
+    catch (err) { toast.error('Reorder failed: ' + (err.message || 'Unknown error')) }
+  }
 
   const handleAction = (action, jobId, jobName, existingReason, existingNotes) => {
     switch (action) {
@@ -478,33 +318,13 @@ export default function Jobs() {
       <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
-            <thead className="bg-farm-950 border-b border-farm-800">
-              <tr>
-                <th scope="col" className="px-2 py-3 w-10">
-                  <input type="checkbox" checked={filteredJobs.length > 0 && selectedJobs.size === filteredJobs.length} onChange={() => toggleSelectAll(filteredJobs.map(j => j.id))} className="rounded border-farm-600" aria-label="Select all jobs" />
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('status')}>
-                  <div className="flex items-center gap-1">Status <SortIcon field="status" sortField={sortField} sortDirection={sortDirection} /></div>
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('item_name')}>
-                  <div className="flex items-center gap-1">Item <SortIcon field="item_name" sortField={sortField} sortDirection={sortDirection} /></div>
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('priority')}>
-                  <div className="flex items-center gap-1">Pri <SortIcon field="priority" sortField={sortField} sortDirection={sortDirection} /></div>
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('printer')}>
-                  <div className="flex items-center gap-1">Printer <SortIcon field="printer" sortField={sortField} sortDirection={sortDirection} /></div>
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden lg:table-cell">Colors</th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden md:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('duration_hours')}>
-                  <div className="flex items-center gap-1">Duration <SortIcon field="duration_hours" sortField={sortField} sortDirection={sortDirection} /></div>
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:text-farm-200 select-none" onClick={() => toggleSort('scheduled_start')}>
-                  <div className="flex items-center gap-1">Scheduled <SortIcon field="scheduled_start" sortField={sortField} sortDirection={sortDirection} /></div>
-                </th>
-                <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
+            <JobTableHeader
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={toggleSort}
+              allSelected={filteredJobs.length > 0 && selectedJobs.size === filteredJobs.length}
+              onSelectAll={() => toggleSelectAll(filteredJobs.map(j => j.id))}
+            />
             <tbody>
               {isLoading ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
