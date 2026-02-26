@@ -1,4 +1,9 @@
 """O.D.I.N. — Analytics, Stats, Export & Report Routes"""
+
+# Domain: reporting
+# Depends on: core, printers, jobs, inventory, organizations
+# Owns tables: report_schedules
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload

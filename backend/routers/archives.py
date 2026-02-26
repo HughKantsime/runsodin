@@ -4,6 +4,10 @@ CRUD for print archives: searchable history of completed prints.
 Tag management, print log, archive comparison, reprint with AMS mapping.
 """
 
+# Domain: archives
+# Depends on: core, printers, jobs, organizations
+# Owns tables: print_archives, projects
+
 import csv
 import io
 import json

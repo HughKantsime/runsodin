@@ -1,4 +1,9 @@
 """O.D.I.N. — Scheduler & Timeline Routes"""
+
+# Domain: jobs
+# Depends on: core, printers, inventory, organizations
+# Owns tables: scheduler_runs
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text

@@ -1,4 +1,9 @@
 """O.D.I.N. — System, Config, Setup, Maintenance & Infrastructure Routes"""
+
+# Domain: system
+# Depends on: core, organizations
+# Owns tables: maintenance_tasks, maintenance_logs, audit_log, printer_profiles
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel, field_validator

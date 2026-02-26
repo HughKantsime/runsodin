@@ -5,6 +5,10 @@ live status, printer commands (stop/pause/resume), lights,
 smart plug control, AMS environment, telemetry, and nozzle lifecycle.
 """
 
+# Domain: printers
+# Depends on: core, notifications, organizations
+# Owns tables: printers, filament_slots, nozzle_lifecycle, printer_telemetry, hms_error_history, ams_telemetry
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional

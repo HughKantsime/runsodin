@@ -5,6 +5,10 @@ filament library, Spoolman integration, drying logs, scan-assign,
 and bulk operations.
 """
 
+# Domain: inventory
+# Depends on: core, organizations
+# Owns tables: spools, filament_library, spool_usage, drying_logs, consumables, product_consumables, consumable_usage
+
 from datetime import datetime
 from io import BytesIO
 from typing import List, Optional

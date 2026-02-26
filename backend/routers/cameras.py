@@ -3,6 +3,10 @@
 Timelapse list/video/delete, camera list/toggle/stream/WebRTC.
 """
 
+# Domain: printers
+# Depends on: core, organizations
+# Owns tables: timelapses (shared with archives)
+
 from datetime import datetime
 from pathlib import Path
 from typing import Optional

@@ -1,4 +1,9 @@
 """O.D.I.N. — Auth, Users, Sessions, MFA, OIDC, Tokens, Quotas, GDPR, RBAC Routes"""
+
+# Domain: organizations (user management, OIDC, sessions, quotas) + core (login, JWT, MFA)
+# Depends on: core
+# Owns tables: users, api_tokens, active_sessions, token_blacklist, password_reset_tokens, login_attempts, groups, quota_usage, oidc_config, oidc_pending_states, oidc_auth_codes
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel as PydanticBaseModel

@@ -1,4 +1,9 @@
 """O.D.I.N. — Job Routes"""
+
+# Domain: jobs
+# Depends on: core, printers, inventory, models_library, organizations
+# Owns tables: jobs, scheduler_runs, print_presets, print_jobs, print_files
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text

@@ -4,6 +4,10 @@ Group related print archives into named projects.
 CRUD, bulk archive assignment, ZIP export/import.
 """
 
+# Domain: archives
+# Depends on: core, organizations
+# Owns tables: projects
+
 import io
 import json
 import logging

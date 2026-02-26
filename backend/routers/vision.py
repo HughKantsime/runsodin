@@ -1,4 +1,9 @@
 """O.D.I.N. — Vigil AI Vision Routes"""
+
+# Domain: vision
+# Depends on: core, printers, notifications, organizations
+# Owns tables: vision_detections, vision_settings, vision_models
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func, case, text

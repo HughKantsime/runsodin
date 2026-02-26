@@ -1,4 +1,9 @@
 """O.D.I.N. — Orders, Products & Consumables Routes"""
+
+# Domain: orders
+# Depends on: core, inventory, organizations
+# Owns tables: orders, order_items, products, product_components
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text

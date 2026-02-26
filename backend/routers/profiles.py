@@ -4,6 +4,10 @@ Central profile library for Klipper, OrcaSlicer, Bambu Studio, and PrusaSlicer.
 Klipper profiles can be applied live; slicer profiles are stored and exported.
 """
 
+# Domain: system
+# Depends on: core, printers, organizations
+# Owns tables: printer_profiles
+
 import configparser
 import io
 import json

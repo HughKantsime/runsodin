@@ -1,4 +1,9 @@
 """O.D.I.N. — Model & Print File Routes"""
+
+# Domain: models_library
+# Depends on: core, organizations
+# Owns tables: models, model_revisions
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File
 from rate_limit import limiter
 from sqlalchemy.orm import Session

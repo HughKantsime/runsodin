@@ -1,4 +1,9 @@
 """O.D.I.N. — Alerts, Webhooks, Push Notifications & SMTP Routes"""
+
+# Domain: notifications
+# Depends on: core, organizations
+# Owns tables: alerts, alert_preferences, push_subscriptions, webhooks
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text

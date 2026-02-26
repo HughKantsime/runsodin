@@ -1,4 +1,9 @@
 """O.D.I.N. — Organization Routes"""
+
+# Domain: organizations
+# Depends on: core
+# Owns tables: groups, oidc_config, oidc_pending_states, oidc_auth_codes, quota_usage
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
