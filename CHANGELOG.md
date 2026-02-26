@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.76] - 2026-02-25
+
+### Added
+- **Printer model auto-detection** — `POST /api/printers/test-connection` and `POST /api/setup/test-printer` now return a `model` field for all four protocols:
+  - Bambu: maps MQTT `printer_type` codes (e.g., `BL-P001` → `X1C`) using `printer_models.py`
+  - Moonraker/Klipper: queries `/server/config` for kinematics (`corexy` → `"Voron"`), falls back to hostname substring hints
+  - PrusaLink: extracts printer type from `/api/version` response, maps to friendly names (MK4S, MK3.9, CORE One, etc.)
+  - Elegoo: UDP unicast M99999 probe on port 3000, parses `MachineName` from SDCP response
+- **`backend/printer_models.py`** — centralized model code mapping module; `normalize_model_name(api_type, raw_value)` dispatcher; unknown codes pass through as-is, empty input returns `None`
+- **`/api/setup/test-printer`** — added PrusaLink and Elegoo branches (previously fell through to error case)
+- Model detection is best-effort: failure returns `null`, never causes test-connection to fail
+
 ## [1.3.75] - 2026-02-25
 
 ### Added

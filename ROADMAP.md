@@ -2,6 +2,10 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.3.76
+
+- ~~Printer model auto-detection~~ — test-connection returns `model` field for all four protocols (Bambu MQTT printer_type, Moonraker kinematics/hostname, PrusaLink /api/version, Elegoo SDCP UDP probe); `printer_models.py` centralized mapping module; frontend auto-fills model dropdown
+
 ## Shipped in v1.3.75
 
 - ~~Multi-plate reprint~~ — plate selector in archive reprint and model schedule modals
