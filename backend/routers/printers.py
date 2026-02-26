@@ -1427,17 +1427,46 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
 
     elif api_type == "elegoo":
         import httpx as httpx_client
+        import socket
+        import json as _json
+
+        # Primary reachability check: HTTP probe on port 3030
         try:
-            r = httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
-            return {
-                "success": True,
-                "state": "connected",
-                "bed_temp": 0,
-                "nozzle_temp": 0,
-                "ams_slots": 0,
-            }
+            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+        # Model detection via UDP unicast M99999 probe — best-effort, never raises
+        detected_model = None
+        try:
+            from printer_models import normalize_model_name
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(3.0)
+            try:
+                sock.sendto(b"M99999", (request.api_host, 3000))
+                data, _ = sock.recvfrom(4096)
+                info = _json.loads(data.decode("utf-8"))
+                if "Data" in info:
+                    attrs = info["Data"].get("Attributes", info["Data"])
+                else:
+                    attrs = info
+                machine_name = attrs.get("MachineName", "") or attrs.get("Name", "") or ""
+                detected_model = normalize_model_name("elegoo", machine_name)
+            except Exception:
+                detected_model = None
+            finally:
+                sock.close()
+        except Exception:
+            detected_model = None
+
+        return {
+            "success": True,
+            "state": "connected",
+            "bed_temp": 0,
+            "nozzle_temp": 0,
+            "ams_slots": 0,
+            "model": detected_model,
+        }
 
     else:
         return {"success": False, "error": f"Unknown printer type: {request.api_type}"}
