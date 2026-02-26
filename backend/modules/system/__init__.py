@@ -3,8 +3,15 @@ MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "System config, health, maintenance, backups, admin logs, and slicer profiles"
 
 ROUTES = [
-    "system.routes",
+    "system.routes",           # aggregator
     "system.profile_routes",
+    "system.routes_health",
+    "system.routes_config",
+    "system.routes_setup",
+    "system.routes_backup",
+    "system.routes_settings",
+    "system.routes_maintenance",
+    "system.routes_admin",
 ]
 
 TABLES = [

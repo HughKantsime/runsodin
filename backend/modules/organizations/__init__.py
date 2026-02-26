@@ -4,7 +4,12 @@ MODULE_DESCRIPTION = "Organizations, users, roles, OIDC/SSO, branding, and quota
 
 ROUTES = [
     "organizations.routes",
-    "organizations.auth_routes",
+    "organizations.auth_routes",       # aggregator
+    "organizations.routes_auth",
+    "organizations.routes_oidc",
+    "organizations.routes_sessions",
+    "organizations.routes_users",
+    "organizations.routes_permissions",
 ]
 
 TABLES = [

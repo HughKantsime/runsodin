@@ -3,8 +3,16 @@ MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Printer communication, adapters, monitors, and fleet management"
 
 ROUTES = [
-    "printers.routes",
+    "printers.routes",           # aggregator
     "printers.camera_routes",
+    "printers.routes_crud",
+    "printers.routes_status",
+    "printers.routes_controls",
+    "printers.routes_ams",
+    "printers.routes_bambu",
+    "printers.routes_ams_env",
+    "printers.routes_smart_plug",
+    "printers.routes_nozzle",
 ]
 
 TABLES = [
