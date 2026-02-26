@@ -2,6 +2,10 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.3.77
+
+- ~~Modular architecture refactor~~ — 12 domain modules, app factory with topological module loading, InMemoryEventBus, ModuleRegistry DI container, module-owned SQL migrations, 171 contract tests with import boundary enforcement; `main.py` 524→12 lines, `entrypoint.sh` 960→347 lines
+
 ## Shipped in v1.3.76
 
 - ~~Printer model auto-detection~~ — test-connection returns `model` field for all four protocols (Bambu MQTT printer_type, Moonraker kinematics/hostname, PrusaLink /api/version, Elegoo SDCP UDP probe); `printer_models.py` centralized mapping module; frontend auto-fills model dropdown

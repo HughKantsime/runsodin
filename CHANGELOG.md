@@ -2,6 +2,25 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.3.77] - 2026-02-26
+
+### Changed
+- **Modular architecture refactor** — monolithic backend decomposed into 12 domain modules (`core`, `printers`, `jobs`, `inventory`, `models_library`, `vision`, `notifications`, `organizations`, `orders`, `archives`, `reporting`, `system`)
+- **App factory pattern** — `create_app()` with dynamic module discovery, topological sort of load order based on `REQUIRES`/`IMPLEMENTS` declarations
+- **InMemoryEventBus** — synchronous pub/sub event bus replacing direct cross-module imports for decoupling
+- **ModuleRegistry** — dependency injection container for interface providers (`PrinterStateProvider`, `EventBus`, `NotificationDispatcher`, `OrgSettingsProvider`, `JobStateProvider`)
+- **Module-owned SQL migrations** — per-module `migrations/001_initial.sql` files with migration runner, replacing 700+ lines of inline SQL in `entrypoint.sh`
+- **Module manifests** — each module's `__init__.py` declares `MODULE_ID`, `ROUTES`, `TABLES`, `PUBLISHES`, `SUBSCRIBES`, `IMPLEMENTS`, `REQUIRES`, `DAEMONS`, and a `register(app, registry)` function
+- **Contract tests** — 171 new tests including import boundary enforcement (`test_no_cross_module_imports`), module manifest validation, event bus contracts, and interface ABC compliance
+- `main.py` reduced from 524 → 12 lines; `entrypoint.sh` from 960 → 347 lines
+
+### Fixed
+- Missing Pydantic schemas in orders module (`ProductConsumableCreate`, `ConsumableCreate`, etc.) — 27 endpoints were silently dropped
+- Incomplete `AlertType` enum in notification schemas (missing `bed_cooled`, `queue_added`, `queue_skipped`, `queue_failed_start`)
+- Broken `print_file_meta` import path in models library routes
+- `dateutil` dependency replaced with stdlib `datetime.fromisoformat()` in session routes
+- `quantity_on_bed` schema made `Optional[int]` to match nullable DB column
+
 ## [1.3.76] - 2026-02-25
 
 ### Added
