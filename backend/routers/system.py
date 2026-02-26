@@ -373,12 +373,51 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
             r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)
             if r.status_code == 200:
                 info = r.json().get("result", {})
+
+                # Model detection — best-effort via kinematics + hostname hint
+                detected_model = None
+                try:
+                    # Primary: kinematics from /server/config
+                    cfg_r = httpx_client.get(
+                        f"http://{request.api_host}/server/config", timeout=3
+                    )
+                    if cfg_r.status_code == 200:
+                        kinematics = (
+                            cfg_r.json()
+                            .get("result", {})
+                            .get("config", {})
+                            .get("printer", {})
+                            .get("kinematics", "")
+                            or ""
+                        )
+                        if kinematics.lower() == "corexy":
+                            detected_model = "Voron"
+                        # cartesian/corexz are too ambiguous — leave as None
+                except Exception:
+                    pass
+
+                # Secondary: hostname hint (only if kinematics gave nothing)
+                if detected_model is None:
+                    try:
+                        hostname = (info.get("hostname") or "").lower()
+                        if "voron" in hostname:
+                            detected_model = "Voron"
+                        elif "trident" in hostname:
+                            detected_model = "Voron Trident"
+                        elif "switchwire" in hostname:
+                            detected_model = "Voron Switchwire"
+                        elif "v0" in hostname:
+                            detected_model = "Voron V0"
+                    except Exception:
+                        pass
+
                 return {
                     "success": True,
                     "state": info.get("state", "unknown"),
                     "bed_temp": 0,
                     "nozzle_temp": 0,
                     "ams_slots": 0,
+                    "model": detected_model,
                 }
             return {"success": False, "error": f"Moonraker returned {r.status_code}"}
         except Exception as e:
