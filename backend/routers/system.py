@@ -347,12 +347,20 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
             bambu_status = bambu.get_status()
             bambu.disconnect()
 
+            # Model detection — best-effort, never raises
+            try:
+                from printer_models import normalize_model_name
+                detected_model = normalize_model_name("bambu", bambu_status.printer_type)
+            except Exception:
+                detected_model = None
+
             return {
                 "success": True,
                 "state": bambu_status.state.value,
                 "bed_temp": bambu_status.bed_temp,
                 "nozzle_temp": bambu_status.nozzle_temp,
-                "ams_slots": len(bambu_status.ams_slots)
+                "ams_slots": len(bambu_status.ams_slots),
+                "model": detected_model,
             }
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")
