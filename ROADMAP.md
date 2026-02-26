@@ -2,6 +2,12 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.3
+
+- ~~Cross-module violation cleanup~~ — `_get_org_settings` replaced with registry-based OrgSettingsProvider, `calculate_job_cost` extracted to services.py, unused `compute_printer_online` deleted; KNOWN_VIOLATIONS allowlist removed
+- ~~Oversized page splitting~~ — Settings (1,941→173L), Spools (1,458→386L), Printers (1,346→380L), Jobs (1,225→398L), Orders (1,098→338L); 19 extracted components/hooks
+- ~~Large backend file splits~~ — event_dispatcher.py (1,041→6 files), mqtt_monitor.py (1,204→4 files), vision/monitor.py (880→4 files); 14 focused sub-modules, max 350L
+
 ## Shipped in v1.4.2
 
 - ~~Frontend modular refactor~~ — `api.js` split into 14 domain modules + `client.js` + `index.js` (max 165L); 34 pages into 12 subdirectories; 38 components into `shared/` + 9 domain subdirectories; 113 files changed, zero functional changes
@@ -217,8 +223,6 @@ Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/co
 
 ## Next Up
 
-- [ ] Cross-module violation cleanup — extract `calculate_job_cost` to service layer, replace `_get_org_settings` imports with OrgSettingsProvider registry interface, move `compute_printer_online()` to printers module [PRIORITY: medium]
-- [ ] Oversized page splitting — Settings.jsx (1,941L), Spools.jsx (1,458L), Printers.jsx (1,346L), Jobs.jsx (1,225L), Orders.jsx (1,098L) into focused sub-components [PRIORITY: medium]
-- [ ] Large backend file splits — mqtt_monitor.py (1,204L), event_dispatcher.py (1,041L), vision/monitor.py (880L) into focused sub-modules [PRIORITY: low]
+*(All roadmap items shipped — see backlog for future work)*
 
 ## Parked (needs more design)

@@ -5,7 +5,9 @@ All notable changes to O.D.I.N. are documented here.
 ## [1.4.3] - 2026-02-26
 
 ### Changed
-- **Oversized page file splitting** — 5 frontend page files (1,098–1,941 lines) each split into focused sub-components under 400 lines; 19 extracted files including `LicenseTab`, `SpoolEditModals`, `SpoolGrid`, `OrderTable`, `OrderStats`, `RecentlyCompleted`, `JobTableHeader`, `useJobMutations` hook; all page orchestrators now under 400 lines, all extracted components under 600 lines; zero functional changes; 1801 tests pass
+- **Cross-module violation cleanup** — eliminated all 3 known import boundary violations: `_get_org_settings` replaced with registry-based `OrgSettingsProvider`, `calculate_job_cost` extracted to `models_library/services.py`, unused `compute_printer_online` deleted; `KNOWN_VIOLATIONS` allowlist removed from contract tests; 209 contract tests pass with zero violations
+- **Oversized page file splitting** — 5 frontend page files (1,098–1,941 lines) each split into focused sub-components under 400 lines; 19 extracted files including `LicenseTab`, `SpoolEditModals`, `SpoolGrid`, `OrderTable`, `OrderStats`, `RecentlyCompleted`, `JobTableHeader`, `useJobMutations` hook; all page orchestrators now under 400 lines, all extracted components under 600 lines
+- **Large backend file splits** — 3 oversized backend files (880–1,204 lines) split into 14 focused sub-modules (max 350 lines): `event_dispatcher.py` → 6 files (channels, job_events, printer_health, error_handling, alert_dispatch + re-export shim); `mqtt_monitor.py` → 4 files (telemetry, job_lifecycle, printer + daemon); `vision/monitor.py` → 4 files (inference_engine, detection_thread, frame_storage + daemon); supervisord entry points unchanged
 
 ## [1.4.2] - 2026-02-26
 
