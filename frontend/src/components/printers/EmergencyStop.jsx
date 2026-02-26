@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { fetchAPI } from '../api';
+import { fetchAPI } from '../../api';
 
 /**
  * Emergency Stop Button - Floating button that shows when any printer is actively printing.

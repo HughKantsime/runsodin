@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X, ExternalLink } from 'lucide-react'
-import { useLicense } from '../LicenseContext'
+import { useLicense } from '../../LicenseContext'
 
 export default function UpgradeBanner() {
   const { tier, loading, isPro } = useLicense()

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Monitor, Smartphone, Globe, Trash2, LogOut, Loader2, CheckCircle } from 'lucide-react'
-import { sessions } from '../api'
+import { sessions } from '../../api'
 
 function parseUA(ua) {
   if (!ua) return { device: 'Unknown', browser: 'Unknown' }

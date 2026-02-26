@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import { consumables } from '../../api'
 import { canDo } from '../../permissions'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 const UNIT_OPTIONS = ['piece', 'gram', 'ml', 'meter', 'pack', 'box', 'sheet']
 

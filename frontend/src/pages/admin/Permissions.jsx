@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 async function fetchPerms() {
   const headers = { 'Content-Type': 'application/json' }

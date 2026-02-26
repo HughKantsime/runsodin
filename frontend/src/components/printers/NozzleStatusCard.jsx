@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { printerTelemetry } from '../api'
+import { printerTelemetry } from '../../api'
 
 export default function NozzleStatusCard({ printerId, onClose }) {
   const [current, setCurrent] = useState(null)

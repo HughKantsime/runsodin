@@ -1,8 +1,8 @@
 import jsQR from 'jsqr';
 import { useState, useEffect, useRef } from 'react';
 import { QrCode, Camera, X, Check, Package, Printer } from 'lucide-react';
-import { spools, printers } from '../api';
-import { getColorName } from '../utils/colorNames';
+import { spools, printers } from '../../api';
+import { getColorName } from '../../utils/colorNames';
 
 /**
  * QR Scanner Modal

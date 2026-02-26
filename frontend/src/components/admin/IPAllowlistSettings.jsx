@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Shield, Plus, Trash2, Save, Loader2, AlertTriangle } from 'lucide-react'
-import { ipAllowlist } from '../api'
+import { ipAllowlist } from '../../api'
 
 export default function IPAllowlistSettings() {
   const [config, setConfig] = useState({ enabled: false, cidrs: [], mode: 'api_and_ui' })

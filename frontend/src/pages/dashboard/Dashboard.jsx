@@ -18,7 +18,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
-import CameraModal from '../../components/CameraModal'
+import CameraModal from '../../components/printers/CameraModal'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'

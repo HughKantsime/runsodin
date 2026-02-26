@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { timelapses, printers } from '../../api'
 import { Film, Trash2, Download, ChevronLeft, ChevronRight, Clock, HardDrive, Loader2, Scissors, Gauge, X } from 'lucide-react'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 const STATUS_COLORS = {
   ready: 'bg-green-500/20 text-green-400',

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { profilesApi, printers as printersApi } from '../../api'
 import { SlidersHorizontal, Upload, Plus, Download, Play, Trash2, Pencil, Loader2, Search, X } from 'lucide-react'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 const SLICER_TABS = [
   { key: '', label: 'All' },

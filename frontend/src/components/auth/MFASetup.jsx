@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ShieldCheck, ShieldOff, Loader2, Copy, CheckCircle, AlertTriangle } from 'lucide-react'
-import { auth } from '../api'
+import { auth } from '../../api'
 
 export default function MFASetup() {
   const [mfaEnabled, setMfaEnabled] = useState(false)

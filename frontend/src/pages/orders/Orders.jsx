@@ -3,7 +3,7 @@ import { orders, products, orderInvoice } from '../../api'
 import { ShoppingCart, Plus, Trash2, Eye, X, Save, Truck, Play, FileText, Pencil, RefreshCw, Search, Ban } from 'lucide-react'
 import { canDo } from '../../permissions'
 import toast from 'react-hot-toast'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 const STATUS_CLASSES = {
   pending: 'bg-status-pending/20 text-status-pending',

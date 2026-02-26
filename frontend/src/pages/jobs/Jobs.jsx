@@ -7,10 +7,10 @@ import clsx from 'clsx'
 import { jobs, models, printers as printersApi, scheduler, approveJob, rejectJob, resubmitJob, getApprovalSetting, presets, bulkOps, modelRevisions } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
-import FailureReasonModal from '../../components/FailureReasonModal'
+import FailureReasonModal from '../../components/jobs/FailureReasonModal'
 import { updateJobFailure } from '../../api'
 import toast from 'react-hot-toast'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 function formatHours(h) {
   if (!h) return "—"

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { printers, printerTelemetry } from '../api'
+import { printers, printerTelemetry } from '../../api'
 
 const SEVERITY_COLORS = {
   critical: 'bg-red-600/20 text-red-400',

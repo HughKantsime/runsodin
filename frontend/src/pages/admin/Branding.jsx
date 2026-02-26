@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { Palette, Upload, RotateCcw, Eye, Save, Image, Type, Paintbrush, Monitor, PanelLeft } from "lucide-react"
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 const API_BASE = '/api'
 

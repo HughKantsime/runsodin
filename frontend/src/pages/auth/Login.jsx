@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import SSOButton from '../../components/SSOButton'
+import SSOButton from '../../components/auth/SSOButton'
 import { useNavigate } from 'react-router-dom'
 import { Lock, User, AlertCircle, ShieldCheck, Loader2 } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'

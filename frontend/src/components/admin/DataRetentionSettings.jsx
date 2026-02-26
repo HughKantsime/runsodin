@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Clock, Save, Loader2, Trash2, AlertTriangle } from 'lucide-react'
-import { retention } from '../api'
+import { retention } from '../../api'
 
 const FIELDS = [
   { key: 'completed_jobs_days', label: 'Completed jobs', desc: '0 = keep forever' },

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DollarSign } from 'lucide-react'
-import { chargebacks } from '../api'
+import { chargebacks } from '../../api'
 
 export default function ChargebackReport() {
   const [startDate, setStartDate] = useState('')

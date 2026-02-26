@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Maximize2, Minimize2, VideoOff, Eye, RefreshCw, Camera } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { printers } from '../../api'
-import { PrinterInfoPanel, FilamentSlotsPanel, ActiveJobPanel } from '../../components/PrinterPanels'
+import { PrinterInfoPanel, FilamentSlotsPanel, ActiveJobPanel } from '../../components/printers/PrinterPanels'
 
 const API_BASE = '/api'
 

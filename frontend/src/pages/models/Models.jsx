@@ -14,11 +14,11 @@ import {
   CalendarPlus,
   Printer as PrinterIcon,
   Star, Box, History, Search, Upload, AlertTriangle } from 'lucide-react'
-import ModelViewer from '../../components/ModelViewer'
-import ModelRevisionPanel from '../../components/ModelRevisionPanel'
+import ModelViewer from '../../components/models/ModelViewer'
+import ModelRevisionPanel from '../../components/models/ModelRevisionPanel'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 import { models, filaments, printers } from '../../api'
 import { canDo } from '../../permissions'

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Users, UserPlus, Printer, Building2, X, Settings, Save } from 'lucide-react'
-import { orgs } from '../api'
-import { canDo } from '../permissions'
+import { orgs } from '../../api'
+import { canDo } from '../../permissions'
 
 const FILAMENT_TYPES = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'PA', 'PC']
 const WEBHOOK_TYPES = ['generic', 'discord', 'slack', 'ntfy', 'telegram']

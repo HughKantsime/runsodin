@@ -6,7 +6,7 @@ import toast from 'react-hot-toast'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import { bulkOps, spools as spoolsApi, filaments as filamentApi, printers as printersApi } from '../../api'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 // ==================== Spool Components ====================
 

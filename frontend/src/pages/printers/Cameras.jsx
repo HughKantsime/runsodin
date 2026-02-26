@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye, Tv, RefreshCw } from 'lucide-react'
-import CameraModal from '../../components/CameraModal'
+import CameraModal from '../../components/printers/CameraModal'
 
 const API_BASE = '/api'
 

@@ -1,5 +1,5 @@
 import { Thermometer, Wind, Activity } from 'lucide-react'
-import { getShortName } from '../utils/shared'
+import { getShortName } from '../../utils/shared'
 
 export function PrinterInfoPanel({ printer }) {
   const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000

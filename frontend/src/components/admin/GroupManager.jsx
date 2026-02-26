@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useLicense } from '../LicenseContext'
-import { groups, users as usersApi } from '../api'
+import { useLicense } from '../../LicenseContext'
+import { groups, users as usersApi } from '../../api'
 import { Plus, Edit2, Trash2, Users, X, FolderOpen, RefreshCw } from 'lucide-react'
 
 function GroupModal({ group, operatorAdmins, onClose, onSave }) {

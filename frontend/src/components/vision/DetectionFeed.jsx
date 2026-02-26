@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Eye, AlertTriangle } from 'lucide-react'
-import { vision } from '../api'
+import { vision } from '../../api'
 import { useNavigate } from 'react-router-dom'
 
 const TYPE_META = {

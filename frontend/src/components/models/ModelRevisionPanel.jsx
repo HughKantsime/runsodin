@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { History, Upload, X, RotateCcw } from 'lucide-react'
-import { modelRevisions } from '../api'
-import { canDo } from '../permissions'
+import { modelRevisions } from '../../api'
+import { canDo } from '../../permissions'
 
 export default function ModelRevisionPanel({ modelId, modelName, onClose }) {
   const queryClient = useQueryClient()

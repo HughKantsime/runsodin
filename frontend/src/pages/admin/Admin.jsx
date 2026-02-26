@@ -5,8 +5,8 @@ import { groups as groupsApi, users as usersApi } from '../../api'
 import { Users, Plus, Edit2, Trash2, Shield, UserCheck, Eye, X, RefreshCw, Search, Upload, FileSpreadsheet, CheckCircle, AlertTriangle, KeyRound } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
-import ConfirmModal from '../../components/ConfirmModal'
-import UpgradeModal from '../../components/UpgradeModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
+import UpgradeModal from '../../components/shared/UpgradeModal'
 
 const API_BASE = '/api'
 

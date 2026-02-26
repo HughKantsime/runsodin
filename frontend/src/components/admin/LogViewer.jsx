@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { adminLogs } from '../api'
+import { adminLogs } from '../../api'
 
 const LOG_SOURCES = [
   { id: 'backend', label: 'Backend' },

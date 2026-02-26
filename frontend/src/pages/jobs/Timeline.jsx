@@ -20,7 +20,7 @@ import clsx from 'clsx'
 import toast from 'react-hot-toast'
 
 import { timeline, printers, jobActions, jobs, printJobs } from '../../api'
-import DetailDrawer from '../../components/DetailDrawer'
+import DetailDrawer from '../../components/shared/DetailDrawer'
 
 function parseUTC(dateStr) {
   if (!dateStr) return null

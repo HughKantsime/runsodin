@@ -6,7 +6,7 @@ import {
   AlertCircle, Calendar
 } from 'lucide-react'
 import { maintenance } from '../../api'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 const STATUS_COLORS = {
   ok: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-400' },

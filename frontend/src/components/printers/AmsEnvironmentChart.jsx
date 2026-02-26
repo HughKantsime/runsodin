@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { getAmsEnvironment } from '../api'
+import { getAmsEnvironment } from '../../api'
 
 export default function AmsEnvironmentChart({ printerId, onClose }) {
   const [data, setData] = useState([])

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Calendar, X, Pause, Play, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { reportSchedules } from '../api'
+import { reportSchedules } from '../../api'
 
 const REPORT_TYPES = ['fleet_utilization', 'job_summary', 'filament_consumption', 'failure_analysis', 'chargeback_summary']
 const FREQUENCIES = ['daily', 'weekly', 'monthly']

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, X, Package, ListTodo, Printer, Database } from 'lucide-react'
-import { search } from '../api'
+import { search } from '../../api'
 
 
 function Highlight({ text, query }) {

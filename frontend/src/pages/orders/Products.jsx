@@ -3,7 +3,7 @@ import { products, models, consumables as consumablesApi } from '../../api'
 import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
 import { canDo } from '../../permissions'
 import toast from 'react-hot-toast'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 export default function Products() {
   const [productList, setProductList] = useState([])

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Gauge, Save, Loader2, AlertTriangle } from 'lucide-react'
-import { quotas } from '../api'
+import { quotas } from '../../api'
 
 export default function QuotaManager() {
   const [users, setUsers] = useState([])

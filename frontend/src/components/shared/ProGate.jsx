@@ -1,4 +1,4 @@
-import { useLicense } from '../LicenseContext'
+import { useLicense } from '../../LicenseContext'
 import { useNavigate } from 'react-router-dom'
 import { Lock, ExternalLink, ArrowLeft } from 'lucide-react'
 

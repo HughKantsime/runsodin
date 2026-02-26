@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Key, Plus, Trash2, Copy, CheckCircle, AlertTriangle, Clock, Loader2 } from 'lucide-react'
-import { apiTokens } from '../api'
+import { apiTokens } from '../../api'
 
 const AVAILABLE_SCOPES = [
   { value: 'read:printers', label: 'Read Printers' },

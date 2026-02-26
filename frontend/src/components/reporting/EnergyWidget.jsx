@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Zap } from 'lucide-react'
-import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../api'
+import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../../api'
 
 export default function EnergyWidget({ jobs }) {
   const [rate, setRate] = useState(0.12)

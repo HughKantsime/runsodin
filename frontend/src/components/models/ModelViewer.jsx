@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, RotateCcw, ZoomIn, ZoomOut, Maximize2, Box } from 'lucide-react'
-import { fetchAPI } from '../api'
+import { fetchAPI } from '../../api'
 import * as THREE from 'three'
 
 /**

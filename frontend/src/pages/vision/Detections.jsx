@@ -5,7 +5,7 @@ import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown } from 'lucid
 import toast from 'react-hot-toast'
 import { vision, printers } from '../../api'
 import { canDo } from '../../permissions'
-import DetectionFeed from '../../components/DetectionFeed'
+import DetectionFeed from '../../components/vision/DetectionFeed'
 
 const TYPE_META = {
   spaghetti: { label: 'Spaghetti', color: 'text-red-400', bg: 'bg-red-500/20' },

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { alerts as alertsApi } from '../api'
+import { alerts as alertsApi } from '../../api'
 
 const SEVERITY_STYLES = {
   critical: { dot: 'bg-red-500', text: 'text-red-400', icon: '\u{1F534}' },

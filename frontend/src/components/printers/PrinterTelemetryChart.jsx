@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { printerTelemetry } from '../api'
+import { printerTelemetry } from '../../api'
 
 export default function PrinterTelemetryChart({ printerId, onClose }) {
   const [data, setData] = useState([])

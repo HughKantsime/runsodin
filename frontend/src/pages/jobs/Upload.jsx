@@ -4,7 +4,7 @@ import { Upload as UploadIcon, FileUp, Clock, Scale, Layers, Check, Printer, Tra
 import { useNavigate, Link } from 'react-router-dom'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
-import ConfirmModal from '../../components/ConfirmModal'
+import ConfirmModal from '../../components/shared/ConfirmModal'
 
 import { printFiles, getApprovalSetting } from '../../api'
 import { models as modelsApi } from '../../api'
