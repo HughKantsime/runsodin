@@ -73,38 +73,16 @@ ALLOWED_PATTERNS = [
     ".threemf_parser",    # 3MF file parsing utility
     ".route_utils",       # Shared SSRF blocklist, go2rtc config sync
     ".dispatch import",   # Printer dispatch (send job to printer HW)
+
+    # Service layer — the intended cross-module boundary for shared business
+    # logic. Importing from another module's services.py is allowed; importing
+    # from routes.py is not. This is the boundary that replaces KNOWN_VIOLATIONS.
+    ".services import",
 ]
-
-# ---------------------------------------------------------------------------
-# Known violations — pre-existing coupling that should be refactored.
-#
-# These are GENUINE boundary violations that were not resolved during the
-# modular architecture refactor. They are tracked here to prevent new
-# violations from being silently added. Each entry has a remediation note.
-#
-# DO NOT add new entries without code review. Instead, fix the violation.
-# ---------------------------------------------------------------------------
-
-KNOWN_VIOLATIONS = [
-    # jobs/routes.py imports calculate_job_cost from models_library/routes.py.
-    # Remediation: Extract calculate_job_cost to modules/models_library/services.py
-    # and import from there, or expose it via the registry.
-    "modules.models_library.routes import calculate_job_cost",
-
-    # jobs/routes.py and notifications/alert_dispatcher.py import _get_org_settings
-    # from organizations/routes.py. Remediation: Use the OrgSettingsProvider interface
-    # registered in the registry, or extract to modules/organizations/services.py.
-    "modules.organizations.routes import _get_org_settings",
-]
-
 
 def _is_allowed(import_line: str) -> bool:
-    """Return True if the import line matches an allowed pattern or known violation."""
-    if any(pattern in import_line for pattern in ALLOWED_PATTERNS):
-        return True
-    if any(kv in import_line for kv in KNOWN_VIOLATIONS):
-        return True
-    return False
+    """Return True if the import line matches an allowed pattern."""
+    return any(pattern in import_line for pattern in ALLOWED_PATTERNS)
 
 
 def _find_violations() -> list[str]:
@@ -206,36 +184,6 @@ class TestNoCrossModuleImports:
         assert len(modules) >= 10, (
             f"Expected at least 10 module directories, found {len(modules)}: "
             f"{[d.name for d in modules]}"
-        )
-
-    def test_known_violations_still_exist(self):
-        """
-        Verify that the known violations in KNOWN_VIOLATIONS actually appear
-        in the codebase. If they disappear (fixed), remove them from KNOWN_VIOLATIONS
-        so the list stays accurate.
-        """
-        all_lines = []
-        for module_dir in MODULES_DIR.iterdir():
-            if not module_dir.is_dir() or module_dir.name.startswith("_"):
-                continue
-            for py_file in module_dir.rglob("*.py"):
-                if "__pycache__" in str(py_file):
-                    continue
-                try:
-                    all_lines.extend(py_file.read_text(encoding="utf-8").splitlines())
-                except Exception:
-                    pass
-
-        stale = []
-        for kv in KNOWN_VIOLATIONS:
-            found = any(kv in line for line in all_lines)
-            if not found:
-                stale.append(kv)
-
-        assert not stale, (
-            "These entries in KNOWN_VIOLATIONS no longer appear in the codebase.\n"
-            "They have been fixed — remove them from KNOWN_VIOLATIONS:\n"
-            + "\n".join(f"  {kv}" for kv in stale)
         )
 
 

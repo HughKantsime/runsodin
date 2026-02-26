@@ -376,14 +376,16 @@ def dispatch_alert(
     # Org-level webhook dispatch
     if _printer_org_id:
         try:
-            from modules.organizations.routes import _get_org_settings
-            org_settings = _get_org_settings(db, _printer_org_id)
-            org_webhook_url = org_settings.get("webhook_url")
-            if org_webhook_url:
-                _send_org_webhook(
-                    org_webhook_url, org_settings.get("webhook_type", "generic"),
-                    alert_type.value, title, message, severity.value
-                )
+            from core.registry import registry
+            _org_provider = registry.get_provider("OrgSettingsProvider")
+            if _org_provider:
+                org_settings = _org_provider.get_org_settings(db, _printer_org_id)
+                org_webhook_url = org_settings.get("webhook_url")
+                if org_webhook_url:
+                    _send_org_webhook(
+                        org_webhook_url, org_settings.get("webhook_type", "generic"),
+                        alert_type.value, title, message, severity.value
+                    )
         except Exception as e:
             logger.error(f"Org webhook dispatch error: {e}")
 

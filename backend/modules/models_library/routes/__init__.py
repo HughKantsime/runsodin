@@ -1,9 +1,10 @@
 """Models Library routes package — assembles all sub-routers."""
 
 from fastapi import APIRouter
-from .pricing import router as pricing_router, calculate_job_cost  # re-export for other modules
+from .pricing import router as pricing_router
 from .models_crud import router as models_crud_router
 from .print_files import router as print_files_router
+from modules.models_library.services import calculate_job_cost  # noqa: F401 — re-exported for backwards compat
 
 router = APIRouter()
 # print_files first: /print-files/upload (static) and /models/{model_id}/mesh must

@@ -79,13 +79,15 @@ def check_filament_compatibility(
 @router.post("/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
 def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
-    from modules.models_library.routes import calculate_job_cost
+    from modules.models_library.services import calculate_job_cost
 
     # Pre-load org settings for default filament
     org_settings = {}
     if current_user and current_user.get("group_id"):
-        from modules.organizations.routes import _get_org_settings
-        org_settings = _get_org_settings(db, current_user["group_id"])
+        from core.registry import registry
+        _org_provider = registry.get_provider("OrgSettingsProvider")
+        if _org_provider:
+            org_settings = _org_provider.get_org_settings(db, current_user["group_id"])
 
     db_jobs = []
     for job in jobs:
@@ -134,7 +136,7 @@ def create_jobs_batch(
 
     Creates one job per printer_id and returns all created jobs.
     """
-    from modules.models_library.routes import calculate_job_cost
+    from modules.models_library.services import calculate_job_cost
 
     if not body.printer_ids:
         raise HTTPException(status_code=400, detail="printer_ids cannot be empty")
@@ -285,7 +287,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     requests. The approval workflow logic checks current_user["role"] internally.
     """
     # Import here to avoid circular at module level
-    from modules.models_library.routes import calculate_job_cost
+    from modules.models_library.services import calculate_job_cost
 
     # Check print quota before creating job
     if current_user:
@@ -327,12 +329,14 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     effective_filament_type = job.filament_type
     effective_colors = job.colors_required
     if current_user and current_user.get("group_id") and not effective_filament_type:
-        from modules.organizations.routes import _get_org_settings
-        org_settings = _get_org_settings(db, current_user["group_id"])
-        if org_settings.get("default_filament_type"):
-            effective_filament_type = org_settings["default_filament_type"]
-        if not effective_colors and org_settings.get("default_filament_color"):
-            effective_colors = org_settings["default_filament_color"]
+        from core.registry import registry
+        _org_provider = registry.get_provider("OrgSettingsProvider")
+        if _org_provider:
+            org_settings = _org_provider.get_org_settings(db, current_user["group_id"])
+            if org_settings.get("default_filament_type"):
+                effective_filament_type = org_settings["default_filament_type"]
+            if not effective_colors and org_settings.get("default_filament_color"):
+                effective_colors = org_settings["default_filament_color"]
 
     db_job = Job(
         item_name=job.item_name,

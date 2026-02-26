@@ -92,3 +92,14 @@ class ModuleRegistry:
     def providers(self) -> dict[str, Any]:
         """Read-only view of all registered providers."""
         return dict(self._providers)
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton — importable by route handlers and services.
+#
+# core/app.py imports and uses this instance (rather than creating a local
+# one) so that providers registered during module startup are accessible
+# from anywhere that does `from core.registry import registry`.
+# ---------------------------------------------------------------------------
+
+registry = ModuleRegistry()

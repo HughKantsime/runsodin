@@ -34,11 +34,11 @@ DAEMONS = []
 
 def register(app, registry) -> None:
     """Register the organizations module: routes and OrgSettingsProvider."""
-    import modules.organizations as _self
     from modules.organizations import routes, auth_routes
+    from modules.organizations.services import OrgSettingsService
 
     for router in (routes.router, auth_routes.router):
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")
 
-    registry.register_provider("OrgSettingsProvider", _self)
+    registry.register_provider("OrgSettingsProvider", OrgSettingsService())

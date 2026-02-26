@@ -403,14 +403,13 @@ def create_app() -> FastAPI:
     from core.config import settings
     from core.db import engine, Base
     from core.auth import decode_token
-    from core.registry import ModuleRegistry
+    from core.registry import registry
 
     # -----------------------------------------------------------------------
     # Module discovery and registry (at import time, not in lifespan)
     # -----------------------------------------------------------------------
     pkg_names = _discover_modules()
     ordered_pkgs = _resolve_load_order(pkg_names)
-    registry = ModuleRegistry()
 
     log.info(f"Module load order: {[p.split('.')[-1] for p in ordered_pkgs]}")
 
