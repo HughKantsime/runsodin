@@ -30,6 +30,23 @@ class ProductComponentResponse(ProductComponentBase):
     model_name: Optional[str] = None
 
 
+class ProductConsumableCreate(BaseModel):
+    consumable_id: int
+    quantity_per_product: float = 1.0
+    notes: Optional[str] = None
+
+
+class ProductConsumableResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    consumable_id: int
+    quantity_per_product: float = 1.0
+    notes: Optional[str] = None
+    consumable_name: Optional[str] = None
+
+
 class ProductBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     sku: Optional[str] = None
@@ -55,7 +72,7 @@ class ProductResponse(ProductBase):
     created_at: datetime
     updated_at: datetime
     components: List[ProductComponentResponse] = []
-    consumables: List[Any] = []  # List[ProductConsumableResponse] — populated by API layer
+    consumables: List[ProductConsumableResponse] = []
 
     # Calculated fields (populated by API)
     estimated_cogs: Optional[float] = None
@@ -188,3 +205,53 @@ class OrderShipRequest(BaseModel):
     """Request to mark order as shipped."""
     tracking_number: Optional[str] = None
     shipped_date: Optional[datetime] = None  # Defaults to now
+
+
+# ============== Consumable Schemas ==============
+
+class ConsumableCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    sku: Optional[str] = None
+    unit: str = "piece"
+    cost_per_unit: float = 0
+    current_stock: float = 0
+    min_stock: float = 0
+    vendor: Optional[str] = None
+    notes: Optional[str] = None
+    status: str = "active"
+
+
+class ConsumableUpdate(BaseModel):
+    name: Optional[str] = None
+    sku: Optional[str] = None
+    unit: Optional[str] = None
+    cost_per_unit: Optional[float] = None
+    current_stock: Optional[float] = None
+    min_stock: Optional[float] = None
+    vendor: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+class ConsumableResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    sku: Optional[str] = None
+    unit: str = "piece"
+    cost_per_unit: float = 0
+    current_stock: float = 0
+    min_stock: float = 0
+    vendor: Optional[str] = None
+    notes: Optional[str] = None
+    status: str = "active"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    is_low_stock: Optional[bool] = None
+
+
+class ConsumableAdjust(BaseModel):
+    type: str = Field(..., pattern="^(restock|deduct)$")
+    quantity: float = Field(..., gt=0)
+    notes: Optional[str] = None
