@@ -22,9 +22,17 @@ class JobBase(BaseModel):
     notes: Optional[str] = None
     hold: bool = False
     due_date: Optional[datetime] = None
-    required_tags: List[str] = []
+    required_tags: Optional[List[str]] = []
     target_type: Optional[str] = "specific"  # specific, model, protocol
     target_filter: Optional[str] = None  # machine_type or protocol name when target_type != specific
+
+    @field_validator('required_tags', mode='before')
+    @classmethod
+    def coerce_tags_none(cls, v):
+        """DB stores NULL for empty tags — coerce to empty list."""
+        if v is None:
+            return []
+        return v
 
     @field_validator('priority', mode='before')
     @classmethod
@@ -100,9 +108,30 @@ class JobResponse(JobBase):
     order_item_id: Optional[int] = None
     quantity_on_bed: Optional[int] = 1
 
-    # Expanded relations (optional) — Any to avoid cross-domain circular imports
-    printer: Optional[Any] = None
-    model: Optional[Any] = None
+    # Expanded relations (optional) — local summary schemas to avoid cross-module imports
+    printer: Optional["_PrinterSummary"] = None
+    model: Optional["_ModelSummary"] = None
+
+
+class _PrinterSummary(BaseModel):
+    """Inline printer summary for job responses (avoids cross-module import)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    model: Optional[str] = None
+    is_active: bool = True
+    loaded_colors: List[str] = []
+
+
+class _ModelSummary(BaseModel):
+    """Inline model summary for job responses (avoids cross-module import)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+
+# Resolve forward refs
+JobResponse.model_rebuild()
 
 
 class JobSummary(BaseModel):
