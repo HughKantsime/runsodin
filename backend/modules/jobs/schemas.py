@@ -98,7 +98,7 @@ class JobResponse(JobBase):
 
     # Order fulfillment
     order_item_id: Optional[int] = None
-    quantity_on_bed: int = 1
+    quantity_on_bed: Optional[int] = 1
 
     # Expanded relations (optional) — Any to avoid cross-domain circular imports
     printer: Optional[Any] = None
