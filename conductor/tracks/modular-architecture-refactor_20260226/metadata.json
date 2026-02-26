@@ -3,7 +3,7 @@
   "track_id": "modular-architecture-refactor_20260226",
   "name": "Modular Architecture Refactor",
   "type": "refactor",
-  "status": "in_progress",
+  "status": "complete",
   "created_at": "2026-02-26",
   "loop_state": {
     "current_step": "EVALUATE_EXECUTION",
@@ -12,10 +12,10 @@
     "checkpoints": {
       "EXECUTE": {
         "status": "PASSED",
-        "phase": "Phase 7",
-        "tasks_completed": 51,
-        "commits": ["e38627c", "7bbc7ad", "7719306", "3b82a18", "2d30c5e", "f485255", "0ccf490", "TBD-phase7"],
-        "notes": "Phase 7 complete. Removed all re-export facades. Updated all module files (40+ Python files) to use canonical import paths (core.*, modules.*.*). Created 3 new core utility files (printer_utils.py, quota.py, webhook_utils.py) for unique logic from deps.py. Deleted 27 backend root stubs, models.py, schemas.py, deps.py, auth.py, config.py, crypto.py, ws_hub.py, rate_limit.py, db_utils.py, and entire routers/ directory. Updated entrypoint.sh to import from core.base and all domain modules. Fixed test files (test_printer_models.py, test_print_file_meta.py, test_mqtt_linking.py) to use canonical paths. Updated CLAUDE.md architecture section. make test baseline unchanged: 1 failed (pre-existing), 54 passed, 10 skipped, 81 errors."
+        "phase": "Phase 9 (FINAL)",
+        "tasks_completed": 61,
+        "commits": ["e38627c", "7bbc7ad", "7719306", "3b82a18", "2d30c5e", "f485255", "0ccf490", "TBD-phase7", "8407aee", "TBD-phase9"],
+        "notes": "Phase 9 complete. Added 171 contract tests in tests/test_contracts/ covering module manifests, PrinterStateProvider interface, InMemoryEventBus, NotificationDispatcher, and import boundary enforcement. Added make test-contracts target. All 171 tests pass without a container. The boundary enforcer (test_no_cross_module_imports) correctly flags new cross-module route imports while allowing legitimate model/schema/adapter/utility cross-module references. 2 pre-existing violations are tracked in KNOWN_VIOLATIONS with remediation notes. This is the final phase of the refactor."
       }
     }
   }

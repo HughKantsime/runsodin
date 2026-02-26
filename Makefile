@@ -1,4 +1,4 @@
-.PHONY: build test test-security test-e2e test-coverage scan verify bump release logs shell help
+.PHONY: build test test-contracts test-security test-e2e test-coverage scan verify bump release logs shell help
 
 build: ## Build and start the container
 	docker compose up -d --build
@@ -10,6 +10,9 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 	pytest tests/test_rbac.py -v --tb=short
 	@echo "Updating TEST_COUNT..."
 	@pytest tests/test_features.py tests/test_license.py tests/test_mqtt_linking.py tests/test_order_math.py tests/test_security.py tests/test_rbac.py tests/test_printer_models.py --co -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1 > TEST_COUNT
+
+test-contracts: ## Run contract tests (module boundaries, no container required)
+	pytest tests/test_contracts/ -v --tb=short
 
 test-security: ## Run Layer 3 security tests
 	pytest tests/security/ -v --tb=short
