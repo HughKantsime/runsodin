@@ -211,4 +211,11 @@ Metadata extraction from gcode/3mf at upload time; `print_files.bed_x_mm/y_mm/co
 
 ---
 
+## Next Up
+
+- [ ] Frontend modular refactor — split api.js into 14 domain modules, group pages/components by domain directories mirroring backend modules [PRIORITY: high]
+- [ ] Cross-module violation cleanup — extract `calculate_job_cost` to service layer, replace `_get_org_settings` imports with OrgSettingsProvider registry interface, move `compute_printer_online()` to printers module [PRIORITY: medium]
+- [ ] Oversized page splitting — Settings.jsx (1,941L), Spools.jsx (1,458L), Printers.jsx (1,346L), Jobs.jsx (1,225L), Orders.jsx (1,098L) into focused sub-components [PRIORITY: medium]
+- [ ] Large backend file splits — mqtt_monitor.py (1,204L), event_dispatcher.py (1,041L), vision/monitor.py (880L) into focused sub-modules [PRIORITY: low]
+
 ## Parked (needs more design)
