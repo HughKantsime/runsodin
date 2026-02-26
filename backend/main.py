@@ -25,24 +25,22 @@ from auth import decode_token
 from rate_limit import limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from routers import (
-    alerts,
-    analytics,
-    archives,
-    auth,
-    cameras,
-    jobs,
-    models,
-    orders,
-    orgs,
-    printers,
-    profiles,
-    projects,
-    scheduler,
-    spools,
-    system,
-    vision,
-)
+from modules.printers import routes as printers
+from modules.printers import camera_routes as cameras
+from modules.jobs import routes as jobs
+from modules.jobs import scheduler_routes as scheduler
+from modules.inventory import routes as spools
+from modules.models_library import routes as models
+from modules.vision import routes as vision
+from modules.notifications import routes as alerts
+from modules.organizations import routes as orgs
+from modules.organizations import auth_routes as auth
+from modules.orders import routes as orders
+from modules.archives import routes as archives
+from modules.archives import project_routes as projects
+from modules.reporting import routes as analytics
+from modules.system import routes as system
+from modules.system import profile_routes as profiles
 
 log = logging.getLogger("odin.api")
 
