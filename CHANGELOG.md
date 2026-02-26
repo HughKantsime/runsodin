@@ -2,6 +2,11 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.3] - 2026-02-26
+
+### Changed
+- **Oversized page file splitting** — 5 frontend page files (1,098–1,941 lines) each split into focused sub-components under 400 lines; 19 extracted files including `LicenseTab`, `SpoolEditModals`, `SpoolGrid`, `OrderTable`, `OrderStats`, `RecentlyCompleted`, `JobTableHeader`, `useJobMutations` hook; all page orchestrators now under 400 lines, all extracted components under 600 lines; zero functional changes; 1801 tests pass
+
 ## [1.4.2] - 2026-02-26
 
 ### Changed
