@@ -1,6 +1,6 @@
 // O.D.I.N. - Service Worker for Push Notifications
 
-const CACHE_NAME = 'odin-v1.3.77';
+const CACHE_NAME = 'odin-v1.4.0';
 
 // Install event
 self.addEventListener('install', (event) => {
