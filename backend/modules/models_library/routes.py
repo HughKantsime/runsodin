@@ -389,7 +389,7 @@ async def upload_3mf(
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Upload and parse a print file (.3mf, .gcode, or .bgcode)."""
-    import print_file_meta as pfm
+    from modules.models_library import print_file_meta as pfm
 
     fname = file.filename or ""
     ext = os.path.splitext(fname)[1].lower()

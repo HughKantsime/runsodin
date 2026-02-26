@@ -59,7 +59,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    from dateutil.parser import parse as parse_dt
+    parse_dt = lambda s: datetime.fromisoformat(s) if isinstance(s, str) else s
     try:
         created = parse_dt(row.created_at) if isinstance(row.created_at, str) else row.created_at
         expires_at = created + timedelta(hours=24)
@@ -95,7 +95,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
         if r.token_jti == current_jti:
             continue
         try:
-            from dateutil.parser import parse as parse_dt
+            parse_dt = lambda s: datetime.fromisoformat(s) if isinstance(s, str) else s
             created = parse_dt(r.created_at) if isinstance(r.created_at, str) else r.created_at
             expires_at = created + timedelta(hours=24)
         except Exception:
@@ -132,7 +132,7 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        from dateutil.parser import parse as parse_dt
+        parse_dt = lambda s: datetime.fromisoformat(s) if isinstance(s, str) else s
         created = parse_dt(row.created_at) if isinstance(row.created_at, str) else row.created_at
         expires_at = created + timedelta(hours=24)
     except Exception:

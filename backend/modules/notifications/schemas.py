@@ -23,6 +23,10 @@ class AlertTypeEnum(str, Enum):
     SPAGHETTI_DETECTED = "spaghetti_detected"
     FIRST_LAYER_ISSUE = "first_layer_issue"
     DETACHMENT_DETECTED = "detachment_detected"
+    BED_COOLED = "bed_cooled"
+    QUEUE_ADDED = "queue_added"
+    QUEUE_SKIPPED = "queue_skipped"
+    QUEUE_FAILED_START = "queue_failed_start"
 
 
 class AlertSeverityEnum(str, Enum):
