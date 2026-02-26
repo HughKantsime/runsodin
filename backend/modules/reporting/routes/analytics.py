@@ -1,40 +1,30 @@
-"""O.D.I.N. — Analytics, Stats, Export & Report Routes"""
+"""O.D.I.N. — Analytics, Stats, and Usage Reports."""
 
-# Domain: reporting
-# Depends on: core, printers, jobs, inventory, organizations
-# Owns tables: report_schedules
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
-from typing import List, Optional
+from typing import Optional
 from datetime import datetime, timedelta, timezone
-import json
 import logging
-import csv
-import io
 import httpx
 
 from core.db import get_db
-from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, _get_org_filter
+from core.rbac import require_role
 from core.config import settings
 from core.base import JobStatus
-from core.models import SystemConfig, AuditLog
 from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.models import Job
-from modules.inventory.models import Spool, SpoolUsage, FilamentLibrary
 from license_manager import require_feature
 
 log = logging.getLogger("odin.api")
-router = APIRouter()
+
+router = APIRouter(tags=["Analytics"])
 
 
 # ============== Stats ==============
 
-@router.get("/stats", tags=["Stats"])
+@router.get("/stats")
 async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get dashboard statistics."""
     total_printers = db.query(Printer).count()
@@ -132,7 +122,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
 # ============== Analytics ==============
 
-@router.get("/analytics", tags=["Analytics"])
+@router.get("/analytics")
 def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get analytics data for dashboard."""
     from sqlalchemy import func
@@ -302,7 +292,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
 # ============== Failure Analytics ==============
 
-@router.get("/analytics/failures", tags=["Analytics"])
+@router.get("/analytics/failures")
 def get_failure_analytics(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
@@ -414,15 +404,13 @@ def get_failure_analytics(
 
 # ============== Time Accuracy Analytics ==============
 
-@router.get("/analytics/time-accuracy", tags=["Analytics"])
+@router.get("/analytics/time-accuracy")
 def get_time_accuracy(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer")),
 ):
     """Estimated vs actual print time accuracy stats."""
-    from sqlalchemy import func as fn
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     completed = (
         db.query(Job)
@@ -605,392 +593,3 @@ def get_education_usage_report(
         "daily_submissions": daily,
         "days": days,
     }
-
-
-# ============== CSV Export ==============
-
-@router.get("/export/jobs", tags=["Export"])
-def export_jobs_csv(
-    status: Optional[str] = None,
-    current_user: dict = Depends(require_role("operator")),
-    db: Session = Depends(get_db)
-):
-    """Export jobs as CSV."""
-    query = db.query(Job)
-    if status:
-        query = query.filter(Job.status == status)
-    jobs = query.order_by(Job.created_at.desc()).all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header
-    writer.writerow([
-        "ID", "Item Name", "Model ID", "Quantity", "Status", "Priority",
-        "Printer ID", "Duration (hrs)", "Estimated Cost", "Suggested Price",
-        "Scheduled Start", "Actual Start", "Actual End", "Created At"
-    ])
-
-    # Data
-    for job in jobs:
-        writer.writerow([
-            job.id,
-            job.item_name,
-            job.model_id,
-            job.quantity,
-            job.status.value if job.status else "",
-            job.priority,
-            job.printer_id,
-            job.duration_hours,
-            job.estimated_cost,
-            job.suggested_price,
-            job.scheduled_start.isoformat() if job.scheduled_start else "",
-            job.actual_start.isoformat() if job.actual_start else "",
-            job.actual_end.isoformat() if job.actual_end else "",
-            job.created_at.isoformat() if job.created_at else ""
-        ])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=jobs_export.csv"}
-    )
-
-
-@router.get("/export/spools", tags=["Export"])
-def export_spools_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Export spools as CSV."""
-    spools = db.query(Spool).order_by(Spool.id).all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header
-    writer.writerow([
-        "ID", "Filament ID", "QR Code", "RFID Tag", "Color Hex",
-        "Initial Weight (g)", "Remaining Weight (g)", "Status",
-        "Printer ID", "Slot", "Storage Location", "Vendor", "Price", "Created At"
-    ])
-
-    # Data
-    for spool in spools:
-        writer.writerow([
-            spool.id,
-            spool.filament_id,
-            spool.qr_code,
-            spool.rfid_tag,
-            spool.color_hex,
-            spool.initial_weight_g,
-            spool.remaining_weight_g,
-            spool.status.value if spool.status else "",
-            spool.location_printer_id,
-            spool.location_slot,
-            spool.storage_location,
-            spool.vendor,
-            spool.price,
-            spool.created_at.isoformat() if spool.created_at else ""
-        ])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=spools_export.csv"}
-    )
-
-
-@router.get("/export/filament-usage", tags=["Export"])
-def export_filament_usage_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Export filament usage history as CSV."""
-    usage_records = db.query(SpoolUsage).order_by(SpoolUsage.used_at.desc()).all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header
-    writer.writerow([
-        "ID", "Spool ID", "Job ID", "Weight Used (g)", "Used At", "Notes"
-    ])
-
-    # Data
-    for usage in usage_records:
-        writer.writerow([
-            usage.id,
-            usage.spool_id,
-            usage.job_id,
-            usage.weight_used_g,
-            usage.used_at.isoformat() if usage.used_at else "",
-            usage.notes
-        ])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=filament_usage_export.csv"}
-    )
-
-
-@router.get("/export/models", tags=["Export"])
-def export_models_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Export models as CSV."""
-    models = db.query(Model).order_by(Model.name).all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header
-    writer.writerow([
-        "ID", "Name", "Category", "Filament Type", "Build Time (hrs)",
-        "Total Filament (g)", "Cost Per Item", "Markup %", "Units Per Bed", "Created At"
-    ])
-
-    # Data
-    for model in models:
-        writer.writerow([
-            model.id,
-            model.name,
-            model.category,
-            model.default_filament_type.value if model.default_filament_type else "",
-            model.build_time_hours,
-            model.total_filament_grams,
-            model.cost_per_item,
-            model.markup_percent,
-            model.units_per_bed,
-            model.created_at.isoformat() if model.created_at else ""
-        ])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=models_export.csv"}
-    )
-
-
-@router.get("/export/audit-logs", tags=["Export"])
-def export_audit_logs_csv(
-    entity_type: Optional[str] = None,
-    action: Optional[str] = None,
-    current_user: dict = Depends(require_role("admin")),
-    db: Session = Depends(get_db)
-):
-    """Export audit logs as CSV."""
-    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
-    if entity_type:
-        query = query.filter(AuditLog.entity_type == entity_type)
-    if action:
-        query = query.filter(AuditLog.action == action)
-    logs = query.limit(5000).all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "Timestamp", "Action", "Entity Type", "Entity ID", "Details", "IP Address"])
-    for log_entry in logs:
-        writer.writerow([
-            log_entry.id,
-            log_entry.timestamp.isoformat() if log_entry.timestamp else "",
-            log_entry.action,
-            log_entry.entity_type or "",
-            log_entry.entity_id or "",
-            json.dumps(log_entry.details) if isinstance(log_entry.details, dict) else (log_entry.details or ""),
-            log_entry.ip_address or ""
-        ])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=audit_logs_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"}
-    )
-
-
-# ============== Audit Log ==============
-
-@router.get("/audit-logs", tags=["Audit"])
-def list_audit_logs(
-    limit: int = Query(default=50, le=500),
-    offset: int = 0,
-    entity_type: Optional[str] = None,
-    action: Optional[str] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("admin")),
-):
-    """List audit log entries with pagination and filters."""
-    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
-
-    if entity_type:
-        query = query.filter(AuditLog.entity_type == entity_type)
-    if action:
-        query = query.filter(AuditLog.action == action)
-    if date_from:
-        query = query.filter(AuditLog.timestamp >= date_from)
-    if date_to:
-        query = query.filter(AuditLog.timestamp <= date_to + "T23:59:59")
-
-    total = query.count()
-    logs = query.offset(offset).limit(limit).all()
-
-    return {
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "logs": [
-            {
-                "id": log_entry.id,
-                "timestamp": log_entry.timestamp.isoformat() if log_entry.timestamp else None,
-                "action": log_entry.action,
-                "entity_type": log_entry.entity_type,
-                "entity_id": log_entry.entity_id,
-                "details": log_entry.details,
-                "ip_address": log_entry.ip_address,
-            }
-            for log_entry in logs
-        ],
-    }
-
-
-# ============== Chargeback Report ==============
-
-@router.get("/reports/chargebacks", tags=["Reports"])
-async def chargeback_report(
-    start_date: str = None, end_date: str = None,
-    current_user: dict = Depends(require_role("admin")),
-    db: Session = Depends(get_db)
-):
-    """Generate chargeback report — cost summary by user."""
-    query = """
-        SELECT j.charged_to_user_id as user_id, u.username,
-               COUNT(*) as job_count,
-               SUM(j.estimated_cost) as total_cost,
-               SUM(j.duration_hours) as total_hours
-        FROM jobs j
-        LEFT JOIN users u ON j.charged_to_user_id = u.id
-        WHERE j.charged_to_user_id IS NOT NULL
-    """
-    params = {}
-    if start_date:
-        query += " AND j.created_at >= :start"
-        params["start"] = start_date
-    if end_date:
-        query += " AND j.created_at <= :end"
-        params["end"] = end_date
-    query += " GROUP BY j.charged_to_user_id ORDER BY total_cost DESC"
-
-    rows = db.execute(text(query), params).fetchall()
-    return [{
-        "user_id": r.user_id, "username": r.username or f"[user-{r.user_id}]",
-        "job_count": r.job_count,
-        "total_cost": round(r.total_cost or 0, 2),
-        "total_hours": round(r.total_hours or 0, 1),
-    } for r in rows]
-
-
-# ============== Report Schedules ==============
-
-REPORT_TYPES = ["fleet_utilization", "job_summary", "filament_consumption", "failure_analysis", "chargeback_summary"]
-
-
-@router.get("/report-schedules", tags=["Reports"])
-async def list_report_schedules(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """List all scheduled reports."""
-    rows = db.execute(text("SELECT * FROM report_schedules ORDER BY created_at DESC")).fetchall()
-    return [{
-        "id": r.id, "name": r.name, "report_type": r.report_type,
-        "frequency": r.frequency, "recipients": json.loads(r.recipients) if r.recipients else [],
-        "filters": json.loads(r.filters) if r.filters else {},
-        "is_active": bool(r.is_active), "next_run_at": r.next_run_at,
-        "last_run_at": r.last_run_at, "created_at": r.created_at,
-    } for r in rows]
-
-
-@router.post("/report-schedules", tags=["Reports"])
-async def create_report_schedule(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Create a new scheduled report."""
-    name = body.get("name", "").strip()
-    report_type = body.get("report_type", "")
-    frequency = body.get("frequency", "weekly")
-    recipients = body.get("recipients", [])
-
-    if not name:
-        raise HTTPException(status_code=400, detail="Report name is required")
-    if report_type not in REPORT_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid report type. Valid: {', '.join(REPORT_TYPES)}")
-    if not recipients:
-        raise HTTPException(status_code=400, detail="At least one recipient email is required")
-    if frequency not in ("daily", "weekly", "monthly"):
-        raise HTTPException(status_code=400, detail="Frequency must be daily, weekly, or monthly")
-
-    # Calculate next run
-    now = datetime.now(timezone.utc)
-    if frequency == "daily":
-        next_run = now + timedelta(days=1)
-    elif frequency == "weekly":
-        next_run = now + timedelta(weeks=1)
-    else:
-        next_run = now + timedelta(days=30)
-    next_run = next_run.replace(hour=8, minute=0, second=0)
-
-    db.execute(text("""INSERT INTO report_schedules (name, report_type, frequency, recipients, filters, next_run_at, created_by)
-                       VALUES (:name, :type, :freq, :recip, :filters, :next, :uid)"""),
-               {"name": name, "type": report_type, "freq": frequency,
-                "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
-                "next": next_run, "uid": current_user["id"]})
-    db.commit()
-
-    sched_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-    return {"id": sched_id, "status": "ok"}
-
-
-@router.delete("/report-schedules/{schedule_id}", tags=["Reports"])
-async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Delete a scheduled report."""
-    row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-    db.execute(text("DELETE FROM report_schedules WHERE id = :id"), {"id": schedule_id})
-    db.commit()
-    return {"status": "ok"}
-
-
-@router.patch("/report-schedules/{schedule_id}", tags=["Reports"])
-async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Update a scheduled report (toggle active, change recipients, etc.)."""
-    row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-
-    sets = []
-    params = {"id": schedule_id}
-    for field in ["name", "frequency", "is_active"]:
-        if field in body:
-            sets.append(f"{field} = :{field}")
-            params[field] = body[field]
-    if "recipients" in body:
-        sets.append("recipients = :recipients")
-        params["recipients"] = json.dumps(body["recipients"])
-    if sets:
-        db.execute(text(f"UPDATE report_schedules SET {', '.join(sets)} WHERE id = :id"), params)
-        db.commit()
-
-    return {"status": "ok"}
-
-
-@router.post("/report-schedules/{schedule_id}/run", tags=["Reports"])
-async def run_report_now(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Immediately generate and email a scheduled report."""
-    row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-    from modules.reporting.report_runner import run_report
-    try:
-        run_report(dict(row._mapping))
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        log.error(f"Run-now report {schedule_id} failed: {e}")
-        raise HTTPException(status_code=500, detail="Report generation failed")
-    return {"status": "sent"}
