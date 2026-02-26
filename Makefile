@@ -8,6 +8,8 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 	pytest tests/test_features.py tests/test_license.py tests/test_mqtt_linking.py tests/test_order_math.py tests/test_security.py -v --tb=short
 	docker exec odin python3 -c "import sqlite3; c=sqlite3.connect('/data/odin.db'); c.execute('DELETE FROM login_attempts'); c.commit(); c.close()" 2>/dev/null || true
 	pytest tests/test_rbac.py -v --tb=short
+	@echo "Updating TEST_COUNT..."
+	@pytest tests/test_features.py tests/test_license.py tests/test_mqtt_linking.py tests/test_order_math.py tests/test_security.py tests/test_rbac.py tests/test_printer_models.py --co -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1 > TEST_COUNT
 
 test-security: ## Run Layer 3 security tests
 	pytest tests/security/ -v --tb=short
