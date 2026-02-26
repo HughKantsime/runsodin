@@ -4,7 +4,6 @@ MODULE_DESCRIPTION = "Print archive history, projects, and timelapse management"
 
 ROUTES = [
     "archives.routes",
-    "archives.project_routes",
 ]
 
 TABLES = [
@@ -31,11 +30,10 @@ DAEMONS = [
 
 def register(app, registry) -> None:
     """Register the archives module routes."""
-    from modules.archives import routes, project_routes
+    from modules.archives import routes
 
-    for router in (routes.router, project_routes.router):
-        app.include_router(router, prefix="/api")
-        app.include_router(router, prefix="/api/v1")
+    app.include_router(routes.router, prefix="/api")
+    app.include_router(routes.router, prefix="/api/v1")
 
 
 def register_subscribers(bus) -> None:
