@@ -423,6 +423,92 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    elif request.api_type.lower() == "prusalink":
+        import httpx as httpx_client
+        try:
+            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)
+            if r.status_code == 200:
+                info = r.json()
+
+                # Model detection — best-effort from /api/version response
+                # PrusaLink returns printer type as:
+                #   {"printer": {"type": "MK4S", ...}}  (newer firmware)
+                #   or {"printer": "MK4S"}               (older firmware)
+                detected_model = None
+                try:
+                    from printer_models import normalize_model_name
+                    printer_field = info.get("printer", None)
+                    if isinstance(printer_field, dict):
+                        raw_type = printer_field.get("type", "") or ""
+                    elif isinstance(printer_field, str):
+                        raw_type = printer_field
+                    else:
+                        raw_type = ""
+                    detected_model = normalize_model_name("prusalink", raw_type)
+                except Exception:
+                    detected_model = None
+
+                return {
+                    "success": True,
+                    "state": "connected",
+                    "bed_temp": 0,
+                    "nozzle_temp": 0,
+                    "ams_slots": 0,
+                    "model": detected_model,
+                }
+            return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    elif request.api_type.lower() == "elegoo":
+        import socket
+        import json as _json
+        import time as _time
+
+        # Primary reachability check: HTTP probe on port 3030
+        import httpx as httpx_client
+        reachable = False
+        try:
+            r = httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
+            reachable = True
+        except Exception:
+            pass
+
+        if not reachable:
+            return {"success": False, "error": "Cannot reach Elegoo printer on port 3030"}
+
+        # Model detection via UDP unicast M99999 probe — best-effort, never raises
+        detected_model = None
+        try:
+            from printer_models import normalize_model_name
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(3.0)
+            try:
+                sock.sendto(b"M99999", (request.api_host, 3000))
+                data, _ = sock.recvfrom(4096)
+                info = _json.loads(data.decode("utf-8"))
+                if "Data" in info:
+                    attrs = info["Data"].get("Attributes", info["Data"])
+                else:
+                    attrs = info
+                machine_name = attrs.get("MachineName", "") or attrs.get("Name", "") or ""
+                detected_model = normalize_model_name("elegoo", machine_name)
+            except Exception:
+                detected_model = None
+            finally:
+                sock.close()
+        except Exception:
+            detected_model = None
+
+        return {
+            "success": True,
+            "state": "connected",
+            "bed_temp": 0,
+            "nozzle_temp": 0,
+            "ams_slots": 0,
+            "model": detected_model,
+        }
+
     return {"success": False, "error": f"Unknown printer type: {request.api_type}"}
 
 

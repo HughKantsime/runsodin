@@ -1394,12 +1394,32 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
             r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)
             if r.status_code == 200:
                 info = r.json()
+
+                # Model detection — best-effort from /api/version response
+                # PrusaLink returns printer type as:
+                #   {"printer": {"type": "MK4S", ...}}  (newer firmware)
+                #   or {"printer": "MK4S"}               (older firmware)
+                detected_model = None
+                try:
+                    from printer_models import normalize_model_name
+                    printer_field = info.get("printer", None)
+                    if isinstance(printer_field, dict):
+                        raw_type = printer_field.get("type", "") or ""
+                    elif isinstance(printer_field, str):
+                        raw_type = printer_field
+                    else:
+                        raw_type = ""
+                    detected_model = normalize_model_name("prusalink", raw_type)
+                except Exception:
+                    detected_model = None
+
                 return {
                     "success": True,
                     "state": "connected",
                     "bed_temp": 0,
                     "nozzle_temp": 0,
                     "ams_slots": 0,
+                    "model": detected_model,
                 }
             return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
         except Exception as e:
