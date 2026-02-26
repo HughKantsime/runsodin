@@ -36,3 +36,9 @@ DAEMONS = [
     "printers.monitors.prusalink_monitor",
     "printers.monitors.elegoo_monitor",
 ]
+
+
+def register_subscribers(bus) -> None:
+    """Register all printers module event subscribers."""
+    from modules.printers import smart_plug
+    smart_plug.register_subscribers(bus)

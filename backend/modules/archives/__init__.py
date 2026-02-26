@@ -14,6 +14,7 @@ PUBLISHES = []
 
 SUBSCRIBES = [
     "job.completed",
+    "job.failed",
 ]
 
 IMPLEMENTS = []
@@ -21,3 +22,9 @@ IMPLEMENTS = []
 REQUIRES = []
 
 DAEMONS = []
+
+
+def register_subscribers(bus) -> None:
+    """Register all archives module event subscribers."""
+    from modules.archives import archive
+    archive.register_subscribers(bus)

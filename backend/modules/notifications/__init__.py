@@ -34,3 +34,9 @@ IMPLEMENTS = ["NotificationDispatcher"]
 REQUIRES = ["OrgSettingsProvider"]
 
 DAEMONS = []
+
+
+def register_subscribers(bus) -> None:
+    """Register all notifications module event subscribers."""
+    from modules.notifications import mqtt_republish
+    mqtt_republish.register_subscribers(bus)

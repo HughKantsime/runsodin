@@ -196,3 +196,33 @@ def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
     req = urllib.request.Request(url, data=data, method="PUT",
                                 headers={"Content-Type": "application/json"})
     urllib.request.urlopen(req, timeout=10)
+
+
+# ---------------------------------------------------------------------------
+# Event bus integration
+# ---------------------------------------------------------------------------
+
+def _on_job_completed_event(event) -> None:
+    """Auto-capture a print archive when a job finishes (success or failure)."""
+    data = event.data
+    print_job_id = data.get("print_job_id")
+    printer_id = data.get("printer_id")
+    success = data.get("success", True)
+    if print_job_id is not None and printer_id is not None:
+        try:
+            create_print_archive(print_job_id, printer_id, success)
+        except Exception as e:
+            log.warning(f"Print archive capture failed via event bus: {e}")
+
+
+def register_subscribers(bus) -> None:
+    """
+    Register archive event handlers on the event bus.
+
+    Called from modules/archives/__init__.py register_subscribers().
+    """
+    from core import events as ev
+
+    bus.subscribe(ev.JOB_COMPLETED, _on_job_completed_event)
+    bus.subscribe(ev.JOB_FAILED, _on_job_completed_event)
+    log.debug("archive subscribed to event bus")

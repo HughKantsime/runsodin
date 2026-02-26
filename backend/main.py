@@ -206,6 +206,24 @@ async def lifespan(app: FastAPI):
     # for dual-schema tables (defined in both models.py and entrypoint.sh)
     _check_schema_drift()
 
+    # ------------------------------------------------------------------
+    # Event bus — wire up all module subscribers before any traffic starts
+    # ------------------------------------------------------------------
+    from core.event_bus import get_event_bus
+    from core.ws_hub import subscribe_to_bus as ws_subscribe
+    from modules.printers import register_subscribers as printers_register
+    from modules.notifications import register_subscribers as notifications_register
+    from modules.archives import register_subscribers as archives_register
+
+    _bus = get_event_bus()
+    ws_subscribe(_bus)               # ws_hub: forward events to WebSocket clients
+    printers_register(_bus)          # smart_plug: react to job lifecycle events
+    notifications_register(_bus)     # mqtt_republish: forward events to external broker
+    archives_register(_bus)          # archive: auto-capture on job completion
+
+    log.info("Event bus initialized with module subscribers")
+    # ------------------------------------------------------------------
+
     if not settings.api_key:
         log.warning(
             "⚠️  API_KEY is not set — perimeter authentication is DISABLED. "

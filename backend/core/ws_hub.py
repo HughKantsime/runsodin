@@ -104,3 +104,68 @@ def _cleanup(before_ts: float):
             conn.commit()
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Event bus integration
+# ---------------------------------------------------------------------------
+
+# Events that have dedicated handlers with legacy name translation.
+# The wildcard handler skips these to avoid double-publishing.
+_TRANSLATED_EVENTS = frozenset()
+
+
+def _handle_job_started(event) -> None:
+    """Forward job.started as 'job_started' for WebSocket frontend compatibility."""
+    push_event("job_started", event.data)
+
+
+def _handle_job_completed(event) -> None:
+    """Forward job.completed / job.failed as 'job_completed' for frontend compatibility."""
+    push_event("job_completed", event.data)
+
+
+def _handle_alert_dispatched(event) -> None:
+    """Forward notifications.alert_dispatched as 'alert_new' for frontend compatibility."""
+    push_event("alert_new", event.data)
+
+
+def _handle_other_events(event) -> None:
+    """
+    Catch-all handler for events that do not need name translation.
+    Forwards the event to ws_events under its canonical event_type.
+    Skips events handled by dedicated translators to avoid duplicates.
+    """
+    if event.event_type not in _TRANSLATED_EVENTS:
+        push_event(event.event_type, event.data)
+
+
+def subscribe_to_bus(bus) -> None:
+    """
+    Register ws_hub as a subscriber on the event bus.
+
+    Called once from main.py lifespan after the bus singleton is ready.
+    """
+    global _TRANSLATED_EVENTS
+    from core import events as ev
+
+    # Job lifecycle events — translate to legacy ws event names the frontend expects
+    bus.subscribe(ev.JOB_STARTED, _handle_job_started)
+    bus.subscribe(ev.JOB_COMPLETED, _handle_job_completed)
+    bus.subscribe(ev.JOB_FAILED, _handle_job_completed)
+
+    # Alert events — translate to legacy ws event name
+    bus.subscribe("notifications.alert_dispatched", _handle_alert_dispatched)
+
+    # Record which events have dedicated translators so the wildcard skips them
+    _TRANSLATED_EVENTS = frozenset({
+        ev.JOB_STARTED,
+        ev.JOB_COMPLETED,
+        ev.JOB_FAILED,
+        "notifications.alert_dispatched",
+    })
+
+    # All other events forwarded as-is (printer.*, vision.*, inventory.*, system.*)
+    bus.subscribe("*", _handle_other_events)
+
+    log.debug("ws_hub subscribed to event bus")

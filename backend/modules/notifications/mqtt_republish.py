@@ -276,3 +276,57 @@ def invalidate_cache():
             except Exception:
                 pass
             _client = None
+
+
+# ---------------------------------------------------------------------------
+# Event bus integration
+# ---------------------------------------------------------------------------
+
+def _on_printer_state_changed(event) -> None:
+    """Republish printer telemetry when state changes."""
+    data = event.data
+    printer_id = data.get("printer_id")
+    printer_name = data.get("printer_name", f"printer_{printer_id}")
+    if printer_id is not None:
+        telemetry = {k: v for k, v in data.items() if k not in ("printer_id", "printer_name")}
+        republish_telemetry(printer_id, printer_name, telemetry)
+
+
+def _on_job_event(event) -> None:
+    """Republish job lifecycle events."""
+    data = event.data
+    printer_id = data.get("printer_id")
+    printer_name = data.get("printer_name", f"printer_{printer_id}")
+    job_event_name = event.event_type.split(".")[-1]  # "started", "completed", "failed"
+    republish_job(printer_id, printer_name, job_event_name, data)
+
+
+def _on_alert_dispatched(event) -> None:
+    """Republish alert notifications."""
+    data = event.data
+    republish_alert(
+        alert_type=data.get("alert_type", ""),
+        severity=data.get("severity", "info"),
+        title=data.get("title", ""),
+        message=data.get("message", ""),
+        printer_id=data.get("printer_id"),
+        printer_name=data.get("printer_name"),
+    )
+
+
+def register_subscribers(bus) -> None:
+    """
+    Register mqtt_republish handlers on the event bus.
+
+    Called from modules/notifications/__init__.py register_subscribers().
+    """
+    from core import events as ev
+
+    bus.subscribe(ev.PRINTER_STATE_CHANGED, _on_printer_state_changed)
+    bus.subscribe(ev.PRINTER_CONNECTED, _on_printer_state_changed)
+    bus.subscribe(ev.PRINTER_DISCONNECTED, _on_printer_state_changed)
+    bus.subscribe(ev.JOB_STARTED, _on_job_event)
+    bus.subscribe(ev.JOB_COMPLETED, _on_job_event)
+    bus.subscribe(ev.JOB_FAILED, _on_job_event)
+    bus.subscribe("notifications.alert_dispatched", _on_alert_dispatched)
+    log.debug("mqtt_republish subscribed to event bus")

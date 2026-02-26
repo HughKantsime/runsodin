@@ -6,6 +6,11 @@ Provides consistent event handling, care counter updates, and alert dispatch.
 
 All monitors import this and call these functions instead of writing
 their own DB logic. This ensures consistent behavior across printer brands.
+
+Cross-module communication (ws_hub, smart_plug, mqtt_republish, archive) is now
+handled by publishing typed events to the InMemoryEventBus. Each of those modules
+registers its own subscribers at app startup (main.py lifespan). This eliminates
+the direct cross-module imports that existed here before Phase 4.
 """
 
 import sqlite3
@@ -16,28 +21,18 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from db_utils import get_db
+from core.event_bus import get_event_bus
+from core.interfaces.event_bus import Event
+from core import events as ev
 
 log = logging.getLogger("printer_events")
 
-try:
-    import mqtt_republish
-except ImportError:
-    mqtt_republish = None
-
+# hms_codes is a pure lookup utility in the printers module — kept as a direct
+# import because it has no side effects and no circular dependency risk.
 try:
     from hms_codes import lookup_hms_code
 except ImportError:
     def lookup_hms_code(code): return f"HMS Error {code}"
-
-try:
-    import smart_plug
-except ImportError:
-    smart_plug = None
-
-try:
-    from ws_hub import push_event as ws_push
-except ImportError:
-    def ws_push(*a, **kw): pass
 
 
 # =============================================================================
@@ -603,17 +598,16 @@ def job_started(
 
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")
 
-        # Smart plug: auto power-on
-        if smart_plug:
-            try:
-                smart_plug.on_print_start(printer_id)
-            except Exception as e:
-                log.warning(f"Smart plug on_print_start failed: {e}")
-        ws_push("job_started", {
-            "printer_id": printer_id,
-            "job_name": job_name,
-            "print_job_id": job_id,
-        })
+        bus = get_event_bus()
+        bus.publish(Event(
+            event_type=ev.JOB_STARTED,
+            source_module="notifications",
+            data={
+                "printer_id": printer_id,
+                "job_name": job_name,
+                "print_job_id": job_id,
+            },
+        ))
         return job_id
 
     except Exception as e:
@@ -708,26 +702,20 @@ def job_completed(
 
         log.info(f"Job {status} on printer {printer_id}: {job_name}")
 
-        # Smart plug: auto power-off (with cooldown)
-        if smart_plug and success:
-            try:
-                smart_plug.on_print_complete(printer_id)
-            except Exception as e:
-                log.warning(f"Smart plug on_print_complete failed: {e}")
-        ws_push("job_completed", {
-            "printer_id": printer_id,
-            "job_name": job_name,
-            "status": status,
-            "print_job_id": print_job_id,
-            "scheduled_job_id": scheduled_job_id,
-        })
-
-        # Auto-capture print archive
-        try:
-            from archive import create_print_archive
-            create_print_archive(print_job_id, printer_id, success)
-        except Exception as ae:
-            log.warning(f"Print archive capture failed: {ae}")
+        bus = get_event_bus()
+        bus.publish(Event(
+            event_type=ev.JOB_COMPLETED if success else ev.JOB_FAILED,
+            source_module="notifications",
+            data={
+                "printer_id": printer_id,
+                "job_name": job_name,
+                "status": status,
+                "print_job_id": print_job_id,
+                "scheduled_job_id": scheduled_job_id,
+                "success": success,
+                "duration_seconds": duration_seconds,
+            },
+        ))
 
         # Start bed-cooled monitoring if enabled and print was successful
         if success:
@@ -905,16 +893,20 @@ def dispatch_alert(
 
         log.debug(f"Dispatched alert '{title}' to {len(users)} users")
 
-        # Push to WebSocket
-        ws_push("alert_new", {
-            "alert_type": alert_type,
-            "severity": severity,
-            "title": title,
-            "message": message,
-            "printer_id": printer_id,
-            "job_id": job_id,
-            "count": len(users),
-        })
+        # Publish alert event so WebSocket hub and mqtt_republish subscribers can react
+        get_event_bus().publish(Event(
+            event_type="notifications.alert_dispatched",
+            source_module="notifications",
+            data={
+                "alert_type": alert_type,
+                "severity": severity,
+                "title": title,
+                "message": message,
+                "printer_id": printer_id,
+                "job_id": job_id,
+                "count": len(users),
+            },
+        ))
 
     except Exception as e:
         log.error(f"Failed to dispatch alert: {e}")

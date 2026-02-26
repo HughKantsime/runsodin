@@ -386,3 +386,41 @@ def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
             log.info(f"Energy recorded for job {job_id}: {consumed:.4f} kWh (${cost:.4f})")
     except Exception as e:
         log.error(f"Failed to record energy: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Event bus integration
+# ---------------------------------------------------------------------------
+
+def _on_job_started_event(event) -> None:
+    """Handle job.started event — auto power-on if configured."""
+    printer_id = event.data.get("printer_id")
+    if printer_id is not None:
+        try:
+            on_print_start(printer_id)
+        except Exception as e:
+            log.warning(f"Smart plug on_print_start failed for printer {printer_id}: {e}")
+
+
+def _on_job_completed_event(event) -> None:
+    """Handle job.completed / job.failed event — auto power-off if configured."""
+    printer_id = event.data.get("printer_id")
+    success = event.data.get("success", True)
+    if printer_id is not None and success:
+        try:
+            on_print_complete(printer_id)
+        except Exception as e:
+            log.warning(f"Smart plug on_print_complete failed for printer {printer_id}: {e}")
+
+
+def register_subscribers(bus) -> None:
+    """
+    Register smart plug handlers on the event bus.
+
+    Called from modules/printers/__init__.py register_subscribers().
+    """
+    from core import events as ev
+
+    bus.subscribe(ev.JOB_STARTED, _on_job_started_event)
+    bus.subscribe(ev.JOB_COMPLETED, _on_job_completed_event)
+    log.debug("smart_plug subscribed to event bus")
