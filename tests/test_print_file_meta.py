@@ -13,7 +13,7 @@ import pytest
 # Add backend directory to path so we can import the module directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-import print_file_meta as pfm
+import modules.models_library.print_file_meta as pfm
 
 
 # ─────────────────────────────────────────────

@@ -12,7 +12,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from models import Base
+from core.base import Base
 
 # Alembic Config object (provides access to alembic.ini values)
 config = context.config
@@ -30,7 +30,7 @@ def get_url():
     if url:
         return url
     try:
-        from config import settings
+        from core.config import settings
         return settings.database_url
     except Exception:
         return "sqlite:////data/odin.db"

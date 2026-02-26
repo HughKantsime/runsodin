@@ -11,7 +11,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-from printer_models import normalize_model_name
+from modules.printers.printer_models import normalize_model_name
 
 
 class TestBambuModels:
