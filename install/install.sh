@@ -17,7 +17,7 @@ case "$(uname -s 2>/dev/null)" in
         ;;
 esac
 
-ODIN_VERSION="1.4.4"
+ODIN_VERSION="1.4.5"
 ODIN_IMAGE="ghcr.io/hughkantsime/odin:latest"
 ODIN_REPO="https://raw.githubusercontent.com/HughKantsime/runsodin/master"
 INSTALL_DIR="./odin"
