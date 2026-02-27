@@ -2,6 +2,11 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.5] - 2026-02-27
+
+### Fixed
+- **GET /api/alerts 500 error** — `dispatch_alert()` (Path B) wrote uppercase `alert_type` and `severity` values to the alerts table (e.g., `PRINT_FAILED`), but the ORM enum expects lowercase (`print_failed`); SQLAlchemy failed to map on read, causing 500 on any alert query
+
 ## [1.4.4] - 2026-02-27
 
 ### Fixed

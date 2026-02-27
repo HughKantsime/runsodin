@@ -2,6 +2,10 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.5
+
+- ~~Alerts 500 fix~~ — `dispatch_alert()` Path B wrote uppercase enum values; ORM expects lowercase; GET /api/alerts broke on any alert row
+
 ## Shipped in v1.4.4
 
 - ~~Circular import fix~~ — top-level cross-module imports in `mqtt_job_lifecycle.py` moved to lazy imports (broke pytest under Python 3.14)

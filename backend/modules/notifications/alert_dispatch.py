@@ -72,7 +72,7 @@ def dispatch_alert(
                   AND title = ?
                   AND created_at > datetime('now', '-5 minutes')
                 LIMIT 1
-            """, (alert_type.upper(), printer_id, title))
+            """, (alert_type.lower(), printer_id, title))
 
             if cur.fetchone():
                 return  # Duplicate, skip
@@ -86,7 +86,7 @@ def dispatch_alert(
                                         printer_id, job_id, spool_id, metadata_json,
                                         is_read, is_dismissed, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))
-                """, (user_id, alert_type.upper(), severity.upper(), title, message,
+                """, (user_id, alert_type.lower(), severity.lower(), title, message,
                       printer_id, job_id, spool_id, metadata_json))
 
             conn.commit()
