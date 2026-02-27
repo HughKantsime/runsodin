@@ -15,9 +15,6 @@ from typing import Optional, Tuple, Dict, Any
 
 from core.db_utils import get_db
 import modules.notifications.event_dispatcher as printer_events
-from modules.notifications.alert_dispatch import dispatch_alert as _dispatch_alert_b
-from modules.notifications.alert_dispatch import _start_bed_cooled_monitor
-from modules.archives.archive import create_print_archive
 
 log = logging.getLogger('mqtt_monitor')
 
@@ -352,6 +349,11 @@ def record_job_ended(
             conn.commit()
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
+
+        # Lazy imports to avoid circular import at module load time
+        from modules.notifications.alert_dispatch import dispatch_alert as _dispatch_alert_b
+        from modules.notifications.alert_dispatch import _start_bed_cooled_monitor
+        from modules.archives.archive import create_print_archive
 
         # Dispatch alerts via Path B (supports webhooks, push, email)
         if status == 'completed':
