@@ -24,7 +24,6 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-import modules.notifications.event_dispatcher as printer_events
 from core.db_utils import get_db
 
 # WebSocket push (same as all other monitors)
@@ -115,6 +114,7 @@ class ElegooMonitorThread(threading.Thread):
 
     def _discover_and_save_camera(self):
         """Discover camera URL and save to DB via printer_events."""
+        import modules.notifications.event_dispatcher as printer_events
         try:
             cam_url = self.client.get_webcam_url()
             if cam_url:
@@ -132,6 +132,7 @@ class ElegooMonitorThread(threading.Thread):
 
     def _process_status(self, status: ElegooStatus):
         """Process status update — detect transitions, update DB, push events."""
+        import modules.notifications.event_dispatcher as printer_events
 
         # ----------------------------------------------------------
         # 1. Detect state transitions via printer_events.py

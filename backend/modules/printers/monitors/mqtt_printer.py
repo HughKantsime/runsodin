@@ -21,7 +21,6 @@ from typing import Dict, Optional, Any
 import core.crypto as crypto
 from modules.printers.adapters.bambu import BambuPrinter
 from core.db_utils import get_db
-import modules.notifications.event_dispatcher as printer_events
 from modules.printers.monitors.mqtt_telemetry import (
     resolve_stage_label,
     parse_lights,
@@ -190,6 +189,7 @@ class PrinterMonitor:
 
     def _on_status(self, status):
         """Handle incoming MQTT status update."""
+        import modules.notifications.event_dispatcher as printer_events
         with self._lock:
             raw = status.raw_data.get('print', {})
 

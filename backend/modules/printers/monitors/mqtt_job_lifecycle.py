@@ -14,7 +14,6 @@ from threading import Thread
 from typing import Optional, Tuple, Dict, Any
 
 from core.db_utils import get_db
-import modules.notifications.event_dispatcher as printer_events
 
 log = logging.getLogger('mqtt_monitor')
 
@@ -265,6 +264,7 @@ def record_job_ended(
     Returns:
         The final linked_job_id (may differ from input if a new jobs record was created).
     """
+    import modules.notifications.event_dispatcher as printer_events
     error_code = state.get('print_error') if status == 'failed' else None
 
     try:

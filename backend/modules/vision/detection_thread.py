@@ -21,8 +21,6 @@ from core.db_utils import get_db
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision import frame_storage
 
-import modules.notifications.event_dispatcher as printer_events
-
 try:
     from core.ws_hub import push_event as ws_push
 except ImportError:
@@ -217,6 +215,7 @@ class PrinterVisionThread(threading.Thread):
 
     def _on_detection(self, detection_type: str, detection: dict, frame: np.ndarray):
         """Handle confirmed detection: save frame, insert DB record, dispatch alert."""
+        import modules.notifications.event_dispatcher as printer_events
         self._last_alert[detection_type] = time.time()
         confidence = detection['confidence']
         bbox = detection['bbox']

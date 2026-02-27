@@ -29,7 +29,6 @@ from typing import Optional, Dict, Any
 
 from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
 from core.db_utils import get_db
-import modules.notifications.event_dispatcher as printer_events
 
 # WebSocket push (same as mqtt_monitor)
 try:
@@ -107,6 +106,7 @@ class MoonrakerMonitor:
 
     def _discover_and_save_camera(self):
         """Save discovered webcam URL to DB via printer_events."""
+        import modules.notifications.event_dispatcher as printer_events
         try:
             urls = self.printer.get_webcam_urls()
             stream_url = urls.get("stream_url", "")
@@ -159,6 +159,7 @@ class MoonrakerMonitor:
     
     def _process_status(self, status):
         """Process a status update — detect state changes, track jobs."""
+        import modules.notifications.event_dispatcher as printer_events
         now = time.time()
 
         # Update telemetry + heartbeat (throttled to every 10 seconds)
@@ -374,6 +375,7 @@ class MoonrakerMonitor:
     
     def _job_ended(self, end_status: str, status):
         """Record a print job ending."""
+        import modules.notifications.event_dispatcher as printer_events
         if not self._current_job_db_id:
             log.warning(f"[{self.name}] Job ended but no current job tracked")
             return

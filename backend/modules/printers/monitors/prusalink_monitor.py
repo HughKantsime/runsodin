@@ -22,7 +22,6 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
-import modules.notifications.event_dispatcher as printer_events
 from core.db_utils import get_db
 
 # WebSocket push (same as mqtt_monitor / moonraker_monitor)
@@ -112,6 +111,7 @@ class PrusaLinkMonitorThread(threading.Thread):
 
     def _discover_and_save_camera(self):
         """Discover camera URL and save to DB via printer_events."""
+        import modules.notifications.event_dispatcher as printer_events
         try:
             cam_url = self.client.get_webcam_url()
             if cam_url:
@@ -122,6 +122,7 @@ class PrusaLinkMonitorThread(threading.Thread):
 
     def _process_status(self, status):
         """Process polled status — update DB, detect transitions, push events."""
+        import modules.notifications.event_dispatcher as printer_events
 
         # ----------------------------------------------------------
         # 1. Detect state transitions via printer_events.py
