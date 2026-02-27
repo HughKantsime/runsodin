@@ -91,6 +91,9 @@ SESSION_STATE.md
 # Internal dev planning — not for public repo
 conductor/
 
+# Claude Code
+.claude/
+
 # Corrupt git data (from prior crashes)
 .git-corrupt/
 
