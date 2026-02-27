@@ -401,11 +401,18 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     stream_name = f"printer_{printer_id}"
     body = await request.body()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"http://127.0.0.1:1984/api/webrtc?src={stream_name}",
-            content=body,
-            headers={"Content-Type": request.headers.get("content-type", "application/sdp")},
-        )
-
-    return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"http://127.0.0.1:1984/api/webrtc?src={stream_name}",
+                content=body,
+                headers={"Content-Type": request.headers.get("content-type", "application/sdp")},
+                timeout=5.0,
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"go2rtc returned {resp.status_code}")
+        return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="go2rtc is not reachable")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="go2rtc timed out")

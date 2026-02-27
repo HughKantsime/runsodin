@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.6] - 2026-02-27
+
+### Fixed
+- **WebRTC signaling 500 error** — `POST /api/cameras/:id/webrtc` had no error handling around the httpx proxy call to go2rtc; any go2rtc failure propagated as a raw 500; now returns 502/504 with clear messages
+- **Infinite WebRTC retry loop** — `CameraDetail.jsx` retried WebRTC connections forever on error; capped at 5 attempts with exponential backoff
+- **Camera streams using sanitized credentials** — go2rtc config contained `***` instead of real RTSP credentials after security hardening; regenerated config with decrypted credentials; cleared corrupted `camera_url` rows so auto-generation fallback works
+
 ## [1.4.5] - 2026-02-27
 
 ### Fixed

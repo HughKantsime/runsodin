@@ -62,9 +62,11 @@ function WebRTCPlayer({ cameraId, className }) {
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))
     } catch {
       setStatus('error')
-      const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
-      retryCountRef.current++
-      retryRef.current = setTimeout(startWebRTC, delay)
+      if (retryCountRef.current < 5) {
+        const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
+        retryCountRef.current++
+        retryRef.current = setTimeout(startWebRTC, delay)
+      }
     }
   }, [cameraId])
 

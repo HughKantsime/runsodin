@@ -2,6 +2,12 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.6
+
+- ~~WebRTC signaling 500 fix~~ — error handling around go2rtc proxy call; returns 502/504 instead of raw 500
+- ~~WebRTC retry cap~~ — capped infinite reconnection loop at 5 attempts
+- ~~Camera credential restoration~~ — go2rtc config had sanitized `***` credentials; regenerated with real decrypted values
+
 ## Shipped in v1.4.5
 
 - ~~Alerts 500 fix~~ — `dispatch_alert()` Path B wrote uppercase enum values; ORM expects lowercase; GET /api/alerts broke on any alert row
