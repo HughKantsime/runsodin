@@ -21,6 +21,22 @@ try:
 except ImportError:
     def lookup_hms_code(code): return f"HMS Error {code}"
 
+# HMS codes that indicate a print-stopping failure. When any of these appear
+# while a job is running, the active job is marked as failed even if the
+# printer's gcode_state hasn't transitioned to FAILED yet.
+# NOTE: Only full-format codes (XXXXXXXX_XXXXXXXX) are listed here because
+# parse_hms_errors() produces 17-char codes via f"{attr:08X}_{code:08X}".
+# Shorter PRINT_ERROR_CODES (e.g. 0C00_8005) come from a different field.
+PRINT_STOPPING_HMS_CODES = {
+    '0C000300_00030006',  # Purged filament piled up in waste chute
+    '0F010100_00010001',  # Waste chute clogged
+    '05010500_00010001',  # AMS filament buffer full / waste chute
+    '0C010600_00010001',  # Purge system error / waste chute blocked
+    '0C000200_00010001',  # Spaghetti failure detected by AI
+    '0C000300_00010002',  # Possible spaghetti failure detected
+    '07010200_00010001',  # Spaghetti detection triggered
+}
+
 
 def record_error(
     printer_id: int,
@@ -128,10 +144,77 @@ def parse_hms_errors(hms_data: list) -> list:
     return errors
 
 
+def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
+    """Mark the active print job as failed due to a print-stopping HMS error.
+
+    Checks for an active print_jobs record on this printer. If found, marks it
+    failed, updates the linked jobs record, creates a print archive, and
+    dispatches a failure alert via Path B (webhooks/push/email).
+    """
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            # Find active print_jobs record
+            cur.execute("""
+                SELECT id, scheduled_job_id, job_name, started_at
+                FROM print_jobs
+                WHERE printer_id = ? AND status = 'running'
+                ORDER BY started_at DESC LIMIT 1
+            """, (printer_id,))
+            row = cur.fetchone()
+            if not row:
+                return  # No active job
+
+            print_job_id, scheduled_job_id, job_name, started_at = row
+
+            # Mark print_jobs as failed (WHERE status='running' guards against races)
+            cur.execute("""
+                UPDATE print_jobs
+                SET status = 'failed', ended_at = datetime('now'), error_code = ?
+                WHERE id = ? AND status = 'running'
+            """, (hms_code, print_job_id))
+
+            if cur.rowcount == 0:
+                return  # Already updated by another path
+
+            # Mark linked scheduled job as failed
+            if scheduled_job_id:
+                cur.execute(
+                    "UPDATE jobs SET status = 'failed', actual_end = datetime('now') WHERE id = ?",
+                    (scheduled_job_id,))
+
+            conn.commit()
+
+        log.warning(f"Printer {printer_id}: HMS {hms_code} failed active job "
+                    f"{print_job_id} ({job_name})")
+
+        # Archive the failed print
+        try:
+            from modules.archives.archive import create_print_archive
+            create_print_archive(print_job_id, printer_id, success=False)
+        except Exception:
+            pass
+
+        # Dispatch failure alert (uses Path B — webhooks, push, email)
+        dispatch_alert(
+            alert_type="print_failed",
+            severity="critical",
+            title=f"Print Failed (HMS): {job_name or 'Unknown'}",
+            message=f"Active job failed due to HMS error: {hms_message}",
+            printer_id=printer_id,
+            job_id=scheduled_job_id,
+            metadata={"hms_code": hms_code, "reason": "hms_error"}
+        )
+
+    except Exception as e:
+        log.error(f"Failed to check/fail active job for HMS on printer {printer_id}: {e}")
+
+
 def process_hms_errors(printer_id: int, hms_data: list):
     """
     Process HMS errors from Bambu printer.
-    Creates alerts for new errors.
+    Creates alerts for new errors. Fails active jobs for print-stopping codes.
     """
     errors = parse_hms_errors(hms_data)
 
@@ -162,3 +245,9 @@ def process_hms_errors(printer_id: int, hms_data: list):
         severity=worst["severity"],
         create_alert=True
     )
+
+    # Check if any HMS code should fail the active print job
+    for err in errors:
+        if err["code"] in PRINT_STOPPING_HMS_CODES:
+            _fail_active_job_for_hms(printer_id, err["code"], err["message"])
+            break  # Only fail once per HMS batch

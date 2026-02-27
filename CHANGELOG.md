@@ -2,7 +2,12 @@
 
 All notable changes to O.D.I.N. are documented here.
 
-## [1.4.3] - 2026-02-26
+## [1.4.3] - 2026-02-27
+
+### Fixed
+- **Bambu prints never archived** — `record_job_ended()` now directly calls `create_print_archive()` instead of relying on InMemoryEventBus events that can't cross the process boundary between monitor daemons and FastAPI
+- **No external notifications from monitor daemons** — `alert_dispatch.dispatch_alert()` (Path B) now delivers to webhooks (all 7 types), browser push, and email based on user preferences; respects quiet hours; previously only created in-app alerts
+- **Critical HMS errors don't fail active jobs** — print-stopping HMS codes (waste chute pile-up, spaghetti detection) now mark the active print job as failed, create an archive, and dispatch failure alerts even when `gcode_state` doesn't transition to FAILED
 
 ### Changed
 - **Cross-module violation cleanup** — eliminated all 3 known import boundary violations: `_get_org_settings` replaced with registry-based `OrgSettingsProvider`, `calculate_job_cost` extracted to `models_library/services.py`, unused `compute_printer_online` deleted; `KNOWN_VIOLATIONS` allowlist removed from contract tests; 209 contract tests pass with zero violations

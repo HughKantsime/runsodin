@@ -32,26 +32,37 @@ def dispatch_alert(
     metadata: dict = None,
 ):
     """
-    Create alert records for all users who have this alert type enabled.
-    Uses raw SQL to avoid importing SQLAlchemy into the monitor daemon.
-    Handles deduplication for repeated alerts.
+    Create alert records and deliver to all notification channels.
+
+    Uses raw SQL to avoid importing SQLAlchemy — safe for monitor daemons.
+    Handles deduplication, in-app alerts, webhooks, push, and email.
+    Respects quiet hours for external channels.
     """
+    # Track per-user channel preferences for external delivery after commit
+    _push_users = []  # user_ids with browser_push enabled
+    _email_users = []  # user_ids with email enabled
+
     try:
         with get_db(row_factory=sqlite3.Row) as conn:
             cur = conn.cursor()
 
-            # Get all users who have this alert type enabled
+            # Get all users with preferences for this alert type
             cur.execute("""
-                SELECT DISTINCT ap.user_id
+                SELECT DISTINCT ap.user_id, ap.in_app, ap.browser_push, ap.email
                 FROM alert_preferences ap
-                WHERE UPPER(ap.alert_type) = ? AND ap.in_app = 1
+                WHERE UPPER(ap.alert_type) = ?
+                  AND (ap.in_app = 1 OR ap.browser_push = 1 OR ap.email = 1)
             """, (alert_type.upper(),))
-            users = [row['user_id'] for row in cur.fetchall()]
+            pref_rows = cur.fetchall()
 
-            # If no preferences exist, alert all users (default on)
-            if not users:
+            in_app_users = [r['user_id'] for r in pref_rows if r['in_app']]
+            _push_users = [r['user_id'] for r in pref_rows if r['browser_push']]
+            _email_users = [r['user_id'] for r in pref_rows if r['email']]
+
+            # If no preferences exist, alert all users in-app (default on)
+            if not pref_rows:
                 cur.execute("SELECT id FROM users")
-                users = [row['id'] for row in cur.fetchall()]
+                in_app_users = [row['id'] for row in cur.fetchall()]
 
             # Check for duplicate (same type, printer, title in last 5 minutes)
             cur.execute("""
@@ -66,10 +77,10 @@ def dispatch_alert(
             if cur.fetchone():
                 return  # Duplicate, skip
 
-            # Create alert for each user
+            # Create in-app alert for each user
             metadata_json = json.dumps(metadata) if metadata else None
 
-            for user_id in users:
+            for user_id in in_app_users:
                 cur.execute("""
                     INSERT INTO alerts (user_id, alert_type, severity, title, message,
                                         printer_id, job_id, spool_id, metadata_json,
@@ -80,7 +91,7 @@ def dispatch_alert(
 
             conn.commit()
 
-        log.debug(f"Dispatched alert '{title}' to {len(users)} users")
+        log.debug(f"Dispatched alert '{title}' to {len(in_app_users)} users")
 
         # Publish alert event so WebSocket hub and mqtt_republish subscribers can react
         get_event_bus().publish(Event(
@@ -93,9 +104,51 @@ def dispatch_alert(
                 "message": message,
                 "printer_id": printer_id,
                 "job_id": job_id,
-                "count": len(users),
+                "count": len(in_app_users),
             },
         ))
+
+        # --- External channel delivery (webhooks, push, email) ---
+        try:
+            from modules.notifications.quiet_hours import should_suppress_notification
+            suppress = should_suppress_notification()
+        except Exception:
+            suppress = False
+
+        if not suppress:
+            # Webhooks (system-wide, not per-user)
+            try:
+                from modules.notifications.channels import send_webhook
+                send_webhook(alert_type, title, message, severity,
+                             printer_id=printer_id, job_id=job_id)
+            except Exception as e:
+                log.debug(f"Webhook delivery failed: {e}")
+
+            # Per-user push notifications
+            if _push_users:
+                try:
+                    from modules.notifications.channels import send_push_notification
+                    for uid in _push_users:
+                        try:
+                            send_push_notification(uid, alert_type, title, message,
+                                                   printer_id=printer_id, job_id=job_id)
+                        except Exception as e:
+                            log.debug(f"Push delivery failed for user {uid}: {e}")
+                except ImportError:
+                    pass
+
+            # Per-user email
+            if _email_users:
+                try:
+                    from modules.notifications.channels import send_email
+                    for uid in _email_users:
+                        try:
+                            send_email(uid, alert_type, title, message,
+                                       printer_id=printer_id, job_id=job_id)
+                        except Exception as e:
+                            log.debug(f"Email delivery failed for user {uid}: {e}")
+                except ImportError:
+                    pass
 
     except Exception as e:
         log.error(f"Failed to dispatch alert: {e}")

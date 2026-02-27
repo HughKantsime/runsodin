@@ -15,6 +15,9 @@ from typing import Optional, Tuple, Dict, Any
 
 from core.db_utils import get_db
 import modules.notifications.event_dispatcher as printer_events
+from modules.notifications.alert_dispatch import dispatch_alert as _dispatch_alert_b
+from modules.notifications.alert_dispatch import _start_bed_cooled_monitor
+from modules.archives.archive import create_print_archive
 
 log = logging.getLogger('mqtt_monitor')
 
@@ -271,6 +274,15 @@ def record_job_ended(
         with get_db() as conn:
             cur = conn.cursor()
 
+            # Guard: skip if job was already ended (e.g. by HMS error handler)
+            existing = cur.execute(
+                "SELECT status FROM print_jobs WHERE id = ?", (current_job_id,)
+            ).fetchone()
+            if existing and existing[0] in ('completed', 'failed', 'cancelled'):
+                log.info(f"[{printer_name}] Job {current_job_id} already ended "
+                         f"(status={existing[0]}), skipping duplicate end")
+                return linked_job_id
+
             now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
             # Calculate duration
@@ -341,13 +353,14 @@ def record_job_ended(
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
 
-        # Dispatch alerts
+        # Dispatch alerts via Path B (supports webhooks, push, email)
         if status == 'completed':
-            dispatch_alert_fn(
+            _dispatch_alert_b(
                 alert_type='print_complete',
                 severity='info',
                 title=f"Print Complete: {job_name} ({printer_name})",
                 message=f"Job finished successfully on {printer_name}.",
+                printer_id=printer_id,
                 job_id=linked_job_id,
             )
             # Increment care counters
@@ -370,11 +383,12 @@ def record_job_ended(
             msg = f"Job failed on {printer_name} at {progress}% progress."
             if err:
                 msg += f" Error code: {err}"
-            dispatch_alert_fn(
+            _dispatch_alert_b(
                 alert_type='print_failed',
                 severity='critical',
                 title=f"Print Failed: {job_name} ({printer_name})",
                 message=msg,
+                printer_id=printer_id,
                 job_id=linked_job_id,
                 metadata={"progress_percent": progress, "error_code": err}
             )
@@ -386,6 +400,23 @@ def record_job_ended(
                 severity="error",
                 create_alert=False,
             )
+
+        # Archive the print (completed, failed, or cancelled)
+        try:
+            create_print_archive(
+                print_job_id=current_job_id,
+                printer_id=printer_id,
+                success=(status == 'completed'),
+            )
+        except Exception as ae:
+            log.warning(f"[{printer_name}] Failed to create print archive: {ae}")
+
+        # Start bed-cooled monitoring after successful completion
+        if status == 'completed':
+            try:
+                _start_bed_cooled_monitor(printer_id, printer_name)
+            except Exception as be:
+                log.debug(f"[{printer_name}] Bed cooled monitor start failed: {be}")
 
         return linked_job_id
 

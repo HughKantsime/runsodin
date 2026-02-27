@@ -8,10 +8,12 @@ Called by alert_dispatch and job_events when alerts are created.
 import json
 import logging
 import smtplib
+import threading
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+import core.crypto as crypto
 from core.db_utils import get_db
 
 log = logging.getLogger("printer_events")
@@ -85,59 +87,135 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             log.error(f"Failed to send push notification: {e}")
 
 
+def _decrypt_webhook_url(url: str) -> str:
+    """Decrypt a Fernet-encrypted webhook URL, falling back to plaintext."""
+    if not url:
+        return url
+    try:
+        return crypto.decrypt(url)
+    except Exception:
+        return url
+
+
 def send_webhook(alert_type: str, title: str, message: str, severity: str = "info",
                  printer_id: int = None, job_id: int = None):
-    """Send alert to configured webhooks."""
+    """Send alert to all matching enabled webhooks.
 
-    with get_db() as conn:
-        cur = conn.cursor()
+    Supports discord, slack, ntfy, telegram, pushover, whatsapp, and generic.
+    Each webhook fires in a background thread to avoid blocking the caller.
+    Daemon-safe: uses raw SQL via get_db().
+    """
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled = 1")
+            webhooks = cur.fetchall()
+    except Exception as e:
+        log.error(f"Failed to read webhooks: {e}")
+        return
 
-        # Get enabled webhooks that match this alert type
-        cur.execute("SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled = 1")
-        webhooks = cur.fetchall()
+    severity_colors = {"critical": 0xef4444, "error": 0xe74c3c, "warning": 0xf59e0b, "info": 0x3b82f6}
+    severity_emoji = {"critical": "\U0001f534", "error": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}
 
-        for webhook_id, url, webhook_type, alert_types_json in webhooks:
-            # Check if this webhook wants this alert type
-            if alert_types_json:
-                try:
-                    allowed_types = json.loads(alert_types_json)
-                    if alert_type not in allowed_types:
-                        continue
-                except Exception:
-                    pass
+    for webhook_id, raw_url, wtype, alert_types_json in webhooks:
+        # Filter by alert_types
+        if alert_types_json:
+            try:
+                allowed = json.loads(alert_types_json) if isinstance(alert_types_json, str) else alert_types_json
+                if alert_type not in allowed and "all" not in allowed:
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                pass
 
-            # Build payload based on webhook type
+        url = _decrypt_webhook_url(raw_url)
+        emoji = severity_emoji.get(severity, "\U0001f535")
+        color = severity_colors.get(severity, 0x3b82f6)
+
+        def _send(wtype=wtype, url=url, emoji=emoji, color=color):
             try:
                 import httpx
 
-                # Color based on severity
-                colors = {"info": 0x3498db, "warning": 0xf39c12, "error": 0xe74c3c, "critical": 0x9b59b6}
-                color = colors.get(severity, 0x3498db)
-
-                if webhook_type == "discord":
-                    payload = {
+                if wtype == "discord":
+                    httpx.post(url, json={
                         "embeds": [{
-                            "title": f"🖨️ {title}",
-                            "description": message,
+                            "title": f"{emoji} {title}",
+                            "description": message or "",
                             "color": color,
-                            "footer": {"text": "O.D.I.N."},
-                            "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+                            "footer": {"text": "O.D.I.N."}
                         }]
-                    }
-                else:  # slack
-                    emoji = {"info": "ℹ️", "warning": "⚠️", "error": "❌", "critical": "🚨"}.get(severity, "📢")
-                    payload = {
+                    }, timeout=10)
+
+                elif wtype == "slack":
+                    httpx.post(url, json={
                         "blocks": [
                             {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
-                            {"type": "section", "text": {"type": "mrkdwn", "text": message}}
+                            {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
                         ]
-                    }
+                    }, timeout=10)
 
-                httpx.post(url, json=payload, timeout=5)
-                log.debug(f"Webhook sent to {webhook_type}")
+                elif wtype == "ntfy":
+                    priority_map = {"critical": "urgent", "error": "high", "warning": "high", "info": "default"}
+                    httpx.post(url, content=message or title, headers={
+                        "Title": title,
+                        "Priority": priority_map.get(severity, "default"),
+                        "Tags": "printer",
+                    }, timeout=10)
+
+                elif wtype == "telegram":
+                    if "|" in url:
+                        bot_token, chat_id = url.split("|", 1)
+                        api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
+                    else:
+                        api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
+                        chat_id = ""
+                    if chat_id:
+                        httpx.post(api_url, json={
+                            "chat_id": chat_id.strip(),
+                            "text": f"{emoji} *{title}*\n{message or ''}",
+                            "parse_mode": "Markdown"
+                        }, timeout=10)
+
+                elif wtype == "pushover":
+                    if "|" in url:
+                        user_key, api_token = url.split("|", 1)
+                        httpx.post("https://api.pushover.net/1/messages.json", data={
+                            "token": api_token.strip(),
+                            "user": user_key.strip(),
+                            "title": title,
+                            "message": message or title,
+                            "priority": 1 if severity == "critical" else 0,
+                        }, timeout=10)
+
+                elif wtype == "whatsapp":
+                    parts = url.split("|")
+                    if len(parts) >= 3:
+                        phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                        httpx.post(
+                            f"https://graph.facebook.com/v18.0/{phone_id}/messages",
+                            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                            json={
+                                "messaging_product": "whatsapp",
+                                "to": recipient,
+                                "type": "text",
+                                "text": {"body": f"{emoji} {title}\n{message or ''}"},
+                            },
+                            timeout=10,
+                        )
+
+                else:  # generic
+                    httpx.post(url, json={
+                        "event": alert_type,
+                        "title": title,
+                        "message": message or "",
+                        "severity": severity
+                    }, timeout=10)
+
+                log.debug(f"Webhook sent to {wtype}")
 
             except Exception as e:
-                log.error(f"Webhook failed: {e}")
+                log.error(f"Webhook dispatch failed ({wtype}): {e}")
+
+        threading.Thread(target=_send, daemon=True).start()
 
 
 def send_email(user_id: int, alert_type: str, title: str, message: str,

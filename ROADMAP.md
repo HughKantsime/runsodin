@@ -4,6 +4,9 @@ Updated — see CHANGELOG for current version.
 
 ## Shipped in v1.4.3
 
+- ~~Bambu print archive fix~~ — prints from Bambu monitors now auto-archive on completion/failure (cross-process event bus gap fixed)
+- ~~External notification delivery~~ — all monitor daemons now send webhooks (7 types), push, and email via upgraded Path B dispatcher; quiet hours respected
+- ~~HMS-triggered job failure~~ — critical HMS codes (waste chute pile-up, spaghetti) auto-fail active jobs and create archives
 - ~~Cross-module violation cleanup~~ — `_get_org_settings` replaced with registry-based OrgSettingsProvider, `calculate_job_cost` extracted to services.py, unused `compute_printer_online` deleted; KNOWN_VIOLATIONS allowlist removed
 - ~~Oversized page splitting~~ — Settings (1,941→173L), Spools (1,458→386L), Printers (1,346→380L), Jobs (1,225→398L), Orders (1,098→338L); 19 extracted components/hooks
 - ~~Large backend file splits~~ — event_dispatcher.py (1,041→6 files), mqtt_monitor.py (1,204→4 files), vision/monitor.py (880→4 files); 14 focused sub-modules, max 350L
