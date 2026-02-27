@@ -2,6 +2,11 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.4
+
+- ~~Circular import fix~~ — top-level cross-module imports in `mqtt_job_lifecycle.py` moved to lazy imports (broke pytest under Python 3.14)
+- ~~Monitor daemon import hardening~~ — all 6 monitor daemon files now use lazy imports for `event_dispatcher` to prevent future circular import issues
+
 ## Shipped in v1.4.3
 
 - ~~Bambu print archive fix~~ — prints from Bambu monitors now auto-archive on completion/failure (cross-process event bus gap fixed)

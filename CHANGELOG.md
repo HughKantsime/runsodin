@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.4] - 2026-02-27
+
+### Fixed
+- **Circular import in mqtt_job_lifecycle** — top-level cross-module imports from `modules.notifications.alert_dispatch` and `modules.archives.archive` caused `ModuleNotFoundError` under pytest/Python 3.14; moved to lazy imports inside function bodies
+
+### Changed
+- **Monitor daemon import hardening** — all 6 monitor daemon files (`mqtt_printer`, `moonraker_monitor`, `prusalink_monitor`, `elegoo_monitor`, `detection_thread`, `mqtt_job_lifecycle`) now use lazy imports for `event_dispatcher` to prevent future circular import issues from cross-module dependencies
+
 ## [1.4.3] - 2026-02-27
 
 ### Fixed
