@@ -136,8 +136,9 @@
 
 ### 2b.1 Auto-Capture
 - Automatically creates an archive record when any print job completes (success, failure, or cancellation)
-- Hooks into `printer_events.job_completed()` for all printer protocols
-- Captures: job name, printer, status, start/end time, duration, filament used, thumbnail, file path, user attribution
+- Subscribes to JOB_COMPLETED, JOB_FAILED, and JOB_CANCELLED events via the event bus
+- Captures: job name, printer, status, start/end time, duration, filament used, cost estimate, thumbnail, file path, print file ID, plate count, user attribution
+- Multi-filament consumption deduction: distributes weight evenly across all assigned spools on completion
 
 ### 2b.2 Archive Browser
 - Dedicated `/archives` page with table view (thumbnail, name, printer, status badge, duration, filament, date)
@@ -147,19 +148,20 @@
 - API: `GET /api/archives` (paginated, filterable), `GET /api/archives/{id}`, `PATCH /api/archives/{id}`, `DELETE /api/archives/{id}`
 
 ### 2b.3 Print Log
-- Dense table view of all archived prints at `/print-log` with sortable columns
+- Chronological table view of all archived prints with pagination and filters
 - CSV export of filtered print log data
-- API: `GET /api/archives/log` with pagination, filters, and CSV export via `Accept: text/csv`
+- API: `GET /api/archives/log` (paginated, filterable), `GET /api/archives/log/export` (CSV download)
 
 ### 2b.4 Archive Comparison
-- Side-by-side comparison of any two archive entries (duration, filament usage, settings)
-- API: `GET /api/archives/compare?ids=1,2`
+- Side-by-side comparison of any two archive entries (printer, status, duration, filament usage, cost, timestamps)
+- Highlights differing fields in the comparison table
+- API: `GET /api/archives/compare?a={id}&b={id}`
 
 ### 2b.5 Tag Management
-- Add, remove, and rename tags on archive entries
-- Bulk tag operations across multiple archives
-- Filter archives by tag
-- API: `GET /api/archives/tags`, `POST /api/archives/{id}/tags`, `DELETE /api/archives/{id}/tags/{tag}`, `PUT /api/archives/tags/rename`
+- Set tags on archive entries (operator+)
+- Filter archives by tag in the browser
+- Tags stored as comma-separated, deduplicated, trimmed strings
+- API: `PATCH /api/archives/{id}/tags`
 
 ### 2b.6 Reprint from Archive
 - One-click reprint from any archive entry with AMS filament mapping preview
@@ -167,7 +169,14 @@
 - Creates a new pending job with original model and printer assignment
 - API: `POST /api/archives/{id}/reprint`, `GET /api/archives/{id}/ams-preview`
 
-### 2b.7 Projects
+### 2b.7 3D Model Viewer
+- Interactive Three.js 3D model preview from archive detail (when print file is available)
+- Custom orbit controls: left-click rotate, right-click pan, scroll zoom, touch support
+- Wireframe toggle, zoom controls, reset view
+- Fetches mesh geometry from stored .3mf files via `GET /api/print-files/{id}/mesh`
+- Also available on the Models page for model library entries
+
+### 2b.8 Projects
 - Group related archive entries into named projects for organization
 - Full CRUD: create, rename, delete projects
 - Bulk assign archives to projects

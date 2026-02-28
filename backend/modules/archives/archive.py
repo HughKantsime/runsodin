@@ -12,13 +12,16 @@ from core.db_utils import get_db
 log = logging.getLogger("odin.archive")
 
 
-def create_print_archive(print_job_id: int, printer_id: int, success: bool):
+def create_print_archive(print_job_id: int, printer_id: int, success: bool,
+                         result_status: str = None):
     """Create a print_archives row from a completed print_jobs record.
 
     Args:
         print_job_id: Row ID in print_jobs table.
         printer_id: Printer that ran the job.
         success: True if completed, False if failed/cancelled.
+        result_status: Explicit status override ("completed", "failed", "cancelled").
+                       If None, derived from `success`.
     """
     try:
         with get_db() as conn:
@@ -39,7 +42,7 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool):
             started_at = pj[1]
             ended_at = pj[2]
             scheduled_job_id = pj[3]
-            status = pj[5] or ("completed" if success else "failed")
+            status = result_status or pj[5] or ("completed" if success else "failed")
 
             # Compute actual duration
             duration_seconds = None
@@ -62,36 +65,42 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool):
             file_path = None
             user_id = None
             cost_estimate = None
+            print_file_id = None
+            plate_count = 1
 
             if scheduled_job_id:
-                # Get user_id from the scheduled job (submitted_by)
+                # Get user_id and cost_estimate from the scheduled job
                 cur.execute(
-                    "SELECT submitted_by FROM jobs WHERE id = ?",
+                    "SELECT submitted_by, estimated_cost FROM jobs WHERE id = ?",
                     (scheduled_job_id,),
                 )
                 job_row = cur.fetchone()
                 if job_row:
                     user_id = job_row[0]
+                    cost_estimate = job_row[1]
 
-                # Get print file info (thumbnail, weight, path)
+                # Get print file info (thumbnail, weight, path, id, plate_count)
                 cur.execute(
-                    "SELECT thumbnail_b64, stored_path, filament_weight_grams "
-                    "FROM print_files WHERE job_id = ?",
+                    "SELECT id, thumbnail_b64, stored_path, filament_weight_grams, "
+                    "plate_count FROM print_files WHERE job_id = ?",
                     (scheduled_job_id,),
                 )
                 pf = cur.fetchone()
                 if pf:
-                    thumbnail_b64 = pf[0]
-                    file_path = pf[1]
-                    filament_used = pf[2]
+                    print_file_id = pf[0]
+                    thumbnail_b64 = pf[1]
+                    file_path = pf[2]
+                    filament_used = pf[3]
+                    plate_count = pf[4] or 1
 
             # Insert archive row
             cur.execute(
                 """INSERT INTO print_archives
                    (job_id, print_job_id, printer_id, user_id, print_name,
                     status, started_at, completed_at, actual_duration_seconds,
-                    filament_used_grams, cost_estimate, thumbnail_b64, file_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    filament_used_grams, cost_estimate, thumbnail_b64, file_path,
+                    print_file_id, plate_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     scheduled_job_id,
                     print_job_id,
@@ -106,6 +115,8 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool):
                     cost_estimate,
                     thumbnail_b64,
                     file_path,
+                    print_file_id,
+                    plate_count,
                 ),
             )
             archive_id = cur.lastrowid
@@ -145,27 +156,32 @@ def _deduct_filament_consumption(conn, printer_id: int, grams_used: float, archi
         if not slots:
             return
 
-        # Simple approach: deduct from the first assigned spool
-        # (multi-color deduction would require per-slot usage from slicer metadata)
-        spool_row = slots[0]
-        spool_id = spool_row[2]
-        remaining = spool_row[3]
-        spoolman_id = spool_row[4]
+        # Distribute weight across all assigned spools
+        # (exact per-color data isn't available from most protocols,
+        # so we split evenly across active slots)
+        num_slots = len(slots)
+        per_slot_grams = grams_used / num_slots
 
-        if spool_id and remaining is not None:
-            new_remaining = max(0, remaining - grams_used)
-            cur.execute(
-                "UPDATE spools SET remaining_weight_g = ? WHERE id = ?",
-                (new_remaining, spool_id),
-            )
-            consumption.append({"spool_id": spool_id, "grams_used": round(grams_used, 1)})
+        for spool_row in slots:
+            spool_id = spool_row[2]
+            remaining = spool_row[3]
+            spoolman_id = spool_row[4]
 
-            # Sync to Spoolman if configured
-            if spoolman_id:
-                try:
-                    _sync_spoolman_consumption(spoolman_id, grams_used)
-                except Exception as e:
-                    log.debug(f"Spoolman consumption sync failed: {e}")
+            if spool_id and remaining is not None:
+                deduct = per_slot_grams if num_slots > 1 else grams_used
+                new_remaining = max(0, remaining - deduct)
+                cur.execute(
+                    "UPDATE spools SET remaining_weight_g = ? WHERE id = ?",
+                    (new_remaining, spool_id),
+                )
+                consumption.append({"spool_id": spool_id, "grams_used": round(deduct, 1)})
+
+                # Sync to Spoolman if configured
+                if spoolman_id:
+                    try:
+                        _sync_spoolman_consumption(spoolman_id, deduct)
+                    except Exception as e:
+                        log.debug(f"Spoolman consumption sync failed: {e}")
 
         # Store consumption breakdown in archive
         if consumption:
@@ -175,7 +191,8 @@ def _deduct_filament_consumption(conn, printer_id: int, grams_used: float, archi
                 (json.dumps(consumption), archive_id),
             )
             conn.commit()
-            log.debug(f"Deducted {grams_used:.1f}g from spool {spool_id} for archive {archive_id}")
+            spool_ids = [c["spool_id"] for c in consumption]
+            log.debug(f"Deducted {grams_used:.1f}g across spools {spool_ids} for archive {archive_id}")
 
     except Exception as e:
         log.warning(f"Filament consumption deduction failed for printer {printer_id}: {e}")
@@ -215,6 +232,19 @@ def _on_job_completed_event(event) -> None:
             log.warning(f"Print archive capture failed via event bus: {e}")
 
 
+def _on_job_cancelled_event(event) -> None:
+    """Auto-capture a print archive when a job is cancelled."""
+    data = event.data
+    print_job_id = data.get("print_job_id")
+    printer_id = data.get("printer_id")
+    if print_job_id is not None and printer_id is not None:
+        try:
+            create_print_archive(print_job_id, printer_id, success=False,
+                                 result_status="cancelled")
+        except Exception as e:
+            log.warning(f"Print archive capture (cancelled) failed via event bus: {e}")
+
+
 def register_subscribers(bus) -> None:
     """
     Register archive event handlers on the event bus.
@@ -225,4 +255,5 @@ def register_subscribers(bus) -> None:
 
     bus.subscribe(ev.JOB_COMPLETED, _on_job_completed_event)
     bus.subscribe(ev.JOB_FAILED, _on_job_completed_event)
+    bus.subscribe(ev.JOB_CANCELLED, _on_job_cancelled_event)
     log.debug("archive subscribed to event bus")

@@ -2,6 +2,17 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.4.7] - 2026-02-28
+
+### Added
+- **3D model viewer in archives** — "View 3D Model" button in archive detail modal opens interactive Three.js preview (when print file available); uses existing `/api/print-files/{id}/mesh` endpoint
+- **Cancelled print archiving** — subscribes to JOB_CANCELLED events; cancelled prints now stored with "cancelled" status instead of "failed"; new `job_cancelled()` function in job_events.py
+- **Archive data completeness** — `create_print_archive()` now captures `print_file_id`, `cost_estimate`, and `plate_count` from the linked job and print file
+
+### Fixed
+- **Multi-filament deduction** — filament consumption now distributes weight evenly across all assigned spools instead of only deducting from slot 0
+- **FEATURES.md accuracy** — corrected archive API paths, comparison description, tag management claims, and print log export endpoint; added 3D viewer section
+
 ## [1.4.6] - 2026-02-27
 
 ### Fixed

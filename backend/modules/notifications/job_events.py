@@ -173,6 +173,75 @@ def job_completed(
         log.error(f"Failed to record job completion for printer {printer_id}: {e}")
 
 
+def job_cancelled(
+    printer_id: int,
+    print_job_id: int,
+):
+    """
+    Called when a print job is cancelled on any printer.
+    Updates print_jobs status and publishes JOB_CANCELLED event.
+    """
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+
+            cur.execute(
+                """UPDATE print_jobs SET
+                    status = 'cancelled',
+                    ended_at = datetime('now')
+                WHERE id = ?""",
+                (print_job_id,)
+            )
+
+            cur.execute(
+                "SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?",
+                (print_job_id,)
+            )
+            row = cur.fetchone()
+            job_name = row[0] if row else "Unknown"
+            scheduled_job_id = row[1] if row else None
+
+            cur.execute("SELECT name, nickname FROM printers WHERE id = ?", (printer_id,))
+            prow = cur.fetchone()
+            printer_name = prow[1] or prow[0] if prow else f"Printer {printer_id}"
+
+            if scheduled_job_id:
+                cur.execute(
+                    "UPDATE jobs SET status = 'cancelled' WHERE id = ?",
+                    (scheduled_job_id,)
+                )
+
+            conn.commit()
+
+        dispatch_alert(
+            alert_type="print_cancelled",
+            severity="warning",
+            title=f"Print Cancelled: {job_name}",
+            message=f"Cancelled on {printer_name}",
+            printer_id=printer_id,
+            job_id=scheduled_job_id,
+        )
+
+        log.info(f"Job cancelled on printer {printer_id}: {job_name}")
+
+        bus = get_event_bus()
+        bus.publish(Event(
+            event_type=ev.JOB_CANCELLED,
+            source_module="notifications",
+            data={
+                "printer_id": printer_id,
+                "job_name": job_name,
+                "status": "cancelled",
+                "print_job_id": print_job_id,
+                "scheduled_job_id": scheduled_job_id,
+                "success": False,
+            },
+        ))
+
+    except Exception as e:
+        log.error(f"Failed to record job cancellation for printer {printer_id}: {e}")
+
+
 def update_job_progress(
     print_job_id: int,
     progress_percent: int = None,
@@ -250,6 +319,16 @@ def on_print_failed(printer_id: int, filename: str, reason: str = None):
             print_job_id=pj_id,
             success=False,
             fail_reason=reason,
+        )
+
+
+def on_print_cancelled(printer_id: int, filename: str = None):
+    """Called by PrusaLink/Elegoo monitors when a print is cancelled."""
+    pj_id = _active_print_jobs.pop(printer_id, None)
+    if pj_id:
+        job_cancelled(
+            printer_id=printer_id,
+            print_job_id=pj_id,
         )
 
 

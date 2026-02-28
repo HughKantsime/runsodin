@@ -2,6 +2,14 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.4.7
+
+- ~~Archive data completeness~~ — `print_file_id`, `cost_estimate`, `plate_count` now captured on archive creation; unblocks AMS preview and 3D viewer
+- ~~3D model viewer in archives~~ — interactive Three.js preview from archive detail modal via existing mesh endpoint
+- ~~Cancelled print archiving~~ — JOB_CANCELLED event subscription; dedicated status instead of misreporting as "failed"
+- ~~Multi-filament deduction~~ — consumption distributed across all assigned spools instead of only slot 0
+- ~~FEATURES.md corrections~~ — fixed inaccurate API paths and feature descriptions for archives
+
 ## Shipped in v1.4.6
 
 - ~~WebRTC signaling 500 fix~~ — error handling around go2rtc proxy call; returns 502/504 instead of raw 500

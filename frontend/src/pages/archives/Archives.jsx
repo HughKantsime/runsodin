@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import { canDo } from '../../permissions'
-import { Archive, Search, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw } from 'lucide-react'
+import ModelViewer from '../../components/models/ModelViewer'
+import { Archive, Search, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw, Box } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_BADGES = {
@@ -144,6 +145,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
   const [reprintPrinterId, setReprintPrinterId] = useState('')
   const [reprintPlate, setReprintPlate] = useState(0)
   const [reprinting, setReprinting] = useState(false)
+  const [show3DViewer, setShow3DViewer] = useState(false)
 
   const plateCount = archive.plate_count || 1
 
@@ -193,6 +195,16 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
           <div className="mb-4 rounded-lg overflow-hidden bg-black flex items-center justify-center" style={{ maxHeight: '200px' }}>
             <img src={`data:image/png;base64,${archive.thumbnail_b64}`} alt="Thumbnail" className="max-h-[200px] object-contain" />
           </div>
+        )}
+
+        {/* 3D Viewer button */}
+        {archive.print_file_id && (
+          <button
+            onClick={() => setShow3DViewer(true)}
+            className="w-full mb-4 py-2 rounded-lg text-sm text-amber-400 bg-amber-600/10 hover:bg-amber-600/20 transition-colors flex items-center justify-center gap-2"
+          >
+            <Box size={14} /> View 3D Model
+          </button>
         )}
 
         {/* Details grid */}
@@ -329,6 +341,15 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
           </button>
         )}
       </div>
+
+      {/* 3D Model Viewer overlay */}
+      {show3DViewer && archive.print_file_id && (
+        <ModelViewer
+          fileId={archive.print_file_id}
+          modelName={archive.print_name}
+          onClose={() => setShow3DViewer(false)}
+        />
+      )}
     </div>
   )
 }

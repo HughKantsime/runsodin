@@ -409,6 +409,7 @@ def record_job_ended(
                 print_job_id=current_job_id,
                 printer_id=printer_id,
                 success=(status == 'completed'),
+                result_status=status if status == 'cancelled' else None,
             )
         except Exception as ae:
             log.warning(f"[{printer_name}] Failed to create print archive: {ae}")

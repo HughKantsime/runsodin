@@ -9,7 +9,7 @@ import * as THREE from 'three'
  * Opens as a modal overlay from model cards
  */
 
-export default function ModelViewer({ modelId, modelName, onClose }) {
+export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
   const containerRef = useRef(null)
   const rendererRef = useRef(null)
   const sceneRef = useRef(null)
@@ -168,14 +168,17 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
 
   // Initialize scene and load mesh
   useEffect(() => {
-    if (!containerRef.current || !modelId) return
-    
+    if (!containerRef.current || (!modelId && !fileId)) return
+
     let cancelled = false
-    
+
     async function init() {
       try {
-        // Fetch mesh data
-        const meshData = await fetchAPI(`/models/${modelId}/mesh`)
+        // Fetch mesh data — prefer fileId (direct print file), fall back to modelId
+        const meshUrl = fileId
+          ? `/print-files/${fileId}/mesh`
+          : `/models/${modelId}/mesh`
+        const meshData = await fetchAPI(meshUrl)
         if (cancelled) return
         
         if (!meshData || !meshData.vertices || !meshData.triangles) {
@@ -308,7 +311,7 @@ export default function ModelViewer({ modelId, modelName, onClose }) {
     init()
     
     return () => { cancelled = true }
-  }, [modelId, setupControls])
+  }, [modelId, fileId, setupControls])
 
   // Toggle wireframe
   useEffect(() => {
