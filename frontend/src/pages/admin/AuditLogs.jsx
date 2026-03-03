@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Download, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import { auditLogs } from '../../api'
+import { PageHeader, SearchInput, Button, EmptyState, Select } from '../../components/ui'
 
 const ACTION_COLORS = {
   create: 'text-green-400',
@@ -92,40 +93,34 @@ export default function AuditLogs() {
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <FileText size={24} className="text-print-400" />
-        <h1 className="text-xl md:text-2xl font-display font-bold">Audit Log</h1>
-        <span className="text-sm text-farm-500 ml-auto">{total.toLocaleString()} entries</span>
-      </div>
+      <PageHeader icon={FileText} title="Audit Log">
+        <span className="text-sm text-farm-500">{total.toLocaleString()} entries</span>
+      </PageHeader>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
-          <input
-            type="text"
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            placeholder="Search logs..."
-            className="bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-3 py-2 text-sm w-48"
-          />
-        </div>
-        <select value={entityType} onChange={e => { setEntityType(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+        <SearchInput
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          placeholder="Search logs..."
+          className="w-48"
+        />
+        <Select value={entityType} onChange={e => { setEntityType(e.target.value); resetPagination() }} className="w-auto">
           <option value="">All Types</option>
           {ENTITY_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-        </select>
-        <select value={action} onChange={e => { setAction(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+        </Select>
+        <Select value={action} onChange={e => { setAction(e.target.value); resetPagination() }} className="w-auto">
           <option value="">All Actions</option>
           {ACTIONS.map(a => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
-        </select>
+        </Select>
         <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="From" />
         <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="To" />
-        <select value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+        <Select value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="w-auto">
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
-        </select>
-        <button onClick={exportCsv} className="flex items-center gap-2 bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-300 transition-colors ml-auto">
-          <Download size={14} /> Export CSV
-        </button>
+        </Select>
+        <Button variant="secondary" size="md" icon={Download} onClick={exportCsv} className="ml-auto">
+          Export CSV
+        </Button>
       </div>
 
       {/* Table */}
@@ -146,7 +141,7 @@ export default function AuditLogs() {
             {isLoading ? (
               <tr><td colSpan={7} className="text-center py-8 text-farm-500">Loading...</td></tr>
             ) : logs.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-8 text-farm-500">{searchText ? 'No matching entries' : 'No audit log entries'}</td></tr>
+              <tr><td colSpan={7}><EmptyState icon={FileText} title={searchText ? 'No matching entries' : 'No audit log entries'} /></td></tr>
             ) : logs.map(log => {
               const summary = summarizeDetails(log.details)
               return (
@@ -187,23 +182,28 @@ export default function AuditLogs() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <button
+          <Button
+            variant="secondary"
+            size="md"
+            icon={ChevronLeft}
             onClick={() => setOffset(Math.max(0, offset - limit))}
             disabled={offset === 0}
-            className="flex items-center gap-1 px-3 py-2 text-sm bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            <ChevronLeft size={14} /> Previous
-          </button>
+            Previous
+          </Button>
           <span className="text-sm text-farm-500">
             Page {page} of {totalPages}
           </span>
-          <button
+          <Button
+            variant="secondary"
+            size="md"
+            icon={ChevronRight}
+            iconPosition="right"
             onClick={() => setOffset(offset + limit)}
             disabled={offset + limit >= total}
-            className="flex items-center gap-1 px-3 py-2 text-sm bg-farm-800 hover:bg-farm-700 border border-farm-700 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Next <ChevronRight size={14} />
-          </button>
+            Next
+          </Button>
         </div>
       )}
     </div>

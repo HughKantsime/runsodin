@@ -80,7 +80,7 @@ export default function DataRetentionSettings() {
               value={config[f.key] ?? ''} placeholder="0"
               onChange={e => setConfig(prev => ({ ...prev, [f.key]: parseInt(e.target.value) || 0 }))} />
             <span className="text-xs text-farm-500">days</span>
-            <span className="text-[10px] text-farm-600">{f.desc}</span>
+            <span className="text-xs text-farm-600">{f.desc}</span>
           </div>
         ))}
       </div>

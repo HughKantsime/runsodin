@@ -2,6 +2,41 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.5.0] - 2026-03-03
+
+### Added
+- **Design system** — 13 UI primitives (Modal, Button, Input, Select, Textarea, Card, PageHeader, EmptyState, StatCard, StatusBadge, TabBar, SearchInput, ProgressBar) with consistent API, ARIA attributes, and mobile support
+- **Printer detail page** — `/printers/:id` route with live telemetry, current job progress, recent job history, and status stats
+- **Mobile Timeline fallback** — chronological card list view on mobile, Gantt chart preserved on desktop
+- **Dashboard per-section ErrorBoundaries** — 6 independent error boundaries with retry capability; one section crashing no longer takes down the whole dashboard
+- **Dashboard change highlighting** — StatCards pulse briefly when values change on refresh
+- **Logout confirmation dialog** — modal confirmation before logging out
+- **Keyboard shortcut "n"** — context-aware "New" action (navigates to Upload on job pages, dispatches new-item event on inventory pages)
+- **Filter persistence** — URL search params on Jobs, PrintLog, Spools, Models, Alerts, Archives for bookmarkable/shareable filtered views
+- **Frontend test infrastructure** — vitest + @testing-library/react with 33 initial tests (Button, Modal, shared utils)
+- **ESLint setup** — flat config v9 with react-hooks and react-refresh plugins (warn-level)
+- **Bundle analysis** — `npm run analyze` generates dist/stats.html via rollup-plugin-visualizer
+
+### Changed
+- **Sidebar extracted** — NavItem, NavGroup, Sidebar moved from App.jsx (500→160 lines) to `components/layout/Sidebar.jsx`
+- **DOM events → React Query** — replaced `ui-mode-changed` and `education-mode-changed` CustomEvents with React Query invalidation
+- **ProtectedRoute auth caching** — React Query with 5min staleTime replaces per-navigation `/api/auth/me` fetch
+- **ThemeToggle → useTheme hook** — single source of truth for theme state with prefers-color-scheme detection
+- **Light mode CSS refactor** — consolidated ~300 lines of html.light overrides into CSS variable redefinitions; new variables for inputs, focus rings, selection colors, card shadows
+- **text-[9px] eliminated** — all instances bumped to text-[10px] minimum; 17 text-[10px] instances upgraded to text-xs where layout allows
+- **Settings tab reorganization** — License surfaced as its own tab; tab order rationalized
+- **ModelViewer code-split** — React.lazy() wrapping puts three.js (476KB) in a separate chunk, loaded on demand
+- **three.js updated** — 0.128.0 → 0.176.0
+- **Utility consolidation** — formatSize, formatMMSS, formatHours, isOnline centralized in utils/shared.js; duplicates removed from Timelapses, jobUtils, CameraDetail
+- **Modal migration** — 20+ modals across 13 files migrated to shared Modal component with focus traps and ARIA
+- **Navigation consolidated** — sidebar 22→16 items; Alerts/Detections ungated for Community tier; Monitor→Insights rename
+
+### Fixed
+- **PrivacyDataCard crash** — SystemTab.jsx referenced undefined `token` variable; replaced with fetchAPI('/auth/me')
+- **API error messages** — client.js now shows `detail || message || 'Request failed'` instead of generic errors
+- **FileText import bug** — SystemTab.jsx used FileText icon without importing it
+- **Models schedule param bug** — setSearchParams({}) wiped all URL params; now only deletes the schedule key
+
 ## [1.4.7] - 2026-02-28
 
 ### Added

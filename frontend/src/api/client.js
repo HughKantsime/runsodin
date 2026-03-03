@@ -22,7 +22,7 @@ export async function fetchAPI(endpoint, options = {}) {
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
     if (err.detail) console.error('[API] Error detail:', err.detail)
-    throw new Error('Request failed. Please try again.')
+    throw new Error(err.detail || err.message || 'Request failed. Please try again.')
   }
   if (response.status === 204) return null
   return response.json()

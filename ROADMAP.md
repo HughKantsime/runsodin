@@ -2,6 +2,32 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.5.0
+
+- ~~Design system~~ — 13 UI primitives (Modal, Button, Input, Select, Textarea, Card, PageHeader, EmptyState, StatCard, StatusBadge, TabBar, SearchInput, ProgressBar) with barrel export
+- ~~Printer detail page~~ — `/printers/:id` with live telemetry, job progress, history
+- ~~Sidebar extraction~~ — NavItem/NavGroup/Sidebar moved from App.jsx to components/layout/Sidebar.jsx; App.jsx 500→160 lines
+- ~~Modal migration~~ — 20+ modals across 13 files to shared Modal with focus traps, ARIA, mobile bottom sheet
+- ~~DOM events → React Query~~ — ui-mode-changed and education-mode-changed replaced with queryClient.invalidateQueries
+- ~~ProtectedRoute auth caching~~ — 5min staleTime, loading spinner, no refetch on nav
+- ~~ThemeToggle → useTheme hook~~ — single source of truth for theme state
+- ~~Light mode CSS refactor~~ — ~300 lines consolidated into CSS variable redefinitions
+- ~~text-[9px] cleanup~~ — eliminated all instances; 17 text-[10px] bumped to text-xs
+- ~~Mobile Timeline fallback~~ — chronological card list on mobile
+- ~~Dashboard ErrorBoundaries~~ — 6 sections independently error-isolated with retry
+- ~~Dashboard change highlighting~~ — StatCard pulse on value changes
+- ~~Filter persistence~~ — URL search params on Jobs, PrintLog, Spools, Models, Alerts, Archives
+- ~~Settings tab reorganization~~ — License surfaced as own tab, tab order rationalized
+- ~~ModelViewer code-split~~ — React.lazy puts three.js 476KB chunk on demand
+- ~~three.js update~~ — 0.128.0 → 0.176.0
+- ~~Keyboard shortcut "n"~~ — context-aware New action
+- ~~Logout confirmation~~ — modal dialog
+- ~~Frontend test infra~~ — vitest + testing-library, 33 tests
+- ~~ESLint setup~~ — flat config v9, warn-level rules
+- ~~Bundle analysis~~ — npm run analyze → stats.html
+- ~~Utility consolidation~~ — formatSize, formatMMSS, formatHours, isOnline shared; duplicates removed
+- ~~Navigation consolidation~~ — sidebar 22→16 items, Alerts/Detections ungated, Monitor→Insights
+
 ## Shipped in v1.4.7
 
 - ~~Archive data completeness~~ — `print_file_id`, `cost_estimate`, `plate_count` now captured on archive creation; unblocks AMS preview and 3D viewer

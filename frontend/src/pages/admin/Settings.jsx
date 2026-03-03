@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Bell, Settings as SettingsIcon, Users, Shield, Palette, Key, Webhook, Database, Eye, ScrollText } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Bell, Settings as SettingsIcon, Users, Shield, Palette, Key, Webhook, Database, Eye, ScrollText, FileText } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import Admin from './Admin'
 import Permissions from './Permissions'
 import Branding from './Branding'
@@ -17,11 +19,11 @@ import NotificationsTab from '../../components/admin/NotificationsTab'
 import GeneralTab from '../../components/admin/GeneralTab'
 import VisionSettingsTab from '../../components/admin/VisionSettingsTab'
 import SystemTab from '../../components/admin/SystemTab'
+import LicenseTab from '../../components/admin/LicenseTab'
 import { useLicense } from '../../LicenseContext'
 import ProBadge from '../../components/shared/ProBadge'
 import { pricingConfig } from '../../api'
-import { useEffect } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { PageHeader, TabBar } from '../../components/ui'
 
 function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -43,16 +45,12 @@ function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }) {
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('general')
   const lic = useLicense()
-  const [uiMode, setUiMode] = useState('advanced')
-
-  useEffect(() => {
-    pricingConfig.get()
-      .then(d => { if (d.ui_mode) setUiMode(d.ui_mode) }).catch(() => {})
-
-    const handleUiModeChange = (e) => setUiMode(e.detail)
-    window.addEventListener('ui-mode-changed', handleUiModeChange)
-    return () => window.removeEventListener('ui-mode-changed', handleUiModeChange)
-  }, [])
+  const { data: pricingData } = useQuery({
+    queryKey: ['pricing-config'],
+    queryFn: () => pricingConfig.get(),
+    refetchInterval: 30000,
+  })
+  const uiMode = pricingData?.ui_mode || 'advanced'
 
   const PRO_TABS = ['access', 'integrations', 'branding']
   const ALL_TABS = [
@@ -62,6 +60,7 @@ export default function Settings() {
     { id: 'integrations', label: 'Integrations', icon: Webhook },
     ...(uiMode === 'advanced' ? [{ id: 'vision', label: 'Vigil AI', icon: Eye }] : []),
     { id: 'branding', label: 'Branding', icon: Palette },
+    { id: 'license', label: 'License', icon: FileText },
     { id: 'system', label: 'System', icon: Database },
     { id: 'logs', label: 'Logs', icon: ScrollText },
   ]
@@ -72,37 +71,25 @@ export default function Settings() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-4 md:mb-6">
-        <div className="flex items-center gap-3">
-          <SettingsIcon className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Settings</h1>
-            <p className="text-farm-500 text-sm mt-1">Configure your print farm</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader icon={SettingsIcon} title="Settings" subtitle="Configure your print farm" />
 
       {/* Tab Bar */}
-      <div className="flex gap-1 mb-6 overflow-x-auto pb-1 -mx-1 px-1">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => !tab.disabled && setActiveTab(tab.id)}
-            disabled={tab.disabled}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-              tab.disabled
-                ? 'bg-farm-900/50 text-farm-600 cursor-not-allowed'
-                : activeTab === tab.id
-                  ? 'bg-print-600 text-white'
-                  : 'bg-farm-900 text-farm-400 hover:bg-farm-800 hover:text-farm-200'
-            }`}
-          >
-            <tab.icon size={16} />
-            <span className="hidden sm:inline">{tab.label}</span>
-            {tab.disabled && <ProBadge />}
-          </button>
-        ))}
+      <div className="mb-6 overflow-x-auto pb-1 -mx-1 px-1">
+        <TabBar
+          tabs={TABS.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}
+          active={activeTab}
+          onChange={(val) => {
+            const tab = TABS.find(t => t.id === val)
+            if (!tab?.disabled) setActiveTab(val)
+          }}
+        />
       </div>
+
+      {/* ==================== GENERAL TAB ==================== */}
+      {activeTab === 'general' && <GeneralTab />}
+
+      {/* ==================== NOTIFICATIONS TAB ==================== */}
+      {activeTab === 'notifications' && <NotificationsTab />}
 
       {/* ==================== ACCESS TAB (Users + Permissions + SSO + MFA) ==================== */}
       {activeTab === 'access' && <div className="max-w-4xl space-y-3">
@@ -143,17 +130,14 @@ export default function Settings() {
         <WebhookSettings />
       </div>}
 
+      {/* ==================== VISION AI TAB ==================== */}
+      {activeTab === 'vision' && <VisionSettingsTab />}
+
       {/* ==================== BRANDING TAB ==================== */}
       {activeTab === 'branding' && <Branding />}
 
-      {/* ==================== NOTIFICATIONS TAB ==================== */}
-      {activeTab === 'notifications' && <NotificationsTab />}
-
-      {/* ==================== GENERAL TAB ==================== */}
-      {activeTab === 'general' && <GeneralTab />}
-
-      {/* ==================== VISION AI TAB ==================== */}
-      {activeTab === 'vision' && <VisionSettingsTab />}
+      {/* ==================== LICENSE TAB ==================== */}
+      {activeTab === 'license' && <div className="max-w-4xl"><LicenseTab /></div>}
 
       {/* ==================== SYSTEM TAB ==================== */}
       {activeTab === 'system' && <SystemTab />}

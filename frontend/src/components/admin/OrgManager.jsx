@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Users, UserPlus, Printer, Building2, X, Settings, Save } from 'lucide-react'
 import { orgs } from '../../api'
 import { canDo } from '../../permissions'
+import { Button, Input } from '../ui'
 
 const FILAMENT_TYPES = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'PA', 'PC']
 const WEBHOOK_TYPES = ['generic', 'discord', 'slack', 'ntfy', 'telegram']
@@ -72,34 +73,31 @@ export default function OrgManager() {
           <Building2 size={18} className="text-print-400" />
           <h2 className="text-lg font-display font-semibold">Organizations</h2>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-sm"
-        >
-          <Plus size={14} /> New Org
-        </button>
+        <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowCreate(true)}>
+          New Org
+        </Button>
       </div>
 
       {showCreate && (
         <div className="mb-4 p-3 bg-farm-800 rounded-lg border border-farm-700">
           <div className="flex items-center gap-2">
-            <input
+            <Input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Organization name"
-              className="flex-1 bg-farm-900 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+              className="flex-1 bg-farm-900"
             />
-            <button
+            <Button
+              variant="primary"
+              size="md"
+              loading={createOrg.isPending}
+              disabled={!name.trim()}
               onClick={() => createOrg.mutate({ name })}
-              disabled={!name.trim() || createOrg.isPending}
-              className="px-3 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg text-sm"
             >
               Create
-            </button>
-            <button onClick={() => setShowCreate(false)} className="p-2 text-farm-400 hover:text-farm-200">
-              <X size={16} />
-            </button>
+            </Button>
+            <Button variant="ghost" size="icon" icon={X} onClick={() => setShowCreate(false)} />
           </div>
         </div>
       )}
@@ -169,20 +167,22 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
           )}
         </div>
         <div className="flex items-center gap-1">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
+            icon={Settings}
             onClick={onToggleSettings}
-            className={`p-1.5 rounded-lg ${expanded ? 'text-print-400 bg-farm-700' : 'text-farm-500 hover:text-farm-300'}`}
+            className={expanded ? 'text-print-400 bg-farm-700' : ''}
             aria-label="Organization settings"
-          >
-            <Settings size={14} />
-          </button>
-          <button
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            icon={Trash2}
             onClick={() => deleteOrg.mutate(org.id)}
-            className="p-1.5 text-farm-500 hover:text-red-400 rounded-lg"
+            className="text-farm-500 hover:text-red-400"
             aria-label="Delete organization"
-          >
-            <Trash2 size={14} />
-          </button>
+          />
         </div>
       </div>
 
@@ -200,12 +200,9 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
             ))}
           </select>
           {addMemberId[org.id] && (
-            <button
-              onClick={() => { addMember.mutate({ orgId: org.id, userId: parseInt(addMemberId[org.id]) }); setAddMemberId(p => ({ ...p, [org.id]: '' })) }}
-              className="px-2 py-1 bg-print-600 hover:bg-print-500 rounded-lg text-xs"
-            >
+            <Button variant="primary" size="sm" onClick={() => { addMember.mutate({ orgId: org.id, userId: parseInt(addMemberId[org.id]) }); setAddMemberId(p => ({ ...p, [org.id]: '' })) }}>
               Add
-            </button>
+            </Button>
           )}
         </div>
 
@@ -222,12 +219,9 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
             ))}
           </select>
           {addPrinterId[org.id] && (
-            <button
-              onClick={() => { assignPrinter.mutate({ orgId: org.id, printerId: parseInt(addPrinterId[org.id]) }); setAddPrinterId(p => ({ ...p, [org.id]: '' })) }}
-              className="px-2 py-1 bg-print-600 hover:bg-print-500 rounded-lg text-xs"
-            >
+            <Button variant="primary" size="sm" onClick={() => { assignPrinter.mutate({ orgId: org.id, printerId: parseInt(addPrinterId[org.id]) }); setAddPrinterId(p => ({ ...p, [org.id]: '' })) }}>
               Assign
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -349,13 +343,9 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
             </div>
           </fieldset>
 
-          <button
-            onClick={handleSave}
-            disabled={updateSettings.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg text-sm"
-          >
-            <Save size={14} /> {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
-          </button>
+          <Button variant="primary" size="sm" icon={Save} loading={updateSettings.isPending} onClick={handleSave}>
+            {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
+          </Button>
         </div>
       )}
     </div>

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 /**
  * App-wide keyboard shortcuts.
- * 
+ *
  * Navigation (press g then letter within 1s):
  *   g d → Dashboard
  *   g j → Jobs
@@ -17,15 +17,18 @@ import { useNavigate } from 'react-router-dom'
  *   g t → Timeline
  *   g l → Alerts
  *   g x → Settings
- * 
+ *
  * Actions:
  *   Cmd/Ctrl+K → Global search (handled by GlobalSearch.jsx)
  *   ?          → Show keyboard shortcut help
  *   Escape     → Close help modal
  *   f          → Control Room mode (handled by Cameras.jsx)
+ *   n          → New item (context-aware: navigates to /upload from job pages,
+ *                dispatches 'new-item' event for other pages to handle)
  */
 export default function useKeyboardShortcuts() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [showHelp, setShowHelp] = useState(false)
   const [gPrefix, setGPrefix] = useState(false)
 
@@ -37,6 +40,9 @@ export default function useKeyboardShortcuts() {
 
     // Don't trigger with modifier keys (except for Cmd+K which GlobalSearch handles)
     if (e.metaKey || e.ctrlKey || e.altKey) return
+
+    // Don't trigger if a modal is open
+    if (document.querySelector('[role="dialog"]')) return
 
     const key = e.key.toLowerCase()
 
@@ -51,6 +57,24 @@ export default function useKeyboardShortcuts() {
     if (e.key === 'Escape') {
       setShowHelp(false)
       setGPrefix(false)
+      return
+    }
+
+    // n → New item (context-aware)
+    if (key === 'n' && !gPrefix) {
+      const path = location.pathname
+      if (path === '/jobs' || path === '/upload' || path === '/timeline') {
+        e.preventDefault()
+        navigate('/upload')
+      } else if (path === '/models') {
+        e.preventDefault()
+        navigate('/upload')
+      } else if (path === '/printers') {
+        // No-op: can't create printers from UI
+      } else if (path === '/spools' || path === '/orders' || path === '/products' || path === '/consumables') {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('new-item', { detail: { page: path } }))
+      }
       return
     }
 
@@ -86,7 +110,7 @@ export default function useKeyboardShortcuts() {
         return
       }
     }
-  }, [gPrefix, navigate])
+  }, [gPrefix, navigate, location.pathname])
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)

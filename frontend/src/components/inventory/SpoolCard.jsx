@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { Printer, Package, QrCode, Scale, Archive, Pencil, Droplets } from 'lucide-react'
 import { canDo } from '../../permissions'
+import { ProgressBar, Button } from '../ui'
 
 const HYGROSCOPIC_TYPES = new Set([
   'PA', 'NYLON_CF', 'NYLON_GF', 'PPS', 'PPS_CF',
@@ -12,8 +13,6 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
   const isLow = percentRemaining < 20
   const isEmpty = spool.status === 'empty'
   const isArchived = spool.status === 'archived'
-
-  const statusColor = isEmpty ? 'bg-red-500' : isLow ? 'bg-yellow-500' : 'bg-green-500'
 
   return (
     <div className={clsx(
@@ -51,12 +50,11 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           <span className="text-farm-400">Remaining</span>
           <span className="text-farm-200">{spool.remaining_weight_g?.toFixed(0)}g / {spool.initial_weight_g?.toFixed(0)}g</span>
         </div>
-        <div className="h-2 bg-farm-800 rounded-full overflow-hidden">
-          <div
-            className={clsx("h-full transition-all", statusColor)}
-            style={{ width: `${percentRemaining}%` }}
-          />
-        </div>
+        <ProgressBar
+          value={percentRemaining}
+          color={isEmpty ? 'red' : isLow ? 'yellow' : 'green'}
+          size="md"
+        />
       </div>
 
       {/* Location */}
@@ -92,66 +90,36 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
       {/* Actions */}
       <div className="flex gap-1.5 md:gap-2 flex-wrap">
         {canDo('spools.edit') && spool.location_printer_id ? (
-          <button
-            onClick={() => onUnload(spool)}
-            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
-            title="Unload from printer"
-          >
-            <Package size={14} />
+          <Button variant="secondary" size="sm" icon={Package} onClick={() => onUnload(spool)} title="Unload from printer">
             <span className="hidden lg:inline">Unload</span>
-          </button>
+          </Button>
         ) : canDo('spools.edit') ? (
-          <button
-            onClick={() => onLoad(spool)}
-            className="px-2 md:px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-xs md:text-sm text-white flex items-center justify-center gap-1"
-            title="Load into printer"
-          >
-            <Printer size={14} />
+          <Button variant="primary" size="sm" icon={Printer} onClick={() => onLoad(spool)} title="Load into printer">
             <span className="hidden lg:inline">Load</span>
-          </button>
+          </Button>
         ) : null}
         <a
           href={`/api/spools/${spool.id}/label`}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
+          className="px-2 md:px-3 py-1 text-xs rounded-md gap-1.5 bg-farm-800 hover:bg-farm-700 text-farm-300 inline-flex items-center justify-center font-medium transition-colors"
         >
           <QrCode size={14} />
           <span className="hidden lg:inline">Label</span>
         </a>
-        {canDo('spools.edit') && <button
-          onClick={() => onEdit(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
-          title="Edit spool"
-        >
-          <Pencil size={14} />
+        {canDo('spools.edit') && <Button variant="secondary" size="sm" icon={Pencil} onClick={() => onEdit(spool)} title="Edit spool">
           <span className="hidden lg:inline">Edit</span>
-        </button>}
-        {canDo('spools.edit') && <button
-          onClick={() => onUse(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs md:text-sm text-farm-200 flex items-center justify-center gap-1"
-          title="Record usage"
-        >
-          <Scale size={14} />
+        </Button>}
+        {canDo('spools.edit') && <Button variant="secondary" size="sm" icon={Scale} onClick={() => onUse(spool)} title="Record usage">
           <span className="hidden lg:inline">Use</span>
-        </button>}
-        {canDo('spools.edit') && <button
-          onClick={() => onDry(spool)}
-          className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-amber-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-amber-400 flex items-center justify-center gap-1"
-          title="Log drying session"
-        >
-          <Droplets size={14} />
+        </Button>}
+        {canDo('spools.edit') && <Button variant="secondary" size="sm" icon={Droplets} onClick={() => onDry(spool)} title="Log drying session" className="hover:bg-amber-900 hover:text-amber-400">
           <span className="hidden lg:inline">Dry</span>
-        </button>}
+        </Button>}
         {canDo('spools.delete') && spool.status !== 'archived' && (
-          <button
-            onClick={() => onArchive(spool)}
-            className="px-2 md:px-3 py-1.5 bg-farm-800 hover:bg-red-900 rounded-lg text-xs md:text-sm text-farm-200 hover:text-red-400 flex items-center justify-center gap-1"
-            title="Archive"
-          >
-            <Archive size={14} />
+          <Button variant="secondary" size="sm" icon={Archive} onClick={() => onArchive(spool)} title="Archive" className="hover:bg-red-900 hover:text-red-400">
             <span className="hidden lg:inline">Archive</span>
-          </button>
+          </Button>
         )}
       </div>
     </div>

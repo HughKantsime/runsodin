@@ -1,5 +1,6 @@
 import { Eye, Pencil, Trash2, Play, Truck, Ban } from 'lucide-react'
 import { canDo } from '../../permissions'
+import { Button, StatusBadge } from '../ui'
 
 export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, onSchedule, onShip, onCancel, onDelete }) {
   return (
@@ -15,9 +16,7 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               >
                 {order.order_number || `#${order.id}`}
               </button>
-              <span className={`px-2 py-1 rounded-lg text-xs ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
-                {order.status?.replace('_', ' ')}
-              </span>
+              <StatusBadge status={order.status} />
             </div>
             <div className="text-sm space-y-1 text-farm-400 mb-3">
               <div>Platform: {order.platform || '-'}</div>
@@ -27,33 +26,21 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               {order.created_at && <div>Date: {new Date(order.created_at).toLocaleDateString()}</div>}
             </div>
             <div className="flex gap-1">
-              <button onClick={() => onDetail(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="View Details">
-                <Eye size={14} />
-              </button>
+              <Button variant="ghost" size="icon" icon={Eye} onClick={() => onDetail(order)} className="text-print-400 hover:bg-print-900/50" title="View Details" />
               {canDo('orders.edit') && (
-                <button onClick={() => onEdit(order)} className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Order">
-                  <Pencil size={14} />
-                </button>
+                <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onEdit(order)} title="Edit Order" />
               )}
               {canDo('orders.edit') && order.status === 'pending' && (
-                <button onClick={() => onSchedule(order.id)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Schedule Jobs">
-                  <Play size={14} />
-                </button>
+                <Button variant="ghost" size="icon" icon={Play} onClick={() => onSchedule(order.id)} className="text-print-400 hover:bg-print-900/50" title="Schedule Jobs" />
               )}
               {canDo('orders.ship') && order.status === 'fulfilled' && (
-                <button onClick={() => onShip(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Mark Shipped">
-                  <Truck size={14} />
-                </button>
+                <Button variant="ghost" size="icon" icon={Truck} onClick={() => onShip(order)} className="text-print-400 hover:bg-print-900/50" title="Mark Shipped" />
               )}
               {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
-                <button onClick={() => onCancel(order)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Cancel Order">
-                  <Ban size={14} />
-                </button>
+                <Button variant="ghost" size="icon" icon={Ban} onClick={() => onCancel(order)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" title="Cancel Order" />
               )}
               {canDo('orders.delete') && (
-                <button onClick={() => onDelete(order.id)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
-                  <Trash2 size={14} />
-                </button>
+                <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(order.id)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" title="Delete" />
               )}
             </div>
           </div>
@@ -88,40 +75,26 @@ export default function OrderTable({ orders, STATUS_CLASSES, onDetail, onEdit, o
               <td className="px-4 py-3 capitalize text-farm-300">{order.platform || '-'}</td>
               <td className="px-4 py-3 text-farm-300">{order.customer_name || '-'}</td>
               <td className="px-4 py-3">
-                <span className={`px-2 py-1 rounded-lg text-sm ${STATUS_CLASSES[order.status] || 'bg-farm-700 text-farm-300'}`}>
-                  {order.status?.replace('_', ' ')}
-                </span>
+                <StatusBadge status={order.status} />
               </td>
               <td className="px-4 py-3 text-farm-300">{order.item_count || 0}</td>
               <td className="px-4 py-3 text-farm-200">{order.revenue ? `$${order.revenue.toFixed(2)}` : '-'}</td>
               <td className="px-4 py-3 text-right">
-                <button onClick={() => onDetail(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="View Details">
-                  <Eye size={14} />
-                </button>
+                <Button variant="ghost" size="icon" icon={Eye} onClick={() => onDetail(order)} className="text-print-400 hover:bg-print-900/50" title="View Details" />
                 {canDo('orders.edit') && (
-                  <button onClick={() => onEdit(order)} className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" title="Edit Order">
-                    <Pencil size={14} />
-                  </button>
+                  <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onEdit(order)} title="Edit Order" />
                 )}
                 {canDo('orders.edit') && order.status === 'pending' && (
-                  <button onClick={() => onSchedule(order.id)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Schedule Jobs">
-                    <Play size={14} />
-                  </button>
+                  <Button variant="ghost" size="icon" icon={Play} onClick={() => onSchedule(order.id)} className="text-print-400 hover:bg-print-900/50" title="Schedule Jobs" />
                 )}
                 {canDo('orders.ship') && order.status === 'fulfilled' && (
-                  <button onClick={() => onShip(order)} className="p-1 md:p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors" title="Mark Shipped">
-                    <Truck size={14} />
-                  </button>
+                  <Button variant="ghost" size="icon" icon={Truck} onClick={() => onShip(order)} className="text-print-400 hover:bg-print-900/50" title="Mark Shipped" />
                 )}
                 {canDo('orders.edit') && (order.status === 'pending' || order.status === 'in_progress') && (
-                  <button onClick={() => onCancel(order)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Cancel Order">
-                    <Ban size={14} />
-                  </button>
+                  <Button variant="ghost" size="icon" icon={Ban} onClick={() => onCancel(order)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" title="Cancel Order" />
                 )}
                 {canDo('orders.delete') && (
-                  <button onClick={() => onDelete(order.id)} className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" title="Delete">
-                    <Trash2 size={14} />
-                  </button>
+                  <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(order.id)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" title="Delete" />
                 )}
               </td>
             </tr>

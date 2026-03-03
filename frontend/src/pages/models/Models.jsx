@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -13,12 +13,13 @@ import {
   ChevronDown,
   CalendarPlus,
   Printer as PrinterIcon,
-  Star, Box, History, Search, Upload, AlertTriangle } from 'lucide-react'
-import ModelViewer from '../../components/models/ModelViewer'
+  Star, Box, History, Upload, AlertTriangle } from 'lucide-react'
+const ModelViewer = lazy(() => import('../../components/models/ModelViewer'))
 import ModelRevisionPanel from '../../components/models/ModelRevisionPanel'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { PageHeader, SearchInput, StatCard, TabBar, Button, EmptyState, Modal } from '../../components/ui'
 
 import { models, filaments, printers } from '../../api'
 import { canDo } from '../../permissions'
@@ -283,13 +284,6 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
     }
   }, [editingModel])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [isOpen, onClose])
-
   const handleColorChange = (index, field, value) => {
     setColorSlots(prev => { const updated = [...prev]; updated[index] = { ...updated[index], [field]: value }; return updated })
   }
@@ -319,74 +313,69 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
     onClose()
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="model-modal-title" onClick={onClose}>
-      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 border border-farm-700" onClick={e => e.stopPropagation()}>
-        <h2 id="model-modal-title" className="text-lg sm:text-xl font-display font-semibold mb-4">{editingModel ? 'Edit Model' : 'Add New Model'}</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title={editingModel ? 'Edit Model' : 'Add New Model'} size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm text-farm-400 mb-1">Model Name *</label>
+          <input type="text" required value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Crocodile (Mini Critter)" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Model Name *</label>
-            <input type="text" required value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Crocodile (Mini Critter)" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-farm-400 mb-1">Category</label>
-              <input type="text" value={formData.category} onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Mini Critters" />
-            </div>
-            <div>
-              <label className="block text-sm text-farm-400 mb-1">Build Time (hours)</label>
-              <input type="number" step="any" min="0" value={formData.build_time_hours} onChange={(e) => setFormData(prev => ({ ...prev, build_time_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 15.5" />
-            </div>
+            <label className="block text-sm text-farm-400 mb-1">Category</label>
+            <input type="text" value={formData.category} onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Mini Critters" />
           </div>
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm text-farm-400">Filament Colors & Usage</label>
-              {colorSlots.length < 4 ? (
-                <button type="button" onClick={addColorSlot} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1">
-                  <Plus size={14} /> Add Color
-                </button>
-              ) : (
-                <span className="text-xs text-farm-500">Max 4 colors</span>
-              )}
-            </div>
-            <div className="space-y-2">
-              {colorSlots.map((slot, i) => (
-                <ColorSlotInput key={i} index={i} color={slot.color} grams={slot.grams} onChange={handleColorChange} onRemove={removeColorSlot} filamentData={filamentData} />
-              ))}
-            </div>
-            {totalFilament > 0 && (
-              <div className="mt-2 text-sm text-farm-400 flex items-center gap-2">
-                <Scale size={14} /> Total: <span className="text-white font-medium">{totalFilament.toFixed(1)}g</span>
-              </div>
+            <label className="block text-sm text-farm-400 mb-1">Build Time (hours)</label>
+            <input type="number" step="any" min="0" value={formData.build_time_hours} onChange={(e) => setFormData(prev => ({ ...prev, build_time_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 15.5" />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm text-farm-400">Filament Colors & Usage</label>
+            {colorSlots.length < 4 ? (
+              <button type="button" onClick={addColorSlot} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1">
+                <Plus size={14} /> Add Color
+              </button>
+            ) : (
+              <span className="text-xs text-farm-500">Max 4 colors</span>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-farm-400 mb-1">Cost per Item ($)</label>
-              <input type="number" step="0.01" min="0" value={formData.cost_per_item} onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 5.50" />
+          <div className="space-y-2">
+            {colorSlots.map((slot, i) => (
+              <ColorSlotInput key={i} index={i} color={slot.color} grams={slot.grams} onChange={handleColorChange} onRemove={removeColorSlot} filamentData={filamentData} />
+            ))}
+          </div>
+          {totalFilament > 0 && (
+            <div className="mt-2 text-sm text-farm-400 flex items-center gap-2">
+              <Scale size={14} /> Total: <span className="text-white font-medium">{totalFilament.toFixed(1)}g</span>
             </div>
-            <div>
-              <label className="block text-sm text-farm-400 mb-1"># on Bed</label>
-              <input type="number" min="1" value={formData.units_per_bed} onChange={(e) => setFormData(prev => ({ ...prev, units_per_bed: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
-            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-farm-400 mb-1">Cost per Item ($)</label>
+            <input type="number" step="0.01" min="0" value={formData.cost_per_item} onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 5.50" />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Markup %</label>
-            <input type="number" min="0" value={formData.markup_percent} onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            <label className="block text-sm text-farm-400 mb-1"># on Bed</label>
+            <input type="number" min="1" value={formData.units_per_bed} onChange={(e) => setFormData(prev => ({ ...prev, units_per_bed: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
           </div>
-          <div>
-            <label className="block text-sm text-farm-400 mb-1">Notes</label>
-            <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 h-20 text-sm" placeholder="Optional notes..." />
-          </div>
-          <div className="flex justify-end gap-3 pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
-            <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{editingModel ? 'Save Changes' : 'Add Model'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        <div>
+          <label className="block text-sm text-farm-400 mb-1">Markup %</label>
+          <input type="number" min="0" value={formData.markup_percent} onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-sm text-farm-400 mb-1">Notes</label>
+          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 h-20 text-sm" placeholder="Optional notes..." />
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
+          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{editingModel ? 'Save Changes' : 'Add Model'}</button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
@@ -411,13 +400,6 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
     }
   }, [isOpen])
 
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [isOpen, onClose])
-
   const activePrinters = printersData?.filter(p => p.is_active) || []
   const variants = variantsData?.variants || []
   const variantProfiles = new Set(variants.map(v => v.printer_model?.toLowerCase()).filter(p => p && p !== 'unknown'))
@@ -431,13 +413,11 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
   }
   const sortedPrinters = [...activePrinters].sort((a,b) => hasMatch(b) - hasMatch(a))
 
-  if (!isOpen || !model) return null
+  if (!model) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="schedule-print-title" onClick={onClose}>
-      <div className="bg-farm-900 rounded-t-xl sm:rounded w-full max-w-md p-4 sm:p-6 border border-farm-700 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h2 id="schedule-print-title" className="text-lg font-display font-semibold mb-1">Schedule Print</h2>
-        <p className="text-sm text-farm-500 mb-2">{model.name}</p>
+    <Modal isOpen={isOpen} onClose={onClose} title="Schedule Print" size="md">
+      <p className="text-sm text-farm-500 mb-2">{model.name}</p>
 
         {variants.length > 0 && (
           <div className="flex flex-col gap-1.5 mb-3">
@@ -572,14 +552,13 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
           )}
         </div>
 
-        <div className="flex justify-end gap-3">
-          <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm transition-colors">Cancel</button>
-          <button onClick={() => onConfirm(selectedPrinter, scheduleOpts)} disabled={isScheduling} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm transition-colors">
-            {isScheduling ? 'Scheduling...' : 'Create Job'}
-          </button>
-        </div>
+      <div className="flex justify-end gap-3">
+        <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm transition-colors">Cancel</button>
+        <button onClick={() => onConfirm(selectedPrinter, scheduleOpts)} disabled={isScheduling} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm transition-colors">
+          {isScheduling ? 'Scheduling...' : 'Create Job'}
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -592,11 +571,40 @@ export default function Models() {
   const [viewerModelId, setViewerModelId] = useState(null)
   const [viewerModelName, setViewerModelName] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+  const [categoryFilter, _setCategoryFilter] = useState(() => searchParams.get('category') || '')
+  const [showFavoritesOnly, _setShowFavoritesOnly] = useState(() => searchParams.get('favorites') === 'true')
   const [revisionModel, setRevisionModel] = useState(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+
+  const updateSearchParams = useCallback((updates) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value && value !== '' && value !== 'false') {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const setCategoryFilter = useCallback((value) => {
+    _setCategoryFilter(value)
+    updateSearchParams({ category: value })
+  }, [updateSearchParams])
+
+  const setShowFavoritesOnly = useCallback((value) => {
+    _setShowFavoritesOnly(value)
+    updateSearchParams({ favorites: value ? 'true' : '' })
+  }, [updateSearchParams])
+
+  const setSearchQuery = useCallback((value) => {
+    _setSearchQuery(value)
+    updateSearchParams({ q: value })
+  }, [updateSearchParams])
 
   const { data: modelsData, isLoading } = useQuery({ queryKey: ['models', categoryFilter, org.orgId], queryFn: () => models.listWithPricing(categoryFilter || null, org.orgId) })
 
@@ -607,10 +615,14 @@ export default function Models() {
       const model = modelsData.find(m => m.id === parseInt(scheduleId))
       if (model) {
         setScheduleModel(model)
-        setSearchParams({})  // Clear the param
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev)
+          next.delete('schedule')
+          return next
+        }, { replace: true })
       }
     }
-  }, [searchParams, modelsData])
+  }, [searchParams, modelsData, setSearchParams])
   const createModel = useMutation({
     mutationFn: models.create,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['models'] }); toast.success('Model created') },
@@ -667,81 +679,70 @@ export default function Models() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div className="flex items-center gap-3">
-          <Box className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Models</h1>
-            <p className="text-farm-500 text-sm mt-1">Print model library</p>
-          </div>
-        </div>
-        {canDo('models.create') && <button onClick={() => { setEditingModel(null); setShowModal(true) }} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
-          <Plus size={16} /> Add Model
-        </button>}
-      </div>
+      <PageHeader icon={Box} title="Models" subtitle="Print model library">
+        {canDo('models.create') && (
+          <Button icon={Plus} onClick={() => { setEditingModel(null); setShowModal(true) }}>
+            Add Model
+          </Button>
+        )}
+      </PageHeader>
 
       {/* Search */}
-      <div className="relative max-w-md mb-4">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
-        <input
-          type="text"
-          placeholder="Search models..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 bg-farm-900 border border-farm-800 rounded-lg text-sm"
-        />
-      </div>
+      <SearchInput
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder="Search models..."
+        className="max-w-md mb-4"
+      />
 
       {categories.length > 0 && (
-        <div className="flex gap-2 mb-4 md:mb-6 flex-wrap">
-          <button onClick={() => setCategoryFilter('')} className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors', !categoryFilter ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700')}>
-            All <span className="text-xs opacity-70 ml-1">{modelsData?.length || 0}</span>
-          </button>
-          <button onClick={() => setShowFavoritesOnly(!showFavoritesOnly)} className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1', showFavoritesOnly ? 'bg-yellow-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700')}>
-            <Star size={14} fill={showFavoritesOnly ? "currentColor" : "none"} /> Favorites <span className="text-xs opacity-70 ml-1">{favCount}</span>
-          </button>
-          {categories.map((cat) => (
-            <button key={cat} onClick={() => setCategoryFilter(cat)} className={clsx('px-3 py-1.5 rounded-lg text-sm transition-colors', categoryFilter === cat ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700')}>
-              {cat} <span className="text-xs opacity-70 ml-1">{categoryCounts[cat] || 0}</span>
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-2 mb-4 md:mb-6 items-center">
+          <TabBar
+            tabs={[
+              { value: '', label: 'All', count: modelsData?.length || 0 },
+              ...categories.map(cat => ({
+                value: cat,
+                label: cat,
+                count: categoryCounts[cat] || 0,
+              })),
+            ]}
+            active={categoryFilter}
+            onChange={(val) => setCategoryFilter(val)}
+          />
+          <Button
+            variant={showFavoritesOnly ? 'warning' : 'secondary'}
+            size="sm"
+            icon={Star}
+            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+          >
+            Favorites ({favCount})
+          </Button>
         </div>
       )}
 
       {/* Model Library Summary */}
       {modelsData?.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
-          <div className="bg-blue-400/10 rounded-lg p-3 text-center border border-farm-800">
-            <div className="text-lg md:text-xl font-bold tabular-nums text-blue-400">{modelsData.length}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Models</div>
-          </div>
-          <div className="bg-yellow-400/10 rounded-lg p-3 text-center border border-farm-800">
-            <div className="text-lg md:text-xl font-bold tabular-nums text-yellow-400">{modelsData.filter(m => m.is_favorite).length}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Favorites</div>
-          </div>
-          <div className="bg-emerald-400/10 rounded-lg p-3 text-center border border-farm-800">
-            <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{categories.length}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Categories</div>
-          </div>
-          <div className="bg-purple-400/10 rounded-lg p-3 text-center border border-farm-800">
-            <div className="text-lg md:text-xl font-bold tabular-nums text-purple-400">{modelsData.filter(m => m.estimated_cost).length}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Costed</div>
-          </div>
+          <StatCard label="Models" value={modelsData.length} icon={Box} color="blue" />
+          <StatCard label="Favorites" value={modelsData.filter(m => m.is_favorite).length} icon={Star} color="amber" />
+          <StatCard label="Categories" value={categories.length} color="green" />
+          <StatCard label="Costed" value={modelsData.filter(m => m.estimated_cost).length} color="purple" />
         </div>
       )}
 
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading models...</div>
       ) : modelsData?.length === 0 ? (
-        <div className="bg-farm-900 rounded-lg border border-farm-800 p-8 md:p-12 text-center">
-          <Upload size={32} className="mx-auto text-farm-600 mb-3" />
-          <p className="text-farm-500 mb-4">No models defined yet.</p>
-          <p className="text-sm text-farm-600 mb-4">Upload a .3mf file or add models manually to get started.</p>
-          <div className="flex items-center justify-center gap-3">
-            <Link to="/upload" className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors text-sm text-white">Upload .3mf</Link>
-            <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Manually</button>
-          </div>
-        </div>
+        <EmptyState
+          icon={Upload}
+          title="No models defined yet"
+          description="Upload a .3mf file or add models manually to get started."
+        >
+          <Link to="/upload">
+            <Button variant="success">Upload .3mf</Button>
+          </Link>
+          <Button onClick={() => setShowModal(true)}>Add Manually</Button>
+        </EmptyState>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
           {filteredModels?.map((model) => (
@@ -761,11 +762,13 @@ export default function Models() {
       />
 
       {viewerModelId && (
-        <ModelViewer
-          modelId={viewerModelId}
-          modelName={viewerModelName}
-          onClose={() => { setViewerModelId(null); setViewerModelName('') }}
-        />
+        <Suspense fallback={<div className="flex items-center justify-center p-8 text-farm-400">Loading 3D viewer...</div>}>
+          <ModelViewer
+            modelId={viewerModelId}
+            modelName={viewerModelName}
+            onClose={() => { setViewerModelId(null); setViewerModelName('') }}
+          />
+        </Suspense>
       )}
 
       {revisionModel && (

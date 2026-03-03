@@ -3,6 +3,7 @@ import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle } from
 import usePushNotifications from '../../hooks/usePushNotifications'
 import { alertPreferences, smtpConfig } from '../../api'
 import { useLicense } from '../../LicenseContext'
+import { Button, Input, Card } from '../ui'
 
 export default function NotificationsTab() {
   const lic = useLicense()
@@ -169,24 +170,21 @@ export default function NotificationsTab() {
                     : 'Enable to receive alerts even when the tab is closed'}
               </p>
             </div>
-            <button
+            <Button
+              variant={pushSubscribed ? 'tertiary' : 'primary'}
+              loading={pushLoading}
+              disabled={pushPermission === 'denied'}
               onClick={() => pushSubscribed ? unsubscribePush() : subscribePush()}
-              disabled={pushLoading || pushPermission === 'denied'}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                pushSubscribed
-                  ? 'bg-farm-700 hover:bg-farm-600 text-white'
-                  : 'bg-print-600 hover:bg-print-500 text-white'
-              } disabled:opacity-50`}
             >
-              {pushLoading ? 'Loading...' : pushSubscribed ? 'Disable Push' : 'Enable Push'}
-            </button>
+              {pushSubscribed ? 'Disable Push' : 'Enable Push'}
+            </Button>
           </div>
         </div>
       )}
 
 
       {/* Alert Preferences */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Bell size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Alert Preferences</h2>
@@ -290,13 +288,9 @@ export default function NotificationsTab() {
             </div>
 
             <div className="flex items-center gap-4 mt-4">
-              <button
-                onClick={saveAlertPrefs}
-                className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm font-medium"
-              >
-                <Save size={16} />
+              <Button variant="primary" icon={Save} onClick={saveAlertPrefs}>
                 Save Preferences
-              </button>
+              </Button>
               {alertPrefsSaved && (
                 <span className="flex items-center gap-1 text-green-400 text-sm">
                   <CheckCircle size={14} /> Preferences saved!
@@ -314,11 +308,11 @@ export default function NotificationsTab() {
             </p>
           </>
         )}
-      </div>
+      </Card>
 
       {/* SMTP Email Configuration — merged into Notifications tab */}
       {lic.isPro && <>
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Mail size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Email Notifications (SMTP)</h2>
@@ -344,47 +338,38 @@ export default function NotificationsTab() {
 
             <div className={`space-y-3 ${!smtp.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-farm-400 mb-1">SMTP Host</label>
-                  <input
-                    type="text"
-                    value={smtp.host}
-                    onChange={(e) => setSmtp(s => ({ ...s, host: e.target.value }))}
-                    placeholder="smtp.gmail.com"
-                    className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-farm-400 mb-1">Port</label>
-                  <input
-                    type="number"
-                    value={smtp.port}
-                    onChange={(e) => setSmtp(s => ({ ...s, port: parseInt(e.target.value) || 587 }))}
-                    className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
+                <Input
+                  label="SMTP Host"
+                  type="text"
+                  value={smtp.host}
+                  onChange={(e) => setSmtp(s => ({ ...s, host: e.target.value }))}
+                  placeholder="smtp.gmail.com"
+                />
+                <Input
+                  label="Port"
+                  type="number"
+                  value={smtp.port}
+                  onChange={(e) => setSmtp(s => ({ ...s, port: parseInt(e.target.value) || 587 }))}
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-farm-400 mb-1">Username</label>
-                  <input
-                    type="text"
-                    value={smtp.username}
-                    onChange={(e) => setSmtp(s => ({ ...s, username: e.target.value }))}
-                    placeholder="your@email.com"
-                    className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
-                  />
-                </div>
+                <Input
+                  label="Username"
+                  type="text"
+                  value={smtp.username}
+                  onChange={(e) => setSmtp(s => ({ ...s, username: e.target.value }))}
+                  placeholder="your@email.com"
+                />
                 <div>
                   <label className="block text-sm text-farm-400 mb-1">Password</label>
                   <div className="relative">
-                    <input
+                    <Input
                       type={showSmtpPassword ? 'text' : 'password'}
                       value={smtp.password}
                       onChange={(e) => setSmtp(s => ({ ...s, password: e.target.value }))}
-                      placeholder={smtp._password_set ? '••••••••  (saved)' : 'App password or SMTP password'}
-                      className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm pr-16"
+                      placeholder={smtp._password_set ? '--------  (saved)' : 'App password or SMTP password'}
+                      className="pr-16"
                     />
                     <button
                       type="button"
@@ -397,34 +382,29 @@ export default function NotificationsTab() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm text-farm-400 mb-1">From Address</label>
-                <input
-                  type="text"
-                  value={smtp.from_address}
-                  onChange={(e) => setSmtp(s => ({ ...s, from_address: e.target.value }))}
-                  placeholder="odin@yourdomain.com"
-                  className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm max-w-md"
-                />
-              </div>
+              <Input
+                label="From Address"
+                type="text"
+                value={smtp.from_address}
+                onChange={(e) => setSmtp(s => ({ ...s, from_address: e.target.value }))}
+                placeholder="odin@yourdomain.com"
+                wrapperClassName="max-w-md"
+              />
             </div>
 
             <div className="flex items-center gap-3 mt-4 flex-wrap">
-              <button
-                onClick={saveSmtp}
-                className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm font-medium"
-              >
-                <Save size={16} />
+              <Button variant="primary" icon={Save} onClick={saveSmtp}>
                 Save SMTP
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="tertiary"
+                icon={Mail}
+                loading={smtpTesting}
+                disabled={!smtp.enabled || !smtp.host}
                 onClick={testEmail}
-                disabled={smtpTesting || !smtp.enabled || !smtp.host}
-                className="flex items-center gap-2 px-4 py-2 bg-farm-700 hover:bg-farm-600 disabled:opacity-50 rounded-lg text-sm"
               >
-                {smtpTesting ? <RefreshCw size={16} className="animate-spin" /> : <Mail size={16} />}
                 Send Test Email
-              </button>
+              </Button>
               {smtpSaved && (
                 <span className="flex items-center gap-1 text-green-400 text-sm">
                   <CheckCircle size={14} /> SMTP saved!
@@ -449,7 +429,7 @@ export default function NotificationsTab() {
             </p>
           </>
         )}
-      </div>
+      </Card>
 
       </>}
     </div>

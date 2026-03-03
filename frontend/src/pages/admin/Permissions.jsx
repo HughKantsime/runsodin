@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { PageHeader, Button, Card } from '../../components/ui'
 
 async function fetchPerms() {
   const headers = { 'Content-Type': 'application/json' }
@@ -241,27 +242,19 @@ export default function Permissions() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Shield className="text-print-400" size={24} />
-          <h1 className="text-xl md:text-2xl font-display font-bold">Permissions</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {saveMsg && (
-            <span className="text-green-400 text-sm flex items-center gap-1">
-              <Check size={14} /> {saveMsg}
-            </span>
-          )}
-          <button onClick={handleReset} disabled={saving}
-            className="bg-farm-800 hover:bg-farm-700 text-farm-300 px-3 py-2 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-40">
-            <RotateCcw size={14} /> Reset Defaults
-          </button>
-          <button onClick={handleSave} disabled={!dirty || saving}
-            className="bg-print-500 hover:bg-print-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-40">
-            <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </div>
+      <PageHeader icon={Shield} title="Permissions">
+        {saveMsg && (
+          <span className="text-green-400 text-sm flex items-center gap-1">
+            <Check size={14} /> {saveMsg}
+          </span>
+        )}
+        <Button variant="secondary" size="md" icon={RotateCcw} onClick={handleReset} disabled={saving}>
+          Reset Defaults
+        </Button>
+        <Button variant="primary" size="md" icon={Save} onClick={handleSave} disabled={!dirty} loading={saving}>
+          {saving ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </PageHeader>
 
       {/* Role summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -270,7 +263,7 @@ export default function Permissions() {
           const pageCount = Object.values(localPageAccess).filter(roles => roles.includes(role)).length
           const actionCount = Object.values(localActionAccess).filter(roles => roles.includes(role)).length
           return (
-            <div key={role} className="bg-farm-900 border border-farm-800 rounded-lg p-4">
+            <Card key={role} padding="md">
               <div className="flex items-center gap-2 mb-2">
                 <meta.icon size={18} className={meta.color} />
                 <span className={`font-medium ${meta.color}`}>{meta.label}</span>
@@ -278,7 +271,7 @@ export default function Permissions() {
               <div className="text-xs text-farm-400">
                 {pageCount} page{pageCount !== 1 ? 's' : ''} · {actionCount} action{actionCount !== 1 ? 's' : ''}
               </div>
-            </div>
+            </Card>
           )
         })}
       </div>

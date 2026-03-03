@@ -1,8 +1,8 @@
 import { Thermometer, Wind, Activity } from 'lucide-react'
-import { getShortName } from '../../utils/shared'
+import { getShortName, isOnline } from '../../utils/shared'
 
 export function PrinterInfoPanel({ printer }) {
-  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+  const online = isOnline(printer)
   const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
   const nozTarget = printer.nozzle_target_temp != null ? Math.round(printer.nozzle_target_temp) : null
   const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null

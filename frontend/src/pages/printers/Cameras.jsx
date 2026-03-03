@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye, Tv, RefreshCw } from 'lucide-react'
 import CameraModal from '../../components/printers/CameraModal'
+import { PageHeader, Button, Card, EmptyState } from '../../components/ui'
 
 const API_BASE = '/api'
 
@@ -92,7 +93,7 @@ function PipPlayer({ camera, onClose }) {
       {/* Live indicator */}
       <div className="absolute bottom-1.5 left-2 flex items-center gap-1">
         <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-        <span className="text-[9px] text-white/70 font-medium">LIVE</span>
+        <span className="text-[10px] text-white/70 font-medium">LIVE</span>
       </div>
     </div>
   )
@@ -328,71 +329,72 @@ export default function Cameras() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div className="flex items-center gap-3">
-          <Video className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Cameras</h1>
-            <p className="text-xs md:text-sm text-farm-500 mt-1">
-              {filteredCameras.length} camera{filteredCameras.length !== 1 ? 's' : ''} available
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 md:gap-3">
-          <input
-            type="text"
-            placeholder="Filter cameras..."
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm w-36 md:w-40 placeholder-farm-600 focus:outline-none focus:border-farm-500"
+      <PageHeader
+        icon={Video}
+        title="Cameras"
+        subtitle={`${filteredCameras.length} camera${filteredCameras.length !== 1 ? 's' : ''} available`}
+      >
+        <input
+          type="text"
+          placeholder="Filter cameras..."
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm w-36 md:w-40 placeholder-farm-600 focus:outline-none focus:border-farm-500"
+        />
+        <div className="flex items-center gap-1 bg-farm-900 rounded-lg p-1">
+          <Button
+            variant={columns === 1 ? 'tertiary' : 'ghost'}
+            size="icon"
+            icon={Rows3}
+            onClick={() => setColumns(1)}
           />
-          <div className="flex items-center gap-1 bg-farm-900 rounded-lg p-1">
-            <button onClick={() => setColumns(1)} className={'p-1.5 rounded-lg ' + (columns === 1 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
-              <Rows3 size={14} />
-            </button>
-            <button onClick={() => setColumns(2)} className={'p-1.5 rounded-lg ' + (columns === 2 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
-              <LayoutGrid size={14} />
-            </button>
-            <button onClick={() => setColumns(3)} className={'p-1.5 rounded-lg ' + (columns === 3 ? 'bg-farm-700 text-white' : 'text-farm-400 hover:text-white')}>
-              <Columns3 size={14} />
-            </button>
-          </div>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={'p-2 rounded-lg transition-colors ' + (showSettings ? 'bg-farm-700 text-white' : 'bg-farm-900 text-farm-400 hover:text-white')}
-            title="Camera Settings"
-          >
-            <Settings size={16} />
-          </button>
-          <button
-            onClick={() => setControlRoom(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-sm font-medium transition-colors"
-            title="Control Room Mode (Shift+F)"
-          >
-            <Monitor size={14} />
-            <span className="hidden sm:inline">Control Room</span>
-          </button>
-          <a
-            href="/tv"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors text-farm-300"
-            title="Open TV Dashboard in new tab"
-          >
-            <Tv size={14} />
-            <span className="hidden sm:inline">TV Mode</span>
-          </a>
+          <Button
+            variant={columns === 2 ? 'tertiary' : 'ghost'}
+            size="icon"
+            icon={LayoutGrid}
+            onClick={() => setColumns(2)}
+          />
+          <Button
+            variant={columns === 3 ? 'tertiary' : 'ghost'}
+            size="icon"
+            icon={Columns3}
+            onClick={() => setColumns(3)}
+          />
         </div>
-      </div>
+        <Button
+          variant={showSettings ? 'tertiary' : 'ghost'}
+          size="icon"
+          icon={Settings}
+          onClick={() => setShowSettings(!showSettings)}
+          title="Camera Settings"
+        />
+        <Button
+          icon={Monitor}
+          onClick={() => setControlRoom(true)}
+          title="Control Room Mode (Shift+F)"
+        >
+          <span className="hidden sm:inline">Control Room</span>
+        </Button>
+        <a
+          href="/tv"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors text-farm-300"
+          title="Open TV Dashboard in new tab"
+        >
+          <Tv size={14} />
+          <span className="hidden sm:inline">TV Mode</span>
+        </a>
+      </PageHeader>
 
       {/* Camera Settings Panel */}
       {showSettings && (
-        <div className="mb-4 p-4 bg-farm-900 rounded-lg border border-farm-800">
+        <Card className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">Camera Settings</h3>
-            <button onClick={() => setShowSettings(false)} className="text-farm-400 hover:text-white text-sm">
+            <Button variant="ghost" size="sm" onClick={() => setShowSettings(false)}>
               Close
-            </button>
+            </Button>
           </div>
           <div className="space-y-2">
             {allPrinters.length === 0 && (
@@ -404,23 +406,21 @@ export default function Cameras() {
                   <Video size={16} className="text-farm-400" />
                   <span className="text-sm">{printer.nickname || printer.name}</span>
                 </div>
-                <button
+                <Button
+                  variant={printer.camera_enabled !== false ? 'success' : 'secondary'}
+                  size="sm"
+                  icon={Power}
                   onClick={() => toggleCamera(printer.id)}
-                  className={'flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-colors ' + 
-                    (printer.camera_enabled !== false
-                      ? 'bg-green-900/50 text-green-400 hover:bg-green-900/70'
-                      : 'bg-farm-700 text-farm-400 hover:bg-farm-600')}
                 >
-                  <Power size={14} />
                   {printer.camera_enabled !== false ? 'Enabled' : 'Disabled'}
-                </button>
+                </Button>
               </div>
             ))}
           </div>
           <p className="text-xs text-farm-500 mt-3">
             Disabled cameras won't appear in the grid or Control Room.
           </p>
-        </div>
+        </Card>
       )}
 
       {isLoading && (
@@ -428,11 +428,11 @@ export default function Cameras() {
       )}
 
       {filteredCameras.length === 0 && !isLoading && (
-        <div className="text-center text-farm-500 py-12">
-          <VideoOff size={40} className="mx-auto mb-4 text-farm-600" />
-          <p className="text-sm">No cameras configured</p>
-          <p className="text-xs mt-1">Add camera URLs in printer settings</p>
-        </div>
+        <EmptyState
+          icon={VideoOff}
+          title="No cameras configured"
+          description="Add camera URLs in printer settings"
+        />
       )}
 
       {filteredCameras.length > 0 && (
@@ -465,13 +465,14 @@ export default function Cameras() {
                 <Clock size={18} />
                 {currentTime.toLocaleTimeString()}
               </div>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Minimize2}
                 onClick={() => setControlRoom(false)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm transition-colors"
               >
-                <Minimize2 size={14} />
                 Exit (Esc)
-              </button>
+              </Button>
             </div>
           </div>
 

@@ -7,7 +7,7 @@ function SortIcon({ field, sortField, sortDirection }) {
 
 function SortTh({ label, field, sortField, sortDirection, onSort, className = '' }) {
   return (
-    <th scope="col" className={`px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none ${className}`} onClick={() => onSort(field)}>
+    <th scope="col" className={`px-3 md:px-4 py-3 text-left text-xs font-mono font-medium text-farm-400 uppercase tracking-wider cursor-pointer hover:text-farm-200 select-none ${className}`} onClick={() => onSort(field)}>
       <div className="flex items-center gap-1">{label} <SortIcon field={field} sortField={sortField} sortDirection={sortDirection} /></div>
     </th>
   )
@@ -24,10 +24,10 @@ export default function JobTableHeader({ sortField, sortDirection, onSort, allSe
         <SortTh label="Item" field="item_name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
         <SortTh label="Pri" field="priority" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
         <SortTh label="Printer" field="printer" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
-        <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider hidden lg:table-cell">Colors</th>
+        <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-mono font-medium text-farm-400 uppercase tracking-wider hidden lg:table-cell">Colors</th>
         <SortTh label="Duration" field="duration_hours" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden md:table-cell" />
         <SortTh label="Scheduled" field="scheduled_start" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden lg:table-cell" />
-        <th scope="col" className="px-3 md:px-4 py-3 text-left text-[10px] font-mono font-medium text-farm-400 uppercase tracking-wider">Actions</th>
+        <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-mono font-medium text-farm-400 uppercase tracking-wider">Actions</th>
       </tr>
     </thead>
   )

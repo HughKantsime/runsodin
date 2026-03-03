@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import { ClipboardList, Search, Download, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { formatDurationSecs as formatDuration, formatDate } from '../../utils/shared'
 
 const STATUS_BADGES = {
   completed: 'bg-green-600/20 text-green-400',
@@ -9,24 +11,48 @@ const STATUS_BADGES = {
   cancelled: 'bg-yellow-600/20 text-yellow-400',
 }
 
-function formatDuration(seconds) {
-  if (!seconds) return '--'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
-
-function formatDate(d) {
-  if (!d) return '--'
-  return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
 export default function PrintLog() {
-  const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [filterPrinter, setFilterPrinter] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [page, setPage] = useState(() => {
+    const p = parseInt(searchParams.get('page'), 10)
+    return p > 0 ? p : 1
+  })
+  const [search, _setSearch] = useState(() => searchParams.get('q') || '')
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '')
+  const [filterPrinter, _setFilterPrinter] = useState(() => searchParams.get('printer') || '')
+  const [filterStatus, _setFilterStatus] = useState(() => searchParams.get('status') || '')
+
+  const updateSearchParams = useCallback((updates) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value && value !== '') {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const setSearch = useCallback((value) => {
+    _setSearch(value)
+    updateSearchParams({ q: value })
+  }, [updateSearchParams])
+
+  const setFilterPrinter = useCallback((value) => {
+    _setFilterPrinter(value)
+    setPage(1)
+    updateSearchParams({ printer: value, page: '' })
+  }, [updateSearchParams])
+
+  const setFilterStatus = useCallback((value) => {
+    _setFilterStatus(value)
+    setPage(1)
+    updateSearchParams({ status: value, page: '' })
+  }, [updateSearchParams])
 
   const { data: printerList } = useQuery({
     queryKey: ['printers-list'],
@@ -91,7 +117,7 @@ export default function PrintLog() {
         </div>
         <select
           value={filterPrinter}
-          onChange={e => { setFilterPrinter(e.target.value); setPage(1) }}
+          onChange={e => setFilterPrinter(e.target.value)}
           className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-2 text-sm"
         >
           <option value="">All Printers</option>
@@ -101,7 +127,7 @@ export default function PrintLog() {
         </select>
         <select
           value={filterStatus}
-          onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
+          onChange={e => setFilterStatus(e.target.value)}
           className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-2 text-sm"
         >
           <option value="">All Statuses</option>
@@ -171,7 +197,7 @@ export default function PrintLog() {
               <span className="text-xs text-farm-500">{total} results</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => { const p = Math.max(1, page - 1); setPage(p); updateSearchParams({ page: p > 1 ? String(p) : '' }) }}
                   disabled={page === 1}
                   className="p-1.5 rounded-lg bg-farm-800 text-farm-400 hover:bg-farm-700 disabled:opacity-30"
                 >
@@ -179,7 +205,7 @@ export default function PrintLog() {
                 </button>
                 <span className="text-sm text-farm-400">{page} / {totalPages}</span>
                 <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); updateSearchParams({ page: p > 1 ? String(p) : '' }) }}
                   disabled={page === totalPages}
                   className="p-1.5 rounded-lg bg-farm-800 text-farm-400 hover:bg-farm-700 disabled:opacity-30"
                 >

@@ -175,20 +175,20 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-farm-200 truncate">{p.name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${SLICER_COLORS[p.slicer] || SLICER_COLORS.generic}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${SLICER_COLORS[p.slicer] || SLICER_COLORS.generic}`}>
                     {p.slicer}
                   </span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-farm-700 text-farm-300">
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-farm-700 text-farm-300">
                     {p.category}
                   </span>
                   {p.filament_type && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-farm-700 text-farm-400">
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-farm-700 text-farm-400">
                       {p.filament_type}
                     </span>
                   )}
                 </div>
                 {p.description && <p className="text-xs text-farm-500 truncate">{p.description}</p>}
-                <div className="flex items-center gap-3 mt-1 text-[10px] text-farm-500">
+                <div className="flex items-center gap-3 mt-1 text-xs text-farm-500">
                   {p.tags && <span>{p.tags}</span>}
                   {p.last_applied_at && <span>Applied {new Date(p.last_applied_at).toLocaleDateString()}</span>}
                 </div>

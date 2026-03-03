@@ -9,6 +9,8 @@ import HmsHistoryPanel from './HmsHistoryPanel'
 import FilamentSlotEditor from './FilamentSlotEditor'
 import { printers } from '../../api'
 import { canDo } from '../../permissions'
+import { isOnline } from '../../utils/shared'
+import { Button } from '../ui'
 
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates }) {
   const [syncing, setSyncing] = useState(false)
@@ -59,33 +61,22 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {canDo('printers.edit') && <button onClick={() => onEdit(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="Edit printer settings">
-            <Settings size={16} />
-          </button>}
-          {canDo('printers.edit') && <button onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx('p-1.5 md:p-2 rounded-lg transition-colors', printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'}>
-            {printer.is_active ? <Power size={16} /> : <PowerOff size={16} />}
-          </button>}
-          {hasCamera && <button onClick={() => onCameraClick(printer)} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="View camera">
-            <Video size={16} />
-          </button>}
-          <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/overlay/${printer.id}`); toast.success('Overlay URL copied') }} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL">
-            <ExternalLink size={16} />
-          </button>
+          {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={Settings} onClick={() => onEdit(printer)} aria-label="Edit printer settings" />}
+          {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={printer.is_active ? Power : PowerOff} onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx(printer.is_active ? 'text-print-400 hover:bg-print-900/50' : 'text-farm-500 hover:bg-farm-800')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'} />}
+          {hasCamera && <Button variant="ghost" size="icon" icon={Video} onClick={() => onCameraClick(printer)} aria-label="View camera" />}
+          <Button variant="ghost" size="icon" icon={ExternalLink} onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/overlay/${printer.id}`); toast.success('Overlay URL copied') }} aria-label="Copy OBS overlay URL" title="Copy OBS overlay URL" />
           {printer.plug_type && onPlugToggle && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              icon={Plug}
               onClick={() => onPlugToggle(printer.id)}
-              className={`p-1.5 md:p-2 rounded-lg transition-colors ${plugStates?.[printer.id] ? 'text-green-400 hover:bg-green-900/30' : 'text-farm-500 hover:bg-farm-800'}`}
+              className={plugStates?.[printer.id] ? 'text-green-400 hover:bg-green-900/30' : 'text-farm-500 hover:bg-farm-800'}
               aria-label={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
-            >
-              <Plug size={16} />
-            </button>
+            />
           )}
-          {onScanSpool && <button onClick={onScanSpool} className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors" aria-label="Scan spool QR code">
-            <QrCode size={16} />
-          </button>}
-          {canDo('printers.delete') && <button onClick={() => onDelete(printer.id)} className="p-1.5 md:p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors" aria-label="Delete printer">
-            <Trash2 size={16} />
-          </button>}
+          {onScanSpool && <Button variant="ghost" size="icon" icon={QrCode} onClick={onScanSpool} aria-label="Scan spool QR code" />}
+          {canDo('printers.delete') && <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(printer.id)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" aria-label="Delete printer" />}
         </div>
       </div>
       <div className="p-3 md:p-4">
@@ -170,7 +161,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
       </div>
       <div className="px-3 md:px-4 py-2 md:py-3 bg-farm-950 border-t border-farm-800">
         {(() => {
-          const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+          const online = isOnline(printer)
           const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
           const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
           const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null

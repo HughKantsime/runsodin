@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, Shield, Wifi, Save, Smartphone } from 'lucide-react'
+import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileText, Shield, Wifi, Save, Smartphone } from 'lucide-react'
 import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob, adminBundle } from '../../api'
 import BackupRestore from './BackupRestore'
 import DataRetentionSettings from './DataRetentionSettings'
 import ReportScheduleManager from './ReportScheduleManager'
 import ChargebackReport from './ChargebackReport'
-import LicenseTab from './LicenseTab'
 import toast from 'react-hot-toast'
+import { Button, Card, Input } from '../ui'
 
 function downloadExport(endpoint, filename) {
   // endpoint comes in as '/api/...' — strip the /api prefix for downloadBlob
@@ -53,7 +53,7 @@ function NetworkTab() {
   }
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+    <Card padding="lg" className="mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
         <Wifi size={18} className="text-print-400" />
         <h2 className="text-lg md:text-xl font-display font-semibold">Network & Camera Streaming</h2>
@@ -65,21 +65,22 @@ function NetworkTab() {
         <div>
           <label className="block text-sm font-medium text-farm-300 mb-1.5">Host IP Address</label>
           <div className="flex gap-2">
-            <input
+            <Input
               type="text"
               value={hostIp}
               onChange={e => { setHostIp(e.target.value); setSaved(false) }}
               placeholder="e.g. 192.168.1.100"
-              className="flex-1 px-3 py-2 rounded-lg bg-farm-800 border border-farm-700 text-farm-100 placeholder-farm-600 focus:outline-none focus:ring-2 focus:ring-print-500/50 focus:border-print-500/50"
+              className="flex-1"
             />
-            <button
+            <Button
+              variant="primary"
+              icon={Save}
+              loading={saving}
+              disabled={!hostIp}
               onClick={handleSave}
-              disabled={!hostIp || saving}
-              className="px-4 py-2 rounded-lg bg-print-600 hover:bg-print-500 text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
               {saved ? 'Saved!' : 'Save'}
-            </button>
+            </Button>
           </div>
           {detectedIp && <p className="text-xs text-farm-600 mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
         </div>
@@ -92,7 +93,7 @@ function NetworkTab() {
           Without this setting, camera streams may show a black screen. The IP is used for WebRTC ICE candidates so your browser can connect to the go2rtc video relay. Changes take effect immediately.
         </p>
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -103,13 +104,8 @@ function PrivacyDataCard() {
   const [message, setMessage] = useState(null)
 
   const getCurrentUserId = async () => {
-
-    if (!token) return null
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      const username = payload.sub
-      const users = await fetchAPI('/users')
-      const me = users.find(u => u.username === username)
+      const me = await fetchAPI('/auth/me')
       return me?.id || null
     } catch {
       return null
@@ -167,7 +163,7 @@ function PrivacyDataCard() {
   }
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+    <Card padding="lg" className="mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
         <Shield size={18} className="text-print-400" />
         <h2 className="text-lg md:text-xl font-display font-semibold">Privacy & Data</h2>
@@ -176,39 +172,22 @@ function PrivacyDataCard() {
         Export or erase your personal data in compliance with GDPR. Exported data includes your profile, jobs, sessions, and preferences.
       </p>
       <div className="flex flex-wrap gap-3">
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-        >
-          {exporting ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}
+        <Button variant="primary" icon={Download} loading={exporting} onClick={handleExport}>
           Export My Data
-        </button>
+        </Button>
         {confirmErase ? (
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleErase}
-              disabled={erasing}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-            >
-              {erasing ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            <Button variant="danger" icon={Trash2} loading={erasing} onClick={handleErase}>
               Confirm Erase
-            </button>
-            <button
-              onClick={() => setConfirmErase(false)}
-              className="px-4 py-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm font-medium transition-colors"
-            >
+            </Button>
+            <Button variant="tertiary" onClick={() => setConfirmErase(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         ) : (
-          <button
-            onClick={() => setConfirmErase(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-900/50 hover:bg-red-800/50 text-red-300 border border-red-700/50 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Trash2 size={16} />
+          <Button variant="danger" icon={Trash2} onClick={() => setConfirmErase(true)} className="bg-red-900/50 hover:bg-red-800/50 text-red-300 border border-red-700/50">
             Erase My Data
-          </button>
+          </Button>
         )}
       </div>
       {message && (
@@ -219,10 +198,9 @@ function PrivacyDataCard() {
       <p className="text-xs text-farm-500 mt-3">
         Erasing your data is permanent. Your account will be anonymized and you will be logged out.
       </p>
-    </div>
+    </Card>
   )
 }
-
 
 function InstallAppCard() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
@@ -256,12 +234,13 @@ function InstallAppCard() {
         <span className="font-display font-semibold">Install App</span>
         <p className="text-farm-500 text-sm">Add O.D.I.N. to your home screen for quick access</p>
       </div>
-      <button
+      <Button
+        variant="primary"
         onClick={() => { deferredPrompt.prompt(); deferredPrompt.userChoice.then(() => setDeferredPrompt(null)) }}
-        className="ml-auto px-4 py-2 bg-print-600 hover:bg-print-500 text-white rounded-lg text-sm font-medium transition-colors"
+        className="ml-auto"
       >
         Install
-      </button>
+      </Button>
     </div>
   )
 }
@@ -316,7 +295,7 @@ export default function SystemTab() {
   return (
     <div className="max-w-4xl">
       {/* Database Info */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <Database size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Database</h2>
@@ -339,46 +318,39 @@ export default function SystemTab() {
             <div className="text-xs md:text-sm text-farm-400">Completed</div>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Support Bundle */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold">Support Bundle</h3>
             <p className="text-xs text-farm-500 mt-1">Download a privacy-filtered diagnostic ZIP for issue reporting</p>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="md"
+            icon={Download}
             onClick={async () => {
               try { await adminBundle.download(); toast.success('Bundle downloaded') }
               catch { toast.error('Failed to generate bundle') }
             }}
-            className="flex items-center gap-2 px-3 py-2 bg-print-600 hover:bg-print-700 rounded-lg text-sm transition-colors"
           >
-            <Download size={14} /> Download
-          </button>
+            Download
+          </Button>
         </div>
-      </div>
+      </Card>
 
       {/* Database Backups */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2 md:gap-3">
             <HardDrive size={18} className="text-print-400" />
             <h2 className="text-lg md:text-xl font-display font-semibold">Database Backups</h2>
           </div>
-          <button
-            onClick={() => createBackup.mutate()}
-            disabled={createBackup.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg text-sm font-medium"
-          >
-            {createBackup.isPending ? (
-              <RefreshCw size={16} className="animate-spin" />
-            ) : (
-              <Plus size={16} />
-            )}
+          <Button variant="primary" icon={Plus} loading={createBackup.isPending} onClick={() => createBackup.mutate()}>
             Create Backup
-          </button>
+          </Button>
         </div>
 
         {createBackup.isSuccess && (
@@ -421,37 +393,31 @@ export default function SystemTab() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
+                  <Button
+                    variant="tertiary"
+                    size="icon"
+                    icon={Download}
                     onClick={() => backupsApi.download(backup.filename)}
-                    className="p-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-200 hover:text-white transition-colors"
                     title="Download backup"
-                  >
-                    <Download size={16} />
-                  </button>
+                  />
                   {deleteConfirm === backup.filename ? (
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => deleteBackup.mutate(backup.filename)}
-                        disabled={deleteBackup.isPending}
-                        className="px-2 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-white text-xs font-medium"
-                      >
+                      <Button variant="danger" size="sm" loading={deleteBackup.isPending} onClick={() => deleteBackup.mutate(backup.filename)}>
                         Confirm
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm(null)}
-                        className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-200 text-xs"
-                      >
+                      </Button>
+                      <Button variant="tertiary" size="sm" onClick={() => setDeleteConfirm(null)}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   ) : (
-                    <button
+                    <Button
+                      variant="tertiary"
+                      size="icon"
+                      icon={Trash2}
                       onClick={() => setDeleteConfirm(backup.filename)}
-                      className="p-2 bg-farm-700 hover:bg-red-900 rounded-lg text-farm-200 hover:text-red-400 transition-colors"
                       title="Delete backup"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                      className="hover:bg-red-900 hover:text-red-400"
+                    />
                   )}
                 </div>
               </div>
@@ -465,10 +431,10 @@ export default function SystemTab() {
         <div className="border-t border-farm-700 mt-4 pt-4">
           <BackupRestore />
         </div>
-      </div>
+      </Card>
 
       {/* Data Export */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <FileSpreadsheet size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Data Export</h2>
@@ -477,61 +443,40 @@ export default function SystemTab() {
           Export your data as CSV files for analysis, reporting, or backup purposes.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <button
-            onClick={() => downloadExport('/api/export/jobs', 'jobs_export.csv')}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Download size={16} />
+          <Button variant="secondary" icon={Download} onClick={() => downloadExport('/api/export/jobs', 'jobs_export.csv')} fullWidth className="py-3">
             Jobs
-          </button>
-          <button
-            onClick={() => downloadExport('/api/export/models', 'models_export.csv')}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Download size={16} />
+          </Button>
+          <Button variant="secondary" icon={Download} onClick={() => downloadExport('/api/export/models', 'models_export.csv')} fullWidth className="py-3">
             Models
-          </button>
-          <button
-            onClick={() => downloadExport('/api/export/spools', 'spools_export.csv')}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Download size={16} />
+          </Button>
+          <Button variant="secondary" icon={Download} onClick={() => downloadExport('/api/export/spools', 'spools_export.csv')} fullWidth className="py-3">
             Spools
-          </button>
-          <button
-            onClick={() => downloadExport('/api/export/filament-usage', 'filament_usage_export.csv')}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Download size={16} />
+          </Button>
+          <Button variant="secondary" icon={Download} onClick={() => downloadExport('/api/export/filament-usage', 'filament_usage_export.csv')} fullWidth className="py-3">
             Filament Usage
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
       {/* Data Retention */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <DataRetentionSettings />
-      </div>
+      </Card>
 
       {/* Scheduled Reports */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <ReportScheduleManager />
-      </div>
+      </Card>
 
       {/* Cost Chargebacks */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <Card padding="lg" className="mb-4 md:mb-6">
         <ChargebackReport />
-      </div>
+      </Card>
 
       <InstallAppCard />
       <AuditLogLink />
 
       {/* Privacy & Data (GDPR) */}
       <PrivacyDataCard />
-
-      {/* License — merged into System tab */}
-      <div className="border-t border-farm-700 pt-6 mt-6">
-        <LicenseTab />
-      </div>
     </div>
   )
 }

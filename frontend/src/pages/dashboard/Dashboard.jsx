@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Play,
@@ -19,40 +19,12 @@ import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import CameraModal from '../../components/printers/CameraModal'
+import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
+import SectionErrorBoundary from './SectionErrorBoundary'
 
 import { stats, jobs, printers, printJobs, alerts as alertsApi, maintenance } from '../../api'
 import { canDo } from '../../permissions'
-import { ONLINE_THRESHOLD_MS, getShortName } from '../../utils/shared'
-
-function StatCard({ label, value, icon: Icon, color = 'farm', trend, onClick }) {
-  const colorClasses = {
-    farm: 'bg-farm-900 text-farm-100 border-farm-800',
-    print: 'bg-print-900/30 text-print-400 border-print-700/30',
-    pending: 'bg-amber-900/30 text-amber-400 border-amber-700/30',
-    scheduled: 'bg-blue-900/30 text-blue-400 border-blue-700/30',
-    alert: 'bg-red-900/30 text-red-400 border-red-700/30',
-    maintenance: 'bg-purple-900/30 text-purple-400 border-purple-700/30',
-  }
-
-  return (
-    <div
-      className={clsx('rounded-lg p-3 md:p-4 border', colorClasses[color], onClick && 'cursor-pointer hover:bg-farm-800 transition-colors')}
-      onClick={onClick}
-      role={onClick ? 'button' : undefined}
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs md:text-sm text-farm-400 mb-1">{label}</p>
-          <p className="text-xl md:text-2xl font-bold font-display">{value}</p>
-          {trend && <p className="text-xs text-farm-500 mt-2">{trend}</p>}
-        </div>
-        <div className="p-1.5 bg-farm-800/50 rounded-lg">
-          <Icon size={20} className="md:w-6 md:h-6" />
-        </div>
-      </div>
-    </div>
-  )
-}
+import { getShortName, formatHours, formatTime, formatDuration, isOnline } from '../../utils/shared'
 
 function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) {
   const slots = printer.filament_slots || []
@@ -61,7 +33,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
   const hasLowSpool = lowSpools.length > 0
 
   // Live telemetry
-  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < ONLINE_THRESHOLD_MS
+  const online = isOnline(printer)
   const bedTemp = printer.bed_temp != null ? Math.round(printer.bed_temp) : null
   const nozTemp = printer.nozzle_temp != null ? Math.round(printer.nozzle_temp) : null
   const bedTarget = printer.bed_target_temp != null ? Math.round(printer.bed_target_temp) : null
@@ -105,12 +77,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
                 <span className="text-lg font-bold text-green-400">{activeJob.progress_percent || 0}%</span>
               </div>
             </div>
-            <div className="w-full bg-farm-700 rounded-full h-2 mb-1.5" role="progressbar" aria-valuenow={activeJob.progress_percent || 0} aria-valuemin={0} aria-valuemax={100} aria-label="Print progress">
-              <div
-                className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${activeJob.progress_percent || 0}%` }}
-              />
-            </div>
+            <ProgressBar value={activeJob.progress_percent || 0} color="green" size="md" className="mb-1.5" />
             <div className="flex justify-between text-xs text-farm-500">
               <span>
                 {activeJob.current_layer && activeJob.total_layers 
@@ -185,16 +152,6 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
     </div>
   )
 }
-function formatHours(hours) {
-  if (!hours) return "—"
-  const mins = Math.round(hours * 60)
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  const m = mins % 60
-  return m > 0 ? `${hrs}h ${m}m` : `${hrs}h`
-}
-
-
 function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   const statusColors = {
     pending: 'border-status-pending',
@@ -244,12 +201,6 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
 }
 
 function MqttPrintItem({ job }) {
-  const formatTime = (isoString) => {
-    if (!isoString) return '—'
-    const d = new Date(isoString)
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  }
-
   return (
     <div className="bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800 border-l-print-500">
       <div className="flex items-center justify-between">
@@ -274,20 +225,6 @@ function PrintHistoryItem({ job }) {
     completed: "border-farm-600",
     failed: "border-red-500",
     cancelled: "border-farm-600",
-  }
-
-  const formatDuration = (minutes) => {
-    if (!minutes) return '—'
-    if (minutes < 60) return `${Math.round(minutes)}m`
-    const hrs = Math.floor(minutes / 60)
-    const mins = Math.round(minutes % 60)
-    return `${hrs}h ${mins}m`
-  }
-
-  const formatTime = (isoString) => {
-    if (!isoString) return '—'
-    const d = new Date(isoString)
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   }
 
   return (
@@ -395,7 +332,6 @@ function MaintenanceWidget() {
       <div className="space-y-2">
         {needsAttention.slice(0, 6).map((item, i) => {
           const isOverdue = item.status === 'overdue'
-          const barColor = isOverdue ? 'bg-red-500' : item.progress >= 90 ? 'bg-yellow-500' : 'bg-purple-500'
           return (
             <div key={i} className={`bg-farm-900 rounded-lg border p-3 cursor-pointer hover:border-farm-600 transition-colors ${isOverdue ? 'border-red-800' : 'border-farm-800'}`} onClick={() => navigate('/maintenance')}>
               <div className="flex items-center justify-between mb-1">
@@ -403,9 +339,7 @@ function MaintenanceWidget() {
                 {isOverdue && <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded-lg font-medium">OVERDUE</span>}
               </div>
               <div className="text-xs text-farm-400 mb-2">{item.taskName}</div>
-              <div className="w-full bg-farm-800 rounded-full h-1.5">
-                <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${Math.min(item.progress, 100)}%` }} />
-              </div>
+              <ProgressBar value={Math.min(item.progress, 100)} color={isOverdue ? 'red' : item.progress >= 90 ? 'yellow' : 'blue'} size="sm" />
               <div className="text-xs text-farm-500 mt-1">
                 {item.daysSince}d since service{item.hoursSince > 0 ? ` · ${item.hoursSince.toFixed(0)}h printed` : ''}
               </div>
@@ -463,6 +397,63 @@ export default function Dashboard() {
   // Calculate currently printing count (scheduled jobs + MQTT running)
   const currentlyPrinting = statsData?.jobs?.printing || 0
 
+  // --- Task B: Change highlighting for stat cards ---
+  const statValues = {
+    printing: currentlyPrinting,
+    scheduled: statsData?.jobs?.scheduled || 0,
+    pending: statsData?.jobs?.pending || 0,
+    completed_today: statsData?.jobs?.completed_today || 0,
+    active_alerts: dashAlertSummary?.total || 0,
+    maintenance_due: dashAlertSummary?.maintenance_overdue || 0,
+  }
+
+  const prevStatsRef = useRef(null)
+  const [highlightedKeys, setHighlightedKeys] = useState(new Set())
+  const highlightTimerRef = useRef(null)
+
+  const computeChangedKeys = useCallback((prev, current) => {
+    if (!prev) return new Set()
+    const changed = new Set()
+    for (const key of Object.keys(current)) {
+      if (prev[key] !== current[key]) {
+        changed.add(key)
+      }
+    }
+    return changed
+  }, [])
+
+  useEffect(() => {
+    const changed = computeChangedKeys(prevStatsRef.current, statValues)
+    prevStatsRef.current = { ...statValues }
+
+    if (changed.size > 0) {
+      setHighlightedKeys(changed)
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current)
+      }
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedKeys(new Set())
+      }, 1500)
+    }
+
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current)
+      }
+    }
+  }, [
+    statValues.printing,
+    statValues.scheduled,
+    statValues.pending,
+    statValues.completed_today,
+    statValues.active_alerts,
+    statValues.maintenance_due,
+    computeChangedKeys,
+  ])
+
+  const highlightClass = (key) =>
+    clsx(highlightedKeys.has(key) && 'ring-2 ring-print-500/50 transition-all duration-1000')
+
   const isLoading = statsLoading || printersLoading || jobsLoading
 
   if (isLoading) {
@@ -475,94 +466,101 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 md:mb-8 gap-4">
-        <div className="flex items-center gap-3">
-          <LayoutDashboard className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Dashboard</h1>
-            <p className="text-farm-500 mt-1 text-sm md:text-base">Print farm overview</p>
-          </div>
-        </div>
-        <button
-          onClick={() => navigate('/tv')}
-          className="flex items-center gap-2 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm text-farm-300 transition-colors"
-        >
-          <Monitor size={16} />
+      <PageHeader icon={LayoutDashboard} title="Dashboard" subtitle="Print farm overview">
+        <Button variant="secondary" size="md" icon={Monitor} onClick={() => navigate('/tv')}>
           TV Mode
-        </button>
-      </div>
+        </Button>
+      </PageHeader>
 
-      <AlertsWidget />
+      <SectionErrorBoundary>
+        <AlertsWidget />
+      </SectionErrorBoundary>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 mb-6 md:mb-8">
-        <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="print" onClick={() => navigate('/jobs?status=printing')} />
-        <StatCard label="Scheduled" value={statsData?.jobs?.scheduled || 0} icon={Clock} color="scheduled" onClick={() => navigate('/timeline')} />
-        <StatCard label="Pending" value={statsData?.jobs?.pending || 0} icon={AlertCircle} color="pending" onClick={() => navigate('/jobs?status=pending')} />
-        <StatCard label="Completed Today" value={statsData?.jobs?.completed_today || 0} icon={CheckCircle} color="farm" />
-        <StatCard label="Active Alerts" value={dashAlertSummary?.total || 0} icon={AlertTriangle} color="alert" onClick={() => navigate('/alerts')} />
-        <StatCard label="Maintenance Due" value={dashAlertSummary?.maintenance_overdue || 0} icon={Activity} color="maintenance" onClick={() => navigate('/maintenance')} />
-      </div>
+      <SectionErrorBoundary>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 mb-6 md:mb-8">
+          <StatCard label="Currently Printing" value={currentlyPrinting} icon={Play} color="green" onClick={() => navigate('/jobs?status=printing')} className={highlightClass('printing')} />
+          <StatCard label="Scheduled" value={statValues.scheduled} icon={Clock} color="blue" onClick={() => navigate('/timeline')} className={highlightClass('scheduled')} />
+          <StatCard label="Pending" value={statValues.pending} icon={AlertCircle} color="amber" onClick={() => navigate('/jobs?status=pending')} className={highlightClass('pending')} />
+          <StatCard label="Completed Today" value={statValues.completed_today} icon={CheckCircle} color="default" className={highlightClass('completed_today')} />
+          <StatCard label="Active Alerts" value={statValues.active_alerts} icon={AlertTriangle} color="red" onClick={() => navigate('/alerts')} className={highlightClass('active_alerts')} />
+          <StatCard label="Maintenance Due" value={statValues.maintenance_due} icon={Activity} color="purple" onClick={() => navigate('/maintenance')} className={highlightClass('maintenance_due')} />
+        </div>
+      </SectionErrorBoundary>
 
       <div className="space-y-6 md:space-y-8">
         {/* Printers — full width */}
-        <div>
-          <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Printers</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {printersData?.map((printer) => (
-              <PrinterCard
-                key={printer.id}
-                printer={printer}
-                hasCamera={cameraIds.has(printer.id)}
-                onCameraClick={setCameraTarget}
-                activeJob={runningMqttJobs.find(j => j.printer_id === printer.id)}
-                onClick={() => navigate('/printers')}
-              />
-            ))}
-            {(!printersData || printersData.length === 0) && (
-              <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800 p-8 text-center text-farm-500">No printers configured.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Scheduled Jobs — full width */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg md:text-xl font-display font-semibold">Scheduled Jobs</h2>
-            {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status)).length > 12 && (
-              <a href="/jobs" className="text-xs text-print-400 hover:text-print-300 transition-colors">View all →</a>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status))
-              .slice(0, 12)
-              .map((job) => (
-                <JobQueueItem
-                  key={job.id}
-                  job={job}
-                  onStart={(id) => startJob.mutate(id)}
-                  onComplete={(id) => completeJob.mutate(id)}
-                  onCancel={(id) => cancelJob.mutate(id)}
+        <SectionErrorBoundary>
+          <div>
+            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Printers</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {printersData?.map((printer) => (
+                <PrinterCard
+                  key={printer.id}
+                  printer={printer}
+                  hasCamera={cameraIds.has(printer.id)}
+                  onCameraClick={setCameraTarget}
+                  activeJob={runningMqttJobs.find(j => j.printer_id === printer.id)}
+                  onClick={() => navigate('/printers')}
                 />
               ))}
+              {(!printersData || printersData.length === 0) && (
+                <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800">
+                  <EmptyState title="No printers configured." />
+                </div>
+              )}
+            </div>
           </div>
-          {(!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0) && (
-            <div className="bg-farm-900 rounded-lg border border-farm-800 p-6 text-center text-farm-500 text-sm">No scheduled jobs</div>
-          )}
-        </div>
+        </SectionErrorBoundary>
+
+        {/* Scheduled Jobs — full width */}
+        <SectionErrorBoundary>
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg md:text-xl font-display font-semibold">Scheduled Jobs</h2>
+              {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status)).length > 12 && (
+                <a href="/jobs" className="text-xs text-print-400 hover:text-print-300 transition-colors">View all →</a>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status))
+                .slice(0, 12)
+                .map((job) => (
+                  <JobQueueItem
+                    key={job.id}
+                    job={job}
+                    onStart={(id) => startJob.mutate(id)}
+                    onComplete={(id) => completeJob.mutate(id)}
+                    onCancel={(id) => cancelJob.mutate(id)}
+                  />
+                ))}
+            </div>
+            {(!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0) && (
+              <div className="bg-farm-900 rounded-lg border border-farm-800">
+                <EmptyState title="No scheduled jobs" />
+              </div>
+            )}
+          </div>
+        </SectionErrorBoundary>
 
         {/* Recent Prints — full width */}
-        <div>
-          <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Recent Prints</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {completedMqttJobs.slice(0, 12).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
+        <SectionErrorBoundary>
+          <div>
+            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Recent Prints</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {completedMqttJobs.slice(0, 12).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
+            </div>
+            {completedMqttJobs.length === 0 && (
+              <div className="bg-farm-900 rounded-lg border border-farm-800">
+                <EmptyState title="No print history yet" />
+              </div>
+            )}
           </div>
-          {completedMqttJobs.length === 0 && (
-            <div className="bg-farm-900 rounded-lg border border-farm-800 p-6 text-center text-farm-500 text-sm">No print history yet</div>
-          )}
-        </div>
+        </SectionErrorBoundary>
 
         {/* Maintenance */}
-        <MaintenanceWidget />
+        <SectionErrorBoundary>
+          <MaintenanceWidget />
+        </SectionErrorBoundary>
       </div>
 
       {cameraTarget && <CameraModal printer={cameraTarget} onClose={() => setCameraTarget(null)} />}

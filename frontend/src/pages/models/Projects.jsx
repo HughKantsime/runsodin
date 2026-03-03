@@ -4,6 +4,7 @@ import { projects } from '../../api'
 import { canDo } from '../../permissions'
 import { FolderKanban, Plus, X, Trash2, Archive, ChevronLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { formatDate } from '../../utils/shared'
 
 const STATUS_BADGES = {
   active: 'bg-green-600/20 text-green-400',
@@ -18,11 +19,6 @@ const DEFAULT_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316',
   '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
 ]
-
-function formatDate(d) {
-  if (!d) return '--'
-  return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 function CreateProjectModal({ onClose, onCreate }) {
   const [name, setName] = useState('')
@@ -306,7 +302,7 @@ export default function ProjectsPage() {
                   <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || '#6366f1' }} />
                   <span className="font-medium text-sm truncate">{project.name}</span>
                 </div>
-                <span className={`px-2 py-0.5 rounded text-[10px] flex-shrink-0 ml-2 ${STATUS_BADGES[project.status] || 'bg-farm-800 text-farm-400'}`}>
+                <span className={`px-2 py-0.5 rounded text-xs flex-shrink-0 ml-2 ${STATUS_BADGES[project.status] || 'bg-farm-800 text-farm-400'}`}>
                   {project.status}
                 </span>
               </div>

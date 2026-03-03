@@ -3,7 +3,8 @@ import { format } from 'date-fns'
 import clsx from 'clsx'
 import { resolveColor } from '../../utils/colorMap'
 import { canDo } from '../../permissions'
-import { formatHours } from './jobUtils'
+import { formatHours } from '../../utils/shared'
+import { Button, StatusBadge } from '../ui'
 
 function DueDateBadge({ dueDate }) {
   if (!dueDate) return null
@@ -31,16 +32,6 @@ function DueDateBadge({ dueDate }) {
 }
 
 export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching }) {
-  const statusColors = {
-    submitted: 'text-amber-400',
-    pending: 'text-status-pending',
-    scheduled: 'text-status-scheduled',
-    printing: 'text-status-printing',
-    completed: 'text-status-completed',
-    failed: 'text-status-failed',
-    rejected: 'text-red-400',
-  }
-
   return (
     <tr className={clsx(
           'border-b border-farm-800 hover:bg-farm-800/50 even:bg-farm-950/40',
@@ -56,10 +47,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         </div>
       </td>
       <td className="px-3 md:px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className={clsx('status-dot', job.status)} />
-          <span className={clsx('text-sm', statusColors[job.status])}>{job.status}</span>
-        </div>
+        <StatusBadge status={job.status} />
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{job.item_name}</div>
@@ -121,73 +109,48 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         <div className="flex items-center gap-1">
           {job.status === 'submitted' && canDo('jobs.approve') && (
             <>
-              <button onClick={() => onAction('approve', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" aria-label="Approve job">
-                <CheckCircle size={16} />
-              </button>
-              <button onClick={() => onAction('reject', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Reject job">
-                <XCircle size={16} />
-              </button>
+              <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('approve', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Approve job" />
+              <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('reject', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Reject job" />
             </>
           )}
           {job.status === 'rejected' && job.submitted_by && canDo('jobs.resubmit') && (
-            <button onClick={() => onAction('resubmit', job.id)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" aria-label="Resubmit job">
-              <RefreshCw size={14} />
-            </button>
+            <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('resubmit', job.id)} className="text-amber-400 hover:bg-amber-900/50" aria-label="Resubmit job" />
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
-            <button onClick={() => onAction('start', job.id)} className="p-1.5 text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Start print (manual)">
-              <Play size={16} />
-            </button>
+            <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-print-400 hover:bg-print-900/50" aria-label="Start print (manual)" />
           )}
           {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              icon={isDispatching ? Loader2 : Send}
+              loading={isDispatching}
               onClick={() => !isDispatching && onAction('dispatch', job.id, job.item_name, job.printer?.name)}
-              className={clsx(
-                'p-1.5 rounded-lg',
-                isDispatching
-                  ? 'text-emerald-500 cursor-not-allowed'
-                  : 'text-emerald-400 hover:bg-emerald-900/50'
-              )}
+              className={clsx(isDispatching ? 'text-emerald-500' : 'text-emerald-400 hover:bg-emerald-900/50')}
               title={isDispatching ? 'Dispatching...' : `Dispatch to ${job.printer?.name || 'printer'} — uploads file via FTP and starts print`}
               aria-label={isDispatching ? 'Dispatching...' : 'Dispatch to printer'}
               disabled={isDispatching}
-            >
-              {isDispatching ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            </button>
+            />
           )}
           {job.status === 'printing' && canDo('jobs.complete') && (
             <>
-              <button onClick={() => onAction('complete', job.id)} className="p-1.5 text-green-400 hover:bg-green-900/50 rounded-lg" aria-label="Mark job complete">
-                <CheckCircle size={16} />
-              </button>
-              <button onClick={() => onAction('markFailed', job.id, job.item_name)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Mark job failed">
-                <AlertTriangle size={16} />
-              </button>
+              <Button variant="ghost" size="icon" icon={CheckCircle} onClick={() => onAction('complete', job.id)} className="text-green-400 hover:bg-green-900/50" aria-label="Mark job complete" />
+              <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('markFailed', job.id, job.item_name)} className="text-red-400 hover:bg-red-900/50" aria-label="Mark job failed" />
             </>
           )}
           {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
-            <button onClick={() => onAction('edit', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Edit job">
-              <Pencil size={14} />
-            </button>
+            <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-farm-400 hover:text-print-400 hover:bg-print-900/50" aria-label="Edit job" />
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
-            <button onClick={() => onAction('cancel', job.id)} className="p-1.5 text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Cancel job">
-              <XCircle size={16} />
-            </button>
+            <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
           )}
           {job.status === 'failed' && (
-            <button onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="p-1.5 text-amber-400 hover:bg-amber-900/50 rounded-lg" aria-label={job.fail_reason ? 'Edit failure reason' : 'Add failure reason'}>
-              <AlertTriangle size={16} />
-            </button>
+            <Button variant="ghost" size="icon" icon={AlertTriangle} onClick={() => onAction('failReason', job.id, job.item_name, job.fail_reason, job.fail_notes)} className="text-amber-400 hover:bg-amber-900/50" aria-label={job.fail_reason ? 'Edit failure reason' : 'Add failure reason'} />
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <>
-              <button onClick={() => onAction('repeat', job.id)} className="p-1.5 text-farm-400 hover:text-print-400 hover:bg-print-900/50 rounded-lg" aria-label="Print again">
-                <RefreshCw size={14} />
-              </button>
-              <button onClick={() => onAction('delete', job.id)} className="p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg" aria-label="Delete job">
-                <Trash2 size={16} />
-              </button>
+              <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-farm-400 hover:text-print-400 hover:bg-print-900/50" aria-label="Print again" />
+              <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onAction('delete', job.id)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" aria-label="Delete job" />
             </>
           )}
         </div>

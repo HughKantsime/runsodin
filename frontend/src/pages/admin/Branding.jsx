@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Palette, Upload, RotateCcw, Eye, Save, Image, Type, Paintbrush, Monitor, PanelLeft } from "lucide-react"
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { Button, Input, Card, Select } from '../../components/ui'
 
 const API_BASE = '/api'
 
@@ -252,28 +253,23 @@ export default function Branding() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-farm-800 text-farm-300 hover:bg-farm-700 transition-colors text-sm"
-          >
-            <RotateCcw size={16} />
+          <Button variant="secondary" icon={RotateCcw} onClick={handleReset}>
             Reset
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={saved ? "success" : "primary"}
+            icon={Save}
+            loading={saving}
+            disabled={!hasChanges}
             onClick={handleSave}
-            disabled={saving || !hasChanges}
-            className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors"
             style={
-              saved
-                ? { backgroundColor: '#16a34a', color: '#fff' }
-                : hasChanges
+              !saved && hasChanges
                 ? { backgroundColor: 'var(--brand-primary)', color: '#fff' }
-                : { backgroundColor: 'var(--brand-input-bg)', color: 'var(--brand-text-muted)', cursor: 'not-allowed' }
+                : undefined
             }
           >
-            <Save size={16} />
-            {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
-          </button>
+            {saved ? "Saved!" : "Save Changes"}
+          </Button>
         </div>
       </div>
 
@@ -675,25 +671,22 @@ function applyLiveCSS(b) {
 
 function Section({ title, children }) {
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-6">
+    <Card padding="lg">
       <h2 className="text-lg font-semibold text-farm-100 mb-4">{title}</h2>
       {children}
-    </div>
+    </Card>
   )
 }
 
 function TextInput({ label, value, onChange, placeholder, type = "text" }) {
   return (
-    <div>
-      <label className="block text-sm text-farm-400 mb-2">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full bg-farm-800 border border-farm-700 rounded-lg px-4 py-2.5 text-farm-100 focus:outline-none focus:border-farm-500 transition-colors"
-        placeholder={placeholder}
-      />
-    </div>
+    <Input
+      label={label}
+      type={type}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
   )
 }
 
@@ -735,10 +728,10 @@ function FontSelector({ label, desc, value, options, onChange }) {
           <div className="text-xs text-farm-500">{desc}</div>
         </div>
       </div>
-      <select
+      <Select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full bg-farm-900 border border-farm-700 rounded-lg px-4 py-2.5 text-farm-100 focus:outline-none focus:border-farm-500 transition-colors appearance-none cursor-pointer"
+        className="bg-farm-900 cursor-pointer"
         style={{ fontFamily: value }}
       >
         {options.map(font => (
@@ -746,7 +739,7 @@ function FontSelector({ label, desc, value, options, onChange }) {
             {font.name}
           </option>
         ))}
-      </select>
+      </Select>
       <div className="mt-2 text-lg" style={{ fontFamily: value, color: "var(--brand-text-primary)" }}>
         Aa Bb Cc 0123456789
       </div>

@@ -79,19 +79,15 @@ export default function GlobalSearch() {
   const handleSelect = (type, id) => {
     setIsOpen(false)
     setQuery('')
-    switch (type) {
-      case 'model':
-        navigate('/models')
-        break
-      case 'job':
-        navigate('/jobs')
-        break
-      case 'spool':
-        navigate('/spools')
-        break
-      case 'printer':
-        navigate('/printers')
-        break
+    const routes = {
+      model: '/models',
+      job: '/jobs',
+      spool: '/spools',
+      printer: '/printers',
+    }
+    const path = routes[type]
+    if (path) {
+      navigate(id ? `${path}?highlight=${id}` : path)
     }
   }
 

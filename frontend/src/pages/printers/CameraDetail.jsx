@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Maximize2, Minimize2, VideoOff, Eye, RefreshCw, Camera } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { printers } from '../../api'
+import { isOnline } from '../../utils/shared'
 import { PrinterInfoPanel, FilamentSlotsPanel, ActiveJobPanel } from '../../components/printers/PrinterPanels'
 
 const API_BASE = '/api'
@@ -191,7 +192,7 @@ export default function CameraDetail() {
     )
   }
 
-  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < 90000
+  const online = isOnline(printer)
 
   return (
     <div className="p-4 md:p-6">

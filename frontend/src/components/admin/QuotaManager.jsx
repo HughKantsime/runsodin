@@ -111,12 +111,12 @@ export default function QuotaManager() {
                 </td>
                 <td className="py-2 px-2">
                   {u.usage && (u.quota_jobs || u.quota_grams || u.quota_hours) ? (
-                    <div className="space-y-0.5 text-[10px] text-farm-400">
+                    <div className="space-y-0.5 text-xs text-farm-400">
                       {u.quota_jobs > 0 && <div>{u.usage.jobs_used}/{u.quota_jobs} jobs ({pct(u.usage.jobs_used, u.quota_jobs)}%)</div>}
                       {u.quota_grams > 0 && <div>{u.usage.grams_used?.toFixed(0)}/{u.quota_grams}g</div>}
                       {u.quota_hours > 0 && <div>{u.usage.hours_used?.toFixed(1)}/{u.quota_hours}h</div>}
                     </div>
-                  ) : <span className="text-[10px] text-farm-500">No limit</span>}
+                  ) : <span className="text-xs text-farm-500">No limit</span>}
                 </td>
                 <td className="py-2 pl-2">
                   {edits[u.user_id] && (

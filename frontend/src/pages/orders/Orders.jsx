@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { orders, products, orderInvoice } from '../../api'
-import { ShoppingCart, Plus, RefreshCw, Search } from 'lucide-react'
+import { ShoppingCart, Plus, RefreshCw, Clock, TrendingUp, Package, Truck, DollarSign } from 'lucide-react'
 import { canDo } from '../../permissions'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { CreateOrderModal, OrderDetailModal, ShippingModal, EditOrderModal } from '../../components/orders/OrderModals'
 import OrderTable from '../../components/orders/OrderTable'
+import { PageHeader, Button, SearchInput, StatCard, EmptyState } from '../../components/ui'
 
 const STATUS_CLASSES = {
   pending: 'bg-status-pending/20 text-status-pending',
@@ -18,23 +19,15 @@ const STATUS_CLASSES = {
 
 const EMPTY_ORDER_FORM = { order_number: '', platform: 'etsy', customer_name: '', customer_email: '', revenue: '', platform_fees: '', payment_fees: '', shipping_charged: '', shipping_cost: '', notes: '' }
 
-function OrderStats({ orders }) {
-  if (!orders.length) return null
-  const stats = [
-    { label: 'Pending', count: orders.filter(o => o.status === 'pending').length, color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
-    { label: 'In Progress', count: orders.filter(o => o.status === 'in_progress').length, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-    { label: 'Fulfilled', count: orders.filter(o => o.status === 'fulfilled').length, color: 'text-green-400', bg: 'bg-green-400/10' },
-    { label: 'Shipped', count: orders.filter(o => o.status === 'shipped').length, color: 'text-purple-400', bg: 'bg-purple-400/10' },
-    { label: 'Revenue', count: '$' + orders.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0), color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
-  ]
+function OrderStatsBar({ orders: ordersList }) {
+  if (!ordersList.length) return null
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-6">
-      {stats.map(({ label, count, color, bg }) => (
-        <div key={label} className={`${bg} rounded-lg p-3 text-center border border-farm-800`}>
-          <div className={`text-lg md:text-xl font-bold tabular-nums ${color}`}>{count}</div>
-          <div className="text-xs text-farm-500 uppercase tracking-wide">{label}</div>
-        </div>
-      ))}
+      <StatCard label="Pending" value={ordersList.filter(o => o.status === 'pending').length} icon={Clock} color="amber" />
+      <StatCard label="In Progress" value={ordersList.filter(o => o.status === 'in_progress').length} icon={TrendingUp} color="blue" />
+      <StatCard label="Fulfilled" value={ordersList.filter(o => o.status === 'fulfilled').length} icon={Package} color="green" />
+      <StatCard label="Shipped" value={ordersList.filter(o => o.status === 'shipped').length} icon={Truck} color="purple" />
+      <StatCard label="Revenue" value={'$' + ordersList.reduce((s, o) => s + (o.revenue || 0), 0).toFixed(0)} icon={DollarSign} color="green" />
     </div>
   )
 }
@@ -217,57 +210,50 @@ export default function Orders() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <ShoppingCart className="text-print-400" size={24} />
-          <h1 className="text-xl md:text-2xl font-display font-bold">Orders</h1>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 w-full sm:w-auto">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm"
-          >
-            <option value="">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="in_progress">In Progress</option>
-            <option value="partial">Partial</option>
-            <option value="fulfilled">Fulfilled</option>
-            <option value="shipped">Shipped</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          {canDo('orders.create') && (
-            <button
-              onClick={openCreateModal}
-              className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
-            >
-              <Plus size={16} /> New Order
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader icon={ShoppingCart} title="Orders">
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm"
+        >
+          <option value="">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="partial">Partial</option>
+          <option value="fulfilled">Fulfilled</option>
+          <option value="shipped">Shipped</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        {canDo('orders.create') && (
+          <Button variant="primary" icon={Plus} onClick={openCreateModal}>
+            New Order
+          </Button>
+        )}
+      </PageHeader>
 
       {/* Search */}
       <div className="mb-4">
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by order number or customer..."
-            className="w-full bg-farm-950 border border-farm-700 rounded-lg pl-9 pr-3 py-2 text-sm text-farm-100 placeholder-farm-500"
-          />
-        </div>
+        <SearchInput
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by order number or customer..."
+        />
       </div>
 
-      <OrderStats orders={allOrders} />
+      <OrderStatsBar orders={allOrders} />
 
       {filteredOrders.length === 0 ? (
-        <div className="text-center py-12 text-farm-500">
-          <ShoppingCart className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>No orders yet. Create your first order to start tracking.</p>
-        </div>
+        <EmptyState
+          icon={ShoppingCart}
+          title="No orders yet"
+          description="Create your first order to start tracking."
+        >
+          {canDo('orders.create') && (
+            <Button variant="primary" icon={Plus} onClick={openCreateModal}>
+              New Order
+            </Button>
+          )}
+        </EmptyState>
       ) : (
         <OrderTable
           orders={filteredOrders}

@@ -1,7 +1,7 @@
 import QRScannerModal from '../../components/inventory/QRScannerModal';
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, ArrowUpDown, Filter, Printer as PrinterIcon } from 'lucide-react'
+import { Plus, Filter, Printer as PrinterIcon } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
@@ -14,6 +14,8 @@ import { useOrg } from '../../contexts/OrgContext'
 import CameraModal from '../../components/printers/CameraModal'
 import PrinterCard from '../../components/printers/PrinterCard'
 import PrinterModal from '../../components/printers/PrinterModal'
+import { isOnline } from '../../utils/shared'
+import { PageHeader, Button, SearchInput, EmptyState } from '../../components/ui'
 
 export default function Printers() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
@@ -119,7 +121,7 @@ export default function Printers() {
     }
     if (statusFilter !== 'all') {
       list = list.filter(p => {
-        const online = p.last_seen && (Date.now() - new Date(p.last_seen + 'Z').getTime()) < 90000
+        const online = isOnline(p)
         const stage = p.print_stage && p.print_stage !== 'Idle' ? p.print_stage : null
         switch (statusFilter) {
           case 'online': return online
@@ -142,8 +144,8 @@ export default function Printers() {
           case 'name_asc': return (a.nickname || a.name || '').localeCompare(b.nickname || b.name || '')
           case 'name_desc': return (b.nickname || b.name || '').localeCompare(a.nickname || a.name || '')
           case 'status': {
-            const aOn = a.last_seen && (Date.now() - new Date(a.last_seen + 'Z').getTime()) < 90000 ? 0 : 1
-            const bOn = b.last_seen && (Date.now() - new Date(b.last_seen + 'Z').getTime()) < 90000 ? 0 : 1
+            const aOn = isOnline(a) ? 0 : 1
+            const bOn = isOnline(b) ? 0 : 1
             return aOn - bOn
           }
           case 'model': return (a.model || '').localeCompare(b.model || '')
@@ -205,36 +207,25 @@ export default function Printers() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div className="flex items-center gap-3">
-          <PrinterIcon className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Printers</h1>
-            <p className="text-farm-500 text-sm mt-1">Manage your print farm</p>
-          </div>
-        </div>
+      <PageHeader icon={PrinterIcon} title="Printers" subtitle="Manage your print farm">
         {canDo('printers.add') && (atLimit
-          ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 px-4 py-2 bg-farm-700 text-farm-400 hover:text-farm-300 rounded-lg text-sm self-start transition-colors" title={`Printer limit reached (${lic.max_printers || 5}). Upgrade to Pro for unlimited.`}>
-              <Plus size={16} /> Add Printer (limit: {lic.max_printers || 5})
-            </button>
-          : <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm self-start">
-              <Plus size={16} /> Add Printer
-            </button>
+          ? <Button variant="secondary" icon={Plus} onClick={() => setShowUpgradeModal(true)} title={`Printer limit reached (${lic.max_printers || 5}). Upgrade to Pro for unlimited.`}>
+              Add Printer (limit: {lic.max_printers || 5})
+            </Button>
+          : <Button variant="primary" icon={Plus} onClick={() => setShowModal(true)}>
+              Add Printer
+            </Button>
         )}
-      </div>
+      </PageHeader>
       {/* Filter Toolbar */}
       {printersData?.length > 0 && (
         <div className="bg-farm-900 border border-farm-800 rounded-lg p-3 mb-4 md:mb-6 flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-farm-500" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search printers..."
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg pl-8 pr-3 py-1.5 text-sm"
-            />
-          </div>
+          <SearchInput
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search printers..."
+            className="flex-1 min-w-[180px] max-w-xs"
+          />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
             <option value="all">All Status</option>
             <option value="online">Online</option>
@@ -285,18 +276,23 @@ export default function Printers() {
       {isLoading ? (
         <div className="text-center py-12 text-farm-500 text-sm">Loading printers...</div>
       ) : printersData?.length === 0 ? (
-        <div className="bg-farm-900 rounded-lg border border-farm-800 p-8 md:p-12 text-center">
-          <p className="text-farm-500 mb-4">No printers configured yet.</p>
-          {canDo('printers.add') && !atLimit && <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">Add Your First Printer</button>}
+        <div className="bg-farm-900 rounded-lg border border-farm-800">
+          <EmptyState icon={PrinterIcon} title="No printers configured yet." description="Add your first printer to get started.">
+            {canDo('printers.add') && !atLimit && (
+              <Button variant="primary" icon={Plus} onClick={() => setShowModal(true)}>
+                Add Your First Printer
+              </Button>
+            )}
+          </EmptyState>
         </div>
       ) : (
         <>
         {selectedPrinters.size > 0 && canDo('printers.edit') && (
           <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
             <span className="text-sm text-farm-300">{selectedPrinters.size} selected</span>
-            <button onClick={() => bulkPrinterAction.mutate({ action: 'enable' })} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs">Enable</button>
-            <button onClick={() => bulkPrinterAction.mutate({ action: 'disable' })} className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs">Disable</button>
-            <button onClick={() => setSelectedPrinters(new Set())} className="px-3 py-1 bg-farm-700 hover:bg-farm-600 rounded text-xs">Clear</button>
+            <Button variant="success" size="sm" onClick={() => bulkPrinterAction.mutate({ action: 'enable' })}>Enable</Button>
+            <Button variant="warning" size="sm" onClick={() => bulkPrinterAction.mutate({ action: 'disable' })}>Disable</Button>
+            <Button variant="tertiary" size="sm" onClick={() => setSelectedPrinters(new Set())}>Clear</Button>
           </div>
         )}
         {canDo('printers.edit') && filteredPrinters.length > 0 && (
@@ -345,8 +341,8 @@ export default function Printers() {
             </div>
           ))}
           {filteredPrinters.length === 0 && orderedPrinters.length > 0 && (
-            <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800 p-8 text-center">
-              <p className="text-farm-500 text-sm">No printers match your filters.</p>
+            <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800">
+              <EmptyState icon={Filter} title="No printers match your filters." />
             </div>
           )}
         </div>

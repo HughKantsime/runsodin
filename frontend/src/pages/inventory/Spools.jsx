@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Package, Beaker, AlertTriangle, Search } from 'lucide-react'
-import clsx from 'clsx'
+import { Plus, Package, Beaker, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
 import { bulkOps, spools as spoolsApi, filaments as filamentApi, printers as printersApi } from '../../api'
+import { PageHeader, StatCard, SearchInput, TabBar, Button, EmptyState } from '../../components/ui'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import FilamentLibraryView from '../../components/inventory/FilamentLibraryView'
 import SpoolGrid from '../../components/inventory/SpoolGrid'
@@ -15,16 +16,46 @@ import { EditSpoolModal } from '../../components/inventory/SpoolEditModals'
 export default function Spools() {
   const org = useOrg()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [view, setView] = useState('spools') // 'spools' | 'library'
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [loadingSpool, setLoadingSpool] = useState(null)
   const [usingSpool, setUsingSpool] = useState(null)
   const [editingSpool, setEditingSpool] = useState(null)
   const [dryingSpool, setDryingSpool] = useState(null)
-  const [filter, setFilter] = useState('active')
-  const [sortBy, setSortBy] = useState("printer")
+  const [filter, _setFilter] = useState(() => searchParams.get('status') || 'active')
+  const [sortBy, _setSortBy] = useState(() => searchParams.get('sort') || 'printer')
   const [groupByPrinter, setGroupByPrinter] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
+
+  const updateSearchParams = useCallback((updates) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value && value !== '' && !(key === 'status' && value === 'active') && !(key === 'sort' && value === 'printer')) {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const setFilter = useCallback((value) => {
+    _setFilter(value)
+    updateSearchParams({ status: value })
+  }, [updateSearchParams])
+
+  const setSortBy = useCallback((value) => {
+    _setSortBy(value)
+    updateSearchParams({ sort: value })
+  }, [updateSearchParams])
+
+  const setSearchQuery = useCallback((value) => {
+    _setSearchQuery(value)
+    updateSearchParams({ q: value })
+  }, [updateSearchParams])
 
   const { data: spools, isLoading } = useQuery({
     queryKey: ['spools', filter, org.orgId],
@@ -143,48 +174,22 @@ export default function Spools() {
   return (
     <div className="p-4 md:p-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-3">
-        <div className="flex items-center gap-3">
-          <Package className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Spools</h1>
-            <p className="text-farm-500 text-sm mt-1">Track your filament inventory</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex bg-farm-800 rounded-lg p-0.5">
-            <button
-              onClick={() => setView('spools')}
-              className={clsx(
-                "px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition-colors",
-                view === 'spools' ? "bg-print-600 text-white" : "text-farm-400 hover:text-farm-200"
-              )}
-            >
-              Spools
-            </button>
-            <button
-              onClick={() => setView('library')}
-              className={clsx(
-                "px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition-colors flex items-center gap-1.5",
-                view === 'library' ? "bg-print-600 text-white" : "text-farm-400 hover:text-farm-200"
-              )}
-            >
-              <Beaker size={14} />
-              Filament Library
-            </button>
-          </div>
-          {view === 'spools' && canDo('spools.edit') && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white text-sm"
-            >
-              <Plus size={18} />
-              Add Spool
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader icon={Package} title="Spools" subtitle="Track your filament inventory">
+        <TabBar
+          variant="segment"
+          tabs={[
+            { value: 'spools', label: 'Spools' },
+            { value: 'library', label: 'Filament Library', icon: Beaker },
+          ]}
+          active={view}
+          onChange={setView}
+        />
+        {view === 'spools' && canDo('spools.edit') && (
+          <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
+            Add Spool
+          </Button>
+        )}
+      </PageHeader>
 
       {/* Filament Library View */}
       {view === 'library' && <FilamentLibraryView />}
@@ -194,24 +199,13 @@ export default function Spools() {
         <>
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
-            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-              <div className="text-xl md:text-2xl font-bold text-farm-100">{activeSpools.length}</div>
-              <div className="text-xs md:text-sm text-farm-400">Active Spools</div>
-            </div>
-            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-              <div className="text-xl md:text-2xl font-bold text-print-400">{loadedSpools.length}</div>
-              <div className="text-xs md:text-sm text-farm-400">Loaded</div>
-            </div>
-            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-              <div className="text-xl md:text-2xl font-bold text-yellow-400">{lowSpools.length}</div>
-              <div className="text-xs md:text-sm text-farm-400">Low (&lt;20%)</div>
-            </div>
-            <div className="bg-farm-900 rounded-lg p-3 md:p-4 border border-farm-800">
-              <div className="text-xl md:text-2xl font-bold text-farm-100">
-                {activeSpools.reduce((sum, s) => sum + (s.remaining_weight_g || 0), 0).toFixed(0)}g
-              </div>
-              <div className="text-xs md:text-sm text-farm-400">Total Filament</div>
-            </div>
+            <StatCard label="Active Spools" value={activeSpools.length} icon={Package} />
+            <StatCard label="Loaded" value={loadedSpools.length} color="blue" />
+            <StatCard label="Low (<20%)" value={lowSpools.length} color="amber" />
+            <StatCard
+              label="Total Filament"
+              value={`${activeSpools.reduce((sum, s) => sum + (s.remaining_weight_g || 0), 0).toFixed(0)}g`}
+            />
           </div>
 
           {/* Low warning */}
@@ -229,36 +223,25 @@ export default function Spools() {
 
           {/* Search */}
           <div className="mb-4 md:mb-6">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by brand, name, or material..."
-                className="w-full bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-3 py-2 text-sm text-farm-100 placeholder-farm-500"
-              />
-            </div>
+            <SearchInput
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by brand, name, or material..."
+            />
           </div>
 
           {/* Filter tabs + Sort controls */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4 md:mb-6">
-            <div className="flex gap-1.5 md:gap-2 justify-evenly">
-              {['active', 'empty', 'archived', 'all'].map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={clsx(
-                    "px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-colors",
-                    filter === f
-                      ? "bg-print-600 text-white"
-                      : "bg-farm-800 text-farm-400 hover:bg-farm-700"
-                  )}
-                >
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
-                </button>
-              ))}
-            </div>
+            <TabBar
+              tabs={[
+                { value: 'active', label: 'Active' },
+                { value: 'empty', label: 'Empty' },
+                { value: 'archived', label: 'Archived' },
+                { value: 'all', label: 'All' },
+              ]}
+              active={filter}
+              onChange={setFilter}
+            />
 
             <div className="flex gap-3 items-center sm:ml-auto">
               <span className="text-xs md:text-sm text-farm-400">Sort:</span>
@@ -288,10 +271,10 @@ export default function Spools() {
           {selectedSpools.size > 0 && canDo('spools.edit') && (
             <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
               <span className="text-sm text-farm-300">{selectedSpools.size} selected</span>
-              <button onClick={() => bulkSpoolAction.mutate({ action: 'archive' })} className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs">Archive</button>
-              <button onClick={() => bulkSpoolAction.mutate({ action: 'activate' })} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs">Activate</button>
-              <button onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })} className="px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-xs">Delete</button>
-              <button onClick={() => setSelectedSpools(new Set())} className="px-3 py-1 bg-farm-700 hover:bg-farm-600 rounded text-xs">Clear</button>
+              <Button variant="warning" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'archive' })}>Archive</Button>
+              <Button variant="success" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'activate' })}>Activate</Button>
+              <Button variant="danger" size="sm" onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })}>Delete</Button>
+              <Button variant="secondary" size="sm" onClick={() => setSelectedSpools(new Set())}>Clear</Button>
             </div>
           )}
           {canDo('spools.edit') && spools?.length > 0 && (
@@ -304,7 +287,17 @@ export default function Spools() {
           )}
 
           {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
-          {!isLoading && spools?.length === 0 && <div className="text-center text-farm-400 py-12 text-sm md:text-base">No spools found. Add your first spool to get started!</div>}
+          {!isLoading && spools?.length === 0 && (
+            <EmptyState
+              icon={Package}
+              title="No spools found"
+              description="Add your first spool to get started!"
+            >
+              {canDo('spools.edit') && (
+                <Button icon={Plus} onClick={() => setShowCreateModal(true)}>Add Spool</Button>
+              )}
+            </EmptyState>
+          )}
           {!isLoading && spools?.length > 0 && (
             <SpoolGrid
               spools={spools}

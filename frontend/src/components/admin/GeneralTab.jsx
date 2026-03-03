@@ -5,6 +5,7 @@ import { config as configApi, pricingConfig, fetchAPI, users as usersApi } from 
 import { useLicense } from '../../LicenseContext'
 import { getApprovalSetting, setApprovalSetting } from '../../api'
 import { getEducationMode, setEducationMode } from '../../api'
+import { Button, Input } from '../ui'
 
 function ApprovalToggle() {
   const queryClient = useQueryClient()
@@ -53,8 +54,6 @@ function EducationModeToggle() {
     mutationFn: (enabled) => setEducationMode(enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["education-mode"] })
-      // Notify sidebar to refresh
-      window.dispatchEvent(new CustomEvent('education-mode-changed'))
     },
   })
 
@@ -129,21 +128,22 @@ function NetworkSection() {
         <div>
           <label className="block text-sm font-medium text-farm-300 mb-1.5">Host IP Address</label>
           <div className="flex gap-2">
-            <input
+            <Input
               type="text"
               value={hostIp}
               onChange={e => { setHostIp(e.target.value); setSaved(false) }}
               placeholder="e.g. 192.168.1.100"
-              className="flex-1 px-3 py-2 rounded-lg bg-farm-800 border border-farm-700 text-farm-100 placeholder-farm-600 focus:outline-none focus:ring-2 focus:ring-print-500/50 focus:border-print-500/50"
+              className="flex-1"
             />
-            <button
+            <Button
+              variant="primary"
+              icon={Save}
+              loading={saving}
+              disabled={!hostIp}
               onClick={handleSave}
-              disabled={!hostIp || saving}
-              className="px-4 py-2 rounded-lg bg-print-600 hover:bg-print-500 text-white font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
               {saved ? 'Saved!' : 'Save'}
-            </button>
+            </Button>
           </div>
           {detectedIp && <p className="text-xs text-farm-600 mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
         </div>
@@ -196,7 +196,7 @@ export default function GeneralTab() {
     try {
       const current = await pricingConfig.get()
       await pricingConfig.update({ ...current, ui_mode: mode })
-      window.dispatchEvent(new CustomEvent('ui-mode-changed', { detail: mode }))
+      queryClient.invalidateQueries({ queryKey: ['pricing-config'] })
     } catch (e) { console.error('Failed to save UI mode:', e) }
   }
 
@@ -279,23 +279,24 @@ export default function GeneralTab() {
         </p>
         <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
           <div className="flex-1">
-            <label className="block text-sm text-farm-400 mb-1">Spoolman URL</label>
-            <input
+            <Input
+              label="Spoolman URL"
               type="text"
               value={settings.spoolman_url}
               onChange={(e) => setSettings(s => ({ ...s, spoolman_url: e.target.value }))}
               placeholder="http://192.168.1.100:7912"
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div className="flex items-end">
-            <button
+            <Button
+              variant="tertiary"
+              icon={Plug}
               onClick={() => testSpoolman.mutate()}
               disabled={!settings.spoolman_url}
-              className="flex items-center gap-2 px-4 py-2 bg-farm-700 hover:bg-farm-600 disabled:opacity-50 rounded-lg text-sm w-full sm:w-auto justify-center"
+              className="w-full sm:w-auto"
             >
-              <Plug size={16} /> Test Connection
-            </button>
+              Test Connection
+            </Button>
           </div>
         </div>
         {testSpoolman.isSuccess && (
@@ -315,14 +316,18 @@ export default function GeneralTab() {
           Configure when the scheduler should avoid scheduling prints (e.g., overnight quiet hours).
         </p>
         <div className="grid grid-cols-2 gap-3 md:gap-4 max-w-md">
-          <div>
-            <label className="block text-sm text-farm-400 mb-1">Blackout Start</label>
-            <input type="time" value={settings.blackout_start} onChange={(e) => setSettings(s => ({ ...s, blackout_start: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm text-farm-400 mb-1">Blackout End</label>
-            <input type="time" value={settings.blackout_end} onChange={(e) => setSettings(s => ({ ...s, blackout_end: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
-          </div>
+          <Input
+            label="Blackout Start"
+            type="time"
+            value={settings.blackout_start}
+            onChange={(e) => setSettings(s => ({ ...s, blackout_start: e.target.value }))}
+          />
+          <Input
+            label="Blackout End"
+            type="time"
+            value={settings.blackout_end}
+            onChange={(e) => setSettings(s => ({ ...s, blackout_end: e.target.value }))}
+          />
         </div>
         <p className="text-xs text-farm-500 mt-2">
           Jobs will not be scheduled to start during blackout hours (currently {settings.blackout_start} - {settings.blackout_end})
@@ -395,10 +400,9 @@ export default function GeneralTab() {
 
       {/* Save Button - General */}
       <div className="flex items-center gap-4">
-        <button onClick={handleSave} disabled={saveSettings.isPending} className="flex items-center gap-2 px-5 md:px-6 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 rounded-lg font-medium text-sm">
-          {saveSettings.isPending ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+        <Button variant="primary" icon={Save} loading={saveSettings.isPending} onClick={handleSave}>
           Save Scheduling Settings
-        </button>
+        </Button>
         {saved && (
           <span className="flex items-center gap-1 text-green-400 text-sm">
             <CheckCircle size={14} /> Settings saved!

@@ -10,45 +10,9 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import EnergyWidget from '../../components/reporting/EnergyWidget'
+import { PageHeader, StatCard, ProgressBar as SharedProgressBar, Button } from '../../components/ui'
 
 const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316']
-
-function HeroStat({ title, value, subtitle, icon: Icon, color }) {
-  const colorMap = {
-    green: 'bg-green-900/30 text-green-400 border-green-700/30',
-    yellow: 'bg-amber-900/30 text-amber-400 border-amber-700/30',
-    blue: 'bg-blue-900/30 text-blue-400 border-blue-700/30',
-    purple: 'bg-purple-900/30 text-purple-400 border-purple-700/30',
-    red: 'bg-red-900/30 text-red-400 border-red-700/30',
-    orange: 'bg-orange-900/30 text-orange-400 border-orange-700/30',
-    cyan: 'bg-cyan-900/30 text-cyan-400 border-cyan-700/30',
-    default: 'bg-farm-900 text-farm-100 border-farm-800',
-  }
-  const textColorMap = {
-    green: 'text-green-400', yellow: 'text-amber-400', blue: 'text-blue-400',
-    purple: 'text-purple-400', red: 'text-red-400', orange: 'text-orange-400',
-    cyan: 'text-cyan-400', default: 'text-farm-100',
-  }
-  const classes = colorMap[color] || colorMap.default
-  const textColor = textColorMap[color] || textColorMap.default
-
-  return (
-    <div className={`rounded-lg p-3 md:p-4 border ${classes}`}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-farm-400 mb-1">{title}</p>
-          <p className={`text-xl md:text-2xl font-bold font-display ${textColor}`}>{value}</p>
-          {subtitle && <p className="text-xs text-farm-500 mt-1">{subtitle}</p>}
-        </div>
-        {Icon && (
-          <div className="p-1.5 bg-farm-800/50 rounded-lg">
-            <Icon size={20} className={textColor} />
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 function JobsOverTimeChart({ data }) {
   if (!data || Object.keys(data).length === 0) {
@@ -111,7 +75,7 @@ function PrinterUtilization({ data }) {
       <div className="space-y-4">
         {sorted.map((printer) => {
           const pct = printer.utilization_pct || 0
-          const barColor = pct >= 70 ? '#22C55E' : pct >= 40 ? '#EAB308' : pct > 0 ? '#F97316' : '#374151'
+          const barColor = pct >= 70 ? 'green' : pct >= 40 ? 'yellow' : 'red'
           const successColor = printer.success_rate >= 95 ? 'text-green-400' : printer.success_rate >= 80 ? 'text-yellow-400' : 'text-red-400'
           return (
             <div key={printer.id}>
@@ -122,14 +86,9 @@ function PrinterUtilization({ data }) {
                     {printer.success_rate || 100}%
                   </span>
                 </div>
-                <span className="text-sm font-bold tabular-nums" style={{ color: barColor }}>{pct}%</span>
+                <span className="text-sm font-bold tabular-nums">{pct}%</span>
               </div>
-              <div className="w-full bg-farm-800/50 rounded-full h-2.5">
-                <div
-                  className="h-2.5 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
-                />
-              </div>
+              <SharedProgressBar value={pct} color={barColor} size="md" />
               <div className="flex gap-3 mt-1.5 text-xs text-farm-500">
                 <span>{printer.completed_jobs} jobs</span>
                 <span>{printer.total_hours}h total</span>
@@ -315,8 +274,8 @@ function TopFailureReasons({ data }) {
           return (
             <div key={i} className="flex items-center gap-3">
               <span className="text-sm text-farm-400 w-32 truncate capitalize">{r.reason.replace(/_/g, ' ')}</span>
-              <div className="flex-1 h-5 bg-farm-800 rounded-full overflow-hidden">
-                <div className="h-full bg-red-500/60 rounded-full" style={{ width: `${(r.count / maxCount) * 100}%` }} />
+              <div className="flex-1">
+                <SharedProgressBar value={(r.count / maxCount) * 100} color="red" size="md" />
               </div>
               <span className="text-sm text-farm-500 w-8 text-right">{r.count}</span>
             </div>
@@ -424,52 +383,43 @@ export default function Analytics() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <BarChart3 className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Analytics</h1>
-            <p className="text-sm text-farm-500">Revenue, profitability, and fleet performance</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={days}
-            onChange={e => setDays(Number(e.target.value))}
-            className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm text-farm-300"
-          >
-            {DATE_RANGES.map(r => (
-              <option key={r.value} value={r.value}>Last {r.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <PageHeader icon={BarChart3} title="Analytics" subtitle="Revenue, profitability, and fleet performance">
+        <select
+          value={days}
+          onChange={e => setDays(Number(e.target.value))}
+          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm text-farm-300"
+        >
+          {DATE_RANGES.map(r => (
+            <option key={r.value} value={r.value}>Last {r.label}</option>
+          ))}
+        </select>
+      </PageHeader>
 
       {/* Hero Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <HeroStat
-          title="Revenue"
+        <StatCard
+          label="Revenue"
           value={`$${summary.total_revenue.toFixed(2)}`}
           subtitle={`${summary.completed_jobs} completed jobs`}
           icon={DollarSign}
           color="green"
         />
-        <HeroStat
-          title="Pipeline"
+        <StatCard
+          label="Pipeline"
           value={`$${summary.projected_revenue.toFixed(2)}`}
           subtitle={`${summary.pending_jobs} pending jobs`}
           icon={Target}
-          color="yellow"
+          color="amber"
         />
-        <HeroStat
-          title="Avg $/Hour"
+        <StatCard
+          label="Avg $/Hour"
           value={`$${summary.avg_value_per_hour.toFixed(2)}`}
           subtitle="across all models"
           icon={TrendingUp}
           color="blue"
         />
-        <HeroStat
-          title="Print Hours"
+        <StatCard
+          label="Print Hours"
           value={summary.total_print_hours}
           subtitle={`${summary.total_models} models`}
           icon={Clock}
@@ -480,33 +430,33 @@ export default function Analytics() {
       {/* Margin Stats (only show if we have cost data) */}
       {(summary.total_cost > 0 || summary.total_margin > 0) && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <HeroStat
-            title="Total Cost"
+          <StatCard
+            label="Total Cost"
             value={`$${(summary.total_cost || 0).toFixed(2)}`}
             subtitle="materials + overhead"
             icon={DollarSign}
             color="red"
           />
-          <HeroStat
-            title="Net Margin"
+          <StatCard
+            label="Net Margin"
             value={`$${(summary.total_margin || 0).toFixed(2)}`}
             subtitle={`${(summary.margin_percent || 0).toFixed(1)}% margin`}
             icon={TrendingUp}
             color="green"
           />
-          <HeroStat
-            title="Projected Cost"
+          <StatCard
+            label="Projected Cost"
             value={`$${(summary.projected_cost || 0).toFixed(2)}`}
             subtitle="pending pipeline"
             icon={Target}
-            color="orange"
+            color="red"
           />
-          <HeroStat
-            title="Cost Tracked"
+          <StatCard
+            label="Cost Tracked"
             value={`${summary.jobs_with_cost_data || 0}/${summary.completed_jobs}`}
             subtitle="jobs with cost data"
             icon={Activity}
-            color="cyan"
+            color="blue"
           />
         </div>
       )}

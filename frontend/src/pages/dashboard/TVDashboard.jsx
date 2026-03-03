@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { VideoOff, X, AlertTriangle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'
 import { printers as printersApi, alerts as alertsApi } from '../../api'
-import { ONLINE_THRESHOLD_MS } from '../../utils/shared'
+import { isOnline } from '../../utils/shared'
 
 const API_BASE = '/api'
 const CARDS_PER_PAGE = 12
@@ -67,7 +67,7 @@ function TVCameraStream({ cameraId }) {
 }
 
 function TVPrinterCard({ printer }) {
-  const online = printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < ONLINE_THRESHOLD_MS
+  const online = isOnline(printer)
   const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
   const hasError = printer.hms_errors && printer.hms_errors.length > 0
   const hasCamera = printer.camera_url && printer.camera_enabled !== false

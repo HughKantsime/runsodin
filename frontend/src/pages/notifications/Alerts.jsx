@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Bell, Check, X, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { alerts as alertsApi, approveJob, rejectJob } from '../../api'
+import { formatDate } from '../../utils/shared'
+import { PageHeader, Button, EmptyState } from '../../components/ui'
 
 const SEVERITY_STYLES = {
   critical: { bg: 'border-l-red-500', icon: '\u{1F534}', label: 'Critical' },
@@ -18,14 +20,6 @@ const TABS = [
   { key: 'info', label: 'Info' },
 ]
 
-function formatDate(dateStr) {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  })
-}
-
 export default function Alerts() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [alerts, setAlerts] = useState([])
@@ -33,10 +27,24 @@ export default function Alerts() {
   const [rejectReason, setRejectReason] = useState('')
   const [actionLoading, setActionLoading] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState(searchParams.get('filter') || 'all')
+  const [activeTab, _setActiveTab] = useState(() => searchParams.get('filter') || 'all')
   const [hasMore, setHasMore] = useState(false)
   const [offset, setOffset] = useState(0)
   const LIMIT = 25
+
+  const updateSearchParams = useCallback((updates) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value && value !== '' && !(key === 'filter' && value === 'all')) {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const loadAlerts = async (reset = false) => {
     try {
@@ -70,10 +78,10 @@ export default function Alerts() {
     loadAlerts(true)
   }, [activeTab])
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab)
-    setSearchParams(tab === 'all' ? {} : { filter: tab })
-  }
+  const handleTabChange = useCallback((tab) => {
+    _setActiveTab(tab)
+    updateSearchParams({ filter: tab })
+  }, [updateSearchParams])
 
   const handleMarkRead = async (alertId) => {
     try {
@@ -144,26 +152,17 @@ export default function Alerts() {
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Bell className="text-print-400" size={24} />
-          <h1 className="text-xl md:text-2xl font-display font-bold">Alerts</h1>
-          {unreadCount > 0 && (
-            <span className="bg-red-500/20 text-red-400 text-xs font-medium px-2 py-0.5 rounded-full">
-              {unreadCount} unread
-            </span>
-          )}
-        </div>
+      <PageHeader
+        icon={Bell}
+        title="Alerts"
+        subtitle={unreadCount > 0 ? `${unreadCount} unread` : undefined}
+      >
         {unreadCount > 0 && (
-          <button
-            onClick={handleMarkAllRead}
-            className="px-3 py-1.5 text-xs rounded-lg transition-colors"
-            style={{ backgroundColor: 'var(--brand-accent)', color: 'white' }}
-          >
+          <Button size="sm" onClick={handleMarkAllRead}>
             Mark all read
-          </button>
+          </Button>
         )}
-      </div>
+      </PageHeader>
 
       <div className="flex gap-1 mb-6 p-1 rounded-lg" style={{ backgroundColor: 'var(--brand-sidebar-bg)' }}>
         {TABS.map(tab => (
@@ -185,14 +184,10 @@ export default function Alerts() {
         {loading && alerts.length === 0 ? (
           <div className="text-center py-12" style={{ color: 'var(--brand-text-muted)' }}>Loading alerts...</div>
         ) : alerts.length === 0 ? (
-          <div className="text-center py-12 rounded-lg border" style={{
-            backgroundColor: 'var(--brand-card-bg)',
-            borderColor: 'var(--brand-sidebar-border)',
-            color: 'var(--brand-text-muted)',
-          }}>
-            <Bell size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No alerts to show</p>
-          </div>
+          <EmptyState
+            icon={Bell}
+            title="No alerts to show"
+          />
         ) : (
           alerts.map(alert => {
             const sev = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.info
@@ -299,19 +294,21 @@ export default function Alerts() {
                           autoFocus
                           onKeyDown={(e) => e.key === 'Enter' && rejectReason.trim() && handleRejectFromAlert(alert)}
                         />
-                        <button
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => handleRejectFromAlert(alert)}
                           disabled={!rejectReason.trim() || actionLoading === alert.id}
-                          className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:bg-farm-700 disabled:text-farm-500 rounded-lg text-sm text-white transition-colors"
                         >
                           Reject
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
                           onClick={() => { setRejectingAlertJobId(null); setRejectReason('') }}
-                          className="px-2 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm text-farm-300 transition-colors"
                         >
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -323,14 +320,13 @@ export default function Alerts() {
 
       {hasMore && (
         <div className="text-center mt-6">
-          <button
+          <Button
+            variant="secondary"
             onClick={() => loadAlerts(false)}
-            className="px-4 py-2 text-sm rounded-lg transition-colors"
-            style={{ backgroundColor: 'var(--brand-sidebar-bg)', color: 'var(--brand-text-secondary)' }}
-            disabled={loading}
+            loading={loading}
           >
-            {loading ? 'Loading...' : 'Load more...'}
-          </button>
+            Load more...
+          </Button>
         </div>
       )}
     </div>

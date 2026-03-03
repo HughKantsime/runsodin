@@ -203,13 +203,13 @@ export default function APITokenManager() {
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {(t.scopes || []).map(s => (
-                    <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-farm-800 text-farm-400">{s}</span>
+                    <span key={s} className="text-xs px-1.5 py-0.5 rounded bg-farm-800 text-farm-400">{s}</span>
                   ))}
                   {(!t.scopes || t.scopes.length === 0) && (
-                    <span className="text-[10px] text-farm-500 italic">No scopes (global)</span>
+                    <span className="text-xs text-farm-500 italic">No scopes (global)</span>
                   )}
                 </div>
-                <div className="flex gap-3 mt-1 text-[10px] text-farm-500">
+                <div className="flex gap-3 mt-1 text-xs text-farm-500">
                   {t.expires_at && (
                     <span className="flex items-center gap-1">
                       <Clock size={10} /> Expires {new Date(t.expires_at).toLocaleDateString()}

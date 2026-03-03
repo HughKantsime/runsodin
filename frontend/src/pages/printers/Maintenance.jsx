@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { maintenance } from '../../api'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { PageHeader, Button, EmptyState, ProgressBar as SharedProgressBar, TabBar } from '../../components/ui'
 
 const STATUS_COLORS = {
   ok: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', dot: 'bg-green-400' },
@@ -26,13 +27,9 @@ function StatusBadge({ status }) {
   )
 }
 
-function ProgressBar({ percent, status }) {
-  const color = status === 'overdue' ? 'bg-red-500' : status === 'due_soon' ? 'bg-yellow-500' : 'bg-green-500'
-  return (
-    <div className="w-full bg-farm-800 rounded-full h-1.5">
-      <div className={`h-1.5 rounded-full ${color} transition-all`} style={{ width: `${Math.min(percent, 100)}%` }} />
-    </div>
-  )
+function MaintenanceProgressBar({ percent, status }) {
+  const color = status === 'overdue' ? 'red' : status === 'due_soon' ? 'yellow' : 'green'
+  return <SharedProgressBar value={percent} color={color} size="sm" />
 }
 
 /* ======================== Log Maintenance Modal ======================== */
@@ -234,21 +231,30 @@ function PrinterCard({ printer, onLogMaintenance }) {
                   )}
                 </div>
                 <div className="ml-4 mt-1.5 w-32">
-                  <ProgressBar percent={task.progress_percent} status={task.status} />
+                  <MaintenanceProgressBar percent={task.progress_percent} status={task.status} />
                 </div>
               </div>
-              <button onClick={e => { e.stopPropagation(); onLogMaintenance(printer, task) }}
-                className="ml-3 bg-farm-800 hover:bg-farm-700 text-farm-300 hover:text-farm-100 px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 flex-shrink-0">
-                <CheckCircle size={12} /> Log Service
-              </button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={CheckCircle}
+                className="ml-3 flex-shrink-0"
+                onClick={e => { e.stopPropagation(); onLogMaintenance(printer, task) }}
+              >
+                Log Service
+              </Button>
             </div>
           ))}
           {/* Ad-hoc maintenance button */}
           <div className="px-4 py-2">
-            <button onClick={() => onLogMaintenance(printer, null)}
-              className="text-xs text-farm-500 hover:text-farm-300 flex items-center gap-1">
-              <Plus size={12} /> Log ad-hoc maintenance
-            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Plus}
+              onClick={() => onLogMaintenance(printer, null)}
+            >
+              Log ad-hoc maintenance
+            </Button>
           </div>
         </div>
       )}
@@ -345,36 +351,25 @@ export default function Maintenance() {
   return (
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Wrench className="text-print-400" size={24} />
-          <h1 className="text-xl md:text-2xl font-display font-bold">Maintenance</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          {overdueCount > 0 && (
-            <span className="bg-red-500/10 text-red-400 px-3 py-1 rounded-full text-sm flex items-center gap-1.5">
-              <AlertCircle size={14} /> {overdueCount} overdue
-            </span>
-          )}
-          {dueSoonCount > 0 && (
-            <span className="bg-yellow-500/10 text-yellow-400 px-3 py-1 rounded-full text-sm flex items-center gap-1.5">
-              <AlertTriangle size={14} /> {dueSoonCount} due soon
-            </span>
-          )}
-        </div>
-      </div>
+      <PageHeader icon={Wrench} title="Maintenance">
+        {overdueCount > 0 && (
+          <span className="bg-red-500/10 text-red-400 px-3 py-1 rounded-full text-sm flex items-center gap-1.5">
+            <AlertCircle size={14} /> {overdueCount} overdue
+          </span>
+        )}
+        {dueSoonCount > 0 && (
+          <span className="bg-yellow-500/10 text-yellow-400 px-3 py-1 rounded-full text-sm flex items-center gap-1.5">
+            <AlertTriangle size={14} /> {dueSoonCount} due soon
+          </span>
+        )}
+      </PageHeader>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-farm-900 border border-farm-800 rounded-lg p-1">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
-              activeTab === tab.id ? 'bg-farm-800 text-farm-100' : 'text-farm-400 hover:text-farm-200 hover:bg-farm-800/50'
-            }`}>
-            <tab.icon size={14} /> {tab.label}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        tabs={tabs.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}
+        active={activeTab}
+        onChange={setActiveTab}
+      />
 
       {/* ==================== Fleet Status Tab ==================== */}
       {activeTab === 'status' && (
@@ -382,21 +377,25 @@ export default function Maintenance() {
           {statusLoading && <div className="text-farm-500 text-center py-8">Loading fleet status...</div>}
 
           {!statusLoading && statusData.length === 0 && (
-            <div className="text-center py-12 text-farm-500">
-              <Wrench size={48} className="mx-auto mb-4 opacity-30" />
-              <p className="text-lg mb-2">No printers found</p>
-              <p className="text-sm mb-4">Add printers first, then seed default maintenance tasks.</p>
-            </div>
+            <EmptyState
+              icon={Wrench}
+              title="No printers found"
+              description="Add printers first, then seed default maintenance tasks."
+            />
           )}
 
           {!statusLoading && statusData.length > 0 && tasks.length === 0 && (
-            <div className="bg-farm-900 border border-farm-800 rounded-lg p-6 text-center">
-              <p className="text-farm-400 mb-3">No maintenance tasks configured yet.</p>
-              <button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}
-                className="bg-print-500 hover:bg-print-600 text-white px-6 py-2 rounded-lg text-sm">
-                {seedMutation.isPending ? 'Seeding...' : 'Seed Default Maintenance Tasks'}
-              </button>
-            </div>
+            <EmptyState
+              icon={Settings}
+              title="No maintenance tasks configured yet"
+            >
+              <Button
+                onClick={() => seedMutation.mutate()}
+                loading={seedMutation.isPending}
+              >
+                Seed Default Maintenance Tasks
+              </Button>
+            </EmptyState>
           )}
 
           {statusData.map(printer => (
@@ -412,14 +411,21 @@ export default function Maintenance() {
           <div className="flex justify-between items-center">
             <span className="text-sm text-farm-400">{tasks.length} task template{tasks.length !== 1 ? 's' : ''}</span>
             <div className="flex gap-2">
-              <button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}
-                className="bg-farm-800 hover:bg-farm-700 text-farm-300 px-3 py-1.5 rounded-lg text-sm">
-                {seedMutation.isPending ? 'Seeding...' : 'Seed Defaults'}
-              </button>
-              <button onClick={() => { setShowTaskForm(true); setEditingTask(null) }}
-                className="bg-print-500 hover:bg-print-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
-                <Plus size={14} /> Add Task
-              </button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => seedMutation.mutate()}
+                loading={seedMutation.isPending}
+              >
+                Seed Defaults
+              </Button>
+              <Button
+                size="sm"
+                icon={Plus}
+                onClick={() => { setShowTaskForm(true); setEditingTask(null) }}
+              >
+                Add Task
+              </Button>
             </div>
           </div>
 
@@ -475,7 +481,13 @@ export default function Maintenance() {
               </tbody>
             </table>
             {tasks.length === 0 && (
-              <div className="p-8 text-center text-farm-500 text-sm">No task templates yet. Click "Seed Defaults" or "Add Task" to get started.</div>
+              <div className="p-4">
+                <EmptyState
+                  icon={Settings}
+                  title="No task templates yet"
+                  description={'Click "Seed Defaults" or "Add Task" to get started.'}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -542,7 +554,13 @@ export default function Maintenance() {
               </tbody>
             </table>
             {logs.length === 0 && (
-              <div className="p-8 text-center text-farm-500 text-sm">No maintenance history recorded yet. Log service from the Fleet Status tab.</div>
+              <div className="p-4">
+                <EmptyState
+                  icon={History}
+                  title="No maintenance history recorded yet"
+                  description="Log service from the Fleet Status tab."
+                />
+              </div>
             )}
           </div>
         </div>

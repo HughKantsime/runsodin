@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { FileText, Key, Download } from 'lucide-react'
 import { license as licenseApi, downloadBlob } from '../../api'
+import { Button, Card, Input } from '../ui'
 
 export default function LicenseTab() {
   const [licenseInfo, setLicenseInfo] = useState(null)
@@ -99,7 +100,7 @@ export default function LicenseTab() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg p-5" style={{ backgroundColor: 'var(--brand-card-bg)', borderColor: 'var(--brand-sidebar-border)', border: '1px solid' }}>
+      <Card padding="lg">
         <div className="flex items-center gap-2 mb-4">
           <FileText size={18} className="text-print-400" />
           <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Current License</h3>
@@ -144,9 +145,9 @@ export default function LicenseTab() {
             </div>
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="rounded-lg p-5" style={{ backgroundColor: 'var(--brand-card-bg)', borderColor: 'var(--brand-sidebar-border)', border: '1px solid' }}>
+      <Card padding="lg">
         <div className="flex items-center gap-2 mb-4">
           <Key size={18} className="text-print-400" />
           <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Activate License</h3>
@@ -155,21 +156,22 @@ export default function LicenseTab() {
           Enter your license key to activate online. The license will be bound to this installation.
         </p>
         <div className="flex gap-2">
-          <input
+          <Input
             type="text"
             value={licenseKey}
             onChange={e => setLicenseKey(e.target.value)}
             placeholder="ODIN-XXXX-XXXX-XXXX"
-            className="flex-1 px-3 py-2 rounded-lg bg-farm-900 border border-farm-700 text-farm-200 text-sm placeholder-farm-600 focus:outline-none focus:border-print-500"
+            className="flex-1 bg-farm-900"
             onKeyDown={e => e.key === 'Enter' && handleActivate()}
           />
-          <button
+          <Button
+            variant="primary"
+            loading={activating}
+            disabled={!licenseKey.trim()}
             onClick={handleActivate}
-            disabled={activating || !licenseKey.trim()}
-            className="px-4 py-2 rounded-lg bg-print-600 text-white text-sm font-medium hover:bg-print-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {activating ? 'Activating...' : 'Activate'}
-          </button>
+            Activate
+          </Button>
         </div>
 
         <div className="mt-4 flex items-center gap-3">
@@ -218,7 +220,7 @@ export default function LicenseTab() {
             {message.text}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   )
 }

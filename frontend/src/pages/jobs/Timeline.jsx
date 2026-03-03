@@ -21,6 +21,7 @@ import toast from 'react-hot-toast'
 
 import { timeline, printers, jobActions, jobs, printJobs } from '../../api'
 import DetailDrawer from '../../components/shared/DetailDrawer'
+import { Card, StatusBadge } from '../../components/ui'
 
 function parseUTC(dateStr) {
   if (!dateStr) return null
@@ -136,6 +137,91 @@ function NowIndicator({ startDate, slotWidth }) {
       style={{ left }}
     >
       <div className="absolute -top-1 -left-1 w-2 h-2 bg-red-500 rounded-full" />
+    </div>
+  )
+}
+
+function MobileTimelineList({ slots, printersData, onSelectBlock }) {
+  // Build a printer lookup map
+  const printerMap = {}
+  printersData?.forEach((p) => {
+    printerMap[p.id] = p.nickname || p.name
+  })
+
+  // Flatten all slots, compute durations, sort by start time descending (most recent first)
+  const items = (slots || [])
+    .filter((s) => !s.is_setup)
+    .map((slot) => {
+      const start = parseUTC(slot.start)
+      const end = parseUTC(slot.end)
+      const durationMin = start && end ? differenceInMinutes(end, start) : 0
+      const hours = Math.floor(durationMin / 60)
+      const mins = durationMin % 60
+      return {
+        ...slot,
+        _start: start,
+        _durationLabel: hours > 0 ? `${hours}h ${mins}m` : `${mins}m`,
+        _printerName: slot.printer_name || printerMap[slot.printer_id] || `Printer #${slot.printer_id}`,
+      }
+    })
+    .sort((a, b) => (b._start?.getTime() || 0) - (a._start?.getTime() || 0))
+
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-farm-500 gap-3">
+        <CalendarX2 size={32} className="text-farm-600" />
+        <p className="text-sm">No scheduled jobs</p>
+      </div>
+    )
+  }
+
+  // Group items by date for section headers
+  let lastDateLabel = null
+
+  return (
+    <div className="space-y-2 p-3">
+      {items.map((item) => {
+        const dateLabel = item._start ? format(item._start, 'EEE, MMM d') : 'Unknown'
+        const showHeader = dateLabel !== lastDateLabel
+        lastDateLabel = dateLabel
+
+        return (
+          <div key={item.job_id || item.mqtt_job_id || `${item.printer_id}-${item.start}`}>
+            {showHeader && (
+              <h3 className="text-xs font-medium text-farm-500 uppercase tracking-wide pt-2 pb-1 first:pt-0">
+                {dateLabel}
+              </h3>
+            )}
+            <Card
+              padding="sm"
+              hover
+              className="active:border-farm-600"
+              onClick={() => onSelectBlock(item)}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-farm-100 truncate">
+                    {item.item_name || 'Untitled Job'}
+                  </p>
+                  <p className="text-xs text-farm-400 mt-0.5 truncate">
+                    {item._printerName}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-farm-500">
+                    <span className="flex items-center gap-1">
+                      <Clock size={12} />
+                      {item._start ? format(item._start, 'HH:mm') : '--'}
+                    </span>
+                    <span>{item._durationLabel}</span>
+                  </div>
+                </div>
+                <div className="flex-shrink-0 pt-0.5">
+                  <StatusBadge status={item.status} size="sm" />
+                </div>
+              </div>
+            </Card>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -352,22 +438,24 @@ export default function Timeline() {
         </div>
 
         <div className="flex items-center gap-2">
-          {dragUI.active && <span className="text-xs text-print-400 mr-2">{dragUI.label}</span>}
-          <button
-            onClick={() => setSlotWidth(w => Math.max(ZOOM_MIN, w - 5))}
-            disabled={slotWidth <= ZOOM_MIN}
-            className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth <= ZOOM_MIN ? "bg-farm-900 text-farm-700 cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
-          >
-            <ZoomOut size={16} />
-          </button>
-          <span className="text-xs text-farm-500 tabular-nums w-6 text-center">{Math.round(((slotWidth - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100)}%</span>
-          <button
-            onClick={() => setSlotWidth(w => Math.min(ZOOM_MAX, w + 5))}
-            disabled={slotWidth >= ZOOM_MAX}
-            className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth >= ZOOM_MAX ? "bg-farm-900 text-farm-700 cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
-          >
-            <ZoomIn size={16} />
-          </button>
+          {dragUI.active && <span className="text-xs text-print-400 mr-2 hidden md:inline">{dragUI.label}</span>}
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              onClick={() => setSlotWidth(w => Math.max(ZOOM_MIN, w - 5))}
+              disabled={slotWidth <= ZOOM_MIN}
+              className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth <= ZOOM_MIN ? "bg-farm-900 text-farm-700 cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
+            >
+              <ZoomOut size={16} />
+            </button>
+            <span className="text-xs text-farm-500 tabular-nums w-6 text-center">{Math.round(((slotWidth - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100)}%</span>
+            <button
+              onClick={() => setSlotWidth(w => Math.min(ZOOM_MAX, w + 5))}
+              disabled={slotWidth >= ZOOM_MAX}
+              className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth >= ZOOM_MAX ? "bg-farm-900 text-farm-700 cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
+            >
+              <ZoomIn size={16} />
+            </button>
+          </div>
           <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
             <option value={3}>3 days</option>
             <option value={7}>1 week</option>
@@ -376,14 +464,28 @@ export default function Timeline() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto relative" ref={scrollAreaRef}>
+      {/* Mobile chronological list (<md) */}
+      <div className="flex-1 overflow-auto md:hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-64 text-farm-500 text-sm">Loading...</div>
+        ) : (
+          <MobileTimelineList
+            slots={timelineData?.slots}
+            printersData={printersData}
+            onSelectBlock={setSelectedBlock}
+          />
+        )}
+      </div>
+
+      {/* Desktop Gantt chart (md+) */}
+      <div className="hidden md:flex flex-1 overflow-auto relative" ref={scrollAreaRef}>
+        {isLoading ? (
+          <div className="flex items-center justify-center h-64 text-farm-500 text-sm w-full">Loading...</div>
         ) : (!timelineData?.slots?.length && !printersData?.length) ? (
-          <div className="flex flex-col items-center justify-center h-64 text-farm-500 gap-3">
+          <div className="flex flex-col items-center justify-center h-64 text-farm-500 gap-3 w-full">
             <CalendarX2 size={32} className="text-farm-600" />
             <p className="text-sm">No scheduled jobs</p>
-            <button onClick={() => navigate('/jobs')} className="text-sm text-print-400 hover:text-print-300 transition-colors">Go to Jobs →</button>
+            <button onClick={() => navigate('/jobs')} className="text-sm text-print-400 hover:text-print-300 transition-colors">Go to Jobs &rarr;</button>
           </div>
         ) : (
           <div className="min-w-max">
@@ -418,7 +520,7 @@ export default function Timeline() {
                     <div className="flex-shrink-0 bg-farm-950 border-r border-farm-700 px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
                       <div className="font-medium text-sm truncate">{printer.nickname || printer.name}</div>
                     </div>
-                    
+
                     <div className="flex-1 relative bg-farm-900/50 timeline-grid" data-printer-id={printer.id}>
                       <div className="absolute inset-0 flex pointer-events-none">
                         {Array.from({ length: totalSlots }).map((_, i) => (
@@ -429,7 +531,7 @@ export default function Timeline() {
                           />
                         ))}
                       </div>
-                      
+
                       {showPreview && (
                         <div
                           className="absolute top-1 bottom-1 rounded-md bg-print-500/50 border-2 border-print-400 z-30 flex items-center justify-center"
@@ -438,7 +540,7 @@ export default function Timeline() {
                           <span className="text-xs font-bold text-white bg-print-600 px-2 py-1 rounded-lg">{dragUI.label}</span>
                         </div>
                       )}
-                      
+
                       {jobBlocks.map((block) => {
                         const canDrag = block.status === 'scheduled' || block.status === 'pending'
                         const isDragging = dragUI.active && dragUI.jobId === block.job_id
@@ -474,8 +576,8 @@ export default function Timeline() {
         )}
       </div>
 
-      {/* Status legend */}
-      <div className="p-2 md:p-4 border-t border-farm-800 bg-farm-950 flex items-center gap-3 md:gap-6 flex-wrap">
+      {/* Status legend (desktop only — mobile uses StatusBadge) */}
+      <div className="hidden md:flex p-2 md:p-4 border-t border-farm-800 bg-farm-950 items-center gap-3 md:gap-6 flex-wrap">
         <span className="text-xs md:text-sm text-farm-500">Status:</span>
         {Object.entries(statusColors).map(([status, color]) => (
           <div key={status} className="flex items-center gap-1.5">

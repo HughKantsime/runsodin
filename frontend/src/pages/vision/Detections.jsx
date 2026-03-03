@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { vision, printers } from '../../api'
 import { canDo } from '../../permissions'
 import DetectionFeed from '../../components/vision/DetectionFeed'
+import { formatDate } from '../../utils/shared'
 
 const TYPE_META = {
   spaghetti: { label: 'Spaghetti', color: 'text-red-400', bg: 'bg-red-500/20' },
@@ -19,15 +20,6 @@ const STATUS_META = {
   confirmed: { label: 'Confirmed', color: 'text-red-400', bg: 'bg-red-500/20' },
   dismissed: { label: 'Dismissed', color: 'text-farm-400', bg: 'bg-farm-500/20' },
   auto_paused: { label: 'Auto-Paused', color: 'text-purple-400', bg: 'bg-purple-500/20' },
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z'))
-  return d.toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  })
 }
 
 function StatBar({ stats }) {
@@ -384,7 +376,7 @@ export default function Detections() {
                     <span className={`text-xs font-medium ${TYPE_META[det.detection_type]?.color}`}>
                       {TYPE_META[det.detection_type]?.label || det.detection_type}
                     </span>
-                    <span className={`px-1.5 py-0.5 rounded-lg text-[10px] font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
+                    <span className={`px-1.5 py-0.5 rounded-lg text-xs font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
                       {STATUS_META[det.status]?.label || det.status}
                     </span>
                   </div>
@@ -403,13 +395,13 @@ export default function Detections() {
                     <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-farm-800">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'confirmed') }}
-                        className="flex items-center gap-1 px-2 py-1 bg-red-900/40 hover:bg-red-900/60 rounded text-[10px] text-red-400 font-medium transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 bg-red-900/40 hover:bg-red-900/60 rounded text-xs text-red-400 font-medium transition-colors"
                       >
                         <AlertTriangle size={10} /> Confirm
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'dismissed') }}
-                        className="flex items-center gap-1 px-2 py-1 bg-farm-800 hover:bg-farm-700 rounded text-[10px] text-farm-400 font-medium transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 bg-farm-800 hover:bg-farm-700 rounded text-xs text-farm-400 font-medium transition-colors"
                       >
                         <X size={10} /> Dismiss
                       </button>

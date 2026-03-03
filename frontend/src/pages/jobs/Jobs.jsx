@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Filter, Search, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
-import clsx from 'clsx'
+import { Plus, Filter, ShoppingCart, Layers, Zap, RefreshCw, Clock, Briefcase } from 'lucide-react'
 import { jobs, models, printers as printersApi, scheduler, getApprovalSetting, presets, bulkOps } from '../../api'
 import { canDo } from '../../permissions'
 import { useOrg } from '../../contexts/OrgContext'
@@ -15,6 +15,7 @@ import { CreateJobModal, EditJobModal, RejectModal } from '../../components/jobs
 import { statusOptions, statusOrder } from '../../components/jobs/jobUtils'
 import { useJobMutations } from '../../hooks/useJobMutations'
 import JobTableHeader from '../../components/jobs/JobTableHeader'
+import { PageHeader, Button, SearchInput, TabBar } from '../../components/ui'
 
 
 const jobTypeTabs = [
@@ -38,12 +39,43 @@ export default function Jobs() {
     onError: (err) => toast.error('Scheduler failed: ' + (err.message || 'Unknown error')),
   })
 
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, _setStatusFilter] = useState(() => searchParams.get('status') || '')
+  const [searchQuery, _setSearchQuery] = useState(() => searchParams.get('q') || '')
   const [sortField, setSortField] = useState('priority')
   const [sortDirection, setSortDirection] = useState('asc')
-  const [jobTypeFilter, setJobTypeFilter] = useState('all')
+  const [jobTypeFilter, _setJobTypeFilter] = useState(() => searchParams.get('type') || 'all')
+
+  const updateSearchParams = useCallback((updates) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value && value !== '' && (key !== 'type' || value !== 'all')) {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const setStatusFilter = useCallback((value) => {
+    _setStatusFilter(value)
+    updateSearchParams({ status: value })
+  }, [updateSearchParams])
+
+  const setSearchQuery = useCallback((value) => {
+    _setSearchQuery(value)
+    updateSearchParams({ q: value })
+  }, [updateSearchParams])
+
+  const setJobTypeFilter = useCallback((value) => {
+    _setJobTypeFilter(value)
+    updateSearchParams({ type: value })
+  }, [updateSearchParams])
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [rejectingJobId, setRejectingJobId] = useState(null)
   const [failureModal, setFailureModal] = useState(null)
@@ -203,52 +235,38 @@ export default function Jobs() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
-        <div className="flex items-center gap-3">
-          <Briefcase className="text-print-400" size={24} />
-          <div>
-            <h1 className="text-xl md:text-2xl font-display font-bold">Jobs</h1>
-            <p className="text-farm-500 text-sm mt-1">Manage print queue</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 self-start">
-          {canDo('jobs.create') && <button onClick={() => runScheduler.mutate()} disabled={runScheduler.isPending}
+      <PageHeader icon={Briefcase} title="Jobs" subtitle="Manage print queue">
+        {canDo('jobs.create') && (
+          <Button
+            variant="secondary"
+            icon={Zap}
+            onClick={() => runScheduler.mutate()}
+            disabled={runScheduler.isPending}
+            loading={runScheduler.isPending}
             aria-busy={runScheduler.isPending}
-            className={clsx('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-farm-800 hover:bg-farm-700 border border-farm-700', runScheduler.isPending && 'opacity-50 cursor-not-allowed')}>
-            <Zap size={16} />
+          >
             {runScheduler.isPending ? 'Running...' : 'Run Scheduler'}
-          </button>}
-          {canDo('jobs.create') && <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">
-            <Plus size={16} /> New Job
-          </button>}
-        </div>
-      </div>
+          </Button>
+        )}
+        {canDo('jobs.create') && (
+          <Button variant="primary" icon={Plus} onClick={() => setShowCreateModal(true)}>
+            New Job
+          </Button>
+        )}
+      </PageHeader>
 
       {/* Job Type Tabs */}
-      <div className="flex gap-1 mb-4 bg-farm-900 p-1 rounded-lg w-fit border border-farm-800">
-        {jobTypeTabs.map(tab => (
-          <button
-            key={tab.value}
-            onClick={() => setJobTypeFilter(tab.value)}
-            className={clsx(
-              'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-              jobTypeFilter === tab.value
-                ? 'bg-print-600 text-white'
-                : 'text-farm-400 hover:text-farm-200 hover:bg-farm-800'
-            )}
-          >
-            {tab.icon && <tab.icon size={14} />}
-            <span>{tab.label}</span>
-            <span className={clsx(
-              'text-xs px-1.5 py-0.5 rounded-full',
-              jobTypeFilter === tab.value ? 'bg-print-500' : 'bg-farm-800'
-            )}>
-              {tab.value === 'all' ? (jobsData?.length || 0) :
-               tab.value === 'approval' ? approvalJobCount :
-               tab.value === 'order' ? orderJobCount : adhocJobCount}
-            </span>
-          </button>
-        ))}
+      <div className="mb-4">
+        <TabBar
+          tabs={jobTypeTabs.map(tab => ({
+            ...tab,
+            count: tab.value === 'all' ? (jobsData?.length || 0) :
+                   tab.value === 'approval' ? approvalJobCount :
+                   tab.value === 'order' ? orderJobCount : adhocJobCount,
+          }))}
+          active={jobTypeFilter}
+          onChange={setJobTypeFilter}
+        />
       </div>
 
       {/* Quick Schedule from Presets */}
@@ -278,16 +296,12 @@ export default function Jobs() {
       )}
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4 md:mb-6">
-        <div className="relative flex-1 sm:max-w-md">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
-          <input
-            type="text"
-            placeholder="Search jobs..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-farm-900 border border-farm-800 rounded-lg text-sm"
-          />
-        </div>
+        <SearchInput
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search jobs..."
+          className="flex-1 sm:max-w-md"
+        />
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-farm-500" />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-farm-900 border border-farm-800 rounded-lg px-3 py-2 text-sm">
@@ -301,17 +315,18 @@ export default function Jobs() {
       {selectedJobs.size > 0 && (
         <div className="flex items-center gap-3 mb-3 p-3 bg-print-900/30 border border-print-700 rounded-lg">
           <span className="text-sm text-farm-300">{selectedJobs.size} selected</span>
-          <button onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs">Cancel</button>
-          <button onClick={() => bulkAction.mutate({ action: 'reprioritize', extra: { priority: 1 } })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs">Priority 1</button>
-          <button onClick={() => bulkAction.mutate({ action: 'reschedule' })} disabled={bulkAction.isPending} className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs">Reschedule</button>
-          <button
+          <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending}>Cancel</Button>
+          <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reprioritize', extra: { priority: 1 } })} disabled={bulkAction.isPending}>Priority 1</Button>
+          <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reschedule' })} disabled={bulkAction.isPending}>Reschedule</Button>
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() => setConfirmAction({ action: 'bulkDelete', title: 'Delete Jobs', message: `Permanently delete ${selectedJobs.size} selected job(s)? This cannot be undone.`, confirmText: 'Delete All', confirmVariant: 'danger' })}
             disabled={bulkAction.isPending}
-            className="px-3 py-1.5 bg-red-900/50 hover:bg-red-800/50 text-red-300 rounded-lg text-xs"
           >
             Delete
-          </button>
-          <button onClick={() => setSelectedJobs(new Set())} className="ml-auto px-3 py-1.5 text-farm-500 hover:text-farm-300 text-xs">Clear</button>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelectedJobs(new Set())} className="ml-auto">Clear</Button>
         </div>
       )}
 

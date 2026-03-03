@@ -1,27 +1,18 @@
-import { useState } from 'react'
+import { useState, useCallback, lazy, Suspense } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import { canDo } from '../../permissions'
-import ModelViewer from '../../components/models/ModelViewer'
-import { Archive, Search, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw, Box } from 'lucide-react'
+const ModelViewer = lazy(() => import('../../components/models/ModelViewer'))
+import { Archive, X, Trash2, Clock, ChevronLeft, ChevronRight, GitCompare, Tag, RotateCcw, Box } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { formatDurationSecs as formatDuration, formatDate } from '../../utils/shared'
+import { PageHeader, SearchInput, StatusBadge as SharedStatusBadge, Button, EmptyState, Modal } from '../../components/ui'
 
 const STATUS_BADGES = {
   completed: 'bg-green-600/20 text-green-400',
   failed: 'bg-red-600/20 text-red-400',
   cancelled: 'bg-yellow-600/20 text-yellow-400',
-}
-
-function formatDuration(seconds) {
-  if (!seconds) return '--'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
-
-function formatDate(d) {
-  if (!d) return '--'
-  return new Date(d).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function TagChips({ tags, onTagClick }) {
@@ -32,7 +23,7 @@ function TagChips({ tags, onTagClick }) {
         <button
           key={t}
           onClick={e => { e.stopPropagation(); onTagClick?.(t) }}
-          className="px-1.5 py-0.5 bg-print-600/20 text-print-400 rounded text-[10px] hover:bg-print-600/30 transition-colors"
+          className="px-1.5 py-0.5 bg-print-600/20 text-print-400 rounded text-xs hover:bg-print-600/30 transition-colors"
         >
           {t}
         </button>
@@ -97,43 +88,36 @@ function CompareModal({ a, b, onClose }) {
   ]
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-farm-900 rounded-xl border border-farm-800 w-full max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2"><GitCompare size={18} /> Compare Archives</h2>
-          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
+    <Modal isOpen={true} onClose={onClose} title="Compare Archives" size="xl" mobileSheet={false}>
+      {isLoading ? (
+        <div className="text-center py-8 text-farm-500">Loading...</div>
+      ) : data ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-farm-400 text-xs border-b border-farm-800">
+                <th className="py-2 px-3 text-left">Field</th>
+                <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.a.print_name}</th>
+                <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.b.print_name}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map(f => {
+                const isDiff = data.diff && f.key in data.diff
+                const fmt = f.fmt || (v => v ?? '--')
+                return (
+                  <tr key={f.key} className={`border-t border-farm-800 ${isDiff ? 'bg-amber-900/20' : ''}`}>
+                    <td className="py-2 px-3 text-farm-400">{f.label}</td>
+                    <td className="py-2 px-3">{fmt(data.a[f.key])}</td>
+                    <td className="py-2 px-3">{fmt(data.b[f.key])}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
-
-        {isLoading ? (
-          <div className="text-center py-8 text-farm-500">Loading...</div>
-        ) : data ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-farm-400 text-xs border-b border-farm-800">
-                  <th className="py-2 px-3 text-left">Field</th>
-                  <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.a.print_name}</th>
-                  <th className="py-2 px-3 text-left truncate max-w-[200px]">{data.b.print_name}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fields.map(f => {
-                  const isDiff = data.diff && f.key in data.diff
-                  const fmt = f.fmt || (v => v ?? '--')
-                  return (
-                    <tr key={f.key} className={`border-t border-farm-800 ${isDiff ? 'bg-amber-900/20' : ''}`}>
-                      <td className="py-2 px-3 text-farm-400">{f.label}</td>
-                      <td className="py-2 px-3">{fmt(data.a[f.key])}</td>
-                      <td className="py-2 px-3">{fmt(data.b[f.key])}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </div>
-    </div>
+      ) : null}
+    </Modal>
   )
 }
 
@@ -183,13 +167,8 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-farm-900 rounded-t-xl sm:rounded-xl border border-farm-800 w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold truncate">{archive.print_name}</h2>
-          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
-        </div>
-
+    <>
+      <Modal isOpen={true} onClose={onClose} title={archive.print_name} size="lg">
         {/* Thumbnail */}
         {archive.thumbnail_b64 && (
           <div className="mb-4 rounded-lg overflow-hidden bg-black flex items-center justify-center" style={{ maxHeight: '200px' }}>
@@ -340,31 +319,80 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
             Delete Archive
           </button>
         )}
-      </div>
+      </Modal>
 
       {/* 3D Model Viewer overlay */}
       {show3DViewer && archive.print_file_id && (
-        <ModelViewer
-          fileId={archive.print_file_id}
-          modelName={archive.print_name}
-          onClose={() => setShow3DViewer(false)}
-        />
+        <Suspense fallback={<div className="flex items-center justify-center p-8 text-farm-400">Loading 3D viewer...</div>}>
+          <ModelViewer
+            fileId={archive.print_file_id}
+            modelName={archive.print_name}
+            onClose={() => setShow3DViewer(false)}
+          />
+        </Suspense>
       )}
-    </div>
+    </>
   )
 }
 
 export default function ArchivesPage() {
   const queryClient = useQueryClient()
-  const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [filterPrinter, setFilterPrinter] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [filterTag, setFilterTag] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [page, _setPage] = useState(() => {
+    const p = parseInt(searchParams.get('page'))
+    return p > 0 ? p : 1
+  })
+  const [search, _setSearch] = useState(() => searchParams.get('q') || '')
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '')
+  const [filterPrinter, _setFilterPrinter] = useState(() => searchParams.get('printer') || '')
+  const [filterStatus, _setFilterStatus] = useState(() => searchParams.get('status') || '')
+  const [filterTag, _setFilterTag] = useState(() => searchParams.get('tag') || '')
   const [selected, setSelected] = useState(null)
   const [compareIds, setCompareIds] = useState(new Set())
   const [showCompare, setShowCompare] = useState(false)
+
+  const updateSearchParams = useCallback((updates) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value && value !== '' && !(key === 'page' && String(value) === '1')) {
+          next.set(key, value)
+        } else {
+          next.delete(key)
+        }
+      })
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const setPage = useCallback((valueOrFn) => {
+    _setPage(prev => {
+      const newVal = typeof valueOrFn === 'function' ? valueOrFn(prev) : valueOrFn
+      updateSearchParams({ page: newVal })
+      return newVal
+    })
+  }, [updateSearchParams])
+
+  const setSearch = useCallback((value) => {
+    _setSearch(value)
+    updateSearchParams({ q: value })
+  }, [updateSearchParams])
+
+  const setFilterPrinter = useCallback((value) => {
+    _setFilterPrinter(value)
+    updateSearchParams({ printer: value })
+  }, [updateSearchParams])
+
+  const setFilterStatus = useCallback((value) => {
+    _setFilterStatus(value)
+    updateSearchParams({ status: value })
+  }, [updateSearchParams])
+
+  const setFilterTag = useCallback((value) => {
+    _setFilterTag(value)
+    updateSearchParams({ tag: value })
+  }, [updateSearchParams])
 
   const { data: printerList } = useQuery({
     queryKey: ['printers-list'],
@@ -408,27 +436,17 @@ export default function ArchivesPage() {
   return (
     <div className="p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-4 md:mb-6">
-        <Archive className="text-print-400" size={24} />
-        <div>
-          <h1 className="text-xl md:text-2xl font-display font-bold">Print Archive</h1>
-          <p className="text-farm-500 text-sm mt-1">{total} archived prints</p>
-        </div>
-      </div>
+      <PageHeader icon={Archive} title="Print Archive" subtitle={`${total} archived prints`} />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
-          <input
-            type="text"
-            value={searchInput}
-            onChange={e => setSearchInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { setSearch(searchInput); setPage(1) } }}
-            placeholder="Search prints..."
-            className="w-full pl-9 pr-3 py-2 bg-farm-800 border border-farm-700 rounded-lg text-sm"
-          />
-        </div>
+        <SearchInput
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { setSearch(searchInput); setPage(1) } }}
+          placeholder="Search prints..."
+          className="flex-1 min-w-[200px] max-w-xs"
+        />
         <select
           value={filterPrinter}
           onChange={e => { setFilterPrinter(e.target.value); setPage(1) }}
@@ -458,12 +476,9 @@ export default function ArchivesPage() {
           </button>
         )}
         {compareArr.length === 2 && (
-          <button
-            onClick={() => setShowCompare(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-print-600 hover:bg-print-700 rounded-lg text-sm text-white transition-colors"
-          >
-            <GitCompare size={14} /> Compare
-          </button>
+          <Button icon={GitCompare} onClick={() => setShowCompare(true)}>
+            Compare
+          </Button>
         )}
       </div>
 
@@ -471,11 +486,11 @@ export default function ArchivesPage() {
       {isLoading ? (
         <div className="text-center py-12 text-farm-500">Loading...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-farm-500">
-          <Archive size={40} className="mx-auto mb-3 opacity-30" />
-          <p>No archived prints yet</p>
-          <p className="text-xs mt-1">Prints are automatically archived when they complete</p>
-        </div>
+        <EmptyState
+          icon={Archive}
+          title="No archived prints yet"
+          description="Prints are automatically archived when they complete"
+        />
       ) : (
         <>
           <div className="overflow-x-auto rounded-lg border border-farm-800">
@@ -527,9 +542,7 @@ export default function ArchivesPage() {
                     </td>
                     <td className="py-2 px-3 text-farm-400 hidden md:table-cell">{item.printer_display}</td>
                     <td className="py-2 px-3">
-                      <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGES[item.status] || 'bg-farm-800 text-farm-400'}`}>
-                        {item.status}
-                      </span>
+                      <SharedStatusBadge status={item.status} size="sm" />
                     </td>
                     <td className="py-2 px-3 text-farm-400 hidden lg:table-cell">
                       <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(item.actual_duration_seconds)}</span>
@@ -549,21 +562,21 @@ export default function ArchivesPage() {
             <div className="flex items-center justify-between mt-4">
               <span className="text-xs text-farm-500">{total} results</span>
               <div className="flex items-center gap-2">
-                <button
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  icon={ChevronLeft}
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-1.5 rounded-lg bg-farm-800 text-farm-400 hover:bg-farm-700 disabled:opacity-30"
-                >
-                  <ChevronLeft size={16} />
-                </button>
+                />
                 <span className="text-sm text-farm-400">{page} / {totalPages}</span>
-                <button
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  icon={ChevronRight}
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="p-1.5 rounded-lg bg-farm-800 text-farm-400 hover:bg-farm-700 disabled:opacity-30"
-                >
-                  <ChevronRight size={16} />
-                </button>
+                />
               </div>
             </div>
           )}

@@ -33,6 +33,35 @@ const DEFAULT_BRANDING = {
   support_url: null,
 }
 
+/**
+ * Lazy-load optional branding fonts (Inter, JetBrains Mono, Space Grotesk).
+ * These are available as branding options but not used in the default theme,
+ * so we only load them when the branding config actually references them.
+ */
+const loadedFonts = new Set()
+function loadBrandingFonts(b) {
+  const allFontValues = [b.font_display, b.font_body, b.font_mono].join(' ')
+
+  if (allFontValues.includes('Inter') && !loadedFonts.has('inter')) {
+    loadedFonts.add('inter')
+    import('@fontsource/inter/400.css')
+    import('@fontsource/inter/500.css')
+    import('@fontsource/inter/600.css')
+    import('@fontsource/inter/700.css')
+  }
+  if (allFontValues.includes('JetBrains Mono') && !loadedFonts.has('jetbrains-mono')) {
+    loadedFonts.add('jetbrains-mono')
+    import('@fontsource/jetbrains-mono/400.css')
+    import('@fontsource/jetbrains-mono/500.css')
+  }
+  if (allFontValues.includes('Space Grotesk') && !loadedFonts.has('space-grotesk')) {
+    loadedFonts.add('space-grotesk')
+    import('@fontsource/space-grotesk/500.css')
+    import('@fontsource/space-grotesk/600.css')
+    import('@fontsource/space-grotesk/700.css')
+  }
+}
+
 const BrandingContext = createContext(DEFAULT_BRANDING)
 
 export function BrandingProvider({ children }) {
@@ -64,6 +93,7 @@ export function BrandingProvider({ children }) {
         } catch { /* org branding overlay is best-effort */ }
 
         setBranding(merged)
+        loadBrandingFonts(merged)
         applyBrandingCSS(merged)
         applyBrandingMeta(merged)
       })

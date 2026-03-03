@@ -1,11 +1,3 @@
-export function formatHours(h) {
-  if (!h) return "—"
-  if (h < 1) return Math.round(h * 60) + "m"
-  const hrs = Math.floor(h)
-  const mins = Math.round((h - hrs) * 60)
-  return mins > 0 ? hrs + "h " + mins + "m" : hrs + "h"
-}
-
 export const statusOptions = [
   { value: '', label: 'All Status' },
   { value: 'submitted', label: 'Submitted' },

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { timelapses, printers } from '../../api'
 import { Film, Trash2, Download, ChevronLeft, ChevronRight, Clock, HardDrive, Loader2, Scissors, Gauge, X } from 'lucide-react'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { formatSize, formatMMSS } from '../../utils/shared'
 
 const STATUS_COLORS = {
   ready: 'bg-green-500/20 text-green-400',
@@ -20,19 +21,7 @@ function formatDuration(seconds) {
   return `${mins}m ${secs}s`
 }
 
-function formatSize(mb) {
-  if (!mb) return '-'
-  if (mb < 1) return `${Math.round(mb * 1024)} KB`
-  return `${mb.toFixed(1)} MB`
-}
-
 const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 4, 8]
-
-function formatMMSS(sec) {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
 
 function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
   const videoRef = useRef(null)
@@ -424,7 +413,7 @@ export default function Timelapses() {
               <div className="p-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium text-farm-200 truncate">{t.printer_name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_COLORS[t.status] || ''}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[t.status] || ''}`}>
                     {t.status}
                   </span>
                 </div>
@@ -441,7 +430,7 @@ export default function Timelapses() {
                   )}
                 </div>
                 {t.print_job_id && (
-                  <div className="text-[10px] text-farm-500 mt-1">Job #{t.print_job_id}</div>
+                  <div className="text-xs text-farm-500 mt-1">Job #{t.print_job_id}</div>
                 )}
 
                 {/* Actions */}
