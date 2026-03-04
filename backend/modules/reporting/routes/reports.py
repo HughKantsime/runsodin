@@ -150,7 +150,8 @@ async def run_report_now(schedule_id: int, current_user: dict = Depends(require_
     try:
         run_report(dict(row._mapping))
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        log.warning("Report run-now failed (RuntimeError) for schedule %s: %s", schedule_id, e)
+        raise HTTPException(status_code=400, detail="Report generation failed. Check report configuration.")
     except Exception as e:
         log.error(f"Run-now report {schedule_id} failed: {e}")
         raise HTTPException(status_code=500, detail="Report generation failed")

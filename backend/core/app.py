@@ -365,21 +365,31 @@ def _register_http_middleware(app: FastAPI) -> None:
                                     )
                 finally:
                     _db.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log.error("IP allowlist check failed — denying request (fail-closed): %s", e)
+                # IP allowlist: fail-closed
+                return JSONResponse(status_code=503, content={"detail": "Service temporarily unavailable"})
 
         if not settings.api_key:
             return await call_next(request)
 
         import hmac
         api_key = request.headers.get("X-API-Key")
-        if not api_key or not hmac.compare_digest(api_key, settings.api_key):
+        if not api_key:
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing API key"},
             )
-
-        return await call_next(request)
+        # Global API key (constant-time comparison)
+        if hmac.compare_digest(api_key, settings.api_key):
+            return await call_next(request)
+        # Per-user scoped tokens (odin_ prefix) are validated by get_current_user
+        if api_key.startswith("odin_"):
+            return await call_next(request)
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or missing API key"},
+        )
 
 
 # ---------------------------------------------------------------------------

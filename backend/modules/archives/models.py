@@ -22,7 +22,7 @@ class Timelapse(Base):
     __tablename__ = "timelapses"
 
     id = Column(Integer, primary_key=True)
-    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
     print_job_id = Column(Integer, nullable=True)
     filename = Column(String(255), nullable=False)  # Relative path under /data/timelapses/
     frame_count = Column(Integer, default=0)

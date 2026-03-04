@@ -201,7 +201,7 @@ class Scheduler:
     
     def _cleanup_stale_schedules(self, db: Session) -> int:
         """Reset SCHEDULED jobs whose time window has passed (>2hrs past scheduled_start)."""
-        cutoff = datetime.now() - timedelta(hours=2)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
         stale = db.query(Job).filter(
             Job.status == JobStatus.SCHEDULED,
             Job.scheduled_start < cutoff
@@ -231,7 +231,7 @@ class Scheduler:
 
         # Default start to now, rounded up to next slot
         if start_date is None:
-            start_date = self._round_up_to_next_slot(datetime.now())
+            start_date = self._round_up_to_next_slot(datetime.now(timezone.utc))
 
         # Proactive stale schedule cleanup — reset SCHEDULED jobs past their window
         self._cleanup_stale_schedules(db)
@@ -285,7 +285,7 @@ class Scheduler:
         # Get pending jobs to schedule
         pending_jobs = db.query(Job).filter(
             Job.status == JobStatus.PENDING,
-            Job.hold == False
+            Job.hold.is_(False)
         ).order_by(Job.priority, Job.created_at).all()
         
         # Pre-fetch printer model requirements from uploaded print files.

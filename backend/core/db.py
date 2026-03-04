@@ -14,7 +14,7 @@ Old import path (from deps import get_db) continues to work via re-exports in de
 import sqlite3
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -30,6 +30,19 @@ engine = create_engine(
 with engine.connect() as conn:
     conn.execute(text("PRAGMA journal_mode=WAL"))
     conn.execute(text("PRAGMA busy_timeout=5000"))
+    conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    """Enable foreign key enforcement on every new SQLite connection.
+
+    SQLite disables FK checks by default. Without this, ON DELETE CASCADE
+    and other FK constraints are silently ignored — very bad for data integrity.
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

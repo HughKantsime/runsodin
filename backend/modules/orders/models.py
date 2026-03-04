@@ -53,7 +53,7 @@ class ProductComponent(Base):
 
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
-    model_id = Column(Integer, ForeignKey("models.id"), nullable=False)
+    model_id = Column(Integer, ForeignKey("models.id", ondelete="CASCADE"), nullable=False)
     quantity_needed = Column(Integer, default=1)  # How many of this part per product
     notes = Column(Text, nullable=True)
 

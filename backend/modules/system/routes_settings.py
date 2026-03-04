@@ -16,6 +16,36 @@ from modules.organizations.branding import get_or_create_branding, branding_to_d
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
+# ============== Upload Validation Helpers ==============
+
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+_IMAGE_TYPE_EXT = {
+    "png": "png",
+    "jpeg": "jpg",
+    "svg": "svg",
+    "webp": "webp",
+}
+
+
+def _detect_image_type(content: bytes) -> str | None:
+    """Detect image type from magic bytes. Returns type key or None if unrecognised."""
+    if content[:4] == b"\x89PNG":
+        return "png"
+    if content[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    # SVG: check for XML declaration or <svg tag in the first 512 bytes
+    head = content[:512]
+    try:
+        text_head = head.decode("utf-8", errors="ignore").lstrip()
+        if text_head.startswith("<svg") or text_head.startswith("<?xml"):
+            return "svg"
+    except Exception:
+        pass
+    return None
+
 
 # ============== Branding ==============
 
@@ -42,15 +72,18 @@ async def update_branding(data: dict, current_user: dict = Depends(require_role(
 async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Upload brand logo. Admin only."""
     import shutil
-    allowed = {"image/png", "image/jpeg", "image/svg+xml", "image/webp"}
-    if file.content_type not in allowed:
-        raise HTTPException(status_code=400, detail="File type not allowed")
+    content = await file.read()
+    detected_type = _detect_image_type(content)
+    if detected_type is None:
+        raise HTTPException(status_code=400, detail="File type not allowed. Upload PNG, JPEG, SVG, or WebP.")
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5 MB.")
+    ext = _IMAGE_TYPE_EXT[detected_type]
     upload_dir = os.path.join(os.path.dirname(__file__), "..", "static", "branding")
     os.makedirs(upload_dir, exist_ok=True)
-    ext = file.filename.split(".")[-1] if "." in file.filename else "png"
     filename = f"logo.{ext}"
     with open(os.path.join(upload_dir, filename), "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(content)
     branding = get_or_create_branding(db)
     branding.logo_url = f"/static/branding/{filename}"
     db.commit()
@@ -60,16 +93,18 @@ async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends
 @router.post("/branding/favicon", tags=["Branding"])
 async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Upload favicon. Admin only."""
-    import shutil
-    allowed = {"image/png", "image/x-icon", "image/svg+xml", "image/webp"}
-    if file.content_type not in allowed:
-        raise HTTPException(status_code=400, detail="File type not allowed")
+    content = await file.read()
+    detected_type = _detect_image_type(content)
+    if detected_type is None:
+        raise HTTPException(status_code=400, detail="File type not allowed. Upload PNG, JPEG, SVG, or WebP.")
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5 MB.")
+    ext = _IMAGE_TYPE_EXT[detected_type]
     upload_dir = os.path.join(os.path.dirname(__file__), "..", "static", "branding")
     os.makedirs(upload_dir, exist_ok=True)
-    ext = file.filename.split(".")[-1] if "." in file.filename else "png"
     filename = f"favicon.{ext}"
     with open(os.path.join(upload_dir, filename), "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(content)
     branding = get_or_create_branding(db)
     branding.favicon_url = f"/static/branding/{filename}"
     db.commit()

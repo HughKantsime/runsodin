@@ -231,6 +231,7 @@ def main_loop():
     tick = 0
 
     while True:
+        session = None
         try:
             session = SessionLocal()
             printers = get_active_printers(session)
@@ -263,8 +264,6 @@ def main_loop():
                 log.info(f"Print ended for timelapse {tid}, starting encode...")
                 encode_timelapse(tid)
 
-            session.close()
-
             # Every 5 minutes, check for stale timelapses (e.g. daemon was restarted)
             if tick % 10 == 0:
                 finalize_stale_timelapses()
@@ -273,6 +272,9 @@ def main_loop():
 
         except Exception as e:
             log.error(f"Main loop error: {e}")
+        finally:
+            if session is not None:
+                session.close()
 
         time.sleep(CAPTURE_INTERVAL)
 

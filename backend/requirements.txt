@@ -38,7 +38,7 @@ pyotp==2.9.0
 
 # YAML (go2rtc config)
 pyyaml==6.0.2
-qrcode[pil]
+qrcode[pil]==8.0
 bcrypt==4.2.1
 
 # PDF generation (invoices)
@@ -48,6 +48,6 @@ fpdf2==2.8.3
 slowapi==0.1.9
 
 # Vigil AI (local print failure detection)
-numpy<2
+numpy==1.26.4
 opencv-python-headless==4.9.0.80
 onnxruntime==1.20.1

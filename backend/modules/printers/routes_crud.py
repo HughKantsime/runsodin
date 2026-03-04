@@ -103,6 +103,8 @@ def create_printer(
         api_key=encrypted_api_key,
         shared=getattr(printer, 'shared', False),
         org_id=current_user.get("group_id") if current_user else None,
+        bed_x_mm=printer.bed_x_mm,
+        bed_y_mm=printer.bed_y_mm,
     )
     db.add(db_printer)
     db.flush()
@@ -123,6 +125,8 @@ def create_printer(
 
     db.commit()
     db.refresh(db_printer)
+    log_audit(db, "printer.created", "printer", db_printer.id,
+              {"name": db_printer.name, "api_type": db_printer.api_type})
     return db_printer
 
 
@@ -145,7 +149,10 @@ def reorder_printers(
 # Static route registered before /printers/{printer_id} to prevent FastAPI
 # from treating "live-status" as a printer_id integer.
 @router.get("/printers/live-status", tags=["Printers"])
-def get_all_printers_live_status_early(db: Session = Depends(get_db)):
+def get_all_printers_live_status_early(
+    current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
+):
     """Get real-time status from all Bambu printers."""
     from modules.printers.routes_status import _fetch_printer_live_status
     printers = db.query(Printer).filter(
@@ -213,6 +220,8 @@ def update_printer(
 
     db.commit()
     db.refresh(printer)
+    log_audit(db, "printer.updated", "printer", printer_id,
+              {"fields": list(update_data.keys())})
     return printer
 
 
@@ -225,8 +234,10 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
     if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    printer_name = printer.name
     db.delete(printer)
     db.commit()
+    log_audit(db, "printer.deleted", "printer", printer_id, {"name": printer_name})
 
 
 # ====================================================================
@@ -392,7 +403,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            log.warning("Bambu test-connection failed: %s", e)
+            return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
 
     elif api_type == "moonraker":
         import httpx as httpx_client
@@ -427,7 +439,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                 return {"success": True, "state": info.get("state", "unknown"), "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
             return {"success": False, "error": f"Moonraker returned HTTP {r.status_code}"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            log.warning("Moonraker test-connection failed: %s", e)
+            return {"success": False, "error": "Connection failed. Check printer IP and Moonraker configuration."}
 
     elif api_type == "prusalink":
         import httpx as httpx_client
@@ -451,7 +464,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                 return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
             return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            log.warning("PrusaLink test-connection failed: %s", e)
+            return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
 
     elif api_type == "elegoo":
         import httpx as httpx_client

@@ -692,21 +692,39 @@ MoonrakerMonitor.stop = MoonrakerMonitor.disconnect
 
 
 if __name__ == "__main__":
+    import signal
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
+    _running = True
+
+    def _shutdown(signum, frame):
+        global _running
+        log.info(f"Received signal {signum}, shutting down Moonraker monitors...")
+        _running = False
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
     # Daemon mode: keep running even if no printers exist yet.
-    while True:
+    threads = []
+    while _running:
         threads = start_moonraker_monitors()
         if not threads:
             log.info("No Moonraker printers found in database — sleeping 60s")
-            time.sleep(60)
+            try:
+                time.sleep(60)
+            except (KeyboardInterrupt, SystemExit):
+                break
             continue
 
         log.info(f"Monitoring {len(threads)} Moonraker printer(s)")
         try:
-            while True:
+            while _running:
                 time.sleep(60)
-        except KeyboardInterrupt:
-            for t in threads:
-                t.stop()
+        except (KeyboardInterrupt, SystemExit):
             break
+
+    for t in threads:
+        t.stop()
+    log.info("Moonraker monitor daemon stopped.")

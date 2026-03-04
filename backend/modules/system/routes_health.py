@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from core.db import get_db
+from core.dependencies import log_audit
 from core.rbac import require_role
 from modules.system.schemas import HealthCheck
 from core.config import settings
@@ -67,6 +68,7 @@ def get_license_info():
 async def upload_license(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
 ):
     """Upload a license file. Admin only."""
     content = await file.read()
@@ -91,6 +93,7 @@ async def upload_license(
         _os.remove(path)
         raise HTTPException(status_code=400, detail=license_info.error)
 
+    log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
     return {
         "status": "activated", "tier": license_info.tier,
         "licensee": license_info.licensee, "expires_at": license_info.expires_at,
@@ -98,7 +101,7 @@ async def upload_license(
 
 
 @router.delete("/license", tags=["License"])
-def remove_license(current_user: dict = Depends(require_role("admin"))):
+def remove_license(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Remove the license file (revert to Community tier). Admin only."""
     import os as _os
     from license_manager import LICENSE_DIR, LICENSE_FILENAME
@@ -108,6 +111,7 @@ def remove_license(current_user: dict = Depends(require_role("admin"))):
     import license_manager
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
+    log_audit(db, "license.removed", "system", details="License removed, reverted to community tier")
     return {"status": "removed", "tier": "community"}
 
 
@@ -141,7 +145,8 @@ async def activate_license(
                 json={"key": request.key, "installation_id": installation_id},
             )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not reach license server: {str(e)}")
+        log.error("License activation failed — could not reach license server: %s", e)
+        raise HTTPException(status_code=502, detail="Could not reach license server. Check network connectivity and LICENSE_SERVER_URL.")
 
     if resp.status_code != 200:
         detail = resp.json().get("error", "Activation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
@@ -237,7 +242,7 @@ def get_config(current_user: dict = Depends(require_role("viewer"))):
 
 
 @router.put("/config", tags=["Config"])
-def update_config(config: ConfigUpdate, current_user: dict = Depends(require_role("admin"))):
+def update_config(config: ConfigUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update configuration. Writes to .env file."""
     env_path = os.environ.get('ENV_FILE_PATH', '/data/.env')
     env_vars = {}
@@ -270,6 +275,7 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_rol
             os.unlink(tmp_path)
         raise
 
+    log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end"] if getattr(config, k) is not None]})
     return {"success": True, "message": "Config updated. Restart backend to apply changes."}
 
 
@@ -286,4 +292,5 @@ async def test_spoolman_connection(current_user: dict = Depends(require_role("ad
             else:
                 return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
     except Exception as e:
-        return {"success": False, "message": f"Connection failed: {str(e)}"}
+        log.warning("Spoolman connection test failed: %s", e)
+        return {"success": False, "message": "Connection failed. Check Spoolman URL and network connectivity."}

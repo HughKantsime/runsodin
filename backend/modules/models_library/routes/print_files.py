@@ -351,7 +351,8 @@ def list_print_files(
         r['filaments'] = json.loads(r['filaments_json']) if r['filaments_json'] else []
         del r['filaments_json']
         r.pop('stored_path', None)  # server filesystem path — not for clients
-        r['print_time_formatted'] = f"{r['print_time_seconds'] // 3600}h {(r['print_time_seconds'] % 3600) // 60}m" if r['print_time_seconds'] >= 3600 else f"{r['print_time_seconds'] // 60}m"
+        pts = r['print_time_seconds']
+        r['print_time_formatted'] = (f"{pts // 3600}h {(pts % 3600) // 60}m" if pts and pts >= 3600 else f"{pts // 60}m" if pts else None)
         files.append(r)
 
     return files

@@ -105,7 +105,7 @@ class Printer(Base):
 
     # Relationships
     filament_slots = relationship("FilamentSlot", back_populates="printer", cascade="all, delete-orphan")
-    jobs = relationship("Job", back_populates="printer")
+    jobs = relationship("Job", back_populates="printer", passive_deletes=True)
 
     @property
     def loaded_colors(self) -> List[str]:
@@ -125,7 +125,7 @@ class FilamentSlot(Base):
     __tablename__ = "filament_slots"
 
     id = Column(Integer, primary_key=True)
-    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
     slot_number = Column(Integer, nullable=False)  # 1-4 typically
 
     # What's loaded
@@ -137,7 +137,7 @@ class FilamentSlot(Base):
     spoolman_spool_id = Column(Integer)  # Link to Spoolman spool
 
     # Local spool tracking
-    assigned_spool_id = Column(Integer, ForeignKey("spools.id"), nullable=True)
+    assigned_spool_id = Column(Integer, ForeignKey("spools.id", ondelete="SET NULL"), nullable=True)
     spool_confirmed = Column(Boolean, default=False)
 
     # Metadata
@@ -157,7 +157,7 @@ class NozzleLifecycle(Base):
     __tablename__ = "nozzle_lifecycle"
 
     id = Column(Integer, primary_key=True)
-    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
     nozzle_type = Column(String(20), nullable=True)
     nozzle_diameter = Column(Float, nullable=True)
     installed_at = Column(DateTime, server_default=func.now())
@@ -166,4 +166,4 @@ class NozzleLifecycle(Base):
     print_count = Column(Integer, default=0)
     notes = Column(Text, nullable=True)
 
-    printer = relationship("Printer")
+    printer = relationship("Printer", passive_deletes=True)

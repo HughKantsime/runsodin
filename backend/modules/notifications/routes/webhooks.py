@@ -9,6 +9,7 @@ import threading
 
 import core.crypto as crypto
 from core.db import get_db
+from core.dependencies import log_audit
 from core.rbac import require_role
 from core.webhook_utils import _validate_webhook_url
 
@@ -83,6 +84,8 @@ async def create_webhook(
         VALUES (:name, :url, :type, :alerts)
     """), {"name": name, "url": url, "type": webhook_type, "alerts": alert_types})
     db.commit()
+    wh_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    log_audit(db, "webhook.created", "webhook", wh_id, {"name": name, "type": webhook_type})
 
     return {"success": True, "message": "Webhook created"}
 
@@ -118,6 +121,7 @@ async def update_webhook(
         query = f"UPDATE webhooks SET {', '.join(updates)} WHERE id = :id"
         db.execute(text(query), params)
         db.commit()
+        log_audit(db, "webhook.updated", "webhook", webhook_id, {"fields": [f for f in data.keys() if f != "url"]})
 
     return {"success": True}
 
@@ -131,6 +135,7 @@ async def delete_webhook(
     """Delete a webhook."""
     db.execute(text("DELETE FROM webhooks WHERE id = :id"), {"id": webhook_id})
     db.commit()
+    log_audit(db, "webhook.deleted", "webhook", webhook_id)
     return {"success": True}
 
 
@@ -257,7 +262,8 @@ async def test_webhook(
             return {"success": False, "message": f"Failed: HTTP {resp.status_code} - {resp.text[:200]}"}
 
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        log.warning("Webhook test failed: %s", e)
+        return {"success": False, "message": "Webhook test failed. Check URL and network connectivity."}
 
 
 # ============== Webhook Alert Dispatch ==============

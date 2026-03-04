@@ -59,7 +59,7 @@ class Model(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    jobs = relationship("Job", back_populates="model")
+    jobs = relationship("Job", back_populates="model", passive_deletes=True)
 
     @property
     def required_colors(self) -> List[str]:

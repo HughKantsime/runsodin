@@ -58,6 +58,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
                       {"username": form_data.username}).fetchone()
     if not user or not verify_password(form_data.password, user.password_hash):
         _record_login_attempt(client_ip, form_data.username, False, db)
+        log_audit(db, "auth.login_failed", "user", details={"username": form_data.username}, ip=client_ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account disabled")
@@ -121,6 +122,9 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
             _blacklist_token(bearer_token)
 
     db.commit()
+    if current_user:
+        log_audit(db, "auth.logout", "user", current_user.get("id"),
+                  details={"username": current_user.get("username")})
     response.delete_cookie(key="session", path="/")
     return {"detail": "Logged out"}
 
@@ -342,7 +346,8 @@ async def set_theme(request: Request, current_user: dict = Depends(get_current_u
 
 
 @router.post("/auth/ws-token", tags=["Auth"])
-async def get_ws_token(current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+async def get_ws_token(request: Request, current_user: dict = Depends(get_current_user)):
     """Issue a short-lived JWT for WebSocket authentication."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -408,7 +413,8 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
 
 
 @router.post("/auth/forgot-password", tags=["Auth"])
-async def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, body: ForgotPasswordRequest, db: Session = Depends(get_db)):
     """Request a password reset link. Always returns 200 to prevent user enumeration."""
     import secrets as _secrets
 
@@ -449,7 +455,8 @@ async def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get
 
 
 @router.post("/auth/reset-password", tags=["Auth"])
-async def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def reset_password(request: Request, body: ResetPasswordRequest, db: Session = Depends(get_db)):
     """Reset password using a valid token."""
     row = db.execute(
         text("SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token = :tok"),

@@ -8,7 +8,7 @@ import logging
 
 import core.crypto as crypto
 from core.db import get_db
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role
 from core.base import AlertType
 from core.models import SystemConfig
@@ -272,6 +272,7 @@ async def update_smtp_config(
         db.add(SystemConfig(key="smtp_config", value=smtp_data))
 
     db.commit()
+    log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host")})
     return {"status": "ok", "message": "SMTP configuration updated"}
 
 

@@ -80,6 +80,33 @@ def list_timelapses(
     }
 
 
+@router.get("/timelapses/{timelapse_id}", tags=["Timelapses"])
+def get_timelapse(
+    timelapse_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Get a single timelapse by ID."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Timelapse not found")
+    return {
+        "id": t.id,
+        "printer_id": t.printer_id,
+        "printer_name": t.printer.name if t.printer else None,
+        "print_job_id": t.print_job_id,
+        "filename": t.filename,
+        "frame_count": t.frame_count,
+        "duration_seconds": t.duration_seconds,
+        "file_size_mb": t.file_size_mb,
+        "status": t.status,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+    }
+
+
 @router.get("/timelapses/{timelapse_id}/video", tags=["Timelapses"])
 def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Serve the timelapse MP4 file. Accepts ?token= query param for <video> src auth."""

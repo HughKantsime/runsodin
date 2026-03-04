@@ -10,7 +10,7 @@ import json
 import logging
 
 from core.db import get_db
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, check_org_access
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
@@ -69,6 +69,7 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
 
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.started", "job", job.id, {"printer_id": job.printer_id})
     return job
 
 
@@ -163,6 +164,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
 
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions)})
     return job
 
 
@@ -181,6 +183,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
 
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.failed", "job", job.id, {"printer_id": job.printer_id, "notes": notes})
     return job
 
 
@@ -196,6 +199,7 @@ def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator"
     job.is_locked = True
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.cancelled", "job", job.id)
     return job
 
 
@@ -217,6 +221,7 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
 
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.reset", "job", job.id)
     return job
 
 
@@ -248,6 +253,7 @@ def dispatch_job_to_printer(
         raise HTTPException(status_code=400, detail=message)
 
     db.refresh(job)
+    log_audit(db, "job.dispatched", "job", job.id, {"printer_id": job.printer_id})
     return {"success": True, "message": message, "job_id": job_id, "status": job.status.value}
 
 
@@ -268,6 +274,7 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
     job.approved_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
 
     # Notify the student who submitted
     if job.submitted_by:
@@ -308,6 +315,7 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
     job.rejected_reason = body.reason.strip()
     db.commit()
     db.refresh(job)
+    log_audit(db, "job.rejected", "job", job.id, {"rejected_by": current_user["id"], "reason": body.reason.strip()})
 
     # Notify the student who submitted
     if job.submitted_by:

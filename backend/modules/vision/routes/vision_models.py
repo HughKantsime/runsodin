@@ -100,3 +100,28 @@ async def activate_vision_model(
     db.commit()
 
     return {"id": model_id, "detection_type": dt, "is_active": True}
+
+
+@router.delete("/vision/models/{model_id}", tags=["Vigil AI"])
+async def delete_vision_model(
+    model_id: int,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Delete a registered ONNX model and its file from disk."""
+    model = db.query(VisionModel).filter(VisionModel.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    if model.is_active:
+        raise HTTPException(status_code=400, detail="Cannot delete an active model. Deactivate it first.")
+
+    # Remove file from disk
+    model_path = os.path.join('/data/vision_models', model.filename)
+    real_path = os.path.realpath(model_path)
+    if real_path.startswith('/data/vision_models/') and os.path.isfile(real_path):
+        os.remove(real_path)
+
+    db.delete(model)
+    db.commit()
+    return {"id": model_id, "deleted": True}

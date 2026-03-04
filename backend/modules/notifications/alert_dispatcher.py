@@ -364,17 +364,17 @@ def dispatch_alert(
     if alerts_created > 0:
         db.commit()
     
-    # Dispatch to webhooks (ntfy, telegram, discord, slack)
-    try:
-        from main import _dispatch_to_webhooks
-        _dispatch_to_webhooks(db, alert_type.value, title, message, severity.value)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error(f"Webhook dispatch error: {e}")
+    # Dispatch to webhooks (ntfy, telegram, discord, slack, pushover, whatsapp)
+    if not _suppress_external:
+        try:
+            from modules.notifications.channels import send_webhook
+            send_webhook(alert_type.value, title, message, severity.value,
+                         printer_id=printer_id, job_id=job_id)
+        except Exception as e:
+            logger.error(f"Webhook dispatch error: {e}")
 
     # Org-level webhook dispatch
-    if _printer_org_id:
+    if _printer_org_id and not _suppress_external:
         try:
             from core.registry import registry
             _org_provider = registry.get_provider("OrgSettingsProvider")

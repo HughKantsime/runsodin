@@ -115,6 +115,9 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
         """
         _send_odin_email(db, user.email, "Your O.D.I.N. Account", html)
 
+    new_user = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": user.username}).fetchone()
+    if new_user:
+        log_audit(db, "user.created", "user", new_user.id, {"username": user.username, "role": user.role})
     return {"status": "created"}
 
 
@@ -169,11 +172,15 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
     updates = {k: v for k, v in updates.items() if k in ALLOWED_USER_FIELDS}
 
     password_changed = 'password_hash' in updates
+    role_changed = 'role' in updates
     if updates:
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates['id'] = user_id
         db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)
         db.commit()
+    if role_changed:
+        log_audit(db, "user.role_changed", "user", user_id,
+                  {"new_role": updates.get("role"), "actor_user_id": current_user["id"]})
     if password_changed:
         log_audit(db, "user.password_changed", "user", user_id,
                   {"actor_user_id": current_user["id"], "target_user_id": user_id})
@@ -198,8 +205,13 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
         admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
+    username = target.role  # we need to fetch username for audit
+    target_row = db.execute(text("SELECT username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
     db.commit()
+    log_audit(db, "user.deleted", "user", user_id,
+              {"deleted_username": target_row.username if target_row else str(user_id),
+               "actor_user_id": current_user["id"]})
     return {"status": "deleted"}
 
 

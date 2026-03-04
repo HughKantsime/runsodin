@@ -162,8 +162,8 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
     # Jobs stats
     all_jobs = db.query(Job).all()
-    completed_jobs = [j for j in all_jobs if j.status == "completed"]
-    pending_jobs = [j for j in all_jobs if j.status in ("pending", "scheduled")]
+    completed_jobs = [j for j in all_jobs if j.status == JobStatus.COMPLETED]
+    pending_jobs = [j for j in all_jobs if j.status in (JobStatus.PENDING, JobStatus.SCHEDULED)]
 
     # Revenue and costs from completed jobs (use job.suggested_price/estimated_cost when available)
     total_revenue = 0
@@ -228,8 +228,8 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
         avg_hours = round(hours / len(printer_jobs), 1) if printer_jobs else 0
         # Success rate
         total_printer_jobs = [j for j in db.query(Job).filter(Job.printer_id == printer.id).all()]
-        failed = len([j for j in total_printer_jobs if j.status == 'failed'])
-        total_attempted = len([j for j in total_printer_jobs if j.status in ('complete', 'failed')])
+        failed = len([j for j in total_printer_jobs if j.status == JobStatus.FAILED])
+        total_attempted = len([j for j in total_printer_jobs if j.status in (JobStatus.COMPLETED, JobStatus.FAILED)])
         success_rate = round(((total_attempted - failed) / total_attempted * 100), 1) if total_attempted > 0 else 100
         printer_stats.append({
             "id": printer.id,
@@ -250,11 +250,13 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     # Group by date
     jobs_by_date = {}
     for job in recent_jobs:
+        if not job.created_at:
+            continue
         date_str = job.created_at.strftime("%Y-%m-%d")
         if date_str not in jobs_by_date:
             jobs_by_date[date_str] = {"created": 0, "completed": 0}
         jobs_by_date[date_str]["created"] += 1
-        if job.status == "completed":
+        if job.status == JobStatus.COMPLETED:
             jobs_by_date[date_str]["completed"] += 1
 
     # Average $/hour across all models
@@ -304,7 +306,7 @@ def get_failure_analytics(
     # All completed + failed jobs in window
     jobs = (
         db.query(Job)
-        .filter(Job.status.in_(["completed", "failed"]), Job.created_at >= cutoff)
+        .filter(Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]), Job.created_at >= cutoff)
         .all()
     )
 
@@ -415,7 +417,7 @@ def get_time_accuracy(
     completed = (
         db.query(Job)
         .filter(
-            Job.status == "completed",
+            Job.status == JobStatus.COMPLETED,
             Job.actual_start.isnot(None),
             Job.actual_end.isnot(None),
             Job.duration_hours.isnot(None),
@@ -578,6 +580,8 @@ def get_education_usage_report(
     # Daily submissions for chart
     daily = {}
     for j in jobs_in_range:
+        if not j.created_at:
+            continue
         d = j.created_at.strftime("%Y-%m-%d")
         daily[d] = daily.get(d, 0) + 1
 

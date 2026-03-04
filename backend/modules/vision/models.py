@@ -22,7 +22,7 @@ class VisionDetection(Base):
     __tablename__ = "vision_detections"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
     print_job_id = Column(Integer, nullable=True)
     detection_type = Column(Text, nullable=False)
     confidence = Column(Float, nullable=False)
@@ -42,7 +42,7 @@ class VisionSettings(Base):
     DUAL SCHEMA: also defined in docker/entrypoint.sh (VISIONEOF). Keep in sync."""
     __tablename__ = "vision_settings"
 
-    printer_id = Column(Integer, ForeignKey("printers.id"), primary_key=True)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), primary_key=True)
     enabled = Column(Integer, default=1)
     spaghetti_enabled = Column(Integer, default=1)
     spaghetti_threshold = Column(Float, default=0.65)

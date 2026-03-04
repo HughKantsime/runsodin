@@ -41,6 +41,7 @@ class FilamentType(str, Enum):
     Filament types including Bambu Lab codes (PLA-S, PLA-CF, PA-CF, etc.)
     """
     EMPTY = "empty"  # Slot has no filament loaded
+    UNKNOWN = "Unknown"  # Unrecognized filament type from printer
 
     # === Standard Materials (backwards compatible) ===
     PLA = "PLA"

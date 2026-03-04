@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role
 import core.auth as auth_module
 from core.auth import create_access_token
@@ -252,4 +252,5 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
         query = f"UPDATE oidc_config SET {', '.join(updates)} WHERE id = 1"
         db.execute(text(query), params)
         db.commit()
+        log_audit(db, "oidc_config_updated", "system", details={"fields": list(params.keys())})
     return {"success": True}

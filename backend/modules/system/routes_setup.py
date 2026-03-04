@@ -151,7 +151,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
         except ImportError:
             raise HTTPException(status_code=500, detail="bambu_adapter not installed")
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            log.warning("Setup Bambu test-connection failed: %s", e)
+            return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
 
     elif request.api_type.lower() == "moonraker":
         import httpx as httpx_client
@@ -180,7 +181,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
                 return {"success": True, "state": info.get("state", "unknown"), "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
             return {"success": False, "error": f"Moonraker returned {r.status_code}"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            log.warning("Setup Moonraker test-connection failed: %s", e)
+            return {"success": False, "error": "Connection failed. Check printer IP and Moonraker configuration."}
 
     elif request.api_type.lower() == "prusalink":
         import httpx as httpx_client
@@ -201,7 +203,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
                 return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
             return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            log.warning("Setup PrusaLink test-connection failed: %s", e)
+            return {"success": False, "error": "Connection failed. Check printer IP and PrusaLink configuration."}
 
     elif request.api_type.lower() == "elegoo":
         import socket

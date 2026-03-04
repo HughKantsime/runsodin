@@ -40,6 +40,7 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
         test_conn = sqlite3.connect(tmp_path)
         result = test_conn.execute("PRAGMA integrity_check").fetchone()
         if result[0] != "ok":
+            test_conn.close()
             os.unlink(tmp_path)
             raise HTTPException(status_code=400, detail="Backup file failed integrity check")
         tables = [r[0] for r in test_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
@@ -47,11 +48,17 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
             test_conn.close()
             os.unlink(tmp_path)
             raise HTTPException(status_code=400, detail="Backup file is not a valid O.D.I.N. database")
+        # Security: reject DBs with triggers or views (malicious payload vectors)
         triggers = test_conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()
         if triggers:
             test_conn.close()
             os.unlink(tmp_path)
             raise HTTPException(status_code=400, detail="Backup contains unexpected database triggers")
+        views = test_conn.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall()
+        if views:
+            test_conn.close()
+            os.unlink(tmp_path)
+            raise HTTPException(status_code=400, detail="Backup contains unexpected database views")
         test_conn.close()
     except sqlite3.Error as e:
         os.unlink(tmp_path)
@@ -66,7 +73,7 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
     shutil.copy2(tmp_path, db_path)
     os.unlink(tmp_path)
 
-    log_audit(db, "backup_restored", details=f"Restored from {file.filename}, pre-restore backup: {pre_restore_name}")
+    log_audit(db, "backup_restored", "system", details={"filename": file.filename, "pre_restore_backup": pre_restore_name})
 
     return {
         "status": "ok",
@@ -126,7 +133,7 @@ def list_backups(current_user: dict = Depends(require_role("admin"))):
             "filename": f.name,
             "size_bytes": stat.st_size,
             "size_mb": round(stat.st_size / 1048576, 2),
-            "created_at": datetime.utcfromtimestamp(stat.st_mtime).isoformat(),
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
         })
     return backups
 

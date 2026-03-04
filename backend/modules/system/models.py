@@ -38,8 +38,8 @@ class MaintenanceLog(Base):
     __tablename__ = "maintenance_logs"
 
     id = Column(Integer, primary_key=True)
-    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=False)
-    task_id = Column(Integer, ForeignKey("maintenance_tasks.id"), nullable=True)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
+    task_id = Column(Integer, ForeignKey("maintenance_tasks.id", ondelete="SET NULL"), nullable=True)
     task_name = Column(String(200), nullable=False)
     performed_at = Column(DateTime, server_default=func.now())
     performed_by = Column(String(100), nullable=True)

@@ -40,9 +40,9 @@ class Alert(Base):
     is_dismissed = Column(Boolean, default=False)
 
     # Optional references to related entities
-    printer_id = Column(Integer, ForeignKey("printers.id"), nullable=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True)
-    spool_id = Column(Integer, ForeignKey("spools.id"), nullable=True)
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=True)
+    job_id = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True)
+    spool_id = Column(Integer, ForeignKey("spools.id", ondelete="SET NULL"), nullable=True)
 
     # Flexible extra data
     metadata_json = Column(JSON, nullable=True)

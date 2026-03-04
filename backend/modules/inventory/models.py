@@ -58,7 +58,7 @@ class Spool(Base):
     status = Column(SQLEnum(SpoolStatus, values_callable=_ENUM_VALUES), default=SpoolStatus.ACTIVE)
 
     # Location
-    location_printer_id = Column(Integer, ForeignKey("printers.id"), nullable=True)
+    location_printer_id = Column(Integer, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True)
     location_slot = Column(Integer, nullable=True)
     storage_location = Column(String(100))
     notes = Column(Text)
@@ -94,8 +94,8 @@ class SpoolUsage(Base):
     __tablename__ = "spool_usage"
 
     id = Column(Integer, primary_key=True)
-    spool_id = Column(Integer, ForeignKey("spools.id"), nullable=False)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True)
+    spool_id = Column(Integer, ForeignKey("spools.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(Integer, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
     weight_used_g = Column(Float, nullable=False)
     used_at = Column(DateTime, server_default=func.now())
     notes = Column(String(255))
@@ -110,7 +110,7 @@ class DryingLog(Base):
     __tablename__ = "drying_logs"
 
     id = Column(Integer, primary_key=True)
-    spool_id = Column(Integer, ForeignKey("spools.id"), nullable=False)
+    spool_id = Column(Integer, ForeignKey("spools.id", ondelete="CASCADE"), nullable=False)
     dried_at = Column(DateTime, server_default=func.now())
     duration_hours = Column(Float, nullable=False)
     temp_c = Column(Float, nullable=True)
@@ -138,8 +138,8 @@ class Consumable(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    product_links = relationship("ProductConsumable", back_populates="consumable")
-    usage_history = relationship("ConsumableUsage", back_populates="consumable")
+    product_links = relationship("ProductConsumable", back_populates="consumable", cascade="all, delete-orphan")
+    usage_history = relationship("ConsumableUsage", back_populates="consumable", cascade="all, delete-orphan")
 
 
 class ProductConsumable(Base):
@@ -149,7 +149,7 @@ class ProductConsumable(Base):
 
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
-    consumable_id = Column(Integer, ForeignKey("consumables.id"), nullable=False)
+    consumable_id = Column(Integer, ForeignKey("consumables.id", ondelete="CASCADE"), nullable=False)
     quantity_per_product = Column(Float, default=1)
     notes = Column(Text, nullable=True)
 
@@ -163,8 +163,8 @@ class ConsumableUsage(Base):
     __tablename__ = "consumable_usage"
 
     id = Column(Integer, primary_key=True)
-    consumable_id = Column(Integer, ForeignKey("consumables.id"), nullable=False)
-    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    consumable_id = Column(Integer, ForeignKey("consumables.id", ondelete="CASCADE"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="SET NULL"), nullable=True)
     quantity_used = Column(Float, nullable=False)
     used_at = Column(DateTime, server_default=func.now())
     notes = Column(String(255), nullable=True)

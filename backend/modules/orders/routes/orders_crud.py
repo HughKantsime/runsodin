@@ -369,7 +369,7 @@ def get_order_invoice(
         import traceback
         tb = traceback.format_exc()
         log.error(f"PDF generation failed for order {order_id}: {e}\n{tb}")
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="PDF generation failed. Check server logs for details.")
 
     return FastAPIResponse(
         content=pdf_bytes,

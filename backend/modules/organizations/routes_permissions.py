@@ -7,6 +7,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.dependencies import log_audit
 from core.rbac import require_role
 from core.models import SystemConfig
 
@@ -127,6 +128,7 @@ def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(req
         row = SystemConfig(key="rbac_permissions", value=value)
         db.add(row)
     db.commit()
+    log_audit(db, "permissions_updated", "system", details={"page_keys": list(data.page_access.keys()), "action_keys": list(data.action_access.keys())})
     return {"message": "Permissions updated", **value}
 
 
@@ -137,6 +139,7 @@ def reset_permissions(current_user: dict = Depends(require_role("admin")), db: S
     if row:
         db.delete(row)
         db.commit()
+    log_audit(db, "permissions_reset", "system", details="Permissions reset to defaults")
     return {
         "message": "Reset to defaults",
         "page_access": RBAC_DEFAULT_PAGE_ACCESS,

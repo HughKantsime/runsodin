@@ -363,6 +363,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
     db.add(db_job)
     db.commit()
     db.refresh(db_job)
+    log_audit(db, "job.created", "job", db_job.id, {"item_name": db_job.item_name, "status": str(initial_status)})
 
     # Increment quota usage
     if current_user and current_user.get("quota_jobs"):
@@ -432,6 +433,7 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
+    log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
     db.delete(job)
     db.commit()
 

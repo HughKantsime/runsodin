@@ -277,12 +277,27 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
         port = int(smtp_config.get("port", 587))
         username = smtp_config.get("username", "")
         password = smtp_config.get("password", "")
+        use_tls = smtp_config.get("use_tls", True)
 
-        with smtplib.SMTP(host, port, timeout=10) as server:
+        # Decrypt password if Fernet-encrypted
+        if password:
+            try:
+                password = crypto.decrypt(password)
+            except Exception:
+                pass  # already plaintext
+
+        if use_tls:
+            server = smtplib.SMTP(host, port, timeout=10)
             server.starttls()
+        else:
+            server = smtplib.SMTP(host, port, timeout=10)
+
+        try:
             if username and password:
                 server.login(username, password)
             server.send_message(msg)
+        finally:
+            server.quit()
 
         log.info(f"Email sent to {user_email} for alert {alert_type}")
 

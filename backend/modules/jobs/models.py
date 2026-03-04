@@ -30,7 +30,7 @@ class Job(Base):
     id = Column(Integer, primary_key=True)
 
     # What to print
-    model_id = Column(Integer, ForeignKey("models.id"))
+    model_id = Column(Integer, ForeignKey("models.id", ondelete="SET NULL"), nullable=True)
     model_revision_id = Column(Integer, nullable=True)
     item_name = Column(String(200), nullable=False)  # Can override model name
     quantity = Column(Integer, default=1)
@@ -40,7 +40,7 @@ class Job(Base):
     priority = Column(Integer, default=3)  # 1 = highest, 5 = lowest
 
     # Assignment (filled by scheduler)
-    printer_id = Column(Integer, ForeignKey("printers.id"))
+    printer_id = Column(Integer, ForeignKey("printers.id", ondelete="SET NULL"), nullable=True)
     scheduled_start = Column(DateTime)
     scheduled_end = Column(DateTime)
 
@@ -73,7 +73,7 @@ class Job(Base):
     suggested_price = Column(Float, nullable=True)
 
     # Order fulfillment linkage
-    order_item_id = Column(Integer, ForeignKey("order_items.id"), nullable=True)
+    order_item_id = Column(Integer, ForeignKey("order_items.id", ondelete="SET NULL"), nullable=True)
     quantity_on_bed = Column(Integer, default=1)  # How many pieces this job produces
     due_date = Column(DateTime, nullable=True)
 
@@ -159,7 +159,7 @@ class PrintPreset(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(200), unique=True, nullable=False)
-    model_id = Column(Integer, ForeignKey("models.id"), nullable=True)
+    model_id = Column(Integer, ForeignKey("models.id", ondelete="SET NULL"), nullable=True)
     item_name = Column(String(200))
     quantity = Column(Integer, default=1)
     priority = Column(Integer, default=3)
@@ -170,4 +170,4 @@ class PrintPreset(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
-    model = relationship("Model")
+    model = relationship("Model", passive_deletes=True)

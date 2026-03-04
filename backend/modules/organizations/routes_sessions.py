@@ -14,6 +14,7 @@ from core.rbac import require_role
 from core.auth import hash_password
 import core.auth as auth_module
 from core.quota import _get_quota_usage
+from core.rate_limit import limiter
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -160,7 +161,8 @@ VALID_SCOPES = {
 
 
 @router.post("/tokens", tags=["API Tokens"])
-async def create_api_token(body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def create_api_token(request: Request, body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Create a new scoped API token for the current user."""
     import secrets
     name = body.get("name", "").strip()
