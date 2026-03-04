@@ -2,6 +2,15 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.5.2
+
+- ~~License portal integration~~ — online activate/unactivate/reactivate via runsodin.com; default LICENSE_SERVER_URL
+- ~~Unactivate endpoint~~ — POST /api/license/unactivate frees grant
+- ~~Reactivate endpoint~~ — POST /api/license/reactivate re-issues with current config
+- ~~Unactivation request~~ — GET /api/license/unactivation-request for offline flows
+- ~~Activate URL fix~~ — /api/activate → /api/v1/activate
+- ~~Ed25519 public key update~~ — matches production portal signing key
+
 ## Shipped in v1.5.1
 
 - ~~Analytics enum fixes~~ — 6 string-vs-enum comparisons causing wrong data/500s in analytics and revenue reports

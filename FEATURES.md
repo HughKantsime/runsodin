@@ -730,16 +730,25 @@
 
 ### 20.2 License Enforcement
 - Ed25519 signed license files, verified locally (no phone home)
-- Air-gap friendly — works without network after install
+- Air-gap friendly — works without network after initial activation
 - Frontend gating via ProGate component + LicenseContext
 - License upload via Settings UI (admin-only)
+- Online activation/unactivation/reactivation via license portal
+- Offline activation via JSON file exchange for air-gapped deployments
+- Grant system — each key has N concurrent activation slots
 - BSL 1.1 license — converts to Apache 2.0 after 4 years per version (2029-02-07 for initial release)
 
-### 20.3 License Manager
-- Separate Flask web app on a dedicated server
-- Issue, revoke, reissue, verify, download license files
-- Full audit trail
-- Ed25519 signing compatible with ODIN's odin-license-v1 format
+### 20.3 License Portal (runsodin.com)
+- Integrated into marketing site as Vercel serverless functions (Neon Postgres)
+- Online activation: POST key + installation_id → signed license file
+- Online unactivation: frees grant for use on another server
+- Reactivation: re-issues license with updated tier/feature config
+- Offline activation/unactivation via JSON file upload portal
+- License verification/heartbeat endpoint (updates last_seen_at)
+- Admin portal: CRUD license keys, view activations, force-unactivate, activity log
+- ODIN-XXXX-XXXX-XXXX key format with unambiguous charset
+- Ed25519 signing compatible with ODIN's embedded verifier
+- Default LICENSE_SERVER_URL=https://runsodin.com (configurable)
 
 ---
 

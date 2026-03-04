@@ -2,6 +2,22 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.5.2] - 2026-03-04
+
+### Added
+- **License portal integration** — online activation, unactivation, and reactivation via runsodin.com license portal; `LICENSE_SERVER_URL` defaults to `https://runsodin.com`
+- **Unactivate endpoint** — `POST /api/license/unactivate` frees the grant for use on another server
+- **Reactivate endpoint** — `POST /api/license/reactivate` re-issues license with current tier/feature config
+- **Unactivation request** — `GET /api/license/unactivation-request` generates offline unactivation JSON file
+- **LicenseInfo.key field** — license key tracked in payload for unactivation/reactivation support
+
+### Fixed
+- **Activate endpoint URL** — corrected `/api/activate` → `/api/v1/activate` to match portal API
+
+### Changed
+- **Ed25519 public key** — updated embedded key to match production license portal signing key
+- **License server config** — `LICENSE_SERVER_URL` moved from env-only to `Settings` with default; no manual configuration needed
+
 ## [1.5.1] - 2026-03-04
 
 ### Fixed
