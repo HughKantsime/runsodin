@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # SameSite policy: 'strict' (prod), 'lax' (needed if OIDC IdP is cross-origin)
     cookie_samesite: str = "strict"
 
+    # License server URL for online activation/unactivation/reactivation
+    license_server_url: str = "https://runsodin.com"
+
     # OIDC redirect URI override. When ODIN is behind a reverse proxy, set this
     # to the externally-visible callback URL (e.g. https://odin.example.com/api/auth/oidc/callback)
     # to avoid Host-header injection affecting the redirect_uri sent to the IdP.

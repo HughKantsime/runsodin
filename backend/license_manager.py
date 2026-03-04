@@ -27,7 +27,7 @@ except ImportError:
 # ── Embedded public key (ships with the software) ──
 # Replace this with your actual public key after running generate_license.py --keygen
 ODIN_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA3nynDyOQuT1rfhSxbZD3gseI7Uq4TdbTVf4cZKgKaLw=
+MCowBQYDK2VwAyEA7PGXt2pCPkWUtPXbjwIjRTGoRwsYdmEzsSsS2AGAy28=
 -----END PUBLIC KEY-----
 """
 
@@ -106,6 +106,7 @@ class LicenseInfo:
     def __init__(self):
         self.valid = False
         self.tier = "community"
+        self.key = ""
         self.licensee = ""
         self.email = ""
         self.issued_at = ""
@@ -131,6 +132,7 @@ class LicenseInfo:
             "valid": self.valid,
             "tier": self.tier,
             "tier_name": tier_def["name"],
+            "key": self.key,
             "licensee": self.licensee,
             "email": self.email,
             "issued_at": self.issued_at,
@@ -236,6 +238,7 @@ def load_license() -> LicenseInfo:
 
         info.valid = True
         info.tier = tier
+        info.key = payload.get("key", "")
         info.licensee = payload.get("licensee", "")
         info.email = payload.get("email", "")
         info.issued_at = payload.get("issued_at", "")

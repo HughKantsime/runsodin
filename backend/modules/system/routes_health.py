@@ -131,9 +131,7 @@ async def activate_license(
     current_user: dict = Depends(require_role("admin")),
 ):
     """Activate a license by key via the license server. Admin only."""
-    license_server_url = os.environ.get("LICENSE_SERVER_URL")
-    if not license_server_url:
-        raise HTTPException(status_code=503, detail="LICENSE_SERVER_URL is not configured. Set this environment variable to enable online activation.")
+    license_server_url = settings.license_server_url
     if license_server_url.startswith("http://") and not license_server_url.startswith("http://localhost") and not license_server_url.startswith("http://127."):
         license_server_url = "https://" + license_server_url[7:]
     installation_id = get_installation_id()
@@ -141,7 +139,7 @@ async def activate_license(
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                f"{license_server_url}/api/activate",
+                f"{license_server_url}/api/v1/activate",
                 json={"key": request.key, "installation_id": installation_id},
             )
     except Exception as e:
@@ -191,6 +189,132 @@ def get_activation_request(current_user: dict = Depends(require_role("admin"))):
         content=content,
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="odin-activation-request.json"'},
+    )
+
+
+class LicenseUnactivateRequest(PydanticBaseModel):
+    key: str = None  # Optional — if not provided, read from current license
+
+
+@router.post("/license/unactivate", tags=["License"])
+async def unactivate_license(
+    request: LicenseUnactivateRequest = None,
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Unactivate the current license to free the grant for another server. Admin only."""
+    license_server_url = settings.license_server_url
+
+    # Get key from request or current license
+    license_key = (request and request.key) or get_license().key
+    if not license_key:
+        raise HTTPException(status_code=400, detail="No license key available. Provide a key or ensure current license contains one.")
+
+    installation_id = get_installation_id()
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{license_server_url}/api/v1/unactivate",
+                json={"key": license_key, "installation_id": installation_id},
+            )
+    except Exception as e:
+        log.error("License unactivation failed — could not reach license server: %s", e)
+        raise HTTPException(status_code=502, detail="Could not reach license server.")
+
+    if resp.status_code != 200:
+        detail = resp.json().get("error", "Unactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+
+    # Remove local license file
+    from license_manager import LICENSE_DIR, LICENSE_FILENAME
+    license_path = os.path.join(LICENSE_DIR, LICENSE_FILENAME)
+    if os.path.exists(license_path):
+        os.remove(license_path)
+
+    # Clear cache
+    import license_manager
+    license_manager._cached_license = None
+    license_manager._cached_mtime = 0
+
+    log_audit(db, "license.unactivated", "system", details={"key": license_key[:4] + "..."})
+    return {"status": "unactivated", "tier": "community"}
+
+
+@router.post("/license/reactivate", tags=["License"])
+async def reactivate_license(
+    current_user: dict = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Reactivate the license to pick up tier/feature changes. Admin only."""
+    license_server_url = settings.license_server_url
+
+    current_license = get_license()
+    if not current_license.key:
+        raise HTTPException(status_code=400, detail="Current license has no key. Cannot reactivate.")
+
+    installation_id = get_installation_id()
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{license_server_url}/api/v1/reactivate",
+                json={"key": current_license.key, "installation_id": installation_id},
+            )
+    except Exception as e:
+        log.error("License reactivation failed — could not reach license server: %s", e)
+        raise HTTPException(status_code=502, detail="Could not reach license server.")
+
+    if resp.status_code != 200:
+        detail = resp.json().get("error", "Reactivation failed") if resp.headers.get("content-type", "").startswith("application/json") else f"License server returned {resp.status_code}"
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+
+    data = resp.json()
+    license_content = data.get("license_file")
+    if not license_content:
+        raise HTTPException(status_code=502, detail="License server returned no license file")
+
+    path = save_license_file(license_content)
+    import license_manager
+    license_manager._cached_license = None
+    license_manager._cached_mtime = 0
+    license_info = get_license()
+
+    if license_info.error:
+        os.remove(path)
+        raise HTTPException(status_code=400, detail=license_info.error)
+
+    log_audit(db, "license.reactivated", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
+    return {
+        "status": "reactivated",
+        "tier": license_info.tier,
+        "licensee": license_info.licensee,
+        "expires_at": license_info.expires_at,
+    }
+
+
+@router.get("/license/unactivation-request", tags=["License"])
+def get_unactivation_request(current_user: dict = Depends(require_role("admin"))):
+    """Generate a downloadable unactivation request file for offline unactivation. Admin only."""
+    import socket
+    from starlette.responses import Response as _Response
+
+    current_license = get_license()
+    if not current_license.key:
+        raise HTTPException(status_code=400, detail="Current license has no key. Cannot generate unactivation request.")
+
+    payload = {
+        "installation_id": get_installation_id(),
+        "hostname": socket.gethostname(),
+        "key": current_license.key,
+        "odin_version": __version__,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    content = json.dumps(payload, indent=2)
+    return _Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="odin-unactivation-request.json"'},
     )
 
 
