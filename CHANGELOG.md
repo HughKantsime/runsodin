@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.5.1] - 2026-03-04
+
+### Fixed
+- **Analytics 500 errors** — 6 string-vs-enum comparisons in analytics.py silently returned wrong data or raised exceptions; all now use `JobStatus.*` enum members
+- **Export/models 500 error** — `FilamentType` enum missing `UNKNOWN` value caused `LookupError` when querying models with unrecognized filament types from 3MF parser
+- **Scoped token 401 instead of 403** — API key middleware rejected `odin_` scoped tokens before route-level auth could check scopes; now passes them through to `get_current_user`
+- **Cross-module import contract test** — allowlist pattern `.alert_dispatcher` didn't match actual module `alert_dispatch.py`; also added `.archive import` allowlist entry
+- **Print file format crash** — `print_time_seconds` null guard in print_files.py prevented `TypeError` on gcode files without time metadata
+- **Analytics null guard** — `job.created_at` null check prevents `AttributeError` in date-bucketing loops
+- **Bed dimensions not persisting** — `bed_x_mm`/`bed_y_mm` fields ignored during printer update; now included in PATCH handler
+- **Test infrastructure portability** — replaced `docker exec` with HTTP-based test helpers; fixed API key headers, JWT test isolation, and dispatch guardrail tests for k8s environments
+
 ## [1.5.0] - 2026-03-03
 
 ### Added

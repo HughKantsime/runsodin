@@ -2,6 +2,16 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.5.1
+
+- ~~Analytics enum fixes~~ — 6 string-vs-enum comparisons causing wrong data/500s in analytics and revenue reports
+- ~~FilamentType UNKNOWN~~ — enum now handles unrecognized filament types from 3MF parser without crashing
+- ~~Scoped token auth fix~~ — `odin_` tokens pass through API key middleware to route-level scope enforcement
+- ~~Cross-module import contract~~ — fixed allowlist patterns for alert_dispatch and archive imports
+- ~~Print file null guard~~ — print_time_seconds formatting handles None values
+- ~~Bed dimension persistence~~ — PATCH /api/printers now saves bed_x_mm/bed_y_mm
+- ~~Test portability~~ — test infrastructure works in k8s (no docker exec dependency)
+
 ## Shipped in v1.5.0
 
 - ~~Design system~~ — 13 UI primitives (Modal, Button, Input, Select, Textarea, Card, PageHeader, EmptyState, StatCard, StatusBadge, TabBar, SearchInput, ProgressBar) with barrel export
