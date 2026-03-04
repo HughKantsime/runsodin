@@ -63,7 +63,7 @@ ALLOWED_PATTERNS = [
     # the intended architecture for cross-module communication.
     ".event_dispatcher",
     ".mqtt_republish",
-    ".alert_dispatcher",
+    ".alert_dispatch",    # alert_dispatch.py and alert_dispatcher.py (notification layer)
 
     # Data/utility files — pure functions with no route logic side effects.
     ".hms_codes",         # Bambu HMS error code lookup (data file)
@@ -73,6 +73,7 @@ ALLOWED_PATTERNS = [
     ".threemf_parser",    # 3MF file parsing utility
     ".route_utils",       # Shared SSRF blocklist, go2rtc config sync
     ".dispatch import",   # Printer dispatch (send job to printer HW)
+    ".archive import",    # Print archive service (create_print_archive shared by monitors)
 
     # Service layer — the intended cross-module boundary for shared business
     # logic. Importing from another module's services.py is allowed; importing

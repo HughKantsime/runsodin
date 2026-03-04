@@ -25,7 +25,7 @@ import os
 import uuid
 import csv
 import io
-from helpers import login as _shared_login, auth_headers as _make_headers
+from helpers import login as _shared_login, auth_headers as _make_headers, container_exec_python
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -191,17 +191,14 @@ def first_alert_id(admin_headers):
         elif isinstance(alerts, dict) and alerts.get("alerts"):
             return alerts["alerts"][0]["id"]
     # Create a test alert via direct DB insert (no POST endpoint for alerts)
-    import subprocess
-    result = subprocess.run(
-        ["docker", "exec", "odin", "python3", "-c",
-         "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
-         "c.execute(\"INSERT INTO alerts (user_id, alert_type, severity, title, message, is_read, is_dismissed, created_at) "
-         "VALUES (1, 'print_complete', 'info', 'Test alert', 'Created by test suite', 0, 0, datetime('now'))\"); "
-         "c.commit(); print(c.execute('SELECT last_insert_rowid()').fetchone()[0])"],
-        capture_output=True, text=True, timeout=10
+    rc, stdout, _ = container_exec_python(
+        "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+        "c.execute(\"INSERT INTO alerts (user_id, alert_type, severity, title, message, is_read, is_dismissed, created_at) "
+        "VALUES (1, 'print_complete', 'info', 'Test alert', 'Created by test suite', 0, 0, datetime('now'))\"); "
+        "c.commit(); print(c.execute('SELECT last_insert_rowid()').fetchone()[0])"
     )
-    if result.returncode == 0 and result.stdout.strip():
-        return int(result.stdout.strip())
+    if rc == 0 and stdout.strip():
+        return int(stdout.strip())
     return None
 
 
@@ -688,11 +685,11 @@ class TestNotifications:
 class TestIntegrations:
     """F44-F49: Prometheus, MQTT republish, WebSocket, docs, health."""
 
-    def test_f44_prometheus_metrics(self):
+    def test_f44_prometheus_metrics(self, admin_headers):
         """F44: Prometheus metrics endpoint."""
-        r = requests.get(f"{BASE_URL}/metrics")
+        r = requests.get(f"{BASE_URL}/metrics", headers=admin_headers)
         if r.status_code == 404:
-            r = requests.get(f"{BASE_URL}/api/metrics")
+            r = requests.get(f"{BASE_URL}/api/metrics", headers=admin_headers)
         assert r.status_code == 200
         # Should be Prometheus text format
         assert "HELP" in r.text or "TYPE" in r.text or "python" in r.text.lower(), \
@@ -715,15 +712,15 @@ class TestIntegrations:
             r = requests.get(f"{BASE_URL}/api/ws")
         assert r.status_code != 404, "WebSocket endpoint not found at /ws or /api/ws"
 
-    def test_f47_swagger_docs(self):
+    def test_f47_swagger_docs(self, admin_headers):
         """F47: Swagger/OpenAPI docs page."""
-        r = requests.get(f"{BASE_URL}/api/v1/docs")
+        r = requests.get(f"{BASE_URL}/api/v1/docs", headers=admin_headers)
         assert r.status_code == 200
         assert "swagger" in r.text.lower() or "openapi" in r.text.lower() or "html" in r.text.lower()
 
-    def test_f48_redoc(self):
+    def test_f48_redoc(self, admin_headers):
         """F48: ReDoc endpoint."""
-        r = requests.get(f"{BASE_URL}/api/v1/redoc")
+        r = requests.get(f"{BASE_URL}/api/v1/redoc", headers=admin_headers)
         assert r.status_code == 200
 
     def test_f49_health_endpoint(self):
@@ -893,13 +890,13 @@ class TestArchiveDepth:
     def test_tag_crud(self, admin_headers):
         """Tag lifecycle: set tags, list tags, rename, delete."""
         # Create an archive to tag
-        import subprocess
-        subprocess.run([
-            "docker", "exec", "odin", "python3", "-c",
+        rc, _, _ = container_exec_python(
             "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
             "c.execute(\"INSERT INTO print_archives (print_name, status, tags) "
             "VALUES ('tag_test_print', 'completed', '')\"); c.commit(); c.close()"
-        ], capture_output=True)
+        )
+        if rc != 0:
+            pytest.skip("Cannot exec into container to seed test data")
 
         # Find the archive
         r = requests.get(f"{BASE_URL}/api/archives?search=tag_test_print", headers=admin_headers)
@@ -951,15 +948,15 @@ class TestArchiveDepth:
     def test_archive_compare(self, admin_headers):
         """Compare two archives returns diff."""
         # Create two archives
-        import subprocess
         for name in ["compare_a", "compare_b"]:
             duration = 3600 if name == "compare_a" else 7200
-            subprocess.run([
-                "docker", "exec", "odin", "python3", "-c",
+            rc, _, _ = container_exec_python(
                 f"import sqlite3; c=sqlite3.connect('/data/odin.db'); "
                 f"c.execute(\"INSERT INTO print_archives (print_name, status, actual_duration_seconds) "
                 f"VALUES ('{name}', 'completed', {duration})\"); c.commit(); c.close()"
-            ], capture_output=True)
+            )
+            if rc != 0:
+                pytest.skip("Cannot exec into container to seed test data")
 
         # Find them
         r = requests.get(f"{BASE_URL}/api/archives?search=compare_a", headers=admin_headers)
@@ -982,13 +979,13 @@ class TestArchiveDepth:
     def test_reprint_missing_file(self, admin_headers):
         """Reprint returns 400 when original file is missing."""
         # Create archive without a file
-        import subprocess
-        subprocess.run([
-            "docker", "exec", "odin", "python3", "-c",
+        rc, _, _ = container_exec_python(
             "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
             "c.execute(\"INSERT INTO print_archives (print_name, status) "
             "VALUES ('reprint_test', 'completed')\"); c.commit(); c.close()"
-        ], capture_output=True)
+        )
+        if rc != 0:
+            pytest.skip("Cannot exec into container to seed test data")
 
         r = requests.get(f"{BASE_URL}/api/archives?search=reprint_test", headers=admin_headers)
         archive_id = r.json()["items"][0]["id"]
@@ -1008,13 +1005,13 @@ class TestArchiveDepth:
     def test_ams_preview(self, admin_headers):
         """AMS preview endpoint returns expected structure."""
         # Create a test archive
-        import subprocess
-        subprocess.run([
-            "docker", "exec", "odin", "python3", "-c",
+        rc, _, _ = container_exec_python(
             "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
             "c.execute(\"INSERT INTO print_archives (print_name, status) "
             "VALUES ('ams_test', 'completed')\"); c.commit(); c.close()"
-        ], capture_output=True)
+        )
+        if rc != 0:
+            pytest.skip("Cannot exec into container to seed test data")
 
         r = requests.get(f"{BASE_URL}/api/archives?search=ams_test", headers=admin_headers)
         archive_id = r.json()["items"][0]["id"]

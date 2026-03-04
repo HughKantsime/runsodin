@@ -727,6 +727,7 @@ ENDPOINT_MATRIX = [
     # 61. Timelapses
     # =========================================================================
     ("GET",    "/api/timelapses",                        _api_read(),   None, "List timelapses"),
+    ("GET",    "/api/timelapses/{timelapse_id}",        _api_read(),   None, "Get timelapse"),
     ("GET",    "/api/timelapses/{timelapse_id}/video",  _api_read(),   None, "Download timelapse video"),
     ("GET",    "/api/timelapses/{timelapse_id}/stream", _api_read(),   None, "Stream timelapse for playback"),
     ("GET",    "/api/timelapses/{timelapse_id}/download", _api_read(), None, "Download timelapse as attachment"),
@@ -744,6 +745,7 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/vision/models",                             _admin_read(), None, "List vision models"),
     ("POST",   "/api/vision/models",                             _admin_only(), None, "Upload vision model"),
     ("PATCH",  "/api/vision/models/{model_id}/activate",         _admin_only(), None, "Activate vision model"),
+    ("DELETE", "/api/vision/models/{model_id}",                  _admin_only(), None, "Delete vision model"),
     ("GET",    "/api/vision/settings",                           _admin_read(), None, "Get vision settings (admin only)"),
     ("PATCH",  "/api/vision/settings",                           _admin_only(), {},   "Update vision settings"),
     ("GET",    "/api/vision/stats",                              _api_read(),   None, "Vision stats"),

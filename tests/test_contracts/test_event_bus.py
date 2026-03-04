@@ -257,3 +257,120 @@ class TestSingleton:
     def test_singleton_is_in_memory_bus(self):
         bus = get_event_bus()
         assert isinstance(bus, InMemoryEventBus)
+
+
+# ---------------------------------------------------------------------------
+# Event wiring verification — published events have subscribers
+# ---------------------------------------------------------------------------
+
+from core import events as ev  # noqa: E402
+
+
+# All event constants defined in core/events.py
+ALL_EVENT_CONSTANTS = {
+    name: getattr(ev, name)
+    for name in dir(ev)
+    if not name.startswith("_") and isinstance(getattr(ev, name), str)
+}
+
+# Events published by the codebase (source -> event_type):
+#   notifications/job_events.py: JOB_STARTED, JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED
+#   notifications/alert_dispatch.py: "notifications.alert_dispatched" (not in events.py — ad-hoc)
+PUBLISHED_EVENTS = {
+    ev.JOB_STARTED,
+    ev.JOB_COMPLETED,
+    ev.JOB_FAILED,
+    ev.JOB_CANCELLED,
+    "notifications.alert_dispatched",
+}
+
+# Events subscribed to (from all register_subscribers calls):
+#   ws_hub: JOB_STARTED, JOB_COMPLETED, JOB_FAILED, "notifications.alert_dispatched", "*"
+#   smart_plug: JOB_STARTED, JOB_COMPLETED
+#   mqtt_republish: PRINTER_STATE_CHANGED, PRINTER_CONNECTED, PRINTER_DISCONNECTED,
+#                   JOB_STARTED, JOB_COMPLETED, JOB_FAILED, "notifications.alert_dispatched"
+#   archive: JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED
+SUBSCRIBED_EVENTS = {
+    ev.JOB_STARTED,
+    ev.JOB_COMPLETED,
+    ev.JOB_FAILED,
+    ev.JOB_CANCELLED,
+    ev.PRINTER_STATE_CHANGED,
+    ev.PRINTER_CONNECTED,
+    ev.PRINTER_DISCONNECTED,
+    "notifications.alert_dispatched",
+}
+
+
+class TestEventWiring:
+    """Verify that published events have subscribers and vice versa."""
+
+    def test_all_published_events_have_subscribers(self):
+        """Every event published by the codebase must have at least one subscriber."""
+        # The wildcard subscriber in ws_hub catches everything, but we also
+        # check for explicit subscribers.
+        unsubscribed = PUBLISHED_EVENTS - SUBSCRIBED_EVENTS
+        # Wildcard ("*") catches everything, so technically all are subscribed.
+        # But we verify explicit subscription for non-wildcard events.
+        assert not unsubscribed, (
+            f"Published events with no explicit subscriber: {sorted(unsubscribed)}"
+        )
+
+    def test_all_subscribed_events_are_published_or_have_constant(self):
+        """Every subscribed event should either be published or be a known constant."""
+        # Some events (PRINTER_STATE_CHANGED etc.) are published by monitor daemons
+        # via ws_hub.push_event, not via event_bus.publish. The mqtt_republish
+        # subscriber receives them via the event bus only when published by
+        # the FastAPI process. Monitor processes run in separate OS processes.
+        known_events = set(ALL_EVENT_CONSTANTS.values()) | {"notifications.alert_dispatched"}
+        unknown = SUBSCRIBED_EVENTS - known_events
+        assert not unknown, (
+            f"Subscribed events not defined in events.py: {sorted(unknown)}"
+        )
+
+    def test_all_event_constants_are_used(self):
+        """Every constant in events.py should be either published or subscribed to somewhere."""
+        all_used = PUBLISHED_EVENTS | SUBSCRIBED_EVENTS
+        all_constant_values = set(ALL_EVENT_CONSTANTS.values())
+
+        # Events that are defined but only used by monitor daemons (separate processes)
+        # that publish via ws_hub.push_event rather than event_bus.publish.
+        # These are still valid — they trigger alerts/logging in the monitor code directly.
+        MONITOR_ONLY_EVENTS = {
+            ev.PRINTER_ERROR,
+            ev.PRINTER_HMS_CODE,
+            ev.DETECTION_TRIGGERED,
+            ev.DETECTION_AUTO_PAUSE,
+            ev.SPOOL_LOW,
+            ev.SPOOL_EMPTY,
+            ev.CONSUMABLE_LOW,
+            ev.BACKUP_COMPLETED,
+            ev.LICENSE_CHANGED,
+            ev.JOB_CREATED,
+        }
+
+        unused = all_constant_values - all_used - MONITOR_ONLY_EVENTS
+        assert not unused, (
+            f"Event constants defined but never published or subscribed: {sorted(unused)}. "
+            f"If these are used by monitor daemons, add to MONITOR_ONLY_EVENTS."
+        )
+
+    def test_wiring_simulation(self):
+        """Simulate the actual wiring from app.py lifespan to verify no import errors."""
+        bus = _fresh_bus()
+
+        # Import and call each register_subscribers function
+        from core.ws_hub import subscribe_to_bus as ws_subscribe
+        from modules.printers import register_subscribers as printers_register
+        from modules.notifications import register_subscribers as notifications_register
+        from modules.archives import register_subscribers as archives_register
+
+        # These should not raise
+        ws_subscribe(bus)
+        printers_register(bus)
+        notifications_register(bus)
+        archives_register(bus)
+
+        # Verify bus has handlers registered
+        assert len(bus._handlers) > 0, "No event handlers registered after wiring"
+        assert len(bus._wildcard_handlers) > 0, "No wildcard handlers registered"

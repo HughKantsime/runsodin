@@ -20,7 +20,7 @@ import uuid
 import pytest
 import requests
 from pathlib import Path
-from helpers import login as _shared_login
+from helpers import login as _shared_login, restart_backend as _restart_backend_impl
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -97,15 +97,10 @@ def make_request(method, path, auth_mode, token=None, body=None):
 
 def _restart_backend():
     """Restart backend process to clear in-memory rate limits and lockouts."""
-    import subprocess, time
     try:
-        subprocess.run(
-            ["docker", "exec", "odin", "supervisorctl", "restart", "backend"],
-            capture_output=True, timeout=15,
-        )
-        time.sleep(8)  # Wait for backend to come back up (supervisord startsecs=5)
+        _restart_backend_impl()
     except Exception:
-        pass  # Best-effort; may fail if not running in Docker
+        pass  # Best-effort
 
 
 @pytest.fixture(scope="session", autouse=True)

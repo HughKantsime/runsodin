@@ -150,20 +150,18 @@ def test_dispatch_blocked_by_bed_size_mismatch(hdrs):
         job_data = {
             "item_name": f"oversize_job_{_TAG}",
             "model_id": model_id,
-            "printer_id": printer_id,
             "priority": 5,
             "quantity": 1,
-            "status": "scheduled",
         }
         r3 = requests.post(f"{BASE_URL}/api/jobs", headers=hdrs, json=job_data, timeout=10)
         assert r3.status_code in (200, 201), r3.text
         job_id = r3.json()["id"]
 
-        # Set job status to scheduled so dispatch doesn't reject it on status grounds
+        # Assign printer and set status via PATCH (printer_id not accepted on create)
         requests.patch(
             f"{BASE_URL}/api/jobs/{job_id}",
             headers=hdrs,
-            json={"status": "scheduled"},
+            json={"printer_id": printer_id, "status": "scheduled"},
             timeout=10,
         )
 
@@ -265,7 +263,6 @@ def test_dispatch_null_bed_does_not_trigger_bed_guard(hdrs):
         job_data = {
             "item_name": f"nullbed_job_{_TAG}",
             "model_id": model_id,
-            "printer_id": printer_id,
             "priority": 5,
             "quantity": 1,
         }
@@ -273,24 +270,29 @@ def test_dispatch_null_bed_does_not_trigger_bed_guard(hdrs):
         assert r3.status_code in (200, 201), r3.text
         job_id = r3.json()["id"]
 
+        # Assign printer and set status via PATCH (printer_id not accepted on create)
         requests.patch(
             f"{BASE_URL}/api/jobs/{job_id}",
             headers=hdrs,
-            json={"status": "scheduled"},
+            json={"printer_id": printer_id, "status": "scheduled"},
             timeout=10,
         )
 
         try:
-            r4 = requests.post(
-                f"{BASE_URL}/api/jobs/{job_id}/dispatch",
-                headers=hdrs,
-                timeout=30,
-            )
-            # May fail for network reasons (no real printer) but must NOT be a bed error
-            if r4.status_code == 400:
-                detail = r4.json().get("detail", "")
-                assert "sliced for" not in detail.lower(), \
-                    f"Bed guard should not fire when bed_x_mm is NULL. Got: {detail}"
+            try:
+                r4 = requests.post(
+                    f"{BASE_URL}/api/jobs/{job_id}/dispatch",
+                    headers=hdrs,
+                    timeout=30,
+                )
+            except requests.exceptions.ReadTimeout:
+                pass  # Expected — no real printer at 192.168.99.252, network timeout is fine
+            else:
+                # May fail for network reasons (no real printer) but must NOT be a bed error
+                if r4.status_code == 400:
+                    detail = r4.json().get("detail", "")
+                    assert "sliced for" not in detail.lower(), \
+                        f"Bed guard should not fire when bed_x_mm is NULL. Got: {detail}"
         finally:
             requests.delete(f"{BASE_URL}/api/jobs/{job_id}", headers=hdrs, timeout=10)
     finally:

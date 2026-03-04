@@ -30,6 +30,7 @@ import pytest
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
+from helpers import container_exec, container_exec_python, restart_backend
 
 # ---------------------------------------------------------------------------
 # Config
@@ -349,13 +350,10 @@ class TestGo2RTCPortIsolation:
 
     def test_go2rtc_config_binds_localhost(self):
         """go2rtc.yaml must configure listen on 127.0.0.1, not 0.0.0.0."""
-        result = subprocess.run(
-            ["docker", "exec", "odin", "cat", "/app/go2rtc/go2rtc.yaml"],
-            capture_output=True, text=True, timeout=15,
-        )
-        if result.returncode != 0:
-            pytest.skip(f"Cannot read go2rtc.yaml from container: {result.stderr.strip()}")
-        config = result.stdout
+        rc, stdout, stderr = container_exec(["cat", "/app/go2rtc/go2rtc.yaml"])
+        if rc != 0:
+            pytest.skip(f"Cannot read go2rtc.yaml from container: {stderr.strip()}")
+        config = stdout
         assert "0.0.0.0:1984" not in config, \
             f"go2rtc is binding to 0.0.0.0:1984 — should be 127.0.0.1:1984"
         assert "127.0.0.1:1984" in config, \
@@ -376,14 +374,11 @@ class TestNonRootContainer:
         after startup. We check /proc/1/status because 'docker exec whoami' always
         spawns a shell as the Dockerfile default user (root), not the supervisord user.
         """
-        result = subprocess.run(
-            ["docker", "exec", "odin", "sh", "-c", "cat /proc/1/status"],
-            capture_output=True, text=True, timeout=15,
-        )
-        if result.returncode != 0:
-            pytest.skip(f"Cannot read /proc/1/status: {result.stderr.strip()}")
+        rc, stdout, stderr = container_exec(["sh", "-c", "cat /proc/1/status"])
+        if rc != 0:
+            pytest.skip(f"Cannot read /proc/1/status: {stderr.strip()}")
         # Extract Uid line: "Uid:\t999\t999\t999\t999" (real, effective, saved, fs)
-        uid_line = next((l for l in result.stdout.splitlines() if l.startswith("Uid:")), None)
+        uid_line = next((l for l in stdout.splitlines() if l.startswith("Uid:")), None)
         assert uid_line, "Could not find Uid: line in /proc/1/status"
         real_uid = int(uid_line.split()[1])
         assert real_uid != 0, (
@@ -843,14 +838,9 @@ class TestRateLimiting:
     def teardown_class(cls):
         """Clear login_attempts after rate-limit tests so subsequent test runs can log in."""
         try:
-            subprocess.run(
-                [
-                    "docker", "exec", "odin", "python3", "-c",
-                    "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
-                    "c.execute('DELETE FROM login_attempts'); c.commit(); c.close()",
-                ],
-                capture_output=True,
-                timeout=15,
+            container_exec_python(
+                "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+                "c.execute('DELETE FROM login_attempts'); c.commit(); c.close()"
             )
         except Exception:
             pass  # Best-effort

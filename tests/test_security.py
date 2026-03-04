@@ -26,7 +26,7 @@ import time
 import uuid
 import os
 from dotenv import load_dotenv
-from helpers import login as _shared_login
+from helpers import login as _shared_login, container_exec_python
 
 # Load test env
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env.test"))
@@ -192,14 +192,20 @@ class TestJWTSecretUnity:
 
     def test_s3_wrong_secret_rejected(self):
         """S3: Token signed with wrong secret must be rejected on role-protected endpoint.
-        NOTE: Must test against an admin-only endpoint (e.g. /api/users, /api/backups)
-        because in trusted-network mode, endpoints without require_role() pass through.
+        NOTE: Must send ONLY the fake JWT (no API key) to isolate JWT verification.
+        If we included a valid API key, the auth cascade would fall through to API key
+        auth and succeed — which is correct behavior but not what we're testing here.
         """
         fake_token = pyjwt.encode(
             {"sub": "admin", "role": "admin", "exp": int(time.time()) + 3600},
             "wrong-secret-definitely-not-real",
             algorithm="HS256",
         )
+        # Send ONLY the fake JWT — no API key — to test JWT secret validation in isolation
+        jwt_only_headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {fake_token}",
+        }
         # Test against admin-only endpoints that have require_role("admin")
         admin_endpoints = [
             "/api/users",
@@ -209,7 +215,7 @@ class TestJWTSecretUnity:
         for endpoint in admin_endpoints:
             r = requests.get(
                 f"{BASE_URL}{endpoint}",
-                headers=_headers(fake_token),
+                headers=jwt_only_headers,
                 timeout=10,
             )
             if r.status_code in (401, 403):
@@ -563,13 +569,13 @@ class TestRateLimiting:
     @classmethod
     def teardown_class(cls):
         """Clear login_attempts after rate-limit tests so subsequent tests can log in."""
-        import subprocess
-        subprocess.run(
-            ["docker", "exec", "odin", "python3", "-c",
-             "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
-             "c.execute('DELETE FROM login_attempts'); c.commit(); c.close()"],
-            capture_output=True,
-        )
+        try:
+            container_exec_python(
+                "import sqlite3; c=sqlite3.connect('/data/odin.db'); "
+                "c.execute('DELETE FROM login_attempts'); c.commit(); c.close()"
+            )
+        except Exception:
+            pass  # Best-effort
 
     def test_s26_rate_limit_on_failed_logins(self):
         """S26: 11+ failed login attempts in 5 minutes → 429 eventually.
