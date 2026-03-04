@@ -124,8 +124,8 @@ export default function AuditLogs() {
       </div>
 
       {/* Table */}
-      <div className="bg-farm-900 border border-farm-800 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-farm-900 border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="border-b border-farm-800 text-farm-500 text-xs uppercase">
               <th className="text-left px-4 py-3 font-medium">Timestamp</th>

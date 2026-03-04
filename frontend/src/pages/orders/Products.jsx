@@ -4,6 +4,7 @@ import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
 import { canDo } from '../../permissions'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { EmptyState } from '../../components/ui'
 
 export default function Products() {
   const [productList, setProductList] = useState([])
@@ -222,9 +223,12 @@ export default function Products() {
       )}
 
       {productList.length === 0 ? (
-        <div className="text-center py-12 text-farm-500">
-          <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>No products yet. Create your first product to get started.</p>
+        <div className="bg-farm-900 rounded-lg border border-farm-800">
+          <EmptyState
+            icon={Package}
+            title="No products yet"
+            description="Create your first product to get started."
+          />
         </div>
       ) : (
         <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">

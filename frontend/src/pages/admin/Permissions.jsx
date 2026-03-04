@@ -89,8 +89,8 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }) {
   return (
     <div>
       <h3 className="text-sm font-medium text-farm-300 uppercase tracking-wider mb-3">{title}</h3>
-      <div className="border border-farm-800 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[400px]">
           <thead>
             <tr className="bg-farm-900">
               <th className="text-left px-4 py-3 text-farm-400 text-xs uppercase w-48">

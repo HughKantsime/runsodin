@@ -434,8 +434,8 @@ export default function Maintenance() {
               saving={createTaskMutation.isPending} />
           )}
 
-          <div className="border border-farm-800 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm min-w-[500px]">
               <thead>
                 <tr className="bg-farm-900 text-farm-400 text-xs uppercase">
                   <th className="text-left px-4 py-3">Task</th>
@@ -515,8 +515,8 @@ export default function Maintenance() {
             <span className="text-sm text-farm-400">{filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''}</span>
           </div>
 
-          <div className="border border-farm-800 rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm min-w-[500px]">
               <thead>
                 <tr className="bg-farm-900 text-farm-400 text-xs uppercase">
                   <th className="text-left px-4 py-3">Date</th>

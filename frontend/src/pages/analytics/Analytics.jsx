@@ -183,7 +183,7 @@ function FleetOverview({ summary }) {
           <span className="text-farm-400">{completionRate}% completion rate</span>
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map(s => (
           <div key={s.label} className="text-center p-3 rounded-lg bg-farm-800/40">
             <div className={`text-xl md:text-2xl font-bold font-display tabular-nums ${s.color}`}>{s.value}</div>

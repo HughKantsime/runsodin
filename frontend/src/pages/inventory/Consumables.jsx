@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { consumables } from '../../api'
 import { canDo } from '../../permissions'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { EmptyState } from '../../components/ui'
 
 const UNIT_OPTIONS = ['piece', 'gram', 'ml', 'meter', 'pack', 'box', 'sheet']
 
@@ -167,8 +168,12 @@ export default function Consumables() {
       {isLoading ? (
         <div className="text-center py-12 text-farm-500">Loading...</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-farm-500">
-          {items.length === 0 ? 'No consumables yet. Add your first item.' : 'No results match your search.'}
+        <div className="bg-farm-900 rounded-lg border border-farm-800">
+          <EmptyState
+            icon={Package}
+            title={items.length === 0 ? 'No consumables yet' : 'No results match your search'}
+            description={items.length === 0 ? 'Add your first consumable item to get started.' : undefined}
+          />
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-farm-800">

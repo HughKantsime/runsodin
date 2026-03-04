@@ -8,16 +8,29 @@ export async function fetchAPI(endpoint, options = {}) {
 
   // credentials: 'include' sends the httpOnly session cookie automatically.
   // No need to read/inject a Bearer token from localStorage.
-  const response = await fetch(API_BASE + endpoint, {
-    headers,
-    credentials: 'include',
-    ...options,
-  })
+  let response
+  try {
+    response = await fetch(API_BASE + endpoint, {
+      headers,
+      credentials: 'include',
+      ...options,
+    })
+  } catch (networkError) {
+    throw new Error('Network error. Check your connection and try again.')
+  }
   if (response.status === 401) {
     if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"
     }
     return
+  }
+  if (response.status === 403) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || 'You do not have permission to perform this action.')
+  }
+  if (response.status === 404) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.detail || 'The requested resource was not found.')
   }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))

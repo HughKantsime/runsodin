@@ -7,6 +7,7 @@ import { vision, printers } from '../../api'
 import { canDo } from '../../permissions'
 import DetectionFeed from '../../components/vision/DetectionFeed'
 import { formatDate } from '../../utils/shared'
+import { EmptyState } from '../../components/ui'
 
 const TYPE_META = {
   spaghetti: { label: 'Spaghetti', color: 'text-red-400', bg: 'bg-red-500/20' },
@@ -297,10 +298,12 @@ export default function Detections() {
       )}
 
       {!isLoading && items.length === 0 && (
-        <div className="text-center text-farm-500 py-12">
-          <Eye size={40} className="mx-auto mb-4 text-farm-600" />
-          <p className="text-sm">No detections found</p>
-          <p className="text-xs mt-1">Detections will appear here when the vision monitor identifies issues</p>
+        <div className="bg-farm-900 rounded-lg border border-farm-800">
+          <EmptyState
+            icon={Eye}
+            title="No detections found"
+            description="Detections will appear here when the vision monitor identifies issues"
+          />
         </div>
       )}
 
