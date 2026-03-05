@@ -31,7 +31,7 @@ export default function TabBar({ tabs, activeTab, active, onTabChange, onChange,
                   : 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]'
                 : isActive
                   ? 'bg-[var(--brand-primary)] text-white'
-                  : 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-farm-800'
+                  : 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-[var(--brand-surface)]'
             )}
           >
             {Icon && <Icon size={14} />}
@@ -39,7 +39,7 @@ export default function TabBar({ tabs, activeTab, active, onTabChange, onChange,
             {count != null && (
               <span className={clsx(
                 'text-[10px] px-1.5 py-0.5 rounded-sm font-mono',
-                isActive ? 'bg-white/20' : 'bg-farm-800 text-[var(--brand-text-muted)]'
+                isActive ? 'bg-white/20' : 'bg-[var(--brand-surface)] text-[var(--brand-text-muted)]'
               )}>{count}</span>
             )}
           </button>

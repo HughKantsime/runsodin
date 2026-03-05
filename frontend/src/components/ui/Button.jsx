@@ -4,8 +4,8 @@ import clsx from 'clsx'
 
 const variantClasses = {
   primary: 'bg-[var(--brand-primary)] hover:bg-[var(--brand-accent)] text-white',
-  secondary: 'border border-[var(--brand-card-border)] bg-transparent hover:bg-farm-800 text-[var(--brand-text-secondary)]',
-  ghost: 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-farm-800',
+  secondary: 'border border-[var(--brand-card-border)] bg-transparent hover:bg-[var(--brand-surface)] text-[var(--brand-text-secondary)]',
+  ghost: 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-[var(--brand-surface)]',
   danger: 'border border-red-500/30 text-red-400 hover:bg-red-500/10',
 }
 

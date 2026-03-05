@@ -70,7 +70,7 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }) {
                 className="px-3 py-1.5 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] disabled:opacity-50 rounded-md text-sm">
                 {createRevision.isPending ? 'Uploading...' : 'Save Revision'}
               </button>
-              <button onClick={() => setShowUpload(false)} className="px-3 py-1.5 bg-farm-700 hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
+              <button onClick={() => setShowUpload(false)} className="px-3 py-1.5 bg-[var(--brand-surface)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
             </div>
           </div>
         )}

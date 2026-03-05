@@ -1,4 +1,4 @@
-import { CheckCircle, XCircle, History } from 'lucide-react'
+import { CheckCircle, XCircle, History, AlertTriangle } from 'lucide-react'
 
 export default function RecentlyCompleted({ jobs: jobList }) {
   const recent = jobList
@@ -31,7 +31,7 @@ export default function RecentlyCompleted({ jobs: jobList }) {
               {job.duration_hours ? ` · ${job.duration_hours}h` : ''}
             </div>
             {job.fail_reason && (
-              <div className="text-xs text-red-400 mt-1 truncate">⚠ {job.fail_reason.replace(/_/g, ' ')}</div>
+              <div className="text-xs text-red-400 mt-1 truncate flex items-center gap-1"><AlertTriangle size={10} className="flex-shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}</div>
             )}
           </div>
         ))}

@@ -85,19 +85,19 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="max-w-5xl w-full bg-farm-900 rounded-xl border border-farm-700 overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="max-w-5xl w-full bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-farm-800">
+        <div className="flex items-center justify-between p-4 border-b border-[var(--brand-card-border)]">
           <div className="flex items-center gap-3">
-            <Film className="text-print-400" size={20} />
-            <span className="font-medium text-farm-200">{timelapse.printer_name}</span>
+            <Film className="text-[var(--brand-primary)]" size={20} />
+            <span className="font-medium text-[var(--brand-text-primary)]">{timelapse.printer_name}</span>
             {timelapse.created_at && (
-              <span className="text-xs text-farm-500">
+              <span className="text-xs text-[var(--brand-text-muted)]">
                 {new Date(timelapse.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
             )}
           </div>
-          <button onClick={onClose} className="text-farm-400 hover:text-white"><X size={18} /></button>
+          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white"><X size={18} /></button>
         </div>
 
         {/* Video */}
@@ -115,14 +115,14 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
         {/* Editor controls */}
         <div className="p-4 space-y-4">
           {/* Trim */}
-          <div className="bg-farm-800 rounded-lg p-3">
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center gap-2 mb-3">
               <Scissors size={14} className="text-amber-400" />
-              <span className="text-sm font-medium text-farm-200">Trim</span>
+              <span className="text-sm font-medium text-[var(--brand-text-primary)]">Trim</span>
             </div>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <div>
-                <label className="text-xs text-farm-400 block mb-1">Start ({formatMMSS(trimStart)})</label>
+                <label className="text-xs text-[var(--brand-text-muted)] block mb-1">Start ({formatMMSS(trimStart)})</label>
                 <input
                   type="range" min={0} max={duration} step={0.1} value={trimStart}
                   onChange={e => handleTrimStartChange(e.target.value)}
@@ -130,7 +130,7 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
                 />
               </div>
               <div>
-                <label className="text-xs text-farm-400 block mb-1">End ({formatMMSS(trimEnd)})</label>
+                <label className="text-xs text-[var(--brand-text-muted)] block mb-1">End ({formatMMSS(trimEnd)})</label>
                 <input
                   type="range" min={0} max={duration} step={0.1} value={trimEnd}
                   onChange={e => handleTrimEndChange(e.target.value)}
@@ -141,7 +141,7 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
             <button
               onClick={() => setConfirmTrim(true)}
               disabled={trimming || trimStart >= trimEnd}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
             >
               {trimming ? <Loader2 size={12} className="animate-spin" /> : <Scissors size={12} />}
               Apply Trim ({formatMMSS(trimEnd - trimStart)})
@@ -149,10 +149,10 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
           </div>
 
           {/* Speed */}
-          <div className="bg-farm-800 rounded-lg p-3">
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center gap-2 mb-3">
               <Gauge size={14} className="text-blue-400" />
-              <span className="text-sm font-medium text-farm-200">Speed (saves as new timelapse)</span>
+              <span className="text-sm font-medium text-[var(--brand-text-primary)]">Speed (saves as new timelapse)</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {SPEED_OPTIONS.map(s => (
@@ -160,7 +160,7 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
                   key={s}
                   onClick={() => handleSpeed(s)}
                   disabled={speeding}
-                  className="px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                  className="px-3 py-1.5 bg-[var(--brand-card-border)] hover:opacity-80 rounded-md text-xs font-medium transition-colors disabled:opacity-50"
                 >
                   {s}x
                 </button>
@@ -173,7 +173,7 @@ function TimelapseEditorModal({ timelapse, onClose, onUpdated }) {
           <div className="flex gap-2">
             <a
               href={timelapses.downloadUrl(timelapse.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-border)] hover:opacity-80 rounded-md text-xs font-medium transition-colors"
             >
               <Download size={12} /> Download
             </a>
@@ -260,9 +260,9 @@ export default function Timelapses() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <Film className="text-print-400" size={24} />
+          <Film className="text-[var(--brand-primary)]" size={24} />
           <h1 className="text-xl md:text-2xl font-display font-bold">Timelapses</h1>
-          <span className="text-sm px-2 py-0.5 rounded-full bg-farm-700 text-farm-300">{total}</span>
+          <span className="text-sm px-2 py-0.5 rounded-full bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)]">{total}</span>
         </div>
       </div>
 
@@ -271,7 +271,7 @@ export default function Timelapses() {
         <select
           value={printerFilter}
           onChange={e => { setPrinterFilter(e.target.value); setOffset(0) }}
-          className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-200"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)]"
         >
           <option value="">All Printers</option>
           {(printersData || []).map(p => (
@@ -281,7 +281,7 @@ export default function Timelapses() {
         <select
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setOffset(0) }}
-          className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-200"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)]"
         >
           <option value="">All Status</option>
           <option value="ready">Ready</option>
@@ -293,17 +293,17 @@ export default function Timelapses() {
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 mb-4 p-3 bg-farm-900 rounded-lg border border-farm-800">
-          <span className="text-sm text-farm-300">{selectedIds.size} selected</span>
+        <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
+          <span className="text-sm text-[var(--brand-text-secondary)]">{selectedIds.size} selected</span>
           <button
             onClick={() => setConfirmBulkDelete(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-md text-xs font-medium transition-colors"
           >
             <Trash2 size={12} /> Delete Selected
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="text-xs text-farm-500 hover:text-farm-300 ml-auto"
+            className="text-xs text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] ml-auto"
           >
             Clear selection
           </button>
@@ -328,19 +328,19 @@ export default function Timelapses() {
           <div className="max-w-4xl w-full" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-farm-200">{playingTimelapse.printer_name}</span>
+                <span className="text-sm font-medium text-[var(--brand-text-primary)]">{playingTimelapse.printer_name}</span>
                 {playingTimelapse.print_job_id && (
-                  <span className="text-xs text-farm-500">Job #{playingTimelapse.print_job_id}</span>
+                  <span className="text-xs text-[var(--brand-text-muted)]">Job #{playingTimelapse.print_job_id}</span>
                 )}
                 {playingTimelapse.created_at && (
-                  <span className="text-xs text-farm-500">
+                  <span className="text-xs text-[var(--brand-text-muted)]">
                     {new Date(playingTimelapse.created_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 )}
               </div>
               <button
                 onClick={() => setPlayingTimelapse(null)}
-                className="text-farm-400 hover:text-white text-sm"
+                className="text-[var(--brand-text-muted)] hover:text-white text-sm"
               >
                 Close
               </button>
@@ -349,7 +349,7 @@ export default function Timelapses() {
               src={timelapses.videoUrl(playingTimelapse.id)}
               controls
               autoPlay
-              className="w-full rounded-lg"
+              className="w-full rounded-md"
             />
           </div>
         </div>
@@ -357,11 +357,11 @@ export default function Timelapses() {
 
       {/* Grid */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-farm-400">
+        <div className="flex items-center justify-center py-20 text-[var(--brand-text-muted)]">
           <Loader2 className="animate-spin mr-2" size={20} /> Loading...
         </div>
       ) : items.length === 0 ? (
-        <div className="text-center py-20 text-farm-500">
+        <div className="text-center py-20 text-[var(--brand-text-muted)]">
           <Film size={48} className="mx-auto mb-4 opacity-50" />
           <p className="text-lg">No timelapses yet</p>
           <p className="text-sm mt-1">Enable timelapse on a printer to start recording</p>
@@ -369,10 +369,10 @@ export default function Timelapses() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.map(t => (
-            <div key={t.id} className={`bg-farm-800 rounded-xl border overflow-hidden group ${selectedIds.has(t.id) ? 'border-print-500 ring-1 ring-print-500/30' : 'border-farm-700'}`}>
+            <div key={t.id} className={`bg-[var(--brand-input-bg)] rounded-xl border overflow-hidden group ${selectedIds.has(t.id) ? 'border-[var(--brand-primary)] ring-1 ring-[var(--brand-primary)]/30' : 'border-[var(--brand-card-border)]'}`}>
               {/* Thumbnail / Play area */}
               <div
-                className="relative aspect-video bg-farm-900 flex items-center justify-center cursor-pointer hover:bg-farm-800 transition-colors"
+                className="relative aspect-video bg-[var(--brand-content-bg)] flex items-center justify-center cursor-pointer hover:bg-[var(--brand-input-bg)] transition-colors"
                 onClick={() => t.status === 'ready' && setPlayingTimelapse(t)}
               >
                 {/* Checkbox for bulk select */}
@@ -383,13 +383,13 @@ export default function Timelapses() {
                       checked={selectedIds.has(t.id)}
                       onChange={() => toggleSelect(t.id)}
                       onClick={(e) => e.stopPropagation()}
-                      className="w-4 h-4 rounded border-farm-600 bg-farm-900 text-print-500 focus:ring-print-500"
+                      className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
                     />
                   </div>
                 )}
                 {t.status === 'ready' ? (
                   <>
-                    <Film size={40} className="text-farm-600 group-hover:text-amber-400 transition-colors" />
+                    <Film size={40} className="text-[var(--brand-text-muted)] group-hover:text-amber-400 transition-colors" />
                     <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-0.5 rounded">
                       {formatDuration(t.duration_seconds)}
                     </div>
@@ -412,12 +412,12 @@ export default function Timelapses() {
               {/* Info */}
               <div className="p-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-farm-200 truncate">{t.printer_name}</span>
+                  <span className="text-sm font-medium text-[var(--brand-text-primary)] truncate">{t.printer_name}</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[t.status] || ''}`}>
                     {t.status}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-farm-400">
+                <div className="flex items-center gap-3 text-xs text-[var(--brand-text-muted)]">
                   {t.frame_count > 0 && <span>{t.frame_count} frames</span>}
                   {t.file_size_mb > 0 && (
                     <span className="flex items-center gap-1"><HardDrive size={10} />{formatSize(t.file_size_mb)}</span>
@@ -430,27 +430,27 @@ export default function Timelapses() {
                   )}
                 </div>
                 {t.print_job_id && (
-                  <div className="text-xs text-farm-500 mt-1">Job #{t.print_job_id}</div>
+                  <div className="text-xs text-[var(--brand-text-muted)] mt-1">Job #{t.print_job_id}</div>
                 )}
 
-                {/* Actions */}
+                {/* Actions - ghost style */}
                 {t.status === 'ready' && (
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-farm-700">
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--brand-card-border)]">
                     <button
                       onClick={() => setEditorTimelapse(t)}
-                      className="flex items-center gap-1 text-xs text-farm-400 hover:text-print-400 transition-colors"
+                      className="flex items-center gap-1 text-xs text-[var(--brand-text-muted)] hover:text-[var(--brand-primary)] transition-colors"
                     >
                       <Scissors size={12} /> Edit
                     </button>
                     <a
                       href={timelapses.downloadUrl(t.id)}
-                      className="flex items-center gap-1 text-xs text-farm-400 hover:text-amber-400 transition-colors"
+                      className="flex items-center gap-1 text-xs text-[var(--brand-text-muted)] hover:text-amber-400 transition-colors"
                     >
                       <Download size={12} /> Download
                     </a>
                     <button
                       onClick={() => setConfirmDeleteId(t.id)}
-                      className="flex items-center gap-1 text-xs text-farm-400 hover:text-red-400 transition-colors ml-auto"
+                      className="flex items-center gap-1 text-xs text-[var(--brand-text-muted)] hover:text-red-400 transition-colors ml-auto"
                     >
                       <Trash2 size={12} /> Delete
                     </button>
@@ -468,15 +468,15 @@ export default function Timelapses() {
           <button
             onClick={() => setOffset(Math.max(0, offset - limit))}
             disabled={offset === 0}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-farm-800 text-sm text-farm-300 hover:bg-farm-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--brand-input-bg)] text-sm text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ChevronLeft size={14} /> Previous
           </button>
-          <span className="text-sm text-farm-400">Page {currentPage} of {totalPages}</span>
+          <span className="text-sm text-[var(--brand-text-muted)]">Page {currentPage} of {totalPages}</span>
           <button
             onClick={() => setOffset(offset + limit)}
             disabled={currentPage >= totalPages}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-farm-800 text-sm text-farm-300 hover:bg-farm-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-[var(--brand-input-bg)] text-sm text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next <ChevronRight size={14} />
           </button>

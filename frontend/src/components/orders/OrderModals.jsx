@@ -243,7 +243,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-[var(--brand-text-secondary)]">${item.subtotal?.toFixed(2)}</span>
                   <span className={item.is_fulfilled ? 'text-status-printing' : 'text-status-pending'}>
-                    {item.is_fulfilled ? '✓ Done' : `${item.fulfilled_quantity}/${item.quantity}`}
+                    {item.is_fulfilled ? 'Done' : `${item.fulfilled_quantity}/${item.quantity}`}
                   </span>
                 </div>
               </div>

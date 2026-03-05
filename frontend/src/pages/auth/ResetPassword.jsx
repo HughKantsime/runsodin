@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Check, Circle } from 'lucide-react'
 import { auth } from '../../api'
 import toast from 'react-hot-toast'
 
@@ -91,8 +92,8 @@ export default function ResetPassword() {
                 ['number', 'Number'],
                 ['match', 'Passwords match'],
               ].map(([key, label]) => (
-                <div key={key} className={checks[key] ? 'text-green-400' : 'text-[var(--brand-text-muted)]'}>
-                  {checks[key] ? '✓' : '○'} {label}
+                <div key={key} className={`flex items-center gap-1.5 ${checks[key] ? 'text-green-400' : 'text-[var(--brand-text-muted)]'}`}>
+                  {checks[key] ? <Check size={12} /> : <Circle size={12} />} {label}
                 </div>
               ))}
             </div>

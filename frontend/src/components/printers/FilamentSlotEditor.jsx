@@ -114,7 +114,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
               )}
               {spoolmanFilaments.length > 0 && (
                 <>
-                  <div className="text-xs text-print-400 font-medium px-1 py-1">From Spoolman</div>
+                  <div className="text-xs text-[var(--brand-primary)] font-medium px-1 py-1">From Spoolman</div>
                   {spoolmanFilaments.slice(0, 15).map(f => (
                     <button
                       key={f.id}

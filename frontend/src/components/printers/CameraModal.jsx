@@ -130,7 +130,7 @@ export default function CameraModal({ printer, onClose }) {
             <div className="text-red-400 text-sm">{error || 'Connection lost'}</div>
             <button
               onClick={startWebRTC}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-bg)] hover:bg-farm-700 rounded-lg text-sm text-[var(--brand-text-secondary)] transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-surface)] rounded-lg text-sm text-[var(--brand-text-secondary)] transition-colors"
             >
               <RefreshCw size={14} /> Reconnect
             </button>

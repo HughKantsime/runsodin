@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown } from 'lucide-react'
@@ -17,32 +17,32 @@ const TYPE_META = {
 }
 
 const STATUS_META = {
-  pending: { label: 'Pending', color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
-  confirmed: { label: 'Confirmed', color: 'text-red-400', bg: 'bg-red-500/20' },
-  dismissed: { label: 'Dismissed', color: 'text-farm-400', bg: 'bg-farm-500/20' },
-  auto_paused: { label: 'Auto-Paused', color: 'text-purple-400', bg: 'bg-purple-500/20' },
+  pending: { label: 'Pending', color: 'text-yellow-400', bg: 'bg-yellow-500/15' },
+  confirmed: { label: 'Confirmed', color: 'text-red-400', bg: 'bg-red-500/15' },
+  dismissed: { label: 'Dismissed', color: 'text-[var(--brand-text-muted)]', bg: 'bg-[var(--brand-input-bg)]' },
+  auto_paused: { label: 'Auto-Paused', color: 'text-purple-400', bg: 'bg-purple-500/15' },
 }
 
 function StatBar({ stats }) {
   if (!stats) return null
   const total = Object.values(stats.by_type || {}).reduce((a, b) => a + b, 0)
   return (
-    <div className="flex items-center gap-4 mb-4 p-3 bg-farm-900 rounded-lg border border-farm-800 text-sm">
+    <div className="flex items-center gap-4 mb-4 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] text-sm">
       <div>
-        <span className="text-farm-400">Last {stats.days}d:</span>{' '}
+        <span className="text-[var(--brand-text-muted)]">Last {stats.days}d:</span>{' '}
         <span className="font-medium">{total} detections</span>
       </div>
       {Object.entries(stats.by_type || {}).map(([type, count]) => (
         <div key={type} className="flex items-center gap-1.5">
-          <span className={TYPE_META[type]?.color || 'text-farm-400'}>{TYPE_META[type]?.label || type}</span>
-          <span className="text-farm-500">{count}</span>
+          <span className={TYPE_META[type]?.color || 'text-[var(--brand-text-muted)]'}>{TYPE_META[type]?.label || type}</span>
+          <span className="text-[var(--brand-text-muted)]">{count}</span>
         </div>
       ))}
       {stats.accuracy_pct != null && !isNaN(stats.accuracy_pct) && (
         <div className="ml-auto">
-          <span className="text-farm-400">Accuracy:</span>{' '}
+          <span className="text-[var(--brand-text-muted)]">Accuracy:</span>{' '}
           <span className="font-medium">{stats.accuracy_pct}%</span>
-          <span className="text-farm-500 text-xs ml-1">({stats.total_reviewed} reviewed)</span>
+          <span className="text-[var(--brand-text-muted)] text-xs ml-1">({stats.total_reviewed} reviewed)</span>
         </div>
       )}
     </div>
@@ -55,7 +55,7 @@ function FrameModal({ detection, onClose, onReview }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={onClose}>
-      <div className="bg-farm-950 rounded-xl border border-farm-700 max-w-3xl w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-[var(--brand-content-bg)] rounded-xl border border-[var(--brand-card-border)] max-w-3xl w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Frame */}
         <div className="relative bg-black aspect-video">
           {detection.frame_path ? (
@@ -66,7 +66,7 @@ function FrameModal({ detection, onClose, onReview }) {
               className="w-full h-full object-contain"
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-farm-500">
+            <div className="flex items-center justify-center h-full text-[var(--brand-text-muted)]">
               <Camera size={48} />
             </div>
           )}
@@ -80,23 +80,23 @@ function FrameModal({ detection, onClose, onReview }) {
         <div className="p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${TYPE_META[detection.detection_type]?.bg} ${TYPE_META[detection.detection_type]?.color}`}>
+              <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${TYPE_META[detection.detection_type]?.bg} ${TYPE_META[detection.detection_type]?.color}`}>
                 {TYPE_META[detection.detection_type]?.label || detection.detection_type}
               </span>
-              <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${STATUS_META[detection.status]?.bg} ${STATUS_META[detection.status]?.color}`}>
+              <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${STATUS_META[detection.status]?.bg} ${STATUS_META[detection.status]?.color}`}>
                 {STATUS_META[detection.status]?.label || detection.status}
               </span>
-              <span className="text-sm font-mono text-farm-300">
+              <span className="text-sm font-mono text-[var(--brand-text-secondary)]">
                 {detection.confidence != null ? (detection.confidence * 100).toFixed(0) + '%' : '-'}
               </span>
             </div>
-            <button onClick={onClose} className="text-farm-400 hover:text-white">
+            <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white">
               <X size={20} />
             </button>
           </div>
 
-          <div className="text-sm text-farm-400 mb-3">
-            <span className="font-medium text-farm-200">{detection.printer_nickname || detection.printer_name}</span>
+          <div className="text-sm text-[var(--brand-text-muted)] mb-3">
+            <span className="font-medium text-[var(--brand-text-primary)]">{detection.printer_nickname || detection.printer_name}</span>
             <span className="mx-2">&middot;</span>
             {formatDate(detection.created_at)}
           </div>
@@ -106,14 +106,14 @@ function FrameModal({ detection, onClose, onReview }) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => onReview(detection.id, 'confirmed')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-md text-sm font-medium transition-colors"
               >
                 <AlertTriangle size={14} />
                 Confirm Issue
               </button>
               <button
                 onClick={() => onReview(detection.id, 'dismissed')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-border)] hover:opacity-80 rounded-md text-sm font-medium transition-colors"
               >
                 <X size={14} />
                 Dismiss
@@ -238,10 +238,10 @@ export default function Detections() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <div className="flex items-center gap-3">
-            <Eye className="text-print-400" size={24} />
+            <Eye className="text-[var(--brand-primary)]" size={24} />
             <div>
               <h1 className="text-xl md:text-2xl font-display font-bold">Vigil AI Detections</h1>
-              <p className="text-xs md:text-sm text-farm-500 mt-1">
+              <p className="text-xs md:text-sm text-[var(--brand-text-muted)] mt-1">
                 AI-detected print failures from camera feeds
               </p>
             </div>
@@ -256,7 +256,7 @@ export default function Detections() {
         <select
           value={typeFilter}
           onChange={e => { setTypeFilter(e.target.value); setPage(0) }}
-          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-farm-500"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--brand-text-muted)]"
         >
           <option value="">All Types</option>
           <option value="spaghetti">Spaghetti</option>
@@ -267,7 +267,7 @@ export default function Detections() {
         <select
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(0) }}
-          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-farm-500"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--brand-text-muted)]"
         >
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
@@ -279,7 +279,7 @@ export default function Detections() {
         <select
           value={printerFilter}
           onChange={e => { setPrinterFilter(e.target.value); setPage(0) }}
-          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-farm-500"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--brand-text-muted)]"
         >
           <option value="">All Printers</option>
           {(printersData || []).map(p => (
@@ -287,18 +287,18 @@ export default function Detections() {
           ))}
         </select>
 
-        <span className="text-xs text-farm-500 ml-auto">
+        <span className="text-xs text-[var(--brand-text-muted)] ml-auto">
           {total} detection{total !== 1 ? 's' : ''}
         </span>
       </div>
 
       {/* Detection grid */}
       {isLoading && (
-        <div className="text-center text-farm-500 py-12 text-sm">Loading detections...</div>
+        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading detections...</div>
       )}
 
       {!isLoading && items.length === 0 && (
-        <div className="bg-farm-900 rounded-lg border border-farm-800">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
           <EmptyState
             icon={Eye}
             title="No detections found"
@@ -309,23 +309,23 @@ export default function Detections() {
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && canDo('manage_printers') && (
-        <div className="flex items-center gap-3 mb-4 p-3 bg-farm-900 rounded-lg border border-farm-800">
-          <span className="text-sm text-farm-300">{selectedIds.size} selected</span>
+        <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
+          <span className="text-sm text-[var(--brand-text-secondary)]">{selectedIds.size} selected</span>
           <button
             onClick={() => handleBulkReview('confirmed')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-md text-xs font-medium transition-colors"
           >
             <AlertTriangle size={12} /> Confirm All
           </button>
           <button
             onClick={() => handleBulkReview('dismissed')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-border)] hover:opacity-80 rounded-md text-xs font-medium transition-colors"
           >
             <X size={12} /> Dismiss All
           </button>
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="text-xs text-farm-500 hover:text-farm-300 ml-auto"
+            className="text-xs text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] ml-auto"
           >
             Clear selection
           </button>
@@ -338,7 +338,7 @@ export default function Detections() {
             {items.map(det => (
               <div
                 key={det.id}
-                className={`bg-farm-950 rounded-lg border overflow-hidden cursor-pointer hover:border-farm-600 transition-colors ${selectedIds.has(det.id) ? 'border-print-500 ring-1 ring-print-500/30' : 'border-farm-800'}`}
+                className={`bg-[var(--brand-content-bg)] rounded-md border overflow-hidden cursor-pointer hover:border-[var(--brand-text-muted)] transition-colors ${selectedIds.has(det.id) ? 'border-[var(--brand-primary)] ring-1 ring-[var(--brand-primary)]/30' : 'border-[var(--brand-card-border)]'}`}
                 onClick={() => setSelectedDetection(det)}
               >
                 {/* Thumbnail */}
@@ -351,12 +351,12 @@ export default function Detections() {
                       loading="lazy"
                     />
                   ) : (
-                    <div className="flex items-center justify-center h-full text-farm-600">
+                    <div className="flex items-center justify-center h-full text-[var(--brand-text-muted)]">
                       <Camera size={24} />
                     </div>
                   )}
                   {/* Confidence badge */}
-                  <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded-lg text-xs font-mono">
+                  <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-black/70 rounded-md text-xs font-mono">
                     {det.confidence != null ? (det.confidence * 100).toFixed(0) + '%' : '-'}
                   </div>
                   {/* Checkbox for bulk select */}
@@ -367,7 +367,7 @@ export default function Detections() {
                         checked={selectedIds.has(det.id)}
                         onChange={(e) => toggleSelect(det.id, e)}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-4 h-4 rounded border-farm-600 bg-farm-900 text-print-500 focus:ring-print-500"
+                        className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
                       />
                     </div>
                   )}
@@ -379,15 +379,15 @@ export default function Detections() {
                     <span className={`text-xs font-medium ${TYPE_META[det.detection_type]?.color}`}>
                       {TYPE_META[det.detection_type]?.label || det.detection_type}
                     </span>
-                    <span className={`px-1.5 py-0.5 rounded-lg text-xs font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
+                    <span className={`px-1.5 py-0.5 rounded-md text-xs font-medium ${STATUS_META[det.status]?.bg} ${STATUS_META[det.status]?.color}`}>
                       {STATUS_META[det.status]?.label || det.status}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-farm-500">
+                  <div className="flex items-center justify-between text-xs text-[var(--brand-text-muted)]">
                     <Link
                       to={`/cameras/${det.printer_id}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="hover:text-print-400 transition-colors"
+                      className="hover:text-[var(--brand-primary)] transition-colors"
                     >
                       {det.printer_nickname || det.printer_name}
                     </Link>
@@ -395,7 +395,7 @@ export default function Detections() {
                   </div>
                   {/* Inline quick actions for pending items */}
                   {det.status === 'pending' && canDo('manage_printers') && (
-                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-farm-800">
+                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-[var(--brand-card-border)]">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'confirmed') }}
                         className="flex items-center gap-1 px-2 py-1 bg-red-900/40 hover:bg-red-900/60 rounded text-xs text-red-400 font-medium transition-colors"
@@ -404,7 +404,7 @@ export default function Detections() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReview(det.id, 'dismissed') }}
-                        className="flex items-center gap-1 px-2 py-1 bg-farm-800 hover:bg-farm-700 rounded text-xs text-farm-400 font-medium transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded text-xs text-[var(--brand-text-muted)] font-medium transition-colors"
                       >
                         <X size={10} /> Dismiss
                       </button>
@@ -421,17 +421,17 @@ export default function Detections() {
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="px-3 py-1.5 bg-farm-800 rounded-lg text-sm disabled:opacity-40 hover:bg-farm-700 transition-colors"
+                className="px-3 py-1.5 bg-[var(--brand-input-bg)] rounded-md text-sm disabled:opacity-40 hover:bg-[var(--brand-card-border)] transition-colors"
               >
                 Previous
               </button>
-              <span className="text-sm text-farm-400">
+              <span className="text-sm text-[var(--brand-text-muted)]">
                 Page {page + 1} of {Math.ceil(total / LIMIT)}
               </span>
               <button
                 onClick={() => setPage(p => p + 1)}
                 disabled={(page + 1) * LIMIT >= total}
-                className="px-3 py-1.5 bg-farm-800 rounded-lg text-sm disabled:opacity-40 hover:bg-farm-700 transition-colors"
+                className="px-3 py-1.5 bg-[var(--brand-input-bg)] rounded-md text-sm disabled:opacity-40 hover:bg-[var(--brand-card-border)] transition-colors"
               >
                 Next
               </button>

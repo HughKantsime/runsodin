@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { X } from 'lucide-react'
 import { getAmsEnvironment } from '../../api'
 
 export default function AmsEnvironmentChart({ printerId, onClose }) {
@@ -40,13 +41,13 @@ export default function AmsEnvironmentChart({ printerId, onClose }) {
             <button
               key={h}
               onClick={() => setHours(h)}
-              className={`px-2 py-1 rounded-md text-xs transition-colors ${hours === h ? 'bg-print-600 text-white' : 'bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
+              className={`px-2 py-1 rounded-md text-xs transition-colors ${hours === h ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
             >
               {h < 48 ? `${h}h` : `${h / 24}d`}
             </button>
           ))}
           {onClose && (
-            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs">✕</button>
+            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>

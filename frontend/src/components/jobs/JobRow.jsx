@@ -67,7 +67,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         {job.due_date && <DueDateBadge dueDate={job.due_date} />}
         {job.fail_reason && (
           <div className="text-xs text-red-400 truncate max-w-xs">
-            ⚠ {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
+            <AlertTriangle size={10} className="flex-shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
           </div>
         )}
       </td>

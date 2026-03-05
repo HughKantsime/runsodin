@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Zap } from 'lucide-react'
+import { Zap, Pencil } from 'lucide-react'
 import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../../api'
 
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
@@ -74,7 +74,7 @@ export default function EnergyWidget({ jobs }) {
             </>
           ) : (
             <button onClick={() => setEditing(true)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] transition-colors">
-              ${rate}/kWh ✎
+              ${rate}/kWh <Pencil size={10} className="inline ml-1" />
             </button>
           )}
         </div>

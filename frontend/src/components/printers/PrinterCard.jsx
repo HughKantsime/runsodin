@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink } from 'lucide-react'
+import { Trash2, Power, PowerOff, Palette, Settings, GripVertical, AlertTriangle, Lightbulb, Activity, CircleDot, Video, QrCode, Thermometer, Plug, ExternalLink, Turtle, Zap, Rocket } from 'lucide-react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import AmsEnvironmentChart from './AmsEnvironmentChart'
@@ -56,7 +56,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 <span className="px-1.5 py-0.5 bg-purple-600/20 text-purple-400 text-[10px] rounded-full border border-purple-600/30 font-medium">H2D</span>
               )}
               {printer.tags?.map(tag => (
-                <span key={tag} className="px-1.5 py-0.5 bg-print-600/20 text-print-400 text-[10px] rounded-full border border-print-600/30">{tag}</span>
+                <span key={tag} className="px-1.5 py-0.5 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] text-[10px] rounded-full border border-[var(--brand-primary)]/30">{tag}</span>
               ))}
             </div>
           </div>
@@ -214,7 +214,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   </span>
                 )}
                 {stage && (
-                  <span className="text-print-400">{stage}</span>
+                  <span className="text-[var(--brand-primary)]">{stage}</span>
                 )}
               </div>
             </div>
@@ -227,10 +227,10 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           <div className="flex items-center gap-1">
             <span className="text-xs text-[var(--brand-text-muted)] mr-1">Speed</span>
             {[
-              { level: 1, label: 'Silent', icon: '🐢' },
-              { level: 2, label: 'Standard', icon: '▶' },
-              { level: 3, label: 'Sport', icon: '⚡' },
-              { level: 4, label: 'Ludicrous', icon: '🚀' },
+              { level: 1, label: 'Silent', Icon: Turtle },
+              { level: 2, label: 'Standard', Icon: null },
+              { level: 3, label: 'Sport', Icon: Zap },
+              { level: 4, label: 'Ludicrous', Icon: Rocket },
             ].map(s => (
               <button
                 key={s.level}
@@ -238,7 +238,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                 className="px-2 py-1 rounded-md text-xs transition-colors bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:brightness-110"
                 title={s.label}
               >
-                {s.icon}
+                {s.Icon ? <s.Icon size={12} /> : '▶'}
               </button>
             ))}
           </div>

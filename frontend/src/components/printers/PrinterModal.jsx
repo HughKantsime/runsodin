@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Lock } from 'lucide-react'
+import { Lock, CheckCircle, XCircle } from 'lucide-react'
 import clsx from 'clsx'
 import { printers } from '../../api'
 import { canDo } from '../../permissions'
@@ -369,9 +369,9 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                 {testStatus === 'testing' ? (
                   <><span className="animate-spin">⟳</span> Testing...</>
                 ) : testStatus === 'success' ? (
-                  '✓ Connected!'
+                  <><CheckCircle size={14} /> Connected</>
                 ) : testStatus === 'error' ? (
-                  '✗ Failed'
+                  <><XCircle size={14} /> Failed</>
                 ) : (
                   'Test Connection'
                 )}
@@ -440,7 +440,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Tags (optional)</label>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {(formData.tags || []).map(tag => (
-              <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-print-600/20 text-[var(--brand-primary)] text-xs rounded-full border border-print-600/30">
+              <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] text-xs rounded-full border border-[var(--brand-primary)]/30">
                 {tag}
                 <button type="button" onClick={() => setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }))} className="hover:text-red-400">&times;</button>
               </span>
@@ -471,7 +471,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               type="checkbox"
               checked={formData.timelapse_enabled || false}
               onChange={(e) => setFormData(prev => ({ ...prev, timelapse_enabled: e.target.checked }))}
-              className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-print-600 focus:ring-print-600"
+              className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
             />
             <span className="text-sm text-[var(--brand-text-primary)]">Enable timelapse recording</span>
           </label>
@@ -486,7 +486,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                 type="checkbox"
                 checked={formData.shared || false}
                 onChange={(e) => setFormData(prev => ({ ...prev, shared: e.target.checked }))}
-                className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-print-600 focus:ring-print-600"
+                className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
               />
               <span className="text-sm text-[var(--brand-text-primary)]">Shared across organizations</span>
             </label>
@@ -496,7 +496,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
-          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-md transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
+          <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
         </div>
       </form>
     </Modal>

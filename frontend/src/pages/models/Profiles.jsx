@@ -28,7 +28,7 @@ const SLICER_COLORS = {
   orca: 'bg-blue-500/20 text-blue-400',
   bambu_studio: 'bg-purple-500/20 text-purple-400',
   prusa: 'bg-orange-500/20 text-orange-400',
-  generic: 'bg-farm-500/20 text-farm-400',
+  generic: 'bg-[var(--brand-muted)]/20 text-[var(--brand-muted)]',
 }
 
 export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
@@ -98,10 +98,10 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <SlidersHorizontal className="text-print-400" size={24} />
+          <SlidersHorizontal className="text-[var(--brand-primary)]" size={24} />
           <div>
             <h1 className="text-xl md:text-2xl font-display font-bold">Profiles</h1>
-            <p className="text-farm-500 text-sm mt-1">Slicer and printer configuration profiles</p>
+            <p className="text-[var(--brand-muted)] text-sm mt-1">Slicer and printer configuration profiles</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -109,7 +109,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
-            className="flex items-center gap-1.5 px-3 py-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 bg-[var(--brand-card-border)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors"
           >
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             Import
@@ -123,8 +123,8 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
           <button
             key={t.key}
             onClick={() => { setSlicer(t.key); setPage(1) }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              slicer === t.key ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-300 hover:bg-farm-700'
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              slicer === t.key ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'
             }`}
           >
             {t.label}
@@ -139,31 +139,31 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
             key={c.key}
             onClick={() => { setCategory(c.key); setPage(1) }}
             className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-              category === c.key ? 'bg-farm-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'
+              category === c.key ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-input-bg)] text-[var(--brand-muted)] hover:bg-[var(--brand-card-border)]'
             }`}
           >
             {c.label}
           </button>
         ))}
-        <div className="flex items-center gap-1 ml-auto bg-farm-800 rounded-lg px-3 py-1.5 border border-farm-700">
-          <Search size={12} className="text-farm-500" />
+        <div className="flex items-center gap-1 ml-auto bg-[var(--brand-input-bg)] rounded-md px-3 py-1.5 border border-[var(--brand-card-border)]">
+          <Search size={12} className="text-[var(--brand-muted)]" />
           <input
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
             placeholder="Search profiles..."
-            className="bg-transparent text-sm text-farm-200 outline-none w-40"
+            className="bg-transparent text-sm text-[var(--brand-text)] outline-none w-40"
           />
-          {search && <button onClick={() => setSearch('')}><X size={12} className="text-farm-500" /></button>}
+          {search && <button onClick={() => setSearch('')}><X size={12} className="text-[var(--brand-muted)]" /></button>}
         </div>
       </div>
 
       {/* Profile list */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-farm-400">
+        <div className="flex items-center justify-center py-20 text-[var(--brand-muted)]">
           <Loader2 className="animate-spin mr-2" size={20} /> Loading...
         </div>
       ) : items.length === 0 ? (
-        <div className="text-center py-20 text-farm-500">
+        <div className="text-center py-20 text-[var(--brand-muted)]">
           <SlidersHorizontal size={48} className="mx-auto mb-4 opacity-50" />
           <p className="text-lg">No profiles yet</p>
           <p className="text-sm mt-1">Import a .json, .ini, or .3mf file to get started</p>
@@ -171,24 +171,24 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
       ) : (
         <div className="space-y-2">
           {items.map(p => (
-            <div key={p.id} className="bg-farm-800 rounded-lg border border-farm-700 p-4 flex items-center gap-4">
+            <div key={p.id} className="bg-[var(--brand-input-bg)] rounded-md border border-[var(--brand-card-border)] p-4 flex items-center gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-medium text-farm-200 truncate">{p.name}</span>
+                  <span className="font-medium text-[var(--brand-text)] truncate">{p.name}</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${SLICER_COLORS[p.slicer] || SLICER_COLORS.generic}`}>
                     {p.slicer}
                   </span>
-                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-farm-700 text-farm-300">
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)]">
                     {p.category}
                   </span>
                   {p.filament_type && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-farm-700 text-farm-400">
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-[var(--brand-card-border)] text-[var(--brand-muted)]">
                       {p.filament_type}
                     </span>
                   )}
                 </div>
-                {p.description && <p className="text-xs text-farm-500 truncate">{p.description}</p>}
-                <div className="flex items-center gap-3 mt-1 text-xs text-farm-500">
+                {p.description && <p className="text-xs text-[var(--brand-muted)] truncate">{p.description}</p>}
+                <div className="flex items-center gap-3 mt-1 text-xs text-[var(--brand-muted)]">
                   {p.tags && <span>{p.tags}</span>}
                   {p.last_applied_at && <span>Applied {new Date(p.last_applied_at).toLocaleDateString()}</span>}
                 </div>
@@ -205,14 +205,14 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
                 )}
                 <a
                   href={profilesApi.exportUrl(p.id)}
-                  className="flex items-center gap-1 px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded text-xs transition-colors text-farm-300"
+                  className="flex items-center gap-1 px-2 py-1 bg-[var(--brand-card-border)] hover:bg-[var(--brand-card-border)] rounded text-xs transition-colors text-[var(--brand-text-secondary)]"
                   title="Download"
                 >
                   <Download size={10} />
                 </a>
                 <button
                   onClick={() => setConfirmDeleteId(p.id)}
-                  className="flex items-center gap-1 px-2 py-1 bg-farm-700 hover:bg-red-600/30 text-farm-400 hover:text-red-400 rounded text-xs transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 bg-[var(--brand-card-border)] hover:bg-red-600/30 text-[var(--brand-muted)] hover:text-red-400 rounded text-xs transition-colors"
                   title="Delete"
                 >
                   <Trash2 size={10} />
@@ -228,14 +228,14 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
         <div className="flex items-center justify-center gap-4 mt-6">
           <button
             onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1}
-            className="px-3 py-1.5 rounded-lg bg-farm-800 text-sm text-farm-300 hover:bg-farm-700 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-md bg-[var(--brand-input-bg)] text-sm text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)] disabled:opacity-50"
           >
             Previous
           </button>
-          <span className="text-sm text-farm-400">Page {page} of {totalPages}</span>
+          <span className="text-sm text-[var(--brand-muted)]">Page {page} of {totalPages}</span>
           <button
             onClick={() => setPage(page + 1)} disabled={page >= totalPages}
-            className="px-3 py-1.5 rounded-lg bg-farm-800 text-sm text-farm-300 hover:bg-farm-700 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-md bg-[var(--brand-input-bg)] text-sm text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)] disabled:opacity-50"
           >
             Next
           </button>
@@ -245,13 +245,13 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
       {/* Apply modal */}
       {applyProfile && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setApplyProfile(null)}>
-          <div className="bg-farm-900 rounded-xl border border-farm-700 p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+          <div className="bg-[var(--brand-card-bg)] rounded-xl border border-[var(--brand-card-border)] p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-medium mb-4">Apply "{applyProfile.name}"</h3>
-            <p className="text-sm text-farm-400 mb-4">Select a Klipper printer. This sends GCode immediately.</p>
+            <p className="text-sm text-[var(--brand-muted)] mb-4">Select a Klipper printer. This sends GCode immediately.</p>
             <select
               value={applyPrinterId}
               onChange={e => setApplyPrinterId(e.target.value)}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm mb-4"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm mb-4"
             >
               <option value="">Select printer...</option>
               {klipperPrinters.map(p => (
@@ -259,11 +259,11 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
               ))}
             </select>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setApplyProfile(null)} className="px-4 py-2 text-sm text-farm-400 hover:text-white">Cancel</button>
+              <button onClick={() => setApplyProfile(null)} className="px-4 py-2 text-sm text-[var(--brand-muted)] hover:text-white">Cancel</button>
               <button
                 onClick={() => applyMutation.mutate({ profileId: applyProfile.id, printerId: parseInt(applyPrinterId) })}
                 disabled={!applyPrinterId || applyMutation.isPending}
-                className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium disabled:opacity-50"
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-md text-sm font-medium disabled:opacity-50"
               >
                 {applyMutation.isPending ? 'Applying...' : 'Apply'}
               </button>

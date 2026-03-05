@@ -6,7 +6,7 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-farm-800 p-1.5 rounded-md transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
+      className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-[var(--brand-surface)] p-1.5 rounded-md transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
       aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}

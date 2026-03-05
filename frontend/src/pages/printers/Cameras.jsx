@@ -188,15 +188,15 @@ function CameraCard({ camera, onExpand, onPip }) {
         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
         {status === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-farm-500 text-sm animate-pulse">Connecting...</div>
+            <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>
           </div>
         )}
         {(status === 'error' || status === 'disconnected') && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <VideoOff size={32} className="text-farm-600" />
+            <VideoOff size={32} className="text-[var(--brand-text-muted)]" />
             <button
               onClick={handleRetry}
-              className="flex items-center gap-1.5 px-3 py-1 bg-farm-800 hover:bg-farm-700 rounded-lg text-xs text-farm-300 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1 bg-[var(--brand-surface)] hover:bg-[var(--brand-surface)] rounded-lg text-xs text-[var(--brand-text-secondary)] transition-colors"
             >
               <RefreshCw size={12} /> Retry
             </button>
@@ -225,7 +225,7 @@ function CameraCard({ camera, onExpand, onPip }) {
       <div className="px-2 py-1.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={'w-2 h-2 rounded-full ' + dotColor} />
-          <Link to={`/cameras/${camera.id}`} className="font-medium text-sm hover:text-print-400 transition-colors">{camera.name}</Link>
+          <Link to={`/cameras/${camera.id}`} className="font-medium text-sm hover:text-[var(--brand-primary)] transition-colors">{camera.name}</Link>
           <AiIndicator printerId={camera.id} />
         </div>
         <span className="text-xs text-[var(--brand-text-muted)] capitalize">{status}</span>
@@ -347,7 +347,7 @@ export default function Cameras() {
           placeholder="Filter cameras..."
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          className="bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] rounded-none px-2 py-1.5 text-sm w-36 md:w-40 placeholder-farm-600 focus:outline-none"
+          className="bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] rounded-none px-2 py-1.5 text-sm w-36 md:w-40 placeholder-[var(--brand-text-muted)] focus:outline-none"
         />
         <div className="flex rounded-md border border-[var(--brand-card-border)] overflow-hidden">
           {[1, 2, 3].map(n => (
@@ -358,7 +358,7 @@ export default function Cameras() {
                 'px-2.5 py-1 text-xs font-mono transition-colors',
                 columns === n
                   ? 'bg-[var(--brand-primary)] text-white'
-                  : 'text-[var(--brand-text-secondary)] hover:bg-farm-800'
+                  : 'text-[var(--brand-text-secondary)] hover:bg-[var(--brand-surface)]'
               )}
             >
               {n === 1 ? '1\u00d71' : n === 2 ? '2\u00d72' : '3\u00d73'}
@@ -383,7 +383,7 @@ export default function Cameras() {
           href="/tv"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm font-medium transition-colors text-farm-300"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-surface)] hover:bg-[var(--brand-surface)] rounded-lg text-sm font-medium transition-colors text-[var(--brand-text-secondary)]"
           title="Open TV Dashboard in new tab"
         >
           <Tv size={14} />
@@ -402,12 +402,12 @@ export default function Cameras() {
           </div>
           <div className="space-y-2">
             {allPrinters.length === 0 && (
-              <p className="text-farm-500 text-sm">No printers with cameras configured</p>
+              <p className="text-[var(--brand-text-muted)] text-sm">No printers with cameras configured</p>
             )}
             {allPrinters.map(printer => (
               <div key={printer.id} className="flex items-center justify-between py-2 px-3 bg-[var(--brand-card-bg)] rounded-lg">
                 <div className="flex items-center gap-3">
-                  <Video size={16} className="text-farm-400" />
+                  <Video size={16} className="text-[var(--brand-text-muted)]" />
                   <span className="text-sm">{printer.nickname || printer.name}</span>
                 </div>
                 <Button
@@ -421,14 +421,14 @@ export default function Cameras() {
               </div>
             ))}
           </div>
-          <p className="text-xs text-farm-500 mt-3">
+          <p className="text-xs text-[var(--brand-text-muted)] mt-3">
             Disabled cameras won't appear in the grid or Control Room.
           </p>
         </Card>
       )}
 
       {isLoading && (
-        <div className="text-center text-farm-500 py-12 text-sm">Loading cameras...</div>
+        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading cameras...</div>
       )}
 
       {filteredCameras.length === 0 && !isLoading && (
@@ -552,13 +552,13 @@ function ControlRoomCamera({ camera }) {
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
       {status === 'connecting' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-farm-500 text-sm animate-pulse">Connecting...</div>
+          <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>
         </div>
       )}
       {(status === 'error' || status === 'disconnected') && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-          <VideoOff size={32} className="text-farm-600" />
-          <span className="text-xs text-farm-500">Reconnecting...</span>
+          <VideoOff size={32} className="text-[var(--brand-text-muted)]" />
+          <span className="text-xs text-[var(--brand-text-muted)]">Reconnecting...</span>
         </div>
       )}
       {status === 'live' && (

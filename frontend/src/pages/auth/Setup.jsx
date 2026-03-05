@@ -592,7 +592,7 @@ export default function Setup() {
           {networkSaved && <div className="p-3 bg-emerald-900/30 border border-emerald-700/50 rounded-md text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 size={16} /> Network configured successfully</div>}
           <div className="flex gap-3 pt-2">
             <button onClick={handleSaveNetwork} disabled={!hostIp || isLoading} className={btnPrimary + " flex-1"}>
-              {isLoading ? 'Saving...' : networkSaved ? 'Saved ✓' : 'Save Network Config'}
+              {isLoading ? 'Saving...' : networkSaved ? 'Saved' : 'Save Network Config'}
             </button>
             <button onClick={() => setStep(step + 1)} className={btnSecondary}>
               {networkSaved ? 'Continue' : 'Skip'}

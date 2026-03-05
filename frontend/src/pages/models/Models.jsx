@@ -13,7 +13,7 @@ import {
   ChevronDown,
   CalendarPlus,
   Printer as PrinterIcon,
-  Star, Box, History, Upload, AlertTriangle } from 'lucide-react'
+  Star, Box, History, Upload, AlertTriangle, Package } from 'lucide-react'
 const ModelViewer = lazy(() => import('../../components/models/ModelViewer'))
 import ModelRevisionPanel from '../../components/models/ModelRevisionPanel'
 import clsx from 'clsx'
@@ -42,7 +42,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="text-4xl text-[var(--brand-muted)]">📦</div>
+          <Package size={36} className="text-[var(--brand-muted)]" />
         )}
       </div>
       <div className="p-3 md:p-4">

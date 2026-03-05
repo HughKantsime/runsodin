@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { printers, printerTelemetry } from '../../api'
 
 const SEVERITY_COLORS = {
@@ -44,7 +45,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }) {
             <button
               key={d}
               onClick={() => setDays(d)}
-              className={`px-2 py-1 rounded-md text-xs transition-colors ${days === d ? 'bg-print-600 text-white' : 'bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
+              className={`px-2 py-1 rounded-md text-xs transition-colors ${days === d ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
             >
               {d}d
             </button>
@@ -63,7 +64,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }) {
             </button>
           )}
           {onClose && (
-            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs">✕</button>
+            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>

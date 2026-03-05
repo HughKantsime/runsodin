@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { printerTelemetry } from '../../api'
 
 export default function NozzleStatusCard({ printerId, onClose }) {
@@ -63,7 +64,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
         <h4 className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Nozzle Lifecycle</h4>
         <div className="flex items-center gap-2">
           {onClose && (
-            <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs">✕</button>
+            <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           )}
         </div>
       </div>
@@ -98,7 +99,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
             <button onClick={handleRetire} className="px-3 py-1 bg-red-600/20 text-red-400 rounded-md text-xs hover:bg-red-600/30">
               Retire
             </button>
-            <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-print-600/20 text-[var(--brand-primary)] rounded-md text-xs hover:bg-print-600/30">
+            <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] rounded-md text-xs hover:bg-[var(--brand-primary)]/30">
               Replace
             </button>
             <button onClick={loadHistory} className="px-3 py-1 bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-xs hover:bg-[var(--brand-card-bg)]">
@@ -109,7 +110,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
       ) : (
         <div className="text-center py-4">
           <p className="text-[var(--brand-text-muted)] text-sm mb-2">No nozzle tracked</p>
-          <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-print-600 text-white rounded-md text-xs hover:bg-print-500">
+          <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded-md text-xs hover:bg-[var(--brand-primary-hover)]">
             Track Nozzle
           </button>
         </div>
@@ -146,7 +147,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
               onChange={e => setInstallForm(f => ({ ...f, notes: e.target.value }))}
               className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
             <div className="flex gap-2">
-              <button type="submit" className="px-3 py-1 bg-print-600 text-white rounded-md text-xs hover:bg-print-500">Install</button>
+              <button type="submit" className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded-md text-xs hover:bg-[var(--brand-primary-hover)]">Install</button>
               <button type="button" onClick={() => setShowInstall(false)} className="px-3 py-1 bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-xs hover:bg-[var(--brand-card-bg)]">Cancel</button>
             </div>
           </form>
@@ -158,7 +159,7 @@ export default function NozzleStatusCard({ printerId, onClose }) {
         <div className="mt-3 pt-3 border-t border-[var(--brand-card-border)]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-[var(--brand-text-secondary)]">Nozzle History</span>
-            <button onClick={() => setShowHistory(false)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs">✕</button>
+            <button onClick={() => setShowHistory(false)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs"><X size={12} /></button>
           </div>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {history.map(n => (

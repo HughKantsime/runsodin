@@ -186,7 +186,7 @@ export default function NotificationsTab() {
       {/* Alert Preferences */}
       <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <Bell size={18} className="text-print-400" />
+          <Bell size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Alert Preferences</h2>
         </div>
         <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
@@ -199,10 +199,10 @@ export default function NotificationsTab() {
           <>
             {/* Header row */}
             <div className="hidden md:grid md:grid-cols-[1fr,80px,80px,80px] gap-3 mb-2 px-3">
-              <div className="text-xs text-farm-500 uppercase tracking-wider">Alert Type</div>
-              <div className="text-xs text-farm-500 uppercase tracking-wider text-center">In-App</div>
-              <div className="text-xs text-farm-500 uppercase tracking-wider text-center">Push</div>
-              <div className="text-xs text-farm-500 uppercase tracking-wider text-center">Email</div>
+              <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider">Alert Type</div>
+              <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider text-center">In-App</div>
+              <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider text-center">Push</div>
+              <div className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider text-center">Email</div>
             </div>
 
             <div className="space-y-2">
@@ -219,31 +219,31 @@ export default function NotificationsTab() {
                           <AlertIcon size={14} style={{ color: meta.color }} />
                           <span className="text-sm font-medium">{meta.label}</span>
                         </div>
-                        <p className="text-xs text-farm-500 mt-0.5 ml-6 md:ml-0">{meta.desc}</p>
+                        <p className="text-xs text-[var(--brand-text-muted)] mt-0.5 ml-6 md:ml-0">{meta.desc}</p>
                       </div>
 
                       {/* Toggles */}
                       <div className="flex md:justify-center items-center gap-4 md:gap-0 mt-2 md:mt-0 ml-6 md:ml-0">
-                        <span className="text-xs text-farm-500 md:hidden mr-1">In-App</span>
+                        <span className="text-xs text-[var(--brand-text-muted)] md:hidden mr-1">In-App</span>
                         <button
                           type="button"
                           role="switch"
                           aria-checked={pref.in_app}
                           onClick={() => toggleAlertPref(pref.alert_type, 'in_app')}
-                          className={`w-10 h-5 rounded-full transition-colors relative ${pref.in_app ? 'bg-print-600' : 'bg-farm-600'}`}
+                          className={`w-10 h-5 rounded-full transition-colors relative ${pref.in_app ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
                         >
                           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${pref.in_app ? 'left-5' : 'left-0.5'}`} />
                         </button>
                       </div>
 
                       <div className="flex md:justify-center items-center gap-4 md:gap-0 mt-1 md:mt-0 ml-6 md:ml-0">
-                        <span className="text-xs text-farm-500 md:hidden mr-1">Push</span>
+                        <span className="text-xs text-[var(--brand-text-muted)] md:hidden mr-1">Push</span>
                         <button
                           type="button"
                           role="switch"
                           aria-checked={pref.browser_push}
                           onClick={() => toggleAlertPref(pref.alert_type, 'browser_push')}
-                          className={`w-10 h-5 rounded-full transition-colors relative ${pref.browser_push ? 'bg-print-600' : 'bg-farm-600'}`}
+                          className={`w-10 h-5 rounded-full transition-colors relative ${pref.browser_push ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
                           title="Requires browser push setup"
                         >
                           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${pref.browser_push ? 'left-5' : 'left-0.5'}`} />
@@ -251,13 +251,13 @@ export default function NotificationsTab() {
                       </div>
 
                       <div className="flex md:justify-center items-center gap-4 md:gap-0 mt-1 md:mt-0 ml-6 md:ml-0">
-                        <span className="text-xs text-farm-500 md:hidden mr-1">Email</span>
+                        <span className="text-xs text-[var(--brand-text-muted)] md:hidden mr-1">Email</span>
                         <button
                           type="button"
                           role="switch"
                           aria-checked={pref.email}
                           onClick={() => toggleAlertPref(pref.alert_type, 'email')}
-                          className={`w-10 h-5 rounded-full transition-colors relative ${pref.email ? 'bg-print-600' : 'bg-farm-600'}`}
+                          className={`w-10 h-5 rounded-full transition-colors relative ${pref.email ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
                           title="Requires SMTP configuration"
                         >
                           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${pref.email ? 'left-5' : 'left-0.5'}`} />
@@ -267,7 +267,7 @@ export default function NotificationsTab() {
 
                     {/* Threshold for spool_low */}
                     {typeKey === 'spool_low' && (
-                      <div className="mt-3 pt-3 border-t border-farm-700 ml-6 md:ml-0">
+                      <div className="mt-3 pt-3 border-t border-[var(--brand-border)] ml-6 md:ml-0">
                         <div className="flex items-center gap-3">
                           <label className="text-xs text-[var(--brand-text-secondary)] whitespace-nowrap">Low spool threshold:</label>
                           <input
@@ -277,9 +277,9 @@ export default function NotificationsTab() {
                             step="25"
                             value={pref.threshold_value || 100}
                             onChange={(e) => setThreshold(pref.alert_type, parseInt(e.target.value))}
-                            className="flex-1 accent-print-500 max-w-[200px]"
+                            className="flex-1 accent-[var(--brand-primary)] max-w-[200px]"
                           />
-                          <span className="text-sm font-mono text-print-400 w-14 text-right">{pref.threshold_value || 100}g</span>
+                          <span className="text-sm font-mono text-[var(--brand-primary)] w-14 text-right">{pref.threshold_value || 100}g</span>
                         </div>
                       </div>
                     )}
@@ -304,7 +304,7 @@ export default function NotificationsTab() {
               )}
             </div>
 
-            <p className="text-xs text-farm-500 mt-3">
+            <p className="text-xs text-[var(--brand-text-muted)] mt-3">
               Push notifications require browser permission. Email notifications require SMTP configuration below.
             </p>
           </>
@@ -315,14 +315,14 @@ export default function NotificationsTab() {
       {lic.isPro && <>
       <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <Mail size={18} className="text-print-400" />
+          <Mail size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Email Notifications (SMTP)</h2>
           <button
             type="button"
             role="switch"
             aria-checked={smtp.enabled}
             onClick={() => setSmtp(s => ({ ...s, enabled: !s.enabled }))}
-            className={`ml-auto w-10 h-5 rounded-full transition-colors relative ${smtp.enabled ? 'bg-print-600' : 'bg-farm-600'}`}
+            className={`ml-auto w-10 h-5 rounded-full transition-colors relative ${smtp.enabled ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-surface)]'}`}
           >
             <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${smtp.enabled ? 'left-5' : 'left-0.5'}`} />
           </button>
@@ -375,7 +375,7 @@ export default function NotificationsTab() {
                     <button
                       type="button"
                       onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--brand-text-secondary)] hover:text-farm-200"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"
                     >
                       {showSmtpPassword ? 'Hide' : 'Show'}
                     </button>
@@ -425,7 +425,7 @@ export default function NotificationsTab() {
               </div>
             )}
 
-            <p className="text-xs text-farm-500 mt-3">
+            <p className="text-xs text-[var(--brand-text-muted)] mt-3">
               For Gmail, use an App Password (not your regular password). Go to Google Account → Security → App passwords.
             </p>
           </>

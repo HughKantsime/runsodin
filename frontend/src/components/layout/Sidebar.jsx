@@ -210,7 +210,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
             <select
               value={org.orgId || ''}
               onChange={(e) => org.switchOrg(e.target.value ? parseInt(e.target.value) : null)}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-xs"
+              className="w-full bg-[var(--brand-surface)] border border-[var(--brand-card-border)] rounded-lg px-2 py-1.5 text-xs"
               style={{ color: 'var(--brand-sidebar-text)' }}
             >
               <option value="">All Organizations</option>

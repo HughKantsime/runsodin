@@ -1,15 +1,27 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bell, Check, X, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
+import { Bell, Check, X, ExternalLink, CheckCircle, XCircle, AlertOctagon, AlertTriangle, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { alerts as alertsApi, approveJob, rejectJob } from '../../api'
 import { formatDate } from '../../utils/shared'
 import { PageHeader, Button, EmptyState } from '../../components/ui'
 
+const SEVERITY_ICONS = {
+  critical: AlertOctagon,
+  warning: AlertTriangle,
+  info: Info,
+}
+
+const SEVERITY_ICON_COLORS = {
+  critical: 'text-red-500',
+  warning: 'text-amber-500',
+  info: 'text-green-500',
+}
+
 const SEVERITY_STYLES = {
-  critical: { bg: 'border-l-red-500', icon: '\u{1F534}', label: 'Critical' },
-  warning: { bg: 'border-l-amber-500', icon: '\u{1F7E1}', label: 'Warning' },
-  info: { bg: 'border-l-green-500', icon: '\u{1F7E2}', label: 'Info' },
+  critical: { bg: 'border-l-red-500', label: 'Critical' },
+  warning: { bg: 'border-l-amber-500', label: 'Warning' },
+  info: { bg: 'border-l-green-500', label: 'Info' },
 }
 
 const TABS = [
@@ -164,7 +176,7 @@ export default function Alerts() {
         )}
       </PageHeader>
 
-      <div className="flex gap-1 mb-6 p-1 rounded-lg" style={{ backgroundColor: 'var(--brand-sidebar-bg)' }}>
+      <div className="flex gap-1 mb-6 p-1 rounded-md" style={{ backgroundColor: 'var(--brand-sidebar-bg)' }}>
         {TABS.map(tab => (
           <button
             key={tab.key}
@@ -196,7 +208,7 @@ export default function Alerts() {
             return (
               <div
                 key={alert.id}
-                className={`rounded-lg border border-l-4 ${sev.bg} transition-all ${!alert.is_read ? 'ring-1 ring-print-500/20' : ''}`}
+                className={`rounded-md border border-l-4 ${sev.bg} transition-all ${!alert.is_read ? 'ring-1 ring-[var(--brand-primary)]/20' : ''}`}
                 style={{
                   backgroundColor: 'var(--brand-card-bg)',
                   borderColor: 'var(--brand-sidebar-border)',
@@ -206,7 +218,7 @@ export default function Alerts() {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex gap-3 min-w-0 flex-1">
-                      <span className="text-lg flex-shrink-0">{sev.icon}</span>
+                      {(() => { const SevIcon = SEVERITY_ICONS[alert.severity] || Info; return <SevIcon size={18} className={`flex-shrink-0 ${SEVERITY_ICON_COLORS[alert.severity] || 'text-green-500'}`} /> })()}
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>
                           {alert.title}
@@ -221,7 +233,7 @@ export default function Alerts() {
                             {formatDate(alert.created_at)}
                           </span>
                           {alert.printer_name && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-lg" style={{
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-md" style={{
                               backgroundColor: 'var(--brand-sidebar-bg)',
                               color: 'var(--brand-text-muted)',
                             }}>
@@ -238,7 +250,7 @@ export default function Alerts() {
                           <button
                             onClick={() => handleApproveFromAlert(alert)}
                             disabled={actionLoading === alert.id}
-                            className="p-1.5 rounded-lg transition-colors hover:bg-green-900/50 text-green-400"
+                            className="p-1.5 rounded-md transition-colors hover:bg-green-900/50 text-green-400"
                             title="Approve Job"
                           >
                             <CheckCircle size={14} />
@@ -246,7 +258,7 @@ export default function Alerts() {
                           <button
                             onClick={() => setRejectingAlertJobId(rejectingAlertJobId === alert.id ? null : alert.id)}
                             disabled={actionLoading === alert.id}
-                            className="p-1.5 rounded-lg transition-colors hover:bg-red-900/50 text-red-400"
+                            className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-red-400"
                             title="Reject Job"
                           >
                             <XCircle size={14} />
@@ -256,7 +268,7 @@ export default function Alerts() {
                       {action && alert.alert_type !== 'job_submitted' && (
                         <a
                           href={action.path}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-farm-800 text-farm-400"
+                          className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
                           title={action.label}
                         >
                           <ExternalLink size={14} />
@@ -265,7 +277,7 @@ export default function Alerts() {
                       {!alert.is_read && (
                         <button
                           onClick={() => handleMarkRead(alert.id)}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-farm-800 text-farm-400"
+                          className="p-1.5 rounded-md transition-colors hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]"
                           title="Mark read"
                         >
                           <Check size={14} />
@@ -273,7 +285,7 @@ export default function Alerts() {
                       )}
                       <button
                         onClick={() => handleDismiss(alert.id)}
-                        className="p-1.5 rounded-lg transition-colors hover:bg-red-900/50 text-farm-500 hover:text-red-400"
+                        className="p-1.5 rounded-md transition-colors hover:bg-red-900/50 text-[var(--brand-text-muted)] hover:text-red-400"
                         title="Dismiss"
                       >
                         <X size={14} />
@@ -282,15 +294,15 @@ export default function Alerts() {
                   </div>
                 </div>
                   {rejectingAlertJobId === alert.id && (
-                    <div className="mt-3 pt-3 px-4 pb-4 border-t border-farm-700">
-                      <label className="block text-xs text-farm-400 mb-1">Rejection reason (required):</label>
+                    <div className="mt-3 pt-3 px-4 pb-4 border-t border-[var(--brand-card-border)]">
+                      <label className="block text-xs text-[var(--brand-text-muted)] mb-1">Rejection reason (required):</label>
                       <div className="flex gap-2">
                         <input
                           type="text"
                           value={rejectReason}
                           onChange={(e) => setRejectReason(e.target.value)}
                           placeholder="e.g., Too much filament — please re-slice with 10% infill"
-                          className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm text-white"
+                          className="flex-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm text-white"
                           autoFocus
                           onKeyDown={(e) => e.key === 'Enter' && rejectReason.trim() && handleRejectFromAlert(alert)}
                         />

@@ -18,6 +18,7 @@
   --brand-text-primary: #E8ECF2;
   --brand-text-secondary: #7A8396;
   --brand-text-muted: #3D4559;
+  --brand-surface: #1A1D25;
   --brand-input-bg: #1A1D25;
   --brand-input-border: #1F2330;
   --brand-input-text: #E8ECF2;
@@ -293,6 +294,7 @@ html.light {
   --brand-text-primary: #0F1219;
   --brand-text-secondary: #5A6478;
   --brand-text-muted: #9BA3B2;
+  --brand-surface: #F0F1F3;
   --brand-input-bg: #F8FAFC;
   --brand-input-border: #E2E5EB;
   --brand-input-text: #1E293B;

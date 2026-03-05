@@ -5,9 +5,9 @@ import toast from 'react-hot-toast'
 import { alerts as alertsApi } from '../../api'
 
 const SEVERITY_STYLES = {
-  critical: { dot: 'bg-red-500', text: 'text-red-400', icon: '\u{1F534}' },
-  warning: { dot: 'bg-amber-500', text: 'text-amber-400', icon: '\u{1F7E1}' },
-  info: { dot: 'bg-green-500', text: 'text-green-400', icon: '\u{1F7E2}' },
+  critical: { dot: 'bg-red-500', text: 'text-red-400' },
+  warning: { dot: 'bg-amber-500', text: 'text-amber-400' },
+  info: { dot: 'bg-green-500', text: 'text-green-400' },
 }
 
 function timeAgo(dateStr) {
@@ -96,7 +96,7 @@ export default function AlertBell() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-lg transition-colors hover:bg-farm-800"
+        className="relative p-2 rounded-md transition-colors hover:bg-[var(--brand-surface)]"
         style={{ color: 'var(--brand-text-secondary)' }}
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
         aria-expanded={isOpen}
@@ -112,7 +112,7 @@ export default function AlertBell() {
 
       {isOpen && (
         <div
-          className="absolute right-0 top-full mt-2 w-80 rounded-lg border shadow-xl z-50 overflow-hidden"
+          className="absolute right-0 top-full mt-2 w-80 rounded-md border shadow-xl z-50 overflow-hidden"
           style={{
             backgroundColor: 'var(--brand-card-bg)',
             borderColor: 'var(--brand-sidebar-border)',
@@ -143,14 +143,14 @@ export default function AlertBell() {
                   <button
                     key={alert.id}
                     onClick={() => handleAlertClick(alert)}
-                    className="w-full text-left px-4 py-3 transition-colors hover:bg-farm-800/50"
+                    className="w-full text-left px-4 py-3 transition-colors hover:bg-[var(--brand-surface)]"
                     style={{
                       borderBottom: '1px solid var(--brand-sidebar-border)',
                       opacity: alert.is_read ? 0.6 : 1,
                     }}
                   >
                     <div className="flex gap-2">
-                      <span className="text-sm flex-shrink-0 mt-0.5">{sev.icon}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-2 ${sev.dot}`} />
                       <div className="min-w-0 flex-1">
                         <div className={`text-sm font-medium truncate ${!alert.is_read ? 'text-white' : ''}`} style={alert.is_read ? { color: 'var(--brand-text-secondary)' } : {}}>
                           {alert.title}

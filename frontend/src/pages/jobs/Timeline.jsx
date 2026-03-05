@@ -58,7 +58,7 @@ function TimelineHeader({ startDate, days, slotWidth }) {
       <div
         key={i}
         className={clsx(
-          'flex-shrink-0 border-r border-[var(--brand-card-border)] text-center text-xs',
+          'flex-shrink-0 border-r border-[var(--chart-grid)] text-center text-xs',
           isDayStart && 'border-l-2 border-l-[var(--brand-text-muted)]'
         )}
         style={{ width: slotWidth }}
@@ -73,9 +73,9 @@ function TimelineHeader({ startDate, days, slotWidth }) {
   }
 
   return (
-    <div className="flex bg-farm-900 border-b border-[var(--brand-card-border)] sticky top-0 z-10">
+    <div className="flex bg-[var(--brand-card-bg)] border-b border-[var(--brand-card-border)] sticky top-0 z-10">
       <div 
-        className="flex-shrink-0 bg-farm-900 border-r border-[var(--brand-card-border)] px-3 py-2 font-medium text-sm"
+        className="flex-shrink-0 bg-[var(--brand-card-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 font-medium text-sm"
         style={{ width: PRINTER_COL_WIDTH }}
       >
         Printer
@@ -100,7 +100,7 @@ function TimelineDateHeader({ startDate, days, slotWidth }) {
         key={d}
         className={clsx(
           'flex-shrink-0 text-center py-1 border-r border-[var(--brand-card-border)] text-sm',
-          isToday ? 'bg-print-900/30 text-print-400' : 'text-[var(--brand-text-secondary)]'
+          isToday ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'text-[var(--brand-text-secondary)]'
         )}
         style={{ width: slotWidth * slotsPerDay }}
       >
@@ -111,7 +111,7 @@ function TimelineDateHeader({ startDate, days, slotWidth }) {
   }
 
   return (
-    <div className="flex bg-farm-950 border-b border-[var(--brand-card-border)]">
+    <div className="flex bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)]">
       <div 
         className="flex-shrink-0 border-r border-[var(--brand-card-border)]"
         style={{ width: PRINTER_COL_WIDTH }}
@@ -195,7 +195,7 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
             <Card
               padding="sm"
               hover
-              className="active:border-farm-600"
+              className="active:border-[var(--brand-text-muted)]"
               onClick={() => onSelectBlock(item)}
             >
               <div className="flex items-start justify-between gap-3">
@@ -417,16 +417,16 @@ export default function Timeline() {
       ref={containerRef}
     >
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 md:p-4 border-b border-[var(--brand-card-border)] bg-farm-950">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 md:p-4 border-b border-[var(--brand-card-border)] bg-[var(--brand-content-bg)]">
         <div className="flex items-center gap-2">
-          <button onClick={goToPrevWeek} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+          <button onClick={goToPrevWeek} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md">
             <ChevronLeft size={18} />
           </button>
-          <button onClick={goToToday} className="px-3 py-1.5 md:px-4 md:py-2 bg-farm-800 hover:bg-farm-700 rounded-lg flex items-center gap-2 text-sm">
+          <button onClick={goToToday} className="px-3 py-1.5 md:px-4 md:py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md flex items-center gap-2 text-sm">
             <CalendarIcon size={14} />
             Today
           </button>
-          <button onClick={goToNextWeek} className="p-1.5 md:p-2 bg-farm-800 hover:bg-farm-700 rounded-lg">
+          <button onClick={goToNextWeek} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md">
             <ChevronRight size={18} />
           </button>
           <span className="ml-2 text-[var(--brand-text-secondary)] text-xs md:text-sm sm:hidden">
@@ -438,12 +438,12 @@ export default function Timeline() {
         </div>
 
         <div className="flex items-center gap-2">
-          {dragUI.active && <span className="text-xs text-print-400 mr-2 hidden md:inline">{dragUI.label}</span>}
+          {dragUI.active && <span className="text-xs text-[var(--brand-primary)] mr-2 hidden md:inline">{dragUI.label}</span>}
           <div className="hidden md:flex items-center gap-2">
             <button
               onClick={() => setSlotWidth(w => Math.max(ZOOM_MIN, w - 5))}
               disabled={slotWidth <= ZOOM_MIN}
-              className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth <= ZOOM_MIN ? "bg-farm-900 text-[var(--brand-text-muted)] cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
+              className={clsx("p-1.5 md:p-2 rounded-md", slotWidth <= ZOOM_MIN ? "bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] cursor-not-allowed" : "bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)]")}
             >
               <ZoomOut size={16} />
             </button>
@@ -451,12 +451,12 @@ export default function Timeline() {
             <button
               onClick={() => setSlotWidth(w => Math.min(ZOOM_MAX, w + 5))}
               disabled={slotWidth >= ZOOM_MAX}
-              className={clsx("p-1.5 md:p-2 rounded-lg", slotWidth >= ZOOM_MAX ? "bg-farm-900 text-[var(--brand-text-muted)] cursor-not-allowed" : "bg-farm-800 hover:bg-farm-700")}
+              className={clsx("p-1.5 md:p-2 rounded-md", slotWidth >= ZOOM_MAX ? "bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] cursor-not-allowed" : "bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)]")}
             >
               <ZoomIn size={16} />
             </button>
           </div>
-          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-farm-800 border border-[var(--brand-card-border)] rounded-lg px-2 py-1.5 text-sm">
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
             <option value={3}>3 days</option>
             <option value={7}>1 week</option>
             <option value={14}>2 weeks</option>
@@ -485,7 +485,7 @@ export default function Timeline() {
           <div className="flex flex-col items-center justify-center h-64 text-[var(--brand-text-muted)] gap-3 w-full">
             <CalendarX2 size={32} className="text-[var(--brand-text-muted)]" />
             <p className="text-sm">No scheduled jobs</p>
-            <button onClick={() => navigate('/jobs')} className="text-sm text-print-400 hover:text-print-300 transition-colors">Go to Jobs &rarr;</button>
+            <button onClick={() => navigate('/jobs')} className="text-sm text-[var(--brand-primary)] hover:text-[var(--brand-primary)]/80 transition-colors">Go to Jobs &rarr;</button>
           </div>
         ) : (
           <div className="min-w-max">
@@ -514,19 +514,19 @@ export default function Timeline() {
                 return (
                   <div
                     key={printer.id}
-                    className={clsx("flex border-b border-[var(--brand-card-border)] relative", dragUI.active && "bg-print-900/10")}
+                    className={clsx("flex border-b border-[var(--brand-card-border)] relative", dragUI.active && "bg-[var(--brand-primary)]/5")}
                     style={{ height: ROW_HEIGHT }}
                   >
-                    <div className="flex-shrink-0 bg-farm-950 border-r border-[var(--brand-card-border)] px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
+                    <div className="flex-shrink-0 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
                       <div className="font-medium text-sm truncate">{printer.nickname || printer.name}</div>
                     </div>
 
-                    <div className="flex-1 relative bg-farm-900/50 timeline-grid" data-printer-id={printer.id}>
+                    <div className="flex-1 relative bg-[var(--brand-card-bg)]/50 timeline-grid" data-printer-id={printer.id}>
                       <div className="absolute inset-0 flex pointer-events-none">
                         {Array.from({ length: totalSlots }).map((_, i) => (
                           <div
                             key={i}
-                            className={clsx('flex-shrink-0 border-r border-[var(--brand-card-border)]/50', i % 96 === 0 && 'border-l border-l-[var(--brand-card-border)]')}
+                            className={clsx('flex-shrink-0 border-r border-[var(--chart-grid)]', i % 96 === 0 && 'border-l border-l-[var(--chart-grid)]')}
                             style={{ width: slotWidth }}
                           />
                         ))}
@@ -534,10 +534,10 @@ export default function Timeline() {
 
                       {showPreview && (
                         <div
-                          className="absolute top-1 bottom-1 rounded-md bg-print-500/50 border-2 border-print-400 z-30 flex items-center justify-center"
+                          className="absolute top-1 bottom-1 rounded-md bg-[var(--brand-primary)]/50 border-2 border-[var(--brand-primary)] z-30 flex items-center justify-center"
                           style={{ left: dragUI.left, width: dragUI.width }}
                         >
-                          <span className="text-xs font-bold text-white bg-print-600 px-2 py-1 rounded-lg">{dragUI.label}</span>
+                          <span className="text-xs font-bold text-white bg-[var(--brand-primary)] px-2 py-1 rounded-md">{dragUI.label}</span>
                         </div>
                       )}
 
@@ -577,11 +577,11 @@ export default function Timeline() {
       </div>
 
       {/* Status legend (desktop only — mobile uses StatusBadge) */}
-      <div className="hidden md:flex p-2 md:p-4 border-t border-[var(--brand-card-border)] bg-farm-950 items-center gap-3 md:gap-6 flex-wrap">
+      <div className="hidden md:flex p-2 md:p-4 border-t border-[var(--brand-card-border)] bg-[var(--brand-content-bg)] items-center gap-3 md:gap-6 flex-wrap">
         <span className="text-xs md:text-sm text-[var(--brand-text-muted)]">Status:</span>
         {Object.entries(statusColors).map(([status, color]) => (
           <div key={status} className="flex items-center gap-1.5">
-            <div className={clsx('w-2.5 h-2.5 md:w-3 md:h-3 rounded-lg', color)} />
+            <div className={clsx('w-2.5 h-2.5 md:w-3 md:h-3 rounded-md', color)} />
             <span className="text-xs md:text-sm text-[var(--brand-text-secondary)] capitalize">{status}</span>
           </div>
         ))}
@@ -622,17 +622,17 @@ function ScheduledJobDetail({ block }) {
   return (
     <div className="space-y-3">
       {/* Status + name */}
-      <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[var(--brand-text-primary)] font-medium">{job.name || block.item_name}</span>
-          <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[job.status] || 'bg-farm-700')}>{job.status}</span>
+          <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[job.status] || 'bg-[var(--brand-card-border)]')}>{job.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
       </div>
 
       {/* Color swatches */}
       {block.colors?.length > 0 && (
-        <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
           <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Colors</h4>
           <div className="flex gap-2 flex-wrap">
             {block.colors.map((c, i) => (
@@ -643,7 +643,7 @@ function ScheduledJobDetail({ block }) {
       )}
 
       {/* Schedule & Duration */}
-      <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Schedule</h4>
         <div className="space-y-1.5 text-sm">
           <Row icon={<Clock size={14} />} label="Start" value={format(parseUTC(block.start), 'MMM d, HH:mm')} />
@@ -653,7 +653,7 @@ function ScheduledJobDetail({ block }) {
       </div>
 
       {/* Job details */}
-      <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Details</h4>
         <div className="space-y-1.5 text-sm">
           {job.priority != null && (
@@ -673,7 +673,7 @@ function ScheduledJobDetail({ block }) {
 
       {/* Cost / Price */}
       {(job.estimated_cost != null || job.suggested_price != null) && (
-        <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
           <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Pricing</h4>
           <div className="space-y-1.5 text-sm">
             {job.estimated_cost != null && <Row label="Est. cost" value={`$${Number(job.estimated_cost).toFixed(2)}`} />}
@@ -684,22 +684,22 @@ function ScheduledJobDetail({ block }) {
 
       {/* Failure info */}
       {job.status === 'failed' && (job.fail_reason || job.fail_notes) && (
-        <div className="bg-red-900/30 rounded-lg border border-red-800/50 p-4">
+        <div className="bg-red-900/30 rounded-md border border-red-800/50 p-4">
           <h4 className="text-red-400 text-xs uppercase tracking-wide mb-2 flex items-center gap-1.5">
             <AlertTriangle size={14} /> Failure
           </h4>
           <div className="space-y-1.5 text-sm">
             {job.fail_reason && <Row label="Reason" value={job.fail_reason} />}
-            {job.fail_notes && <p className="text-farm-300 mt-1">{job.fail_notes}</p>}
+            {job.fail_notes && <p className="text-[var(--brand-text-secondary)] mt-1">{job.fail_notes}</p>}
           </div>
         </div>
       )}
 
       {/* Notes */}
       {job.notes && (
-        <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
           <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Notes</h4>
-          <p className="text-farm-300 text-sm">{job.notes}</p>
+          <p className="text-[var(--brand-text-secondary)] text-sm">{job.notes}</p>
         </div>
       )}
     </div>
@@ -721,28 +721,28 @@ function MqttJobDetail({ block }) {
   return (
     <div className="space-y-3">
       {/* Name + status */}
-      <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[var(--brand-text-primary)] font-medium">{pj.filename || pj.job_name || block.item_name}</span>
-          <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[pj.status] || 'bg-farm-700')}>{pj.status}</span>
+          <span className={clsx('px-2 py-0.5 rounded text-xs font-medium capitalize', statusColors[pj.status] || 'bg-[var(--brand-card-border)]')}>{pj.status}</span>
         </div>
         <p className="text-[var(--brand-text-secondary)] text-sm">Printer: {block.printer_name}</p>
       </div>
 
       {/* Progress */}
-      <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Progress</h4>
-        <div className="w-full bg-farm-800 rounded-full h-2.5 mb-2">
+        <div className="w-full bg-[var(--brand-input-bg)] rounded-full h-2.5 mb-2">
           <div
-            className="bg-print-500 h-2.5 rounded-full transition-all"
+            className="bg-[var(--brand-primary)] h-2.5 rounded-full transition-all"
             style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>
-        <span className="text-farm-300 text-sm">{Math.round(progress)}%</span>
+        <span className="text-[var(--brand-text-secondary)] text-sm">{Math.round(progress)}%</span>
       </div>
 
       {/* Details */}
-      <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Details</h4>
         <div className="space-y-1.5 text-sm">
           {pj.current_layer != null && pj.total_layers != null && (
@@ -759,7 +759,7 @@ function MqttJobDetail({ block }) {
 
       {/* Temperatures */}
       {(pj.bed_temp_target != null || pj.nozzle_temp_target != null) && (
-        <div className="bg-farm-900 rounded-lg border border-[var(--brand-card-border)] p-4">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
           <h4 className="text-[var(--brand-text-secondary)] text-xs uppercase tracking-wide mb-2">Temperatures</h4>
           <div className="space-y-1.5 text-sm">
             {pj.bed_temp_target != null && (
@@ -774,11 +774,11 @@ function MqttJobDetail({ block }) {
 
       {/* Error */}
       {pj.error_code && (
-        <div className="bg-red-900/30 rounded-lg border border-red-800/50 p-4">
+        <div className="bg-red-900/30 rounded-md border border-red-800/50 p-4">
           <h4 className="text-red-400 text-xs uppercase tracking-wide mb-2 flex items-center gap-1.5">
             <AlertTriangle size={14} /> Error
           </h4>
-          <p className="text-farm-300 text-sm">{pj.error_code}</p>
+          <p className="text-[var(--brand-text-secondary)] text-sm">{pj.error_code}</p>
         </div>
       )}
     </div>
@@ -791,7 +791,7 @@ function Row({ icon, label, value }) {
       <span className="text-[var(--brand-text-secondary)] flex items-center gap-1.5">
         {icon}{label}
       </span>
-      <span className="text-farm-200">{value}</span>
+      <span className="text-[var(--brand-text-primary)]">{value}</span>
     </div>
   )
 }

@@ -112,7 +112,7 @@ function WebRTCPlayer({ cameraId, className }) {
           <VideoOff size={48} className="text-[var(--brand-text-muted)]" />
           <button
             onClick={handleRetry}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-bg)] hover:bg-farm-700 rounded-lg text-sm text-[var(--brand-text-secondary)] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-surface)] rounded-lg text-sm text-[var(--brand-text-secondary)] transition-colors"
           >
             <RefreshCw size={14} /> Reconnect
           </button>
@@ -213,7 +213,7 @@ export default function CameraDetail() {
           </div>
           <button
             onClick={toggleFullscreen}
-            className="p-1.5 bg-[var(--brand-card-bg)] hover:bg-farm-700 rounded-lg transition-colors text-[var(--brand-text-secondary)] hover:text-white"
+            className="p-1.5 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-surface)] rounded-lg transition-colors text-[var(--brand-text-secondary)] hover:text-white"
             title="Toggle fullscreen"
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}

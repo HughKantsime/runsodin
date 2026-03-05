@@ -41,7 +41,7 @@ export default function DetectionFeed({ printerId, limit = 5 }) {
   if (items.length === 0) return null
 
   return (
-    <div className="bg-farm-950 rounded-lg border border-farm-800 p-3">
+    <div className="bg-[var(--brand-bg)] rounded-md border border-[var(--brand-card-border)] p-3">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-medium flex items-center gap-1.5">
           <Eye size={14} className="text-amber-400" />
@@ -49,7 +49,7 @@ export default function DetectionFeed({ printerId, limit = 5 }) {
         </h3>
         <button
           onClick={() => navigate('/detections')}
-          className="text-xs text-farm-400 hover:text-white transition-colors"
+          className="text-xs text-[var(--brand-text-muted)] hover:text-white transition-colors"
         >
           View all
         </button>
@@ -58,22 +58,22 @@ export default function DetectionFeed({ printerId, limit = 5 }) {
         {items.map(det => (
           <div
             key={det.id}
-            className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-farm-900 hover:bg-farm-800 cursor-pointer transition-colors"
+            className="flex items-center gap-2 py-1.5 px-2 rounded-md bg-[var(--brand-card-bg)] hover:bg-[var(--brand-surface)] cursor-pointer transition-colors"
             onClick={() => navigate('/detections')}
           >
-            <AlertTriangle size={12} className={TYPE_META[det.detection_type]?.color || 'text-farm-400'} />
+            <AlertTriangle size={12} className={TYPE_META[det.detection_type]?.color || 'text-[var(--brand-text-muted)]'} />
             <span className={`text-xs font-medium ${TYPE_META[det.detection_type]?.color}`}>
               {TYPE_META[det.detection_type]?.label || det.detection_type}
             </span>
             {!printerId && (
-              <span className="text-xs text-farm-500 truncate">
+              <span className="text-xs text-[var(--brand-text-muted)] truncate">
                 {det.printer_nickname || det.printer_name}
               </span>
             )}
-            <span className="text-xs font-mono text-farm-400 ml-auto">
+            <span className="text-xs font-mono text-[var(--brand-text-muted)] ml-auto">
               {(det.confidence * 100).toFixed(0)}%
             </span>
-            <span className="text-[10px] text-farm-500">
+            <span className="text-[10px] text-[var(--brand-text-muted)]">
               {timeAgo(det.created_at)}
             </span>
           </div>
