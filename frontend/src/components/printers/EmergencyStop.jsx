@@ -59,10 +59,10 @@ export default function EmergencyStop() {
       {/* Floating Button */}
       <button
         onClick={() => setShowPanel(!showPanel)}
-        className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full shadow-lg transition-all ${
+        className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
           showPanel
-            ? 'bg-farm-800 text-white'
-            : 'bg-red-600 hover:bg-red-500 text-white animate-pulse'
+            ? 'bg-[var(--brand-card-bg)] text-white'
+            : 'border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white'
         }`}
         aria-label={showPanel ? "Close emergency controls" : `Emergency controls, ${activePrinting} active prints`}
       >
@@ -78,7 +78,7 @@ export default function EmergencyStop() {
 
       {/* Control Panel */}
       {showPanel && (
-        <div className="fixed bottom-20 right-6 z-40 w-80 bg-farm-900 border border-farm-700 rounded-lg shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
+        <div className="fixed bottom-20 right-6 z-40 w-80 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
           <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
             <AlertTriangle className="text-red-400" size={18} aria-hidden="true" />
             <span className="font-medium text-red-200">Emergency Controls</span>
@@ -90,10 +90,10 @@ export default function EmergencyStop() {
               const isLoading = loading[printer.id];
               
               return (
-                <div key={printer.id} className="p-3 bg-farm-800 rounded-lg">
+                <div key={printer.id} className="p-3 bg-[var(--brand-card-border)] rounded-md">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-sm">{printer.nickname || printer.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-lg ${
+                    <span className={`text-xs px-2 py-0.5 rounded-md ${
                       isPaused ? 'bg-yellow-900/50 text-yellow-400' : 'bg-green-900/50 text-green-400'
                     }`}>
                       {isPaused ? 'Paused' : 'Printing'}
@@ -105,7 +105,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => sendCommand(printer.id, 'resume')}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-lg text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <Play size={14} />
                         {isLoading === 'resume' ? 'Resuming...' : 'Resume'}
@@ -114,7 +114,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => sendCommand(printer.id, 'pause')}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded-lg text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <Pause size={14} />
                         {isLoading === 'pause' ? 'Pausing...' : 'Pause'}
@@ -125,7 +125,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => sendCommand(printer.id, 'stop')}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-lg text-sm transition-colors disabled:opacity-50 animate-pulse"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white hover:bg-red-500 rounded-md text-sm transition-colors disabled:opacity-50 animate-pulse"
                       >
                         <StopCircle size={14} />
                         {isLoading === 'stop' ? 'Stopping...' : 'Confirm Stop'}
@@ -134,7 +134,7 @@ export default function EmergencyStop() {
                       <button
                         onClick={() => setConfirmStop(printer.id)}
                         disabled={isLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-lg text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
                       >
                         <StopCircle size={14} />
                         Stop
@@ -146,7 +146,7 @@ export default function EmergencyStop() {
             })}
           </div>
           
-          <div className="p-2 bg-farm-950 text-xs text-farm-500 text-center">
+          <div className="p-2 bg-[var(--brand-card-bg)] text-xs text-[var(--brand-text-muted)] text-center">
             Stop will cancel the print permanently
           </div>
         </div>

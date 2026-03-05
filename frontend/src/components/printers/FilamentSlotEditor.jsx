@@ -3,6 +3,7 @@ import { Search } from 'lucide-react'
 import { printers } from '../../api'
 import { canDo } from '../../permissions'
 import { getShortName } from '../../utils/shared'
+import { SpoolRing } from '../ui'
 
 export default function FilamentSlotEditor({ slot, allFilaments, spools, printerId, onSave }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -58,11 +59,17 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
   return (
     <>
       <div
-        className="bg-farm-800 rounded-lg p-2 cursor-pointer hover:bg-farm-700 transition-colors min-w-0 text-center"
+        className="bg-[var(--brand-input-bg)] rounded-md p-2 cursor-pointer hover:brightness-110 transition-all min-w-0 text-center flex flex-col items-center gap-1"
         onClick={() => { if (typeof canDo === 'function' ? canDo('printers.slots') : true) setIsEditing(true) }}
       >
-        <div className="w-full h-3 rounded-lg mb-1" style={{ backgroundColor: colorHex ? `#${colorHex}` : "#333" }}/>
-        <span className="text-xs text-farm-500 truncate block">{getShortName(slot)}</span>
+        <SpoolRing
+          color={colorHex ? `#${colorHex}` : '#888'}
+          material={slot.material_type || slot.type || ''}
+          level={slot.remaining != null ? slot.remaining : 100}
+          empty={!colorHex && !slot.material_type && !slot.type}
+          size={20}
+        />
+        <span className="text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
       </div>
 
       {isEditing && (
@@ -71,16 +78,16 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
             className="absolute inset-0 bg-black/50"
             onClick={() => { setIsEditing(false); setSearch('') }}
           />
-          <div className="relative bg-farm-800 rounded-t-xl sm:rounded p-4 w-full sm:w-80 shadow-xl border border-farm-600 max-h-[80vh] flex flex-col">
-            <div className="text-sm font-medium text-farm-300 mb-3">Slot {slot.slot_number} - Select Filament</div>
+          <div className="relative bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-md p-4 w-full sm:w-80 shadow-xl border border-[var(--brand-border)] max-h-[80vh] flex flex-col">
+            <div className="text-sm font-medium text-[var(--brand-text-primary)] mb-3">Slot {slot.slot_number} - Select Filament</div>
             <div className="relative mb-3">
-              <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-farm-500" />
+              <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search filaments..."
-                className="w-full bg-farm-900 border border-farm-600 rounded-lg pl-8 pr-3 py-2 text-sm"
+                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-border)] rounded-md pl-8 pr-3 py-2 text-sm"
                 autoFocus
               />
             </div>
@@ -92,14 +99,15 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                     <button
                       key={s.id}
                       onClick={() => handleSelectSpool(s)}
-                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      <div
-                        className="w-5 h-5 rounded-lg border border-farm-500 flex-shrink-0"
-                        style={{ backgroundColor: s.filament_color_hex ? `#${s.filament_color_hex}` : "#666" }}
+                      <SpoolRing
+                        color={s.filament_color_hex ? `#${s.filament_color_hex}` : '#666'}
+                        level={s.remaining_weight_g != null ? Math.min(100, Math.round((s.remaining_weight_g / (s.initial_weight_g || 1000)) * 100)) : 100}
+                        size={20}
                       />
                       <span className="truncate flex-1">{s.filament_brand} {s.filament_name}</span>
-                      <span className="text-xs text-farm-400">{Math.round(s.remaining_weight_g)}g</span>
+                      <span className="text-xs text-[var(--brand-text-secondary)]">{Math.round(s.remaining_weight_g)}g</span>
                     </button>
                   ))}
                 </>
@@ -111,15 +119,15 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                     <button
                       key={f.id}
                       onClick={() => handleSelect(f)}
-                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      <div
-                        className="w-5 h-5 rounded-lg border border-farm-500 flex-shrink-0"
-                        style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                      <SpoolRing
+                        color={f.color_hex ? `#${f.color_hex}` : '#666'}
+                        size={20}
                       />
                       <span className="truncate flex-1">{f.name}</span>
                       {f.remaining_weight && (
-                        <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>
+                        <span className="text-xs text-[var(--brand-text-secondary)]">{Math.round(f.remaining_weight)}g</span>
                       )}
                     </button>
                   ))}
@@ -127,16 +135,16 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
               )}
               {libraryFilaments.length > 0 && (
                 <>
-                  <div className="text-xs text-farm-400 font-medium px-1 py-1 mt-2">From Library</div>
+                  <div className="text-xs text-[var(--brand-text-secondary)] font-medium px-1 py-1 mt-2">From Library</div>
                   {libraryFilaments.slice(0, 20).map(f => (
                     <button
                       key={f.id}
                       onClick={() => handleSelect(f)}
-                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-farm-700 rounded-lg text-left text-sm"
+                      className="w-full flex items-center gap-2 px-2 py-2 hover:bg-[var(--brand-input-bg)] rounded-md text-left text-sm"
                     >
-                      <div
-                        className="w-5 h-5 rounded-lg border border-farm-500 flex-shrink-0"
-                        style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }}
+                      <SpoolRing
+                        color={f.color_hex ? `#${f.color_hex}` : '#666'}
+                        size={20}
                       />
                       <span className="truncate">{f.display_name}</span>
                     </button>
@@ -144,12 +152,12 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 </>
               )}
               {filteredFilaments.length === 0 && (
-                <div className="text-sm text-farm-500 px-1 py-4 text-center">No filaments found</div>
+                <div className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</div>
               )}
             </div>
             <div className="flex gap-2 mt-4 flex-shrink-0">
-              <button onClick={handleClear} className="flex-1 text-sm bg-farm-700 hover:bg-farm-600 rounded-lg py-2">Clear</button>
-              <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-farm-700 hover:bg-farm-600 rounded-lg py-2">Cancel</button>
+              <button onClick={handleClear} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Clear</button>
+              <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Cancel</button>
             </div>
           </div>
         </div>

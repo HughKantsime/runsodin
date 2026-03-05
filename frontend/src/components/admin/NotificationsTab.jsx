@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle } from 'lucide-react'
+import { Bell, Mail, Save, CheckCircle, AlertTriangle, RefreshCw, XCircle, Wrench, FileText, XOctagon, Thermometer, ListPlus, SkipForward } from 'lucide-react'
 import usePushNotifications from '../../hooks/usePushNotifications'
 import { alertPreferences, smtpConfig } from '../../api'
 import { useLicense } from '../../LicenseContext'
@@ -76,17 +76,17 @@ export default function NotificationsTab() {
   }
 
   const alertTypeLabels = {
-    'print_complete': { label: 'Print Complete', desc: 'When a print job finishes successfully', icon: '✅' },
-    'print_failed': { label: 'Print Failed', desc: 'When a print fails or errors out', icon: '❌' },
-    'spool_low': { label: 'Spool Low', desc: 'When filament drops below threshold', icon: '🟡' },
-    'maintenance_overdue': { label: 'Maintenance Due', desc: 'When printer maintenance is overdue', icon: '🔧' },
-    'job_submitted': { label: 'Job Submitted', desc: 'When a user submits a job for approval', icon: '📋' },
-    'job_approved': { label: 'Job Approved', desc: 'When a submitted job is approved', icon: '👍' },
-    'job_rejected': { label: 'Job Rejected', desc: 'When a submitted job is rejected', icon: '👎' },
-    'bed_cooled': { label: 'Bed Cooled', desc: 'When bed temp drops below threshold after print', icon: '🧊' },
-    'queue_added': { label: 'Job Queued', desc: 'When a job enters the print queue', icon: '📥' },
-    'queue_skipped': { label: 'Job Skipped', desc: 'When a job is skipped (filament/printer mismatch)', icon: '⏭' },
-    'queue_failed_start': { label: 'Job Failed to Start', desc: 'When a job fails to dispatch to printer', icon: '⚠' },
+    'print_complete':      { label: 'Print Complete',       desc: 'When a print job finishes successfully',          icon: CheckCircle,    color: 'var(--status-completed)' },
+    'print_failed':        { label: 'Print Failed',         desc: 'When a print fails or errors out',                icon: XCircle,        color: 'var(--status-failed)' },
+    'spool_low':           { label: 'Spool Low',            desc: 'When filament drops below threshold',             icon: AlertTriangle,  color: 'var(--status-warning)' },
+    'maintenance_overdue': { label: 'Maintenance Due',      desc: 'When printer maintenance is overdue',             icon: Wrench,         color: 'var(--brand-text-muted)' },
+    'job_submitted':       { label: 'Job Submitted',        desc: 'When a user submits a job for approval',          icon: FileText,       color: 'var(--brand-text-muted)' },
+    'job_approved':        { label: 'Job Approved',         desc: 'When a submitted job is approved',                icon: CheckCircle,    color: 'var(--status-printing)' },
+    'job_rejected':        { label: 'Job Rejected',         desc: 'When a submitted job is rejected',                icon: XOctagon,       color: 'var(--status-failed)' },
+    'bed_cooled':          { label: 'Bed Cooled',           desc: 'When bed temp drops below threshold after print',  icon: Thermometer,    color: 'var(--status-printing)' },
+    'queue_added':         { label: 'Job Queued',           desc: 'When a job enters the print queue',               icon: ListPlus,       color: 'var(--brand-text-muted)' },
+    'queue_skipped':       { label: 'Job Skipped',          desc: 'When a job is skipped (filament/printer mismatch)', icon: SkipForward,   color: 'var(--brand-text-muted)' },
+    'queue_failed_start':  { label: 'Job Failed to Start',  desc: 'When a job fails to dispatch to printer',         icon: AlertTriangle,  color: 'var(--status-failed)' },
   }
 
   const normalizeType = (type) => type.toLowerCase()
@@ -158,11 +158,11 @@ export default function NotificationsTab() {
     <div className="max-w-4xl">
       {/* Push Notification Status */}
       {pushSupported && (
-        <div className="mb-6 p-4 bg-farm-800 rounded-lg">
+        <div className="mb-6 p-4 bg-[var(--brand-card-bg)] rounded-md">
           <div className="flex items-center justify-between">
             <div>
               <h4 className="font-medium">Browser Push Notifications</h4>
-              <p className="text-sm text-farm-400 mt-1">
+              <p className="text-sm text-[var(--brand-text-secondary)] mt-1">
                 {pushSubscribed
                   ? 'Push notifications are enabled for this browser'
                   : pushPermission === 'denied'
@@ -189,12 +189,12 @@ export default function NotificationsTab() {
           <Bell size={18} className="text-print-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Alert Preferences</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Choose how you want to be notified for each type of alert.
         </p>
 
         {alertPrefsLoading ? (
-          <div className="text-center text-farm-400 py-6 text-sm">Loading preferences...</div>
+          <div className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading preferences...</div>
         ) : (
           <>
             {/* Header row */}
@@ -208,14 +208,15 @@ export default function NotificationsTab() {
             <div className="space-y-2">
               {alertPrefs.map((pref) => {
                 const typeKey = normalizeType(pref.alert_type)
-                const meta = alertTypeLabels[typeKey] || { label: typeKey, desc: '', icon: '🔔' }
+                const meta = alertTypeLabels[typeKey] || { label: typeKey, desc: '', icon: Bell, color: 'var(--brand-text-muted)' }
+                const AlertIcon = meta.icon
                 return (
-                  <div key={typeKey} className="bg-farm-800 rounded-lg p-3">
+                  <div key={typeKey} className="bg-[var(--brand-card-bg)] rounded-md p-3">
                     <div className="md:grid md:grid-cols-[1fr,80px,80px,80px] gap-3 items-center">
                       {/* Label */}
                       <div>
                         <div className="flex items-center gap-2">
-                          <span>{meta.icon}</span>
+                          <AlertIcon size={14} style={{ color: meta.color }} />
                           <span className="text-sm font-medium">{meta.label}</span>
                         </div>
                         <p className="text-xs text-farm-500 mt-0.5 ml-6 md:ml-0">{meta.desc}</p>
@@ -268,7 +269,7 @@ export default function NotificationsTab() {
                     {typeKey === 'spool_low' && (
                       <div className="mt-3 pt-3 border-t border-farm-700 ml-6 md:ml-0">
                         <div className="flex items-center gap-3">
-                          <label className="text-xs text-farm-400 whitespace-nowrap">Low spool threshold:</label>
+                          <label className="text-xs text-[var(--brand-text-secondary)] whitespace-nowrap">Low spool threshold:</label>
                           <input
                             type="range"
                             min="50"
@@ -328,10 +329,10 @@ export default function NotificationsTab() {
         </div>
 
         {smtpLoading ? (
-          <div className="text-center text-farm-400 py-6 text-sm">Loading...</div>
+          <div className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading...</div>
         ) : (
           <>
-            <p className="text-sm text-farm-400 mb-4">
+            <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
               Configure an SMTP server to receive alert notifications via email.
               {!smtp.enabled && ' Enable the toggle above to activate email delivery.'}
             </p>
@@ -362,7 +363,7 @@ export default function NotificationsTab() {
                   placeholder="your@email.com"
                 />
                 <div>
-                  <label className="block text-sm text-farm-400 mb-1">Password</label>
+                  <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Password</label>
                   <div className="relative">
                     <Input
                       type={showSmtpPassword ? 'text' : 'password'}
@@ -374,7 +375,7 @@ export default function NotificationsTab() {
                     <button
                       type="button"
                       onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-farm-400 hover:text-farm-200"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--brand-text-secondary)] hover:text-farm-200"
                     >
                       {showSmtpPassword ? 'Hide' : 'Show'}
                     </button>
@@ -418,7 +419,7 @@ export default function NotificationsTab() {
             </div>
 
             {smtpTestResult && (
-              <div className={`mt-3 p-3 rounded-lg flex items-center gap-2 ${smtpTestResult.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+              <div className={`mt-3 p-3 rounded-md flex items-center gap-2 ${smtpTestResult.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
                 {smtpTestResult.success ? <CheckCircle size={16} className="text-green-400 flex-shrink-0" /> : <XCircle size={16} className="text-red-400 flex-shrink-0" />}
                 <span className={`text-sm ${smtpTestResult.success ? 'text-green-200' : 'text-red-200'}`}>{smtpTestResult.message}</span>
               </div>

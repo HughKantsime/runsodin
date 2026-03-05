@@ -29,11 +29,11 @@ export default function MobileHeader({ onMenuClick }) {
         <AlertBell />
         <button
           onClick={onMenuClick}
-          className="p-2 rounded-lg transition-colors"
+          className="p-2 rounded-lg transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
           style={{ color: 'var(--brand-sidebar-text)' }}
           aria-label="Open menu"
         >
-          <Menu size={24} />
+          <Menu size={20} />
         </button>
       </div>
     </header>

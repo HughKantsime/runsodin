@@ -180,26 +180,26 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
     <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Printer' : 'Add New Printer'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Machine ID {!isEditing && '*'}</label>
-          <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.replace(/\s+/g, '-') }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., p1s-01, x1c-floor2" />
-          <p className="text-xs text-farm-500 mt-1">Unique identifier used in logs and the API. Cannot contain spaces.</p>
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Machine ID {!isEditing && '*'}</label>
+          <input type="text" required={!isEditing} value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value.replace(/\s+/g, '-') }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., p1s-01, x1c-floor2" />
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Unique identifier used in logs and the API. Cannot contain spaces.</p>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Display Name</label>
-          <input type="text" value={formData.nickname} onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Big Bertha (optional)" />
-          <p className="text-xs text-farm-500 mt-1">Friendly label shown on cards and dashboards. Falls back to Machine ID if blank.</p>
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Display Name</label>
+          <input type="text" value={formData.nickname} onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., Big Bertha (optional)" />
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Friendly label shown on cards and dashboards. Falls back to Machine ID if blank.</p>
         </div>
         {isEditing && showBambuFields && printer?.model && printer?.last_seen ? (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Model</label>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Model</label>
             <div className="flex items-center gap-2">
-              <span className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-200">{formData.model}</span>
+              <span className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)]">{formData.model}</span>
               <span className="text-xs text-green-400 flex items-center gap-1 whitespace-nowrap"><Lock size={11} /> Auto-detected</span>
             </div>
             {!modelOverride ? (
-              <button type="button" onClick={() => setModelOverride(true)} className="text-xs text-farm-500 hover:text-farm-300 mt-1">Override</button>
+              <button type="button" onClick={() => setModelOverride(true)} className="text-xs text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] mt-1">Override</button>
             ) : (
-              <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-amber-600 rounded-lg px-3 py-2 text-sm mt-2">
+              <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-amber-600 rounded-md px-3 py-2 text-sm mt-2">
                 <option value="">Select model</option>
                 {BAMBU_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
@@ -207,29 +207,29 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           </div>
         ) : showBambuFields ? (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Model</label>
-            <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Model</label>
+            <select value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Will auto-detect on first connect</option>
               {BAMBU_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
         ) : (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Model</label>
-            <input type="text" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Prusa MK4, Ender 3" />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Model</label>
+            <input type="text" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., Prusa MK4, Ender 3" />
           </div>
         )}
         {isEditing && showBambuFields && printer?.last_seen ? (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Filament Slots</label>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Filament Slots</label>
             <div className="flex items-center gap-2">
-              <span className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-200">{formData.slot_count} slots</span>
+              <span className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)]">{formData.slot_count} slots</span>
               <span className="text-xs text-green-400 flex items-center gap-1 whitespace-nowrap"><Lock size={11} /> Auto-detected</span>
             </div>
             {!slotOverride ? (
-              <button type="button" onClick={() => setSlotOverride(true)} className="text-xs text-farm-500 hover:text-farm-300 mt-1">Override</button>
+              <button type="button" onClick={() => setSlotOverride(true)} className="text-xs text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] mt-1">Override</button>
             ) : (
-              <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-farm-800 border border-amber-600 rounded-lg px-3 py-2 text-sm mt-2">
+              <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-[var(--brand-card-bg)] border border-amber-600 rounded-md px-3 py-2 text-sm mt-2">
                 <option value={1}>1 slot (no AMS)</option>
                 <option value={4}>4 slots (1x AMS)</option>
                 <option value={5}>5 slots (AMS + HT slot)</option>
@@ -245,8 +245,8 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           </div>
         ) : (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Filament Slots</label>
-            <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Filament Slots</label>
+            <select value={formData.slot_count} onChange={(e) => setFormData(prev => ({ ...prev, slot_count: Number(e.target.value) }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value={1}>1 slot (no AMS)</option>
               <option value={4}>4 slots (1x AMS)</option>
               <option value={5}>5 slots (AMS + HT slot)</option>
@@ -265,21 +265,21 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           <div className="flex gap-3">
             {printer.nozzle_diameter && (
               <div className="flex-1">
-                <label className="block text-xs text-farm-500 mb-1">Nozzle Size</label>
-                <div className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-300">{printer.nozzle_diameter}mm</div>
+                <label className="block text-xs text-[var(--brand-text-muted)] mb-1">Nozzle Size</label>
+                <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-secondary)]">{printer.nozzle_diameter}mm</div>
               </div>
             )}
             {printer.nozzle_type && (
               <div className="flex-1">
-                <label className="block text-xs text-farm-500 mb-1">Nozzle Type</label>
-                <div className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm text-farm-300">{printer.nozzle_type}</div>
+                <label className="block text-xs text-[var(--brand-text-muted)] mb-1">Nozzle Type</label>
+                <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-secondary)]">{printer.nozzle_type}</div>
               </div>
             )}
           </div>
         )}
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Bed Size (optional)</label>
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Bed Size (optional)</label>
           <div className="flex gap-2 items-center">
             <input
               type="number"
@@ -287,30 +287,30 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               step="1"
               value={formData.bed_x_mm}
               onChange={(e) => setFormData(prev => ({ ...prev, bed_x_mm: e.target.value }))}
-              className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+              className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
               placeholder="X mm"
             />
-            <span className="text-farm-500 text-sm">x</span>
+            <span className="text-[var(--brand-text-muted)] text-sm">x</span>
             <input
               type="number"
               min="1"
               step="1"
               value={formData.bed_y_mm}
               onChange={(e) => setFormData(prev => ({ ...prev, bed_y_mm: e.target.value }))}
-              className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+              className="flex-1 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
               placeholder="Y mm"
             />
-            <span className="text-farm-500 text-xs whitespace-nowrap">mm</span>
+            <span className="text-[var(--brand-text-muted)] text-xs whitespace-nowrap">mm</span>
           </div>
-          <p className="text-xs text-farm-600 mt-1">Used to verify file compatibility before dispatch</p>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Used to verify file compatibility before dispatch</p>
         </div>
 
-        <div className="border-t border-farm-700 pt-4 mt-4">
-          <label className="block text-sm text-farm-400 mb-2">Printer Connection (Optional)</label>
+        <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-2">Printer Connection (Optional)</label>
           <select
             value={formData.api_type}
             onChange={(e) => setFormData(prev => ({ ...prev, api_type: e.target.value }))}
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
           >
             <option value="">Manual (no connection)</option>
             <option value="bambu">Bambu Lab (X1C, P1S, A1, etc.)</option>
@@ -324,32 +324,32 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
         {showConnectionFields && (
           <>
             <div>
-              <label className="block text-sm text-farm-400 mb-1">Printer IP Address</label>
-              <input type="text" value={formData.api_host} onChange={(e) => setFormData(prev => ({ ...prev, api_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 192.168.1.100" />
-              {formData.api_type === 'bambu' && <p className="text-xs text-farm-500 mt-1">Find this on the printer: Network settings</p>}
-              {formData.api_type === 'moonraker' && <p className="text-xs text-farm-500 mt-1">IP of your Klipper printer running Moonraker</p>}
-              {formData.api_type === 'prusalink' && <p className="text-xs text-farm-500 mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
-              {formData.api_type === 'elegoo' && <p className="text-xs text-farm-500 mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Printer IP Address</label>
+              <input type="text" value={formData.api_host} onChange={(e) => setFormData(prev => ({ ...prev, api_host: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., 192.168.1.100" />
+              {formData.api_type === 'bambu' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Network settings</p>}
+              {formData.api_type === 'moonraker' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Klipper printer running Moonraker</p>}
+              {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Prusa printer with PrusaLink enabled</p>}
+              {formData.api_type === 'elegoo' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">IP of your Elegoo printer — SDCP on port 3030, no auth needed</p>}
             </div>
             {formData.api_type === 'bambu' && (
             <div>
-              <label className="block text-sm text-farm-400 mb-1">Serial Number</label>
-              <input type="text" value={formData.serial} onChange={(e) => setFormData(prev => ({ ...prev, serial: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder="e.g., 00M09A380700000" />
-              <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Device Info</p>
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Serial Number</label>
+              <input type="text" value={formData.serial} onChange={(e) => setFormData(prev => ({ ...prev, serial: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder="e.g., 00M09A380700000" />
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Settings → Device Info</p>
             </div>
             )}
             {formData.api_type === 'bambu' && (
             <div>
-              <label className="block text-sm text-farm-400 mb-1">Access Code</label>
-              <input type="text" value={formData.access_code} onChange={(e) => setFormData(prev => ({ ...prev, access_code: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder="e.g., 12345678" />
-              <p className="text-xs text-farm-500 mt-1">Find this on the printer: Settings → Network → Access Code</p>
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Access Code</label>
+              <input type="text" value={formData.access_code} onChange={(e) => setFormData(prev => ({ ...prev, access_code: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder="e.g., 12345678" />
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find this on the printer: Settings → Network → Access Code</p>
             </div>
             )}
             {(formData.api_type === 'moonraker' || formData.api_type === 'prusalink') && (
             <div>
-              <label className="block text-sm text-farm-400 mb-1">API Key {formData.api_type === 'prusalink' ? '' : '(optional)'}</label>
-              <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key from Settings' : 'Moonraker API key (if required)'} />
-              {formData.api_type === 'prusalink' && <p className="text-xs text-farm-500 mt-1">Find in PrusaLink → Settings → API Key</p>}
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">API Key {formData.api_type === 'prusalink' ? '' : '(optional)'}</label>
+              <input type="text" value={formData.api_key_field || ''} onChange={(e) => setFormData(prev => ({ ...prev, api_key_field: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 font-mono text-sm" placeholder={formData.api_type === 'prusalink' ? 'PrusaLink API key from Settings' : 'Moonraker API key (if required)'} />
+              {formData.api_type === 'prusalink' && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Find in PrusaLink → Settings → API Key</p>}
             </div>
             )}
 
@@ -359,11 +359,11 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                 onClick={handleTestConnection}
                 disabled={testStatus === 'testing'}
                 className={clsx(
-                  "w-full px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm",
-                  testStatus === 'testing' && "bg-farm-700 text-farm-400 cursor-wait",
+                  "w-full px-4 py-2 rounded-md transition-colors flex items-center justify-center gap-2 text-sm",
+                  testStatus === 'testing' && "bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] cursor-wait",
                   testStatus === 'success' && "bg-green-900/50 text-green-400 border border-green-700",
                   testStatus === 'error' && "bg-red-900/50 text-red-400 border border-red-700",
-                  !testStatus && "bg-farm-700 hover:bg-farm-600 text-farm-200"
+                  !testStatus && "bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] text-[var(--brand-text-primary)]"
                 )}
               >
                 {testStatus === 'testing' ? (
@@ -377,7 +377,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
                 )}
               </button>
               {testMessage && (
-                <p className={clsx("text-xs mt-1", testStatus === 'success' ? "text-green-400" : testStatus === 'error' ? "text-red-400" : "text-farm-400")}>
+                <p className={clsx("text-xs mt-1", testStatus === 'success' ? "text-green-400" : testStatus === 'error' ? "text-red-400" : "text-[var(--brand-text-secondary)]")}>
                   {testMessage}
                 </p>
               )}
@@ -387,12 +387,12 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
 
         {/* Smart Plug Configuration */}
         {formData.api_type && (
-        <div className="border-t border-farm-700 pt-4 mt-4">
-          <label className="block text-sm text-farm-400 mb-2">Smart Plug (Optional)</label>
+        <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-2">Smart Plug (Optional)</label>
           <select
             value={formData.plug_type || ''}
             onChange={(e) => setFormData(prev => ({ ...prev, plug_type: e.target.value }))}
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm mb-3"
+            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm mb-3"
           >
             <option value="">No smart plug</option>
             <option value="tasmota">Tasmota (HTTP)</option>
@@ -401,46 +401,46 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           </select>
           {formData.plug_type === 'tasmota' && (
             <div className="space-y-2">
-              <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Tasmota IP (e.g., 192.168.1.50)" />
-              <p className="text-xs text-farm-500">Auto power-on before print, auto power-off after cooldown</p>
+              <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="Tasmota IP (e.g., 192.168.1.50)" />
+              <p className="text-xs text-[var(--brand-text-muted)]">Auto power-on before print, auto power-off after cooldown</p>
             </div>
           )}
           {formData.plug_type === 'mqtt' && (
             <div className="space-y-2">
-              <input type="text" value={formData.plug_topic || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_topic: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="MQTT topic (e.g., cmnd/plug1/POWER)" />
-              <p className="text-xs text-farm-500">Publishes ON/OFF to the configured MQTT broker</p>
+              <input type="text" value={formData.plug_topic || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_topic: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="MQTT topic (e.g., cmnd/plug1/POWER)" />
+              <p className="text-xs text-[var(--brand-text-muted)]">Publishes ON/OFF to the configured MQTT broker</p>
             </div>
           )}
           {formData.plug_type === 'homeassistant' && (
             <div className="space-y-2">
-              <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="HA URL (e.g., http://homeassistant.local:8123)" />
-              <input type="text" value={formData.plug_entity || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_entity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Entity ID (e.g., switch.printer_plug)" />
-              <input type="password" value={formData.plug_token || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_token: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="Long-lived access token" />
-              <p className="text-xs text-farm-500">Uses HA REST API to control the switch entity</p>
+              <input type="text" value={formData.plug_host || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_host: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="HA URL (e.g., http://homeassistant.local:8123)" />
+              <input type="text" value={formData.plug_entity || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_entity: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="Entity ID (e.g., switch.printer_plug)" />
+              <input type="password" value={formData.plug_token || ''} onChange={(e) => setFormData(prev => ({ ...prev, plug_token: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="Long-lived access token" />
+              <p className="text-xs text-[var(--brand-text-muted)]">Uses HA REST API to control the switch entity</p>
             </div>
           )}
         </div>
         )}
 
         {/* Camera URL */}
-        <div className="border-t border-farm-700 pt-4 mt-4">
-          <label className="block text-sm text-farm-400 mb-1">Camera URL (optional)</label>
-          <input type="text" value={formData.camera_url} onChange={(e) => setFormData(prev => ({ ...prev, camera_url: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g. http://192.168.1.50:8080/?action=stream" />
+        <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Camera URL (optional)</label>
+          <input type="text" value={formData.camera_url} onChange={(e) => setFormData(prev => ({ ...prev, camera_url: e.target.value }))} className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g. http://192.168.1.50:8080/?action=stream" />
           {formData.api_type === 'bambu' && /^(P1S|P1P|A1)/i.test(formData.model) ? (
-            <p className="text-xs text-farm-500 mt-1">P1S/A1 built-in cameras require LAN Live View which isn't available on these models. Use an external camera (USB webcam + MJPEG streamer, or IP camera) for Vigil AI.</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">P1S/A1 built-in cameras require LAN Live View which isn't available on these models. Use an external camera (USB webcam + MJPEG streamer, or IP camera) for Vigil AI.</p>
           ) : formData.api_type === 'bambu' && /^(X1|H2D)/i.test(formData.model) ? (
-            <p className="text-xs text-farm-500 mt-1">Leave blank to auto-detect built-in camera.</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to auto-detect built-in camera.</p>
           ) : (
-            <p className="text-xs text-farm-500 mt-1">MJPEG, RTSP, or HTTP snapshot URL for Vigil AI monitoring.</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">MJPEG, RTSP, or HTTP snapshot URL for Vigil AI monitoring.</p>
           )}
         </div>
 
         {/* Tags */}
-        <div className="border-t border-farm-700 pt-4 mt-4">
-          <label className="block text-sm text-farm-400 mb-1">Tags (optional)</label>
+        <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Tags (optional)</label>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {(formData.tags || []).map(tag => (
-              <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-print-600/20 text-print-400 text-xs rounded-full border border-print-600/30">
+              <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-print-600/20 text-[var(--brand-primary)] text-xs rounded-full border border-print-600/30">
                 {tag}
                 <button type="button" onClick={() => setFormData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }))} className="hover:text-red-400">&times;</button>
               </span>
@@ -449,7 +449,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
           <input
             type="text"
             placeholder="Type a tag and press Enter"
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
@@ -461,42 +461,42 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
               }
             }}
           />
-          <p className="text-xs text-farm-500 mt-1">e.g., "Room A", "PLA-only", "Production"</p>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">e.g., "Room A", "PLA-only", "Production"</p>
         </div>
 
         {/* Timelapse */}
-        <div className="border-t border-farm-700 pt-4 mt-4">
+        <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={formData.timelapse_enabled || false}
               onChange={(e) => setFormData(prev => ({ ...prev, timelapse_enabled: e.target.checked }))}
-              className="w-4 h-4 rounded border-farm-600 bg-farm-800 text-print-600 focus:ring-print-600"
+              className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-print-600 focus:ring-print-600"
             />
-            <span className="text-sm text-farm-200">Enable timelapse recording</span>
+            <span className="text-sm text-[var(--brand-text-primary)]">Enable timelapse recording</span>
           </label>
-          <p className="text-xs text-farm-500 mt-1 ml-6">Capture frames every 30s during prints and stitch into MP4 videos.</p>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1 ml-6">Capture frames every 30s during prints and stitch into MP4 videos.</p>
         </div>
 
         {/* Shared across orgs (admin only) */}
         {canDo('settings.edit') && (
-          <div className="border-t border-farm-700 pt-4 mt-4">
+          <div className="border-t border-[var(--brand-card-border)] pt-4 mt-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={formData.shared || false}
                 onChange={(e) => setFormData(prev => ({ ...prev, shared: e.target.checked }))}
-                className="w-4 h-4 rounded border-farm-600 bg-farm-800 text-print-600 focus:ring-print-600"
+                className="w-4 h-4 rounded border-[var(--brand-card-border)] bg-[var(--brand-card-bg)] text-print-600 focus:ring-print-600"
               />
-              <span className="text-sm text-farm-200">Shared across organizations</span>
+              <span className="text-sm text-[var(--brand-text-primary)]">Shared across organizations</span>
             </label>
-            <p className="text-xs text-farm-500 mt-1 ml-6">Visible to all organizations regardless of assignment.</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1 ml-6">Visible to all organizations regardless of assignment.</p>
           </div>
         )}
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
-          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
+          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-md transition-colors text-sm">{isEditing ? 'Save Changes' : 'Add Printer'}</button>
         </div>
       </form>
     </Modal>

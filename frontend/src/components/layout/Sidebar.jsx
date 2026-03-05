@@ -49,17 +49,17 @@ export function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
       onClick={onClick}
       title={collapsed ? (label || undefined) : undefined}
       className={({ isActive }) => clsx(
-        'transition-colors border-l-3',
-        collapsed ? 'flex items-center justify-center py-2 rounded-lg'
-                  : 'flex items-center gap-3 px-4 py-2 rounded-lg text-sm',
-        isActive ? 'border-l-print-500' : 'border-l-transparent',
+        'transition-colors border-l-2',
+        collapsed ? 'flex items-center justify-center py-1.5 rounded-sm'
+                  : 'flex items-center gap-2.5 px-3 py-1.5 rounded-sm text-sm',
+        isActive ? 'border-l-[var(--brand-primary)]' : 'border-l-transparent',
       )}
       style={({ isActive }) => isActive
         ? { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-sidebar-active-text)' }
         : { color: 'var(--brand-sidebar-text)' }
       }
     >
-      <Icon size={18} className="flex-shrink-0" />
+      <Icon size={16} className="flex-shrink-0" />
       {!collapsed && <span className="font-medium">{children}</span>}
     </NavLink>
   )
@@ -68,19 +68,19 @@ export function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
 
 export function NavGroup({ label, collapsed, open, onToggle }) {
   return (
-    <div className="pt-4 pb-1">
+    <div className="pt-3 pb-1">
       <div style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} />
       {!collapsed && (
         <button
           onClick={onToggle}
-          className="flex items-center justify-between w-full px-4 mt-2 group"
+          className="flex items-center justify-between w-full px-3 mt-1.5 group"
         >
           <span className="text-[10px] uppercase font-mono font-medium"
             style={{ color: 'var(--brand-text-muted)', letterSpacing: '0.2em' }}>
             {label}
           </span>
           <ChevronDown
-            size={12}
+            size={10}
             className={clsx("transition-transform duration-200", open ? "" : "-rotate-90")}
             style={{ color: 'var(--brand-text-muted)' }}
           />
@@ -164,7 +164,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
       >
         {/* Logo */}
         <div
-          className={clsx("flex items-center", collapsed && !mobileOpen ? "p-3 justify-center" : "p-6 justify-between")}
+          className={clsx("flex items-center", collapsed && !mobileOpen ? "p-2.5 justify-center" : "p-4 justify-between")}
           style={{ borderBottom: '1px solid var(--brand-sidebar-border)' }}
         >
           <div>
@@ -274,17 +274,23 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Fleet Status */}
         {printersData && (!collapsed || mobileOpen) && (
-          <NavLink to="/printers" className="flex-shrink-0 px-4 py-3 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} aria-label={`Fleet status: ${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}>
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-xs font-medium whitespace-nowrap" style={{ color: 'var(--brand-sidebar-text)' }}>
-                {printersData.filter(p => isOnline(p)).length}/{printersData.length} online
+          <NavLink to="/printers" className="flex-shrink-0 px-3 py-2.5 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} aria-label={`Fleet status: ${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-mono font-medium" style={{ color: 'var(--brand-text-muted)' }}>
+                FLEET
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: 'var(--brand-sidebar-text)' }}>
+                {printersData.filter(p => isOnline(p)).length}/{printersData.length}
               </span>
             </div>
-            <div className="flex flex-wrap gap-0.5" aria-hidden="true">
-              {printersData.map(p => {
-                const online = isOnline(p)
-                return <div key={p.id} className={`w-2 h-2 rounded-full ${online ? 'bg-green-500' : 'bg-farm-600'}`} />
-              })}
+            <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'rgb(var(--farm-800))' }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${printersData.length ? (printersData.filter(p => isOnline(p)).length / printersData.length * 100) : 0}%`,
+                  backgroundColor: 'var(--status-completed)'
+                }}
+              />
             </div>
           </NavLink>
         )}

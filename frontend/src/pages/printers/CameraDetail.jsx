@@ -22,9 +22,9 @@ function AiIndicator({ printerId }) {
   })
   if (!data || !data.enabled) return null
   return (
-    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded-lg text-[10px] text-purple-300 font-medium" title="Vigil AI active">
+    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/30 rounded-sm text-[10px] text-purple-300 font-medium" title="Vigil AI active">
       <Eye size={10} />
-      <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+      <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
       AI
     </div>
   )
@@ -104,15 +104,15 @@ function WebRTCPlayer({ cameraId, className }) {
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
       {status === 'connecting' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-farm-500 text-sm animate-pulse">Connecting...</div>
+          <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>
         </div>
       )}
       {(status === 'error' || status === 'disconnected') && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-          <VideoOff size={48} className="text-farm-600" />
+          <VideoOff size={48} className="text-[var(--brand-text-muted)]" />
           <button
             onClick={handleRetry}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm text-farm-300 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-bg)] hover:bg-farm-700 rounded-lg text-sm text-[var(--brand-text-secondary)] transition-colors"
           >
             <RefreshCw size={14} /> Reconnect
           </button>
@@ -120,15 +120,15 @@ function WebRTCPlayer({ cameraId, className }) {
       )}
       {status === 'live' && (
         <div className="absolute top-3 left-3 flex items-center gap-1.5">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-          <span className="text-xs text-white/70 font-medium">LIVE</span>
+          <div className="w-1.5 h-1.5 bg-[var(--status-completed)] rounded-full" />
+          <span className="text-[10px] font-mono text-white/70">LIVE</span>
         </div>
       )}
       {status === 'live' && (
         <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={handleSnapshot}
-            className="p-1.5 bg-black/60 rounded-lg hover:bg-black/80 transition-colors text-white/70 hover:text-white"
+            className="p-1.5 backdrop-blur-sm bg-black/40 rounded-md hover:bg-black/80 transition-colors text-white/70 hover:text-white"
             title="Take snapshot"
           >
             <Camera size={16} />
@@ -172,7 +172,7 @@ export default function CameraDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-farm-500 gap-2">
+      <div className="flex items-center justify-center py-12 text-[var(--brand-text-muted)] gap-2">
         <RefreshCw size={16} className="animate-spin" />Loading...
       </div>
     )
@@ -181,11 +181,11 @@ export default function CameraDetail() {
   if (!printer) {
     return (
       <div className="p-4 md:p-6">
-        <Link to="/cameras" className="flex items-center gap-2 text-farm-400 hover:text-white transition-colors mb-4">
+        <Link to="/cameras" className="flex items-center gap-2 text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] transition-colors mb-4">
           <ArrowLeft size={18} /> Back to Cameras
         </Link>
-        <div className="text-center py-12 text-farm-500">
-          <VideoOff size={40} className="mx-auto mb-4 text-farm-600" />
+        <div className="text-center py-12 text-[var(--brand-text-muted)]">
+          <VideoOff size={40} className="mx-auto mb-4 text-[var(--brand-text-muted)]" />
           <p>Printer not found</p>
         </div>
       </div>
@@ -199,21 +199,21 @@ export default function CameraDetail() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <Link to="/cameras" className="flex items-center gap-1.5 text-farm-400 hover:text-white transition-colors text-sm">
+          <Link to="/cameras" className="flex items-center gap-1.5 text-xs text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] transition-colors">
             <ArrowLeft size={16} /> Cameras
           </Link>
-          <span className="text-farm-600">/</span>
-          <h1 className="text-xl font-display font-bold truncate">{printer.nickname || printer.name}</h1>
+          <span className="text-[var(--brand-text-muted)]">/</span>
+          <h1 className="text-lg font-semibold text-[var(--brand-text-primary)] truncate">{printer.nickname || printer.name}</h1>
         </div>
         <div className="flex items-center gap-2">
           <AiIndicator printerId={printerId} />
           <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${online ? 'bg-green-500' : 'bg-farm-600'}`} />
-            <span className={`text-xs ${online ? 'text-green-400' : 'text-farm-500'}`}>{online ? 'Online' : 'Offline'}</span>
+            <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-[var(--status-completed)]' : 'bg-[var(--brand-text-muted)]'}`} />
+            <span className={`text-xs ${online ? 'text-[var(--status-completed)]' : 'text-[var(--brand-text-muted)]'}`}>{online ? 'Online' : 'Offline'}</span>
           </div>
           <button
             onClick={toggleFullscreen}
-            className="p-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-farm-400 hover:text-white"
+            className="p-1.5 bg-[var(--brand-card-bg)] hover:bg-farm-700 rounded-lg transition-colors text-[var(--brand-text-secondary)] hover:text-white"
             title="Toggle fullscreen"
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
@@ -225,11 +225,11 @@ export default function CameraDetail() {
       <div className="flex flex-col md:flex-row gap-4">
         {/* Camera stream */}
         <div className="flex-[7] min-w-0" ref={containerRef}>
-          <WebRTCPlayer cameraId={printerId} className="aspect-video rounded-lg overflow-hidden" />
+          <WebRTCPlayer cameraId={printerId} className="aspect-video rounded-none overflow-hidden border-b border-[var(--brand-card-border)]" />
         </div>
 
         {/* Data panels */}
-        <div className="flex-[3] min-w-0 space-y-4">
+        <div className="flex-[3] min-w-0 space-y-3">
           <PrinterInfoPanel printer={printer} />
           <FilamentSlotsPanel printer={printer} />
           <ActiveJobPanel printer={printer} />

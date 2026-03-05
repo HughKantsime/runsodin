@@ -32,7 +32,7 @@ export default function AmsEnvironmentChart({ printerId, onClose }) {
   }
 
   return (
-    <div className="rounded-lg p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
+    <div className="rounded-md p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>AMS Environment</h4>
         <div className="flex items-center gap-2">
@@ -40,30 +40,30 @@ export default function AmsEnvironmentChart({ printerId, onClose }) {
             <button
               key={h}
               onClick={() => setHours(h)}
-              className={`px-2 py-1 rounded-lg text-xs transition-colors ${hours === h ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
+              className={`px-2 py-1 rounded-md text-xs transition-colors ${hours === h ? 'bg-print-600 text-white' : 'bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
             >
               {h < 48 ? `${h}h` : `${h / 24}d`}
             </button>
           ))}
           {onClose && (
-            <button onClick={onClose} className="ml-2 text-farm-500 hover:text-farm-300 text-xs">✕</button>
+            <button onClick={onClose} className="ml-2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] text-xs">✕</button>
           )}
         </div>
       </div>
 
       {loading ? (
-        <div className="text-center py-8 text-farm-500 text-sm">Loading...</div>
+        <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</div>
       ) : data.length === 0 ? (
-        <div className="text-center py-8 text-farm-500 text-sm">No AMS environment data available</div>
+        <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">No AMS environment data available</div>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-            <XAxis dataKey="time" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} interval="preserveStartEnd" />
-            <YAxis yAxisId="temp" tick={{ fill: '#F59E0B', fontSize: 10 }} domain={['auto', 'auto']} label={{ value: '°C', position: 'insideLeft', fill: '#F59E0B', fontSize: 10 }} />
-            <YAxis yAxisId="humidity" orientation="right" tick={{ fill: '#3B82F6', fontSize: 10 }} domain={[0, 100]} label={{ value: '%', position: 'insideRight', fill: '#3B82F6', fontSize: 10 }} />
+            <XAxis dataKey="time" tick={{ fill: 'var(--chart-axis)', fontSize: 11 }} interval="preserveStartEnd" />
+            <YAxis yAxisId="temp" tick={{ fill: '#F59E0B', fontSize: 11 }} domain={['auto', 'auto']} label={{ value: '°C', position: 'insideLeft', fill: '#F59E0B', fontSize: 11 }} />
+            <YAxis yAxisId="humidity" orientation="right" tick={{ fill: '#3B82F6', fontSize: 11 }} domain={[0, 100]} label={{ value: '%', position: 'insideRight', fill: '#3B82F6', fontSize: 11 }} />
             <Tooltip
-              contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '8px', fontSize: '12px' }}
+              contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', boxShadow: 'var(--chart-tooltip-shadow)', borderRadius: '6px', fontSize: '12px' }}
               labelStyle={{ color: 'var(--chart-axis)' }}
             />
             <Legend wrapperStyle={{ fontSize: '11px' }} />

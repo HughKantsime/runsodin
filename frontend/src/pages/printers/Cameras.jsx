@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Video, VideoOff, Maximize2, Minimize2, Rows3, LayoutGrid, Columns3, Monitor, Clock, Settings, Power, PictureInPicture2, X, Move, Eye, Tv, RefreshCw } from 'lucide-react'
+import { Video, VideoOff, Maximize2, Minimize2, Monitor, Clock, Settings, Power, PictureInPicture2, X, GripVertical, Eye, Tv, RefreshCw } from 'lucide-react'
+import clsx from 'clsx'
 import CameraModal from '../../components/printers/CameraModal'
 import { PageHeader, Button, Card, EmptyState } from '../../components/ui'
 
@@ -47,12 +48,12 @@ function PipPlayer({ camera, onClose }) {
 
   return (
     <div 
-      className="fixed z-[9999] rounded-xl overflow-hidden shadow-2xl border border-farm-700 bg-black"
+      className="fixed z-[9999] rounded-md overflow-hidden shadow-2xl border border-[var(--brand-card-border)] bg-black"
       style={{ left: position.x, top: position.y, width, height }}
     >
       {/* Header bar */}
       <div 
-        className="absolute top-0 left-0 right-0 h-7 bg-gradient-to-b from-black/80 to-transparent z-10 flex items-center justify-between px-2 cursor-move"
+        className="absolute top-0 left-0 right-0 h-6 bg-[var(--brand-card-bg)]/90 backdrop-blur-sm z-10 flex items-center justify-between px-2 cursor-move"
         onMouseDown={(e) => {
           setDragging(true)
           setDragOffset({ x: e.clientX - position.x, y: e.clientY - position.y })
@@ -65,7 +66,7 @@ function PipPlayer({ camera, onClose }) {
         }}
       >
         <div className="flex items-center gap-1.5">
-          <Move size={10} className="text-white/50" />
+          <GripVertical size={10} className="text-white/50" />
           <span className="text-[10px] text-white/70 font-medium truncate">{camera.printer_name || camera.name || 'Camera'}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -73,13 +74,13 @@ function PipPlayer({ camera, onClose }) {
             onClick={() => setSize(s => s === 'small' ? 'medium' : 'small')}
             className="p-0.5 hover:bg-white/20 rounded-lg text-white/60 hover:text-white"
           >
-            {size === 'small' ? <Maximize2 size={10} /> : <Minimize2 size={10} />}
+            {size === 'small' ? <Maximize2 size={8} /> : <Minimize2 size={8} />}
           </button>
-          <button 
+          <button
             onClick={onClose}
             className="p-0.5 hover:bg-red-500/50 rounded-lg text-white/60 hover:text-white"
           >
-            <X size={10} />
+            <X size={8} />
           </button>
         </div>
       </div>
@@ -92,8 +93,8 @@ function PipPlayer({ camera, onClose }) {
       />
       {/* Live indicator */}
       <div className="absolute bottom-1.5 left-2 flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-        <span className="text-[10px] text-white/70 font-medium">LIVE</span>
+        <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+        <span className="text-[10px] font-mono text-white/70">LIVE</span>
       </div>
     </div>
   )
@@ -112,7 +113,7 @@ function AiIndicator({ printerId }) {
   })
   if (!data || !data.enabled) return null
   return (
-    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/50 rounded-lg text-[10px] text-purple-300 font-medium" title="Vigil AI active">
+    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/30 rounded-sm text-[10px] text-purple-300 font-medium" title="Vigil AI active">
       <Eye size={10} />
       <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
       AI
@@ -182,7 +183,7 @@ function CameraCard({ camera, onExpand, onPip }) {
   const dotColor = status === 'live' ? 'bg-green-500' : status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
 
   return (
-    <div className="bg-farm-950 rounded-lg border border-farm-800 overflow-hidden group">
+    <div className="bg-[var(--brand-card-bg)] rounded-md overflow-hidden group" style={{ boxShadow: 'var(--brand-card-shadow)' }}>
       <div className="relative aspect-video bg-black">
         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
         {status === 'connecting' && (
@@ -201,26 +202,33 @@ function CameraCard({ camera, onExpand, onPip }) {
             </button>
           </div>
         )}
+        {/* Status overlay - bottom left */}
+        {status === 'live' && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            <span className="text-[10px] font-mono text-white/70">LIVE</span>
+          </div>
+        )}
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => onPip(camera)}
-            className="p-1.5 bg-black/50 rounded-lg hover:bg-black/80"
+            className="p-1.5 backdrop-blur-sm bg-black/40 rounded-md hover:bg-black/80"
             title="Picture-in-Picture"
           >
             <PictureInPicture2 size={16} />
           </button>
-          <Link to={`/cameras/${camera.id}`} className="p-1.5 bg-black/50 rounded-lg hover:bg-black/80">
+          <Link to={`/cameras/${camera.id}`} className="p-1.5 backdrop-blur-sm bg-black/40 rounded-md hover:bg-black/80">
             <Maximize2 size={16} />
           </Link>
         </div>
       </div>
-      <div className="p-2 md:p-3 flex items-center justify-between">
+      <div className="px-2 py-1.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={'w-2 h-2 rounded-full ' + dotColor} />
           <Link to={`/cameras/${camera.id}`} className="font-medium text-sm hover:text-print-400 transition-colors">{camera.name}</Link>
           <AiIndicator printerId={camera.id} />
         </div>
-        <span className="text-xs text-farm-500 capitalize">{status}</span>
+        <span className="text-xs text-[var(--brand-text-muted)] capitalize">{status}</span>
       </div>
     </div>
   )
@@ -339,27 +347,23 @@ export default function Cameras() {
           placeholder="Filter cameras..."
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm w-36 md:w-40 placeholder-farm-600 focus:outline-none focus:border-farm-500"
+          className="bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] rounded-none px-2 py-1.5 text-sm w-36 md:w-40 placeholder-farm-600 focus:outline-none"
         />
-        <div className="flex items-center gap-1 bg-farm-900 rounded-lg p-1">
-          <Button
-            variant={columns === 1 ? 'tertiary' : 'ghost'}
-            size="icon"
-            icon={Rows3}
-            onClick={() => setColumns(1)}
-          />
-          <Button
-            variant={columns === 2 ? 'tertiary' : 'ghost'}
-            size="icon"
-            icon={LayoutGrid}
-            onClick={() => setColumns(2)}
-          />
-          <Button
-            variant={columns === 3 ? 'tertiary' : 'ghost'}
-            size="icon"
-            icon={Columns3}
-            onClick={() => setColumns(3)}
-          />
+        <div className="flex rounded-md border border-[var(--brand-card-border)] overflow-hidden">
+          {[1, 2, 3].map(n => (
+            <button
+              key={n}
+              onClick={() => setColumns(n)}
+              className={clsx(
+                'px-2.5 py-1 text-xs font-mono transition-colors',
+                columns === n
+                  ? 'bg-[var(--brand-primary)] text-white'
+                  : 'text-[var(--brand-text-secondary)] hover:bg-farm-800'
+              )}
+            >
+              {n === 1 ? '1\u00d71' : n === 2 ? '2\u00d72' : '3\u00d73'}
+            </button>
+          ))}
         </div>
         <Button
           variant={showSettings ? 'tertiary' : 'ghost'}
@@ -401,7 +405,7 @@ export default function Cameras() {
               <p className="text-farm-500 text-sm">No printers with cameras configured</p>
             )}
             {allPrinters.map(printer => (
-              <div key={printer.id} className="flex items-center justify-between py-2 px-3 bg-farm-800 rounded-lg">
+              <div key={printer.id} className="flex items-center justify-between py-2 px-3 bg-[var(--brand-card-bg)] rounded-lg">
                 <div className="flex items-center gap-3">
                   <Video size={16} className="text-farm-400" />
                   <span className="text-sm">{printer.nickname || printer.name}</span>
@@ -452,33 +456,26 @@ export default function Cameras() {
       {controlRoom && (
         <div className="fixed inset-0 z-50 bg-black">
           {/* Top bar with clock and exit button */}
-          <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
+          <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-3 bg-gradient-to-b from-black/80 to-transparent">
             <div className="flex items-center gap-3 text-white">
-              <Monitor size={20} />
-              <span className="font-display font-bold text-lg">Control Room</span>
-              <span className="text-farm-400 text-sm">
+              <Monitor size={16} />
+              <span className="text-sm font-semibold">Control Room</span>
+              <span className="text-xs text-[var(--brand-text-muted)]">
                 {filteredCameras.length} camera{filteredCameras.length !== 1 ? 's' : ''}
               </span>
             </div>
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-white font-mono text-xl">
-                <Clock size={18} />
+              <div className="flex items-center gap-2 text-white font-mono text-base">
+                <Clock size={14} />
                 {currentTime.toLocaleTimeString()}
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={Minimize2}
-                onClick={() => setControlRoom(false)}
-              >
-                Exit (Esc)
-              </Button>
+              <button onClick={() => setControlRoom(false)} className="px-3 py-1 text-xs text-[var(--brand-text-secondary)] hover:text-white transition-colors">Exit (Esc)</button>
             </div>
           </div>
 
           {/* Camera Grid */}
           <div className="absolute inset-0 pt-16 pb-4 px-4 overflow-hidden">
-            <div className={`grid gap-2 h-full ${
+            <div className={`grid gap-px h-full ${
               filteredCameras.length === 1 ? 'grid-cols-1' :
               filteredCameras.length === 2 ? 'grid-cols-2' :
               filteredCameras.length <= 4 ? 'grid-cols-2' :
@@ -487,10 +484,10 @@ export default function Cameras() {
               'grid-cols-4'
             }`}>
               {filteredCameras.map(camera => (
-                <div key={camera.id} className="relative bg-black rounded-lg overflow-hidden">
+                <div key={camera.id} className="relative bg-black overflow-hidden">
                   <ControlRoomCamera camera={camera} />
                   <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
-                    <span className="text-white text-sm font-medium">{camera.name}</span>
+                    <span className="text-[10px] font-mono text-white">{camera.name}</span>
                   </div>
                 </div>
               ))}
@@ -566,7 +563,7 @@ function ControlRoomCamera({ camera }) {
       )}
       {status === 'live' && (
         <div className="absolute top-2 right-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
         </div>
       )}
     </>

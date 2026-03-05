@@ -12,7 +12,7 @@ function Highlight({ text, query }) {
     <>
       {parts.map((part, i) => 
         regex.test(part) 
-          ? <mark key={i} className="bg-print-500/30 text-print-300 rounded-sm px-0.5">{part}</mark>
+          ? <mark key={i} className="bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] rounded-sm px-0.5">{part}</mark>
           : <span key={i}>{part}</span>
       )}
     </>
@@ -99,7 +99,7 @@ export default function GlobalSearch() {
     <div ref={containerRef} className="relative">
       {/* Search Input */}
       <div className="relative" role="search">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" aria-hidden="true" />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" aria-hidden="true" />
         <label htmlFor="global-search" className="sr-only">Search printers, jobs, models, spools</label>
         <input
           id="global-search"
@@ -111,12 +111,12 @@ export default function GlobalSearch() {
           placeholder="Search... (⌘K)"
           aria-autocomplete="list"
           aria-expanded={isOpen && query.length >= 2}
-          className="w-44 md:w-64 bg-farm-800 border border-farm-700 rounded-lg pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-farm-600"
+          className="w-44 md:w-64 bg-transparent border-b border-[var(--brand-card-border)] rounded-none pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-[var(--brand-primary)]"
         />
         {query && (
           <button
             onClick={() => { setQuery(''); setResults(null) }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-farm-500 hover:text-farm-300"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"
             aria-label="Clear search"
           >
             <X size={14} />
@@ -126,43 +126,43 @@ export default function GlobalSearch() {
 
       {/* Results Dropdown */}
       {isOpen && query.length >= 2 && (
-        <div className="absolute top-full left-0 right-0 md:w-80 mt-2 bg-farm-900 border border-farm-700 rounded-lg shadow-xl z-50 max-h-96 overflow-auto">
+        <div className="absolute top-full left-0 right-0 md:w-80 mt-2 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-xl z-50 max-h-96 overflow-auto">
           {loading ? (
-            <div className="p-4 text-center text-farm-500 text-sm">Searching...</div>
+            <div className="p-4 text-center text-[var(--brand-text-muted)] text-sm">Searching...</div>
           ) : totalResults === 0 ? (
-            <div className="p-4 text-center text-farm-500 text-sm">No results for "{query}"</div>
+            <div className="p-4 text-center text-[var(--brand-text-muted)] text-sm">No results for "{query}"</div>
           ) : (
             <>
               {results.models.length > 0 && (
                 <div>
-                  <div className="px-3 py-2 text-xs font-medium text-farm-500 bg-farm-800/50">Models</div>
+                  <div className="px-3 py-2 text-xs font-medium text-[var(--brand-text-muted)] bg-farm-800/50">Models</div>
                   {results.models.map((item) => (
                     <button
                       key={`model-${item.id}`}
                       onClick={() => handleSelect('model', item.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm focus:bg-farm-800"
                     >
                       <Package size={14} className="text-blue-400" />
-                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-farm-500 ml-2"><Highlight text={item.qr_code} query={query} /></span>}
+                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-[var(--brand-text-muted)] ml-2"><Highlight text={item.qr_code} query={query} /></span>}
                     </button>
                   ))}
                 </div>
               )}
               {results.jobs.length > 0 && (
                 <div>
-                  <div className="px-3 py-2 text-xs font-medium text-farm-500 bg-farm-800/50">Jobs</div>
+                  <div className="px-3 py-2 text-xs font-medium text-[var(--brand-text-muted)] bg-farm-800/50">Jobs</div>
                   {results.jobs.map((item) => (
                     <button
                       key={`job-${item.id}`}
                       onClick={() => handleSelect('job', item.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm focus:bg-farm-800"
                     >
                       <ListTodo size={14} className="text-green-400" />
                       <span className="truncate flex-1"><Highlight text={item.name} query={query} /></span>
                       <span className={`text-xs px-1.5 py-0.5 rounded-lg ${
                         item.status === 'completed' ? 'bg-green-900/50 text-green-400' :
                         item.status === 'failed' ? 'bg-red-900/50 text-red-400' :
-                        'bg-farm-700 text-farm-400'
+                        'bg-farm-700 text-[var(--brand-text-secondary)]'
                       }`}>{item.status}</span>
                     </button>
                   ))}
@@ -170,30 +170,30 @@ export default function GlobalSearch() {
               )}
               {results.spools.length > 0 && (
                 <div>
-                  <div className="px-3 py-2 text-xs font-medium text-farm-500 bg-farm-800/50">Spools</div>
+                  <div className="px-3 py-2 text-xs font-medium text-[var(--brand-text-muted)] bg-farm-800/50">Spools</div>
                   {results.spools.map((item) => (
                     <button
                       key={`spool-${item.id}`}
                       onClick={() => handleSelect('spool', item.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm focus:bg-farm-800"
                     >
                       <Database size={14} className="text-purple-400" />
-                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-farm-500 ml-2"><Highlight text={item.qr_code} query={query} /></span>}
+                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-[var(--brand-text-muted)] ml-2"><Highlight text={item.qr_code} query={query} /></span>}
                     </button>
                   ))}
                 </div>
               )}
               {results.printers.length > 0 && (
                 <div>
-                  <div className="px-3 py-2 text-xs font-medium text-farm-500 bg-farm-800/50">Printers</div>
+                  <div className="px-3 py-2 text-xs font-medium text-[var(--brand-text-muted)] bg-farm-800/50">Printers</div>
                   {results.printers.map((item) => (
                     <button
                       key={`printer-${item.id}`}
                       onClick={() => handleSelect('printer', item.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm"
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-farm-800 text-left text-sm focus:bg-farm-800"
                     >
                       <Printer size={14} className="text-orange-400" />
-                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-farm-500 ml-2"><Highlight text={item.qr_code} query={query} /></span>}
+                      <span className="truncate"><Highlight text={item.name} query={query} /></span>{item.qr_code && <span className="text-xs text-[var(--brand-text-muted)] ml-2"><Highlight text={item.qr_code} query={query} /></span>}
                     </button>
                   ))}
                 </div>

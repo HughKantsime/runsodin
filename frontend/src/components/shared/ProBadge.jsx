@@ -1,7 +1,7 @@
 export default function ProBadge({ className = '' }) {
   return (
     <span
-      className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg ml-auto ${className}`}
+      className={`inline-flex items-center text-xs text-[var(--brand-primary)] font-medium uppercase tracking-wider ml-auto ${className}`}
       title="Requires a Pro, Education, or Enterprise license"
     >
       PRO
