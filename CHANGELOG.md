@@ -2,6 +2,29 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.5.3] - 2026-03-05
+
+### Changed
+- **UI redesign** — Complete visual overhaul of entire frontend (117 files). Clean, professional, industrial aesthetic inspired by Bambu Lab Orca Slicer. No functionality changes.
+- **Design system** — New CSS custom property system for all colors, typography, spacing. Full dark + light mode parity via `--brand-*` and `--status-*` variables.
+- **Color palette** — Warm industrial: refined amber/bronze accent (`#C47A1A`), desaturated backgrounds (`#0B0D11`/`#12151B`), muted status colors.
+- **Typography** — IBM Plex Mono 20px page titles, Plex Sans 14px section headings, 13px body, 11px captions. Mono for data values.
+- **Buttons** — Reduced to 4 variants (primary, secondary, ghost, danger) with backward-compatible mapping. 6px radius, 32px icon touch targets.
+- **Cards** — Borderless in dark mode (background differentiation), subtle box-shadow in light mode. No translateY hover.
+- **Status indicators** — 6px dots, no glow, subtle pulse for printing. Badge variant with tinted backgrounds.
+- **Sidebar** — 2px left accent bar, horizontal fleet status bar, tighter spacing (py-1.5).
+- **Tables** — Sticky headers, sentence-case, left-border hover accent. No uppercase.
+- **Camera views** — All 5 modes redesigned: grid (segmented control, frosted glass), detail (full-bleed video), control room (zero-gap tiles), PiP (grip icon), modal (info bar only when printing).
+- **Charts** — Barely-visible grid lines, 11px muted axis text, card-surface tooltips, solid colors (no gradients).
+
+### Added
+- **SpoolRing component** — New SVG circular arc indicator for filament visualization (color, material, fill level). Dashed ring for empty, amber warning below 15%.
+- **`--brand-surface` CSS variable** — Elevated surface color for hover states (`#1A1D25` dark, `#F0F1F3` light).
+
+### Removed
+- All emoji from UI — replaced with Lucide React icons throughout (11 notification types, speed levels, close buttons, status indicators, etc.)
+- Hardcoded Tailwind color classes (`bg-farm-*`, `text-print-*`, `border-farm-*`) — all replaced with CSS custom properties
+
 ## [1.5.2] - 2026-03-04
 
 ### Added

@@ -2,6 +2,10 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.5.3
+
+- ~~UI redesign~~ — Complete visual overhaul (117 files). Warm industrial aesthetic, CSS custom property system, SpoolRing component, all emoji→Lucide icons, camera views redesigned, dark+light mode parity. Zero functionality changes.
+
 ## Shipped in v1.5.2
 
 - ~~License portal integration~~ — online activate/unactivate/reactivate via runsodin.com; default LICENSE_SERVER_URL
