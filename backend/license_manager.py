@@ -198,8 +198,11 @@ def load_license() -> LicenseInfo:
             return info
 
         payload_b64, sig_b64 = parts
-        payload_bytes = base64.urlsafe_b64decode(payload_b64)
-        sig_bytes = base64.urlsafe_b64decode(sig_b64)
+        # base64url from Node strips padding — re-add for Python
+        payload_b64_padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        sig_b64_padded = sig_b64 + "=" * (-len(sig_b64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(payload_b64_padded)
+        sig_bytes = base64.urlsafe_b64decode(sig_b64_padded)
 
         # Verify signature
         if not _verify_signature(payload_bytes, sig_bytes):
