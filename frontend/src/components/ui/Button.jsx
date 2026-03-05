@@ -3,20 +3,27 @@ import { Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 
 const variantClasses = {
-  primary: 'bg-print-600 hover:bg-print-500 text-white',
-  secondary: 'bg-farm-800 hover:bg-farm-700 text-farm-300',
-  tertiary: 'bg-farm-700 hover:bg-farm-600 text-farm-300',
-  danger: 'bg-red-600 hover:bg-red-500 text-white',
-  success: 'bg-green-600 hover:bg-green-500 text-white',
-  warning: 'bg-amber-600 hover:bg-amber-500 text-white',
-  ghost: 'text-farm-400 hover:text-farm-200 hover:bg-farm-800',
+  primary: 'bg-[var(--brand-primary)] hover:bg-[var(--brand-accent)] text-white',
+  secondary: 'border border-[var(--brand-card-border)] bg-transparent hover:bg-farm-800 text-[var(--brand-text-secondary)]',
+  ghost: 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-farm-800',
+  danger: 'border border-red-500/30 text-red-400 hover:bg-red-500/10',
+}
+
+const variantMap = {
+  primary: 'primary',
+  secondary: 'secondary',
+  tertiary: 'secondary',
+  danger: 'danger',
+  success: 'primary',
+  warning: 'primary',
+  ghost: 'ghost',
 }
 
 const sizeClasses = {
-  sm: 'px-2 md:px-3 py-1 text-xs rounded-md gap-1.5',
-  md: 'px-4 py-2 text-sm rounded-lg gap-2',
-  lg: 'px-6 py-3 text-base rounded-lg gap-2',
-  icon: 'p-1.5 md:p-2 rounded-lg',
+  sm: 'px-2.5 py-1 text-xs gap-1.5',
+  md: 'px-3.5 py-1.5 text-sm gap-2',
+  lg: 'px-5 py-2.5 text-sm gap-2',
+  icon: 'p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center',
 }
 
 const spinnerSizes = {
@@ -48,6 +55,7 @@ const Button = forwardRef(function Button(
   },
   ref
 ) {
+  const resolvedVariant = variantMap[variant] || 'primary'
   const isDisabled = disabled || loading
   const isIconOnly = size === 'icon'
   const iconPx = iconSizes[size]
@@ -68,9 +76,9 @@ const Button = forwardRef(function Button(
       ref={ref}
       disabled={isDisabled}
       className={clsx(
-        'inline-flex items-center justify-center font-medium transition-colors',
+        'inline-flex items-center justify-center font-medium transition-colors rounded-md',
         'disabled:opacity-50 disabled:cursor-not-allowed',
-        variantClasses[variant],
+        variantClasses[resolvedVariant],
         sizeClasses[size],
         fullWidth && 'w-full',
         className

@@ -73,7 +73,7 @@ export default function Modal({
 
   return (
     <div
-      className={`fixed inset-0 bg-black/50 flex justify-center z-50 p-0 sm:p-4 ${alignmentClasses}`}
+      className={`fixed inset-0 bg-black/60 flex justify-center z-50 p-0 sm:p-4 ${alignmentClasses}`}
       role={alert ? 'alertdialog' : 'dialog'}
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
@@ -81,14 +81,15 @@ export default function Modal({
     >
       <div
         ref={modalRef}
-        className={`bg-farm-900 border border-farm-700 w-full ${SIZE_CLASSES[size] || SIZE_CLASSES.lg} max-h-[90vh] overflow-y-auto ${roundingClasses} ${className}`}
+        className={`bg-[var(--brand-card-bg)] w-full ${SIZE_CLASSES[size] || SIZE_CLASSES.lg} max-h-[90vh] overflow-y-auto ${roundingClasses} ${className}`}
+        style={{ boxShadow: 'var(--brand-card-shadow)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
           <div className="flex items-center justify-between p-4 sm:p-6 pb-0">
             <h2
               id={titleId}
-              className="text-lg font-display font-semibold text-farm-100"
+              className="text-sm font-semibold text-[var(--brand-text-primary)]"
             >
               {title}
             </h2>

@@ -13,17 +13,16 @@ const Select = forwardRef(function Select(
   return (
     <div className={wrapperClassName}>
       {label && (
-        <label className="block text-sm text-farm-400 mb-1">{label}</label>
+        <label className="block text-xs font-medium text-[var(--brand-text-secondary)] mb-1">{label}</label>
       )}
       <select
         ref={ref}
         className={clsx(
-          'w-full bg-farm-800 border rounded-lg px-3',
+          'w-full bg-[var(--brand-input-bg)] border border-[var(--brand-input-border)] rounded-lg px-3 text-[var(--brand-input-text)] focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] focus:outline-none',
           SIZE_CLASSES[size],
-          error ? 'border-red-500' : 'border-farm-700',
+          error && 'border-[var(--status-failed)]',
           className
         )}
-        style={{ color: 'var(--brand-text-primary)' }}
         {...rest}
       >
         {options

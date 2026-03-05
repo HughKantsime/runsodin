@@ -1,29 +1,25 @@
 import clsx from 'clsx'
 
-const paddingMap = {
-  sm: 'p-3',
-  md: 'p-4',
-  lg: 'p-5 md:p-6',
-}
+export default function Card({ children, className, padding = 'md', selected, onClick, ...props }) {
+  const paddingClasses = {
+    sm: 'p-3',
+    md: 'p-4',
+    lg: 'p-5',
+  }
 
-export default function Card({
-  padding = 'md',
-  hover = false,
-  selected = false,
-  className,
-  children,
-  ...rest
-}) {
   return (
     <div
       className={clsx(
-        'bg-farm-900 rounded-lg border',
-        selected ? 'border-print-500' : 'border-farm-800',
-        hover && 'hover:border-farm-700 transition-colors cursor-pointer',
-        paddingMap[padding],
+        'rounded-md transition-colors',
+        'bg-[var(--brand-card-bg)]',
+        selected && 'ring-1 ring-[var(--brand-primary)]',
+        onClick && 'cursor-pointer hover:brightness-110',
+        paddingClasses[padding],
         className
       )}
-      {...rest}
+      style={{ boxShadow: 'var(--brand-card-shadow)' }}
+      onClick={onClick}
+      {...props}
     >
       {children}
     </div>

@@ -1,21 +1,14 @@
 export default function PageHeader({ icon: Icon, title, subtitle, children }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
       <div className="flex items-center gap-3">
-        {Icon && <Icon className="text-print-400" size={24} />}
+        {Icon && <Icon size={20} className="text-[var(--brand-primary)] flex-shrink-0" />}
         <div>
-          <h1
-            className="text-xl md:text-2xl font-display font-bold"
-            style={{ color: 'var(--brand-text-primary)' }}
-          >
-            {title}
-          </h1>
-          {subtitle && <p className="text-farm-500 text-sm mt-1">{subtitle}</p>}
+          <h1 className="font-display font-semibold text-xl text-[var(--brand-text-primary)] tracking-tight">{title}</h1>
+          {subtitle && <p className="text-xs text-[var(--brand-text-secondary)] mt-0.5">{subtitle}</p>}
         </div>
       </div>
-      {children && (
-        <div className="flex items-center gap-2 self-start">{children}</div>
-      )}
+      {children && <div className="flex items-center gap-2 flex-wrap">{children}</div>}
     </div>
   )
 }

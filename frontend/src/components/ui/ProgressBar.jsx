@@ -1,15 +1,19 @@
 import clsx from 'clsx'
 
-const colorMap = {
-  green: 'bg-green-500',
-  red: 'bg-red-500',
+const colorStyles = {
+  green: 'var(--status-completed)',
+  red: 'var(--status-failed)',
   yellow: 'bg-yellow-500',
-  blue: 'bg-blue-500',
-  print: 'bg-print-500',
+  blue: 'var(--status-printing)',
+  print: 'var(--brand-primary)',
+}
+
+const colorClasses = {
+  yellow: 'bg-yellow-500',
 }
 
 const sizeMap = {
-  sm: 'h-1.5',
+  sm: 'h-1',
   md: 'h-2.5',
 }
 
@@ -24,7 +28,7 @@ export default function ProgressBar({
   return (
     <div
       className={clsx(
-        'w-full bg-farm-700 rounded-full',
+        'w-full bg-[var(--brand-input-bg)] rounded-full',
         sizeMap[size],
         className
       )}
@@ -37,9 +41,12 @@ export default function ProgressBar({
         className={clsx(
           'rounded-full transition-all duration-500',
           sizeMap[size],
-          colorMap[color] || colorMap.print
+          colorClasses[color]
         )}
-        style={{ width: `${clamped}%` }}
+        style={{
+          width: `${clamped}%`,
+          backgroundColor: colorClasses[color] ? undefined : (colorStyles[color] || colorStyles.print),
+        }}
       />
     </div>
   )

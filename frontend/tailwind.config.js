@@ -7,7 +7,6 @@ export default {
   theme: {
     extend: {
       colors: {
-        // O.D.I.N. "Forge" palette — industrial dark with amber accents
         'farm': {
           50:  'rgb(var(--farm-50) / <alpha-value>)',
           100: 'rgb(var(--farm-100) / <alpha-value>)',
@@ -21,26 +20,24 @@ export default {
           900: 'rgb(var(--farm-900) / <alpha-value>)',
           950: 'rgb(var(--farm-950) / <alpha-value>)',
         },
-        // Accent — amber/bronze (Odin's forge)
         'print': {
-          50:  '#fffbeb',
-          100: '#fef3c7',
-          200: '#fde68a',
-          300: '#fbbf24',
-          400: '#f59e0b',
-          500: 'var(--brand-primary, #d97706)',
-          600: 'var(--brand-primary, #b45309)',
-          700: '#92400e',
-          800: '#78350f',
-          900: '#451a03',
+          50:  '#FFF9EB',
+          100: '#FFF0CC',
+          200: '#FFDFA3',
+          300: '#D4891F',
+          400: '#C47A1A',
+          500: 'var(--brand-primary, #C47A1A)',
+          600: 'var(--brand-primary, #9A5E0D)',
+          700: '#7A4B0A',
+          800: '#5A3707',
+          900: '#3A2404',
         },
-        // Status colors — semantic, never branded
         'status': {
-          pending:   '#6b7280',
-          scheduled: '#8b5cf6',
-          printing:  '#3b82f6',
-          completed: '#22c55e',
-          failed:    '#ef4444',
+          pending:   'var(--status-pending, #7A8396)',
+          scheduled: 'var(--status-scheduled, #8B7BE8)',
+          printing:  'var(--status-printing, #5B93E8)',
+          completed: 'var(--status-completed, #3DAF5C)',
+          failed:    'var(--status-failed, #D84848)',
         }
       },
       fontFamily: {
@@ -49,12 +46,19 @@ export default {
         'body':    ['var(--brand-font-body)', '"IBM Plex Sans"', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
-        'DEFAULT': '4px',
-        'sm': '2px',
-        'md': '4px',
-        'lg': '6px',
-        'xl': '8px',
-        '2xl': '10px',
+        'DEFAULT': '6px',
+        'sm': '4px',
+        'md': '6px',
+        'lg': '8px',
+        'xl': '10px',
+        '2xl': '12px',
+      },
+      fontSize: {
+        'xs': ['11px', { lineHeight: '1.5' }],
+        'sm': ['13px', { lineHeight: '1.5' }],
+        'base': ['14px', { lineHeight: '1.6' }],
+        'lg': ['16px', { lineHeight: '1.5' }],
+        'xl': ['20px', { lineHeight: '1.3' }],
       },
     },
   },
