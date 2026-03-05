@@ -140,7 +140,7 @@ export default function App() {
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Desktop search header */}
-          <div className="hidden md:flex items-center justify-end gap-3 px-4 py-2 border-b border-farm-800" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <div className="hidden md:flex items-center justify-end gap-3 px-4 py-2 border-b border-[var(--brand-card-border)]" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />
             <ThemeToggle />
             <AlertBell />
@@ -187,7 +187,7 @@ export default function App() {
           <Toaster position="top-right" toastOptions={{ style: { background: 'var(--brand-card-bg)', color: 'var(--brand-text-primary)', border: '1px solid var(--brand-card-border)' } }} />
       {showHelp && <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />}
             <EmergencyStop />
-            <div className="text-center py-4 text-[10px] text-farm-600 select-none">Powered by O.D.I.N.</div>
+            <div className="text-center py-4 text-[10px] text-[var(--brand-text-muted)] select-none">Powered by O.D.I.N.</div>
           </main>
         </div>
       </div>

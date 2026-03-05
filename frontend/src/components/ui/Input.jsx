@@ -19,7 +19,7 @@ const Input = forwardRef(function Input(
         {Icon && (
           <Icon
             size={size === 'sm' ? 14 : 16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500 pointer-events-none"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)] pointer-events-none"
           />
         )}
         <input

@@ -95,7 +95,7 @@ export default function Modal({
             </h2>
             <button
               onClick={onClose}
-              className="text-farm-500 hover:text-farm-300"
+              className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)]"
               aria-label="Close"
             >
               <X size={20} />
