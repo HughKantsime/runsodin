@@ -12,19 +12,20 @@ describe('Button', () => {
   it('applies primary variant classes by default', () => {
     render(<Button>Primary</Button>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('bg-print-600')
+    expect(btn.className).toContain('bg-[var(--brand-primary)]')
   })
 
   it('applies danger variant classes', () => {
     render(<Button variant="danger">Delete</Button>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('bg-red-600')
+    expect(btn.className).toContain('border')
+    expect(btn.className).toContain('red')
   })
 
   it('applies ghost variant classes', () => {
     render(<Button variant="ghost">Ghost</Button>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('text-farm-400')
+    expect(btn.className).toContain('text-[var(--brand-text-secondary)]')
   })
 
   it('applies size classes', () => {
@@ -32,7 +33,7 @@ describe('Button', () => {
     expect(screen.getByRole('button').className).toContain('text-xs')
 
     rerender(<Button size="lg">Large</Button>)
-    expect(screen.getByRole('button').className).toContain('text-base')
+    expect(screen.getByRole('button').className).toContain('text-sm')
   })
 
   it('calls onClick handler when clicked', async () => {

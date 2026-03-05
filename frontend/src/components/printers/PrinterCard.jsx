@@ -35,7 +35,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     <div
       className={clsx(
         "bg-[var(--brand-card-bg)] rounded-md border-0 overflow-hidden h-fit transition-all hover:brightness-110",
-        isDragging && "border border-print-500 opacity-50 scale-95"
+        isDragging && "border border-[var(--brand-primary)] opacity-50 scale-95"
       )}
       style={{ boxShadow: 'var(--brand-card-shadow)' }}
       draggable={!!onDragStart}

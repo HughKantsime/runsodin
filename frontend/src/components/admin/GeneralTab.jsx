@@ -361,7 +361,7 @@ export default function GeneralTab() {
             onClick={() => toggleUiMode('simple')}
             className={`flex-1 px-4 py-3 rounded-md border text-sm font-medium transition-colors ${
               uiMode === 'simple'
-                ? 'bg-[var(--brand-primary)]/20 border-print-500 text-[var(--brand-primary)]'
+                ? 'bg-[var(--brand-primary)]/20 border-[var(--brand-primary)] text-[var(--brand-primary)]'
                 : 'bg-[var(--brand-input-bg)] border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-card-border)]'
             }`}
           >
@@ -373,7 +373,7 @@ export default function GeneralTab() {
             onClick={() => toggleUiMode('advanced')}
             className={`flex-1 px-4 py-3 rounded-md border text-sm font-medium transition-colors ${
               uiMode === 'advanced'
-                ? 'bg-[var(--brand-primary)]/20 border-print-500 text-[var(--brand-primary)]'
+                ? 'bg-[var(--brand-primary)]/20 border-[var(--brand-primary)] text-[var(--brand-primary)]'
                 : 'bg-[var(--brand-input-bg)] border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-card-border)]'
             }`}
           >

@@ -142,7 +142,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
                 key={opt.value}
                 type="button"
                 onClick={() => setFormData(prev => ({ ...prev, target_type: opt.value, printer_id: '', target_filter: '' }))}
-                className={`px-3 py-1 rounded text-xs border transition-colors ${formData.target_type === opt.value ? 'border-[var(--brand-primary)] bg-print-900/30 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-text-muted)]'}`}
+                className={`px-3 py-1 rounded text-xs border transition-colors ${formData.target_type === opt.value ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-text-muted)]'}`}
               >
                 {opt.label}
               </button>

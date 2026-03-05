@@ -117,7 +117,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
             <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('resubmit', job.id)} className="text-amber-400 hover:bg-amber-900/50" aria-label="Resubmit job" />
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
-            <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-[var(--brand-primary)] hover:bg-print-900/50" aria-label="Start print (manual)" />
+            <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Start print (manual)" />
           )}
           {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
             <Button
@@ -139,7 +139,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
             </>
           )}
           {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
-            <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-print-900/50" aria-label="Edit job" />
+            <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Edit job" />
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
             <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
@@ -149,7 +149,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <>
-              <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-print-900/50" aria-label="Print again" />
+              <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10" aria-label="Print again" />
               <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onAction('delete', job.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete job" />
             </>
           )}

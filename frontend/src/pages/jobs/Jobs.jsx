@@ -313,7 +313,7 @@ export default function Jobs() {
       </div>
 
       {selectedJobs.size > 0 && (
-        <div className="flex items-center gap-3 mb-3 p-3 bg-print-900/30 border border-print-700 rounded-md">
+        <div className="flex items-center gap-3 mb-3 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
           <span className="text-sm text-[var(--brand-text-secondary)]">{selectedJobs.size} selected</span>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending}>Cancel</Button>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reprioritize', extra: { priority: 1 } })} disabled={bulkAction.isPending}>Priority 1</Button>

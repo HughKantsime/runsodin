@@ -124,7 +124,7 @@ export default function App() {
     <ProtectedRoute>
       <div className="h-screen flex flex-col md:flex-row overflow-hidden">
         {/* Skip to content — WCAG 2.4.1 */}
-        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-print-600 focus:text-white focus:rounded-lg focus:text-sm">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-[var(--brand-primary)] focus:text-white focus:rounded-lg focus:text-sm">
           Skip to content
         </a>
 

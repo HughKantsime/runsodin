@@ -49,11 +49,11 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Username</label>
-            <input type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
+            <input type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]" required />
           </div>
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Email</label>
-            <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
+            <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]" required />
           </div>
           {!user && formData.email && (
             <div className="flex items-center gap-2">
@@ -64,13 +64,13 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
           {!formData.send_welcome_email && (
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">{user ? 'New Password (leave blank to keep)' : 'Password'}</label>
-            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user && !formData.send_welcome_email} placeholder={user ? '' : 'Min 8 characters'} />
+            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]" required={!user && !formData.send_welcome_email} placeholder={user ? '' : 'Min 8 characters'} />
             {!user && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Min 8 characters with uppercase, lowercase, and a number</p>}
           </div>
           )}
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Role</label>
-            <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500">
+            <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]">
               <option value="viewer">Viewer (read-only)</option>
               <option value="operator">Operator (can schedule)</option>
               <option value="admin">Admin (full access)</option>
@@ -79,7 +79,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
           {hasGroups && (
             <div>
               <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Group</label>
-              <select value={formData.group_id} onChange={(e) => setFormData({ ...formData, group_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500">
+              <select value={formData.group_id} onChange={(e) => setFormData({ ...formData, group_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]">
                 <option value="">No group</option>
                 {groupsList?.map(g => (
                   <option key={g.id} value={g.id}>{g.name}</option>
@@ -181,7 +181,7 @@ function ImportUsersModal({ onClose, onImported }) {
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
         <button
           onClick={() => fileRef.current?.click()}
-          className="w-full px-4 py-3 rounded-md border-2 border-dashed border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-print-500 hover:text-[var(--brand-primary)] text-sm transition-colors mb-4"
+          className="w-full px-4 py-3 rounded-md border-2 border-dashed border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)] text-sm transition-colors mb-4"
         >
           <FileSpreadsheet size={16} className="inline mr-2" />
           {preview?.file ? preview.file.name : 'Click to select .csv file'}
@@ -370,13 +370,13 @@ export default function Admin() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by name or email..."
-            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-print-500"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]"
           />
         </div>
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]"
         >
           <option value="">All Roles</option>
           <option value="admin">Admin</option>

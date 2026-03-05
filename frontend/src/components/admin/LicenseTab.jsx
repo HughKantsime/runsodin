@@ -202,7 +202,7 @@ export default function LicenseTab() {
               onChange={handleUpload}
               className="hidden"
             />
-            <div className={`w-full px-4 py-3 rounded-md border-2 border-dashed text-center cursor-pointer transition-colors text-sm ${uploading ? 'border-[var(--brand-card-border)] text-[var(--brand-text-muted)]' : 'border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-print-500 hover:text-[var(--brand-primary)]'}`}>
+            <div className={`w-full px-4 py-3 rounded-md border-2 border-dashed text-center cursor-pointer transition-colors text-sm ${uploading ? 'border-[var(--brand-card-border)] text-[var(--brand-text-muted)]' : 'border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]'}`}>
               {uploading ? 'Uploading...' : 'Click to select .license file'}
             </div>
           </label>

@@ -34,7 +34,7 @@ function DropZone({ onFileSelect, isUploading, uploadProgress }) {
     <div
       className={clsx(
         'border-2 border-dashed rounded-md p-8 md:p-12 text-center transition-all',
-        isDragging ? 'border-[var(--brand-primary)] bg-print-900/20' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-text-muted)]',
+        isDragging ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-text-muted)]',
         isUploading && 'opacity-50 pointer-events-none'
       )}
       onDragEnter={handleDragIn}
@@ -261,7 +261,7 @@ function RecentUploads() {
               {f.job_id ? (
                 <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded-md">Scheduled</span>
               ) : (
-                <span className="text-xs bg-print-900/50 text-[var(--brand-primary)] px-2 py-1 rounded-md hidden sm:inline">In Library</span>
+                <span className="text-xs bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] px-2 py-1 rounded-md hidden sm:inline">In Library</span>
               )}
               <button onClick={() => setDeleteConfirm(f.id)} className="p-1 text-[var(--brand-text-muted)] hover:text-red-400 transition-colors" title="Delete"><Trash2 size={16} /></button>
             </div>

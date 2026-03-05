@@ -30,15 +30,15 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Name</label>
-            <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required placeholder="e.g. Mrs. Smith's Class" />
+            <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]" required placeholder="e.g. Mrs. Smith's Class" />
           </div>
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Description (optional)</label>
-            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500 resize-none" rows={2} placeholder="e.g. Period 3 Engineering" />
+            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)] resize-none" rows={2} placeholder="e.g. Period 3 Engineering" />
           </div>
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Owner (approver)</label>
-            <select value={formData.owner_id} onChange={(e) => setFormData({ ...formData, owner_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500">
+            <select value={formData.owner_id} onChange={(e) => setFormData({ ...formData, owner_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]">
               <option value="">No owner</option>
               {operatorAdmins?.map(u => (
                 <option key={u.id} value={u.id}>{u.username} ({u.role})</option>
