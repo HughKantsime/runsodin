@@ -10,14 +10,14 @@ export default function RecentlyCompleted({ jobs: jobList }) {
 
   return (
     <div className="mt-6">
-      <h3 className="text-sm font-display font-semibold text-farm-400 mb-3 flex items-center gap-2">
+      <h3 className="text-sm font-display font-semibold text-[var(--brand-text-secondary)] mb-3 flex items-center gap-2">
         <History size={14} />
         Recently Completed
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
         {recent.map(job => (
-          <div key={job.id} className={`bg-farm-900 rounded-lg border p-3 ${
-            job.status === 'failed' ? 'border-red-900/50' : 'border-farm-800'
+          <div key={job.id} className={`bg-[var(--brand-card-bg)] rounded-md border p-3 ${
+            job.status === 'failed' ? 'border-red-900/50' : 'border-[var(--brand-card-border)]'
           }`}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium truncate">{job.item_name}</span>
@@ -26,7 +26,7 @@ export default function RecentlyCompleted({ jobs: jobList }) {
                 : <XCircle size={14} className="text-red-400 flex-shrink-0" />
               }
             </div>
-            <div className="text-xs text-farm-500">
+            <div className="text-xs text-[var(--brand-text-muted)]">
               {job.printer?.name || 'Unknown printer'}
               {job.duration_hours ? ` · ${job.duration_hours}h` : ''}
             </div>

@@ -85,34 +85,34 @@ export default function OIDCSettings() {
   };
 
   if (loading) {
-    return <div className="p-4 text-farm-400">Loading...</div>;
+    return <div className="p-4 text-[var(--brand-text-secondary)]">Loading...</div>;
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Shield className="text-print-500" size={24} />
+        <Shield className="text-[var(--brand-primary)]" size={24} />
         <div>
           <h3 className="text-lg font-semibold">Single Sign-On (SSO)</h3>
-          <p className="text-sm text-farm-400">
+          <p className="text-sm text-[var(--brand-text-secondary)]">
             Configure Microsoft Entra ID for enterprise authentication
           </p>
         </div>
       </div>
 
       {/* Enable Toggle */}
-      <div className="flex items-center justify-between p-4 bg-farm-800 rounded-lg">
+      <div className="flex items-center justify-between p-4 bg-[var(--brand-input-bg)] rounded-md">
         <div>
           <div className="font-medium">Enable SSO</div>
-          <div className="text-sm text-farm-400">
+          <div className="text-sm text-[var(--brand-text-secondary)]">
             Show "Sign in with Microsoft" on login page
           </div>
         </div>
         <button
           onClick={() => handleChange('is_enabled', !config.is_enabled)}
           className={`relative w-12 h-6 rounded-full transition-colors ${
-            config.is_enabled ? 'bg-print-600' : 'bg-farm-700'
+            config.is_enabled ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-input-bg)]'
           }`}
         >
           <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
@@ -130,9 +130,9 @@ export default function OIDCSettings() {
             value={config.display_name || ''}
             onChange={(e) => handleChange('display_name', e.target.value)}
             placeholder="Microsoft Entra ID"
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
           />
-          <p className="text-xs text-farm-500 mt-1">Shown on login button</p>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Shown on login button</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -143,7 +143,7 @@ export default function OIDCSettings() {
               value={config.client_id || ''}
               onChange={(e) => handleChange('client_id', e.target.value)}
               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm font-mono"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
             />
           </div>
 
@@ -154,7 +154,7 @@ export default function OIDCSettings() {
               value={config.tenant_id || ''}
               onChange={(e) => handleChange('tenant_id', e.target.value)}
               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm font-mono"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
             />
           </div>
         </div>
@@ -172,34 +172,34 @@ export default function OIDCSettings() {
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               placeholder={config.has_client_secret ? '••••••••••••••••' : 'Enter client secret'}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 pr-10 text-sm font-mono"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 pr-10 text-sm font-mono"
             />
             <button
               type="button"
               onClick={() => setShowSecret(!showSecret)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-farm-400 hover:text-farm-300"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-secondary)]"
             >
               {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
-          <p className="text-xs text-farm-500 mt-1">Leave blank to keep existing secret</p>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to keep existing secret</p>
         </div>
 
         <div>
           <label className="block text-sm font-medium mb-1">
             Discovery URL
-            <span className="ml-1 text-xs text-farm-500">(optional)</span>
+            <span className="ml-1 text-xs text-[var(--brand-text-muted)]">(optional)</span>
           </label>
           <input
             type="text"
             value={config.discovery_url || ''}
             onChange={(e) => handleChange('discovery_url', e.target.value)}
             placeholder="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration"
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm font-mono text-xs"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono text-xs"
           />
-          <p className="text-xs text-farm-500 mt-1">
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">
             Leave blank for commercial Azure. For GCC High, use: 
-            <code className="ml-1 text-farm-400">https://login.microsoftonline.us/...</code>
+            <code className="ml-1 text-[var(--brand-text-secondary)]">https://login.microsoftonline.us/...</code>
           </p>
         </div>
 
@@ -210,25 +210,25 @@ export default function OIDCSettings() {
             value={config.scopes || ''}
             onChange={(e) => handleChange('scopes', e.target.value)}
             placeholder="openid profile email"
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm font-mono"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
           />
         </div>
 
         {/* User Provisioning */}
-        <div className="p-4 bg-farm-800 rounded-lg space-y-4">
+        <div className="p-4 bg-[var(--brand-input-bg)] rounded-md space-y-4">
           <h4 className="font-medium">User Provisioning</h4>
           
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm">Auto-create users</div>
-              <div className="text-xs text-farm-400">
+              <div className="text-xs text-[var(--brand-text-secondary)]">
                 Create accounts for new SSO users automatically
               </div>
             </div>
             <button
               onClick={() => handleChange('auto_create_users', !config.auto_create_users)}
               className={`relative w-10 h-5 rounded-full transition-colors ${
-                config.auto_create_users ? 'bg-print-600' : 'bg-farm-700'
+                config.auto_create_users ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-input-bg)]'
               }`}
             >
               <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
@@ -242,7 +242,7 @@ export default function OIDCSettings() {
             <select
               value={config.default_role || 'operator'}
               onChange={(e) => handleChange('default_role', e.target.value)}
-              className="bg-farm-700 border border-farm-600 rounded-lg px-3 py-2 text-sm"
+              className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
             >
               <option value="viewer">Viewer</option>
               <option value="operator">Operator</option>
@@ -254,7 +254,7 @@ export default function OIDCSettings() {
 
       {/* Message */}
       {message && (
-        <div className={`flex items-center gap-2 p-3 rounded-lg ${
+        <div className={`flex items-center gap-2 p-3 rounded-md ${
           message.type === 'success' 
             ? 'bg-green-900/30 text-green-400' 
             : 'bg-red-900/30 text-red-400'
@@ -269,8 +269,8 @@ export default function OIDCSettings() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 
-                     rounded-lg transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] 
+                     rounded-md transition-colors disabled:opacity-50"
         >
           <Save size={16} />
           {saving ? 'Saving...' : 'Save Configuration'}
@@ -278,12 +278,12 @@ export default function OIDCSettings() {
       </div>
 
       {/* Help Link */}
-      <div className="text-sm text-farm-400 border-t border-farm-800 pt-4">
+      <div className="text-sm text-[var(--brand-text-secondary)] border-t border-[var(--brand-card-border)] pt-4">
         <a 
           href="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1 text-print-400 hover:text-print-300"
+          className="flex items-center gap-1 text-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
         >
           <ExternalLink size={14} />
           How to register an app in Microsoft Entra ID

@@ -14,12 +14,14 @@ import { PageHeader, StatCard, ProgressBar as SharedProgressBar, Button } from '
 
 const COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#F97316']
 
+const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
+
 function JobsOverTimeChart({ data }) {
   if (!data || Object.keys(data).length === 0) {
     return (
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
-        <h3 className="text-sm font-semibold text-farm-300 mb-4">Job Activity</h3>
-        <div className="text-center py-12 text-farm-600 text-sm">No job data yet</div>
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Job Activity</h3>
+        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">No job data yet</div>
       </div>
     )
   }
@@ -33,33 +35,23 @@ function JobsOverTimeChart({ data }) {
     }))
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-farm-300">Job Activity</h3>
-        <span className="text-xs text-farm-500">Last 30 days</span>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Job Activity</h3>
+        <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={chartData}>
-          <defs>
-            <linearGradient id="gradCreated" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-            </linearGradient>
-            <linearGradient id="gradCompleted" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#22C55E" stopOpacity={0}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
+          <XAxis dataKey="date" tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
+          <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <Tooltip
-            contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
+            contentStyle={CHART_TOOLTIP}
             labelStyle={{ color: '#6B7280', marginBottom: '4px' }}
           />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-          <Area type="monotone" dataKey="created" stroke="#3B82F6" fill="url(#gradCreated)" strokeWidth={2} name="Created" dot={false} />
-          <Area type="monotone" dataKey="completed" stroke="#22C55E" fill="url(#gradCompleted)" strokeWidth={2} name="Completed" dot={false} />
+          <Area type="monotone" dataKey="created" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.1} strokeWidth={2} name="Created" dot={false} />
+          <Area type="monotone" dataKey="completed" stroke="#22C55E" fill="#22C55E" fillOpacity={0.1} strokeWidth={2} name="Completed" dot={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -70,8 +62,8 @@ function PrinterUtilization({ data }) {
   const sorted = [...data].sort((a, b) => (b.utilization_pct || 0) - (a.utilization_pct || 0))
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
-      <h3 className="text-sm font-semibold text-farm-300 mb-4">Printer Utilization</h3>
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Printer Utilization</h3>
       <div className="space-y-4">
         {sorted.map((printer) => {
           const pct = printer.utilization_pct || 0
@@ -89,7 +81,7 @@ function PrinterUtilization({ data }) {
                 <span className="text-sm font-bold tabular-nums">{pct}%</span>
               </div>
               <SharedProgressBar value={pct} color={barColor} size="md" />
-              <div className="flex gap-3 mt-1.5 text-xs text-farm-500">
+              <div className="flex gap-3 mt-1.5 text-xs text-[var(--brand-text-muted)]">
                 <span>{printer.completed_jobs} jobs</span>
                 <span>{printer.total_hours}h total</span>
                 <span>~{printer.avg_job_hours || 0}h/job</span>
@@ -103,7 +95,7 @@ function PrinterUtilization({ data }) {
           )
         })}
         {data.length === 0 && (
-          <div className="text-center text-farm-600 py-8 text-sm">No printer data yet</div>
+          <div className="text-center text-[var(--brand-text-muted)] py-8 text-sm">No printer data yet</div>
         )}
       </div>
     </div>
@@ -114,10 +106,10 @@ function ModelRankings({ topData, worstData }) {
   const RankRow = ({ item, index, isWorst }) => {
     const medalColors = isWorst
       ? ['bg-red-900/50 text-red-300', 'bg-red-900/30 text-red-400', 'bg-red-900/20 text-red-500']
-      : ['bg-amber-900/50 text-amber-300', 'bg-amber-900/30 text-amber-400', 'bg-farm-700 text-farm-300']
+      : ['bg-amber-900/50 text-amber-300', 'bg-amber-900/30 text-amber-400', 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]']
 
     return (
-      <div className="flex items-center gap-3 py-2.5 border-b border-farm-800/50 last:border-0">
+      <div className="flex items-center gap-3 py-2.5 border-b border-[var(--brand-card-border)]/50 last:border-0">
         <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${medalColors[Math.min(index, 2)]}`}>
           {index + 1}
         </span>
@@ -126,7 +118,7 @@ function ModelRankings({ topData, worstData }) {
           <div className={`font-semibold text-sm tabular-nums ${isWorst ? 'text-red-400' : 'text-green-400'}`}>
             ${item.value_per_hour?.toFixed(2)}/hr
           </div>
-          <div className="text-xs text-farm-500 tabular-nums">
+          <div className="text-xs text-[var(--brand-text-muted)] tabular-nums">
             ${item.value_per_bed?.toFixed(2)}/bed &middot; {item.build_time_hours}h
           </div>
         </div>
@@ -136,26 +128,26 @@ function ModelRankings({ topData, worstData }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center gap-2 mb-3">
           <TrendingUp size={16} className="text-green-400" />
-          <h3 className="text-sm font-semibold text-farm-300">Top Performers</h3>
-          <span className="text-xs text-farm-500">$/hour</span>
+          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Top Performers</h3>
+          <span className="text-xs text-[var(--brand-text-muted)]">$/hour</span>
         </div>
         <div>
           {topData.map((item, i) => <RankRow key={item.id} item={item} index={i} />)}
-          {topData.length === 0 && <div className="text-center text-farm-600 py-6 text-sm">No data yet</div>}
+          {topData.length === 0 && <div className="text-center text-[var(--brand-text-muted)] py-6 text-sm">No data yet</div>}
         </div>
       </div>
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
         <div className="flex items-center gap-2 mb-3">
           <TrendingDown size={16} className="text-red-400" />
-          <h3 className="text-sm font-semibold text-farm-300">Needs Improvement</h3>
-          <span className="text-xs text-farm-500">$/hour</span>
+          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Needs Improvement</h3>
+          <span className="text-xs text-[var(--brand-text-muted)]">$/hour</span>
         </div>
         <div>
           {worstData.map((item, i) => <RankRow key={item.id} item={item} index={i} isWorst />)}
-          {worstData.length === 0 && <div className="text-center text-farm-600 py-6 text-sm">No data yet</div>}
+          {worstData.length === 0 && <div className="text-center text-[var(--brand-text-muted)] py-6 text-sm">No data yet</div>}
         </div>
       </div>
     </div>
@@ -164,7 +156,7 @@ function ModelRankings({ topData, worstData }) {
 
 function FleetOverview({ summary }) {
   const stats = [
-    { label: 'Total Jobs', value: summary.total_jobs, color: 'text-farm-100' },
+    { label: 'Total Jobs', value: summary.total_jobs, color: 'text-[var(--brand-text-primary)]' },
     { label: 'Completed', value: summary.completed_jobs, color: 'text-green-400', icon: CheckCircle },
     { label: 'Pending', value: summary.pending_jobs, color: 'text-yellow-400', icon: Clock },
     { label: 'Models', value: summary.total_models, color: 'text-blue-400', icon: BarChart3 },
@@ -175,19 +167,19 @@ function FleetOverview({ summary }) {
     : 0
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-farm-300">Fleet Overview</h3>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Fleet Overview</h3>
         <div className="flex items-center gap-1.5 text-xs">
           <div className="w-2 h-2 rounded-full bg-green-400" />
-          <span className="text-farm-400">{completionRate}% completion rate</span>
+          <span className="text-[var(--brand-text-muted)]">{completionRate}% completion rate</span>
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map(s => (
-          <div key={s.label} className="text-center p-3 rounded-lg bg-farm-800/40">
+          <div key={s.label} className="text-center p-3 rounded-md bg-[var(--brand-input-bg)]/40">
             <div className={`text-xl md:text-2xl font-bold font-display tabular-nums ${s.color}`}>{s.value}</div>
-            <div className="text-xs text-farm-500 mt-0.5">{s.label}</div>
+            <div className="text-xs text-[var(--brand-text-muted)] mt-0.5">{s.label}</div>
           </div>
         ))}
       </div>
@@ -208,19 +200,19 @@ function CostRevenueChart({ data }) {
     .filter(d => d.revenue > 0 || d.cost > 0) : []
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-farm-300">Revenue vs Cost</h3>
-        <span className="text-xs text-farm-500">Last 30 days</span>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Revenue vs Cost</h3>
+        <span className="text-xs text-[var(--brand-text-muted)]">Last 30 days</span>
       </div>
       {chartData.length > 0 ? (
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-            <XAxis dataKey="date" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
-            <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
+            <XAxis dataKey="date" tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={{ stroke: '#374151' }} tickLine={false} />
+            <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
             <Tooltip
-              contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
+              contentStyle={CHART_TOOLTIP}
               formatter={(value) => [`$${value.toFixed(2)}`, undefined]}
             />
             <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
@@ -229,7 +221,7 @@ function CostRevenueChart({ data }) {
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="text-center py-12 text-farm-600 text-sm">No cost/revenue data yet</div>
+        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">No cost/revenue data yet</div>
       )}
     </div>
   )
@@ -243,17 +235,17 @@ function FailureRateByPrinterChart({ data }) {
     failed: p.failed,
   }))
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-farm-300">Success / Failure by Printer</h3>
-        <span className="text-xs text-farm-500">{data.overall_success_rate}% fleet success</span>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Success / Failure by Printer</h3>
+        <span className="text-xs text-[var(--brand-text-muted)]">{data.overall_success_rate}% fleet success</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData} barCategoryGap="20%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="name" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
+          <XAxis dataKey="name" tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={CHART_TOOLTIP} />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
           <Bar dataKey="completed" stackId="a" fill="#22C55E" name="Completed" radius={[0, 0, 0, 0]} />
           <Bar dataKey="failed" stackId="a" fill="#EF4444" name="Failed" radius={[3, 3, 0, 0]} />
@@ -266,18 +258,18 @@ function FailureRateByPrinterChart({ data }) {
 function TopFailureReasons({ data }) {
   if (!data?.top_failure_reasons?.length) return null
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
-      <h3 className="text-sm font-semibold text-farm-300 mb-4">Top Failure Reasons</h3>
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+      <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Top Failure Reasons</h3>
       <div className="space-y-2">
         {data.top_failure_reasons.map((r, i) => {
           const maxCount = data.top_failure_reasons[0]?.count || 1
           return (
             <div key={i} className="flex items-center gap-3">
-              <span className="text-sm text-farm-400 w-32 truncate capitalize">{r.reason.replace(/_/g, ' ')}</span>
+              <span className="text-sm text-[var(--brand-text-muted)] w-32 truncate capitalize">{r.reason.replace(/_/g, ' ')}</span>
               <div className="flex-1">
                 <SharedProgressBar value={(r.count / maxCount) * 100} color="red" size="md" />
               </div>
-              <span className="text-sm text-farm-500 w-8 text-right">{r.count}</span>
+              <span className="text-sm text-[var(--brand-text-muted)] w-8 text-right">{r.count}</span>
             </div>
           )
         })}
@@ -289,9 +281,9 @@ function TopFailureReasons({ data }) {
 function TimeAccuracyChart({ data }) {
   if (!data || data.by_printer?.length === 0) {
     return (
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
-        <h3 className="text-sm font-semibold text-farm-300 mb-4">Est vs Actual Print Time</h3>
-        <div className="text-center py-12 text-farm-600 text-sm">Not enough completed jobs with timing data</div>
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Est vs Actual Print Time</h3>
+        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">Not enough completed jobs with timing data</div>
       </div>
     )
   }
@@ -303,18 +295,18 @@ function TimeAccuracyChart({ data }) {
   }))
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-farm-300">Est vs Actual Print Time</h3>
-        <span className="text-xs text-farm-500">{data.avg_accuracy_pct}% avg accuracy &middot; {data.total_jobs} jobs</span>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Est vs Actual Print Time</h3>
+        <span className="text-xs text-[var(--brand-text-muted)]">{data.avg_accuracy_pct}% avg accuracy &middot; {data.total_jobs} jobs</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData} barCategoryGap="20%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" />
-          <XAxis dataKey="name" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
+          <XAxis dataKey="name" tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}h`} />
           <Tooltip
-            contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
+            contentStyle={CHART_TOOLTIP}
             formatter={(value) => [`${value.toFixed(1)}h`, undefined]}
           />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
@@ -356,13 +348,13 @@ export default function Analytics() {
     return (
       <div className="space-y-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-farm-800 rounded-lg w-48"></div>
+          <div className="h-8 bg-[var(--brand-input-bg)] rounded-md w-48"></div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-farm-800/50 rounded-lg"></div>
+              <div key={i} className="h-24 bg-[var(--brand-input-bg)]/50 rounded-md"></div>
             ))}
           </div>
-          <div className="h-64 bg-farm-800/50 rounded-lg"></div>
+          <div className="h-64 bg-[var(--brand-input-bg)]/50 rounded-md"></div>
         </div>
       </div>
     )
@@ -371,7 +363,7 @@ export default function Analytics() {
   if (error) {
     return (
       <div className="space-y-6">
-        <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 text-red-300 text-sm">
+        <div className="bg-red-900/30 border border-red-800 rounded-md p-4 text-red-300 text-sm">
           Error loading analytics: {error.message}
         </div>
       </div>
@@ -387,7 +379,7 @@ export default function Analytics() {
         <select
           value={days}
           onChange={e => setDays(Number(e.target.value))}
-          className="bg-farm-900 border border-farm-700 rounded-lg px-3 py-1.5 text-sm text-farm-300"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm text-[var(--brand-text-secondary)]"
         >
           {DATE_RANGES.map(r => (
             <option key={r.value} value={r.value}>Last {r.label}</option>
@@ -473,9 +465,9 @@ export default function Analytics() {
 
       {/* Failure Analytics */}
       {failureLoading ? (
-        <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 animate-pulse">
-          <div className="h-6 bg-farm-800 rounded w-48 mb-4"></div>
-          <div className="h-48 bg-farm-800/50 rounded"></div>
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 animate-pulse">
+          <div className="h-6 bg-[var(--brand-input-bg)] rounded w-48 mb-4"></div>
+          <div className="h-48 bg-[var(--brand-input-bg)]/50 rounded"></div>
         </div>
       ) : failureData && failureData.total_failed > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -488,9 +480,9 @@ export default function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <PrinterUtilization data={printer_stats} />
         {timeAccuracyLoading ? (
-          <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 animate-pulse">
-            <div className="h-6 bg-farm-800 rounded w-48 mb-4"></div>
-            <div className="h-48 bg-farm-800/50 rounded"></div>
+          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 animate-pulse">
+            <div className="h-6 bg-[var(--brand-input-bg)] rounded w-48 mb-4"></div>
+            <div className="h-48 bg-[var(--brand-input-bg)]/50 rounded"></div>
           </div>
         ) : (
           <TimeAccuracyChart data={timeAccuracy} />

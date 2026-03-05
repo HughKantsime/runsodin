@@ -32,7 +32,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
     return (
       <div className="relative">
         {canDo('spools.edit') && (
-          <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => onToggleSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-farm-600" />
+          <input type="checkbox" checked={selectedSpools.has(spool.id)} onChange={() => onToggleSelect(spool.id)} className="absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]" />
         )}
         <div className={canDo('spools.edit') ? 'pl-7' : ''}>
           <SpoolCard spool={spool} onLoad={onLoad} onUnload={onUnload} onUse={onUse} onArchive={onArchive} onEdit={onEdit} onDry={onDry} printers={printers} />
@@ -55,8 +55,8 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
       <>
         {Object.entries(groups).map(([group, groupSpools]) => (
           <div key={group} className="mb-4 md:mb-6">
-            <h3 className="text-base md:text-lg font-semibold text-farm-200 mb-3">{group}</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
+            <h3 className="text-base md:text-lg font-semibold text-[var(--brand-text-secondary)] mb-3">{group}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {groupSpools.map(spool => <SpoolItem key={spool.id} spool={spool} />)}
             </div>
           </div>
@@ -66,7 +66,7 @@ export default function SpoolGrid({ spools, printers, sortBy, groupByPrinter, se
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {sorted.map(spool => <SpoolItem key={spool.id} spool={spool} />)}
     </div>
   )

@@ -117,21 +117,21 @@ export default function WebhookSettings() {
     }));
   };
 
-  if (loading) return <div className="text-farm-400">Loading...</div>;
+  if (loading) return <div className="text-[var(--brand-text-secondary)]">Loading...</div>;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Webhook className="text-print-500" size={24} />
+          <Webhook className="text-[var(--brand-primary)]" size={24} />
           <div>
             <h3 className="text-lg font-semibold">Webhooks</h3>
-            <p className="text-sm text-farm-400">Send alerts to Discord, Slack, ntfy, or Telegram</p>
+            <p className="text-sm text-[var(--brand-text-secondary)]">Send alerts to Discord, Slack, ntfy, or Telegram</p>
           </div>
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-3 py-1.5 bg-print-600 hover:bg-print-500 rounded-lg text-sm transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md text-sm transition-colors"
         >
           <Plus size={16} />
           Add Webhook
@@ -140,7 +140,7 @@ export default function WebhookSettings() {
 
       {/* Add Webhook Form */}
       {showAdd && (
-        <div className="p-4 bg-farm-800 rounded-lg space-y-4">
+        <div className="p-4 bg-[var(--brand-input-bg)] rounded-md space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Name</label>
@@ -149,7 +149,7 @@ export default function WebhookSettings() {
                 value={newWebhook.name}
                 onChange={e => setNewWebhook(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="My Discord Server"
-                className="w-full bg-farm-700 border border-farm-600 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
               />
             </div>
             <div>
@@ -157,7 +157,7 @@ export default function WebhookSettings() {
               <select
                 value={newWebhook.webhook_type}
                 onChange={e => setNewWebhook(prev => ({ ...prev, webhook_type: e.target.value }))}
-                className="w-full bg-farm-700 border border-farm-600 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
               >
                 <option value="discord">Discord</option>
                 <option value="slack">Slack</option>
@@ -178,16 +178,16 @@ export default function WebhookSettings() {
                 newWebhook.webhook_type === 'telegram' ? 'bot_token|chat_id' :
                 'https://...'
               }
-              className="w-full bg-farm-700 border border-farm-600 rounded-lg px-3 py-2 text-sm font-mono"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
             />
             {newWebhook.webhook_type === 'ntfy' && (
-              <p className="text-xs text-farm-500 mt-1">Enter your ntfy topic URL. Works with ntfy.sh or self-hosted instances.</p>
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Enter your ntfy topic URL. Works with ntfy.sh or self-hosted instances.</p>
             )}
             {newWebhook.webhook_type === 'telegram' && (
-              <p className="text-xs text-farm-500 mt-1">Format: <code className="text-print-400">bot_token|chat_id</code> — Get a bot token from <code className="text-print-400">@BotFather</code>, chat ID from <code className="text-print-400">@userinfobot</code></p>
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Format: <code className="text-[var(--brand-primary)]">bot_token|chat_id</code> — Get a bot token from <code className="text-[var(--brand-primary)]">@BotFather</code>, chat ID from <code className="text-[var(--brand-primary)]">@userinfobot</code></p>
             )}
             {newWebhook.webhook_type === 'telegram' && (
-              <p className="text-xs text-farm-500 mt-1">Format: <code className="text-print-400">bot_token|chat_id</code> — Get a bot token from <code className="text-print-400">@BotFather</code>, and chat ID from <code className="text-print-400">@userinfobot</code></p>
+              <p className="text-xs text-[var(--brand-text-muted)] mt-1">Format: <code className="text-[var(--brand-primary)]">bot_token|chat_id</code> — Get a bot token from <code className="text-[var(--brand-primary)]">@BotFather</code>, and chat ID from <code className="text-[var(--brand-primary)]">@userinfobot</code></p>
             )}
           </div>
 
@@ -198,30 +198,30 @@ export default function WebhookSettings() {
                 <button
                   key={type.id}
                   onClick={() => toggleAlertType(type.id)}
-                  className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                  className={`px-3 py-1 rounded-md text-sm transition-colors ${
                     newWebhook.alert_types.includes(type.id)
-                      ? 'bg-print-600 text-white'
-                      : 'bg-farm-700 text-farm-300 hover:bg-farm-600'
+                      ? 'bg-[var(--brand-primary)] text-white'
+                      : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)]'
                   }`}
                 >
                   {type.label}
                 </button>
               ))}
             </div>
-            <p className="text-xs text-farm-500 mt-1">Leave empty to receive all alerts</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave empty to receive all alerts</p>
           </div>
 
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setShowAdd(false)}
-              className="px-4 py-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm"
+              className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] rounded-md text-sm"
             >
               Cancel
             </button>
             <button
               onClick={createWebhook}
               disabled={!newWebhook.url}
-              className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm disabled:opacity-50"
+              className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md text-sm disabled:opacity-50"
             >
               Create Webhook
             </button>
@@ -232,20 +232,20 @@ export default function WebhookSettings() {
       {/* Webhook List */}
       <div className="space-y-3">
         {webhooks.length === 0 && !showAdd && (
-          <div className="text-center py-8 text-farm-500">
+          <div className="text-center py-8 text-[var(--brand-text-muted)]">
             <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
             <p>No webhooks configured</p>
           </div>
         )}
 
         {webhooks.map(webhook => (
-          <div key={webhook.id} className="p-4 bg-farm-800 rounded-lg">
+          <div key={webhook.id} className="p-4 bg-[var(--brand-input-bg)] rounded-md">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${webhook.is_enabled ? 'bg-green-500' : 'bg-farm-600'}`} />
+                <div className={`w-2 h-2 rounded-full ${webhook.is_enabled ? 'bg-green-500' : 'bg-[var(--brand-input-bg)]'}`} />
                 <div>
                   <div className="font-medium">{webhook.name}</div>
-                  <div className="text-xs text-farm-500 capitalize">{webhook.webhook_type}</div>
+                  <div className="text-xs text-[var(--brand-text-muted)] capitalize">{webhook.webhook_type}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -258,22 +258,22 @@ export default function WebhookSettings() {
                 <button
                   onClick={() => testWebhook(webhook.id)}
                   disabled={testing === webhook.id}
-                  className="p-2 text-farm-400 hover:text-print-400 hover:bg-farm-700 rounded-lg transition-colors"
+                  className="p-2 text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
                   title="Test"
                 >
                   <TestTube size={16} className={testing === webhook.id ? 'animate-pulse' : ''} />
                 </button>
                 <button
                   onClick={() => toggleWebhook(webhook.id, webhook.is_enabled)}
-                  className={`px-3 py-1 rounded-lg text-xs ${
-                    webhook.is_enabled ? 'bg-green-900/50 text-green-400' : 'bg-farm-700 text-farm-400'
+                  className={`px-3 py-1 rounded-md text-xs ${
+                    webhook.is_enabled ? 'bg-green-900/50 text-green-400' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]'
                   }`}
                 >
                   {webhook.is_enabled ? 'Enabled' : 'Disabled'}
                 </button>
                 <button
                   onClick={() => deleteWebhook(webhook.id)}
-                  className="p-2 text-farm-400 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+                  className="p-2 text-[var(--brand-text-secondary)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -282,7 +282,7 @@ export default function WebhookSettings() {
             {webhook.alert_types?.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {webhook.alert_types.map(type => (
-                  <span key={type} className="px-2 py-0.5 bg-farm-700 rounded-lg text-xs text-farm-300">
+                  <span key={type} className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-secondary)]">
                     {alertTypes.find(t => t.id === type)?.label || type}
                   </span>
                 ))}

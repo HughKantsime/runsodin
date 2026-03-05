@@ -94,7 +94,7 @@ export default function AuditLogs() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
       <PageHeader icon={FileText} title="Audit Log">
-        <span className="text-sm text-farm-500">{total.toLocaleString()} entries</span>
+        <span className="text-sm text-[var(--brand-text-muted)]">{total.toLocaleString()} entries</span>
       </PageHeader>
 
       {/* Filters */}
@@ -113,8 +113,8 @@ export default function AuditLogs() {
           <option value="">All Actions</option>
           {ACTIONS.map(a => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
         </Select>
-        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="From" />
-        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); resetPagination() }} className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="To" />
+        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); resetPagination() }} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="From" />
+        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); resetPagination() }} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="To" />
         <Select value={limit} onChange={e => { setLimit(Number(e.target.value)); resetPagination() }} className="w-auto">
           {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
         </Select>
@@ -124,10 +124,10 @@ export default function AuditLogs() {
       </div>
 
       {/* Table */}
-      <div className="bg-farm-900 border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+      <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
         <table className="w-full text-sm min-w-[700px]">
           <thead>
-            <tr className="border-b border-farm-800 text-farm-500 text-xs uppercase">
+            <tr className="border-b border-[var(--brand-card-border)] text-[var(--brand-text-muted)] text-xs uppercase">
               <th className="text-left px-4 py-3 font-medium">Timestamp</th>
               <th className="text-left px-4 py-3 font-medium">User</th>
               <th className="text-left px-4 py-3 font-medium">Action</th>
@@ -139,29 +139,29 @@ export default function AuditLogs() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} className="text-center py-8 text-farm-500">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center py-8 text-[var(--brand-text-muted)]">Loading...</td></tr>
             ) : logs.length === 0 ? (
               <tr><td colSpan={7}><EmptyState icon={FileText} title={searchText ? 'No matching entries' : 'No audit log entries'} /></td></tr>
             ) : logs.map(log => {
               const summary = summarizeDetails(log.details)
               return (
-              <tr key={log.id} className="border-b border-farm-800/50 hover:bg-farm-800/30 transition-colors">
-                <td className="px-4 py-2.5 text-farm-400 whitespace-nowrap">
+              <tr key={log.id} className="border-b border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/30 transition-colors">
+                <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] whitespace-nowrap font-mono text-xs">
                   {log.timestamp ? new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
                 </td>
-                <td className="px-4 py-2.5 text-farm-300 whitespace-nowrap">
+                <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] whitespace-nowrap">
                   {log.username || '—'}
                 </td>
-                <td className={`px-4 py-2.5 font-medium ${ACTION_COLORS[log.action] || 'text-farm-400'}`}>
+                <td className={`px-4 py-2.5 font-medium ${ACTION_COLORS[log.action] || 'text-[var(--brand-text-secondary)]'}`}>
                   {log.action || '—'}
                 </td>
-                <td className="px-4 py-2.5 text-farm-400">{log.entity_type || '—'}</td>
-                <td className="px-4 py-2.5 text-farm-500">{log.entity_id ?? '—'}</td>
-                <td className="px-4 py-2.5 text-farm-300 max-w-xs">
+                <td className="px-4 py-2.5 text-[var(--brand-text-secondary)]">{log.entity_type || '—'}</td>
+                <td className="px-4 py-2.5 text-[var(--brand-text-muted)] font-mono text-xs">{log.entity_id ?? '—'}</td>
+                <td className="px-4 py-2.5 text-[var(--brand-text-secondary)] max-w-xs">
                   {log.details ? (
                     <button
                       onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
-                      className="text-left hover:text-farm-100 transition-colors"
+                      className="text-left hover:text-[var(--brand-text-primary)] transition-colors"
                     >
                       {expandedId === log.id ? (
                         <pre className="text-xs whitespace-pre-wrap font-mono">{JSON.stringify(log.details, null, 2)}</pre>
@@ -171,7 +171,7 @@ export default function AuditLogs() {
                     </button>
                   ) : '—'}
                 </td>
-                <td className="px-4 py-2.5 text-farm-600 whitespace-nowrap">{log.ip_address || '—'}</td>
+                <td className="px-4 py-2.5 text-[var(--brand-text-muted)] whitespace-nowrap font-mono text-xs">{log.ip_address || '—'}</td>
               </tr>
               )
             })}
@@ -191,7 +191,7 @@ export default function AuditLogs() {
           >
             Previous
           </Button>
-          <span className="text-sm text-farm-500">
+          <span className="text-sm text-[var(--brand-text-muted)]">
             Page {page} of {totalPages}
           </span>
           <Button

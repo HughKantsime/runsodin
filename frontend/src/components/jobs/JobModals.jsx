@@ -19,7 +19,7 @@ function BedMismatchWarning({ modelId, printerId, modelsData, printersData }) {
   const TOLERANCE = 2
   if (modelX <= printerX + TOLERANCE && modelY <= printerY + TOLERANCE) return null
   return (
-    <div className="flex items-start gap-2 p-3 bg-yellow-900/30 border border-yellow-700/40 rounded-lg text-xs text-yellow-300">
+    <div className="flex items-start gap-2 p-3 bg-yellow-900/30 border border-yellow-700/40 rounded-md text-xs text-yellow-300">
       <AlertTriangle size={14} className="mt-0.5 shrink-0 text-yellow-400" />
       <span>
         File sliced for {modelX}x{modelY}mm — this printer's bed is {printerX}x{printerY}mm.
@@ -89,8 +89,8 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
     <Modal isOpen={isOpen} onClose={onClose} title="Create New Job" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Model (optional)</label>
-          <select value={formData.model_id} onChange={(e) => handleModelSelect(e.target.value)} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Model (optional)</label>
+          <select value={formData.model_id} onChange={(e) => handleModelSelect(e.target.value)} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
             <option value="">Select a model...</option>
             {modelsData?.map(model => (
               <option key={model.id} value={model.id}>{model.name}</option>
@@ -99,8 +99,8 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
         </div>
         {formData.model_id && revisions?.length > 0 && (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Revision</label>
-            <select value={formData.model_revision_id} onChange={(e) => setFormData(prev => ({ ...prev, model_revision_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Revision</label>
+            <select value={formData.model_revision_id} onChange={(e) => setFormData(prev => ({ ...prev, model_revision_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Latest</option>
               {revisions.map(rev => (
                 <option key={rev.id} value={rev.id}>v{rev.revision_number}{rev.changelog ? ` — ${rev.changelog}` : ''}</option>
@@ -109,29 +109,29 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
           </div>
         )}
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Item Name *</label>
-          <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Item Name *</label>
+          <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Priority</label>
-            <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Priority</label>
+            <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               {priorityOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Quantity</label>
-            <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Quantity</label>
+            <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Duration (hours)</label>
-            <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Duration (hours)</label>
+            <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Printer Target</label>
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Printer Target</label>
           <div className="flex gap-2 mb-2">
             {[
               { value: 'specific', label: 'Specific Printer' },
@@ -142,7 +142,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
                 key={opt.value}
                 type="button"
                 onClick={() => setFormData(prev => ({ ...prev, target_type: opt.value, printer_id: '', target_filter: '' }))}
-                className={`px-3 py-1 rounded text-xs border transition-colors ${formData.target_type === opt.value ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 text-farm-400 hover:border-farm-500'}`}
+                className={`px-3 py-1 rounded text-xs border transition-colors ${formData.target_type === opt.value ? 'border-[var(--brand-primary)] bg-print-900/30 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-text-muted)]'}`}
               >
                 {opt.label}
               </button>
@@ -150,7 +150,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
           </div>
           {formData.target_type === 'specific' && (
             <>
-              <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+              <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
                 <option value="">Auto-assign</option>
                 {printersData?.map(p => (
                   <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
@@ -160,7 +160,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
             </>
           )}
           {formData.target_type === 'model' && (
-            <select value={formData.target_filter} onChange={(e) => setFormData(prev => ({ ...prev, target_filter: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <select value={formData.target_filter} onChange={(e) => setFormData(prev => ({ ...prev, target_filter: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Select machine type...</option>
               {[...new Set((printersData || []).map(p => p.machine_type).filter(Boolean))].map(mt => (
                 <option key={mt} value={mt}>{mt}</option>
@@ -168,7 +168,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
             </select>
           )}
           {formData.target_type === 'protocol' && (
-            <select value={formData.target_filter} onChange={(e) => setFormData(prev => ({ ...prev, target_filter: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <select value={formData.target_filter} onChange={(e) => setFormData(prev => ({ ...prev, target_filter: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Select protocol...</option>
               {[...new Set((printersData || []).map(p => p.api_type).filter(Boolean))].map(pt => (
                 <option key={pt} value={pt}>{pt}</option>
@@ -177,29 +177,29 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
           )}
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
-          <input type="text" value={formData.colors_required} onChange={(e) => setFormData(prev => ({ ...prev, colors_required: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., black, white, green matte" />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Colors Required</label>
+          <input type="text" value={formData.colors_required} onChange={(e) => setFormData(prev => ({ ...prev, colors_required: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., black, white, green matte" />
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Due Date (optional)</label>
-          <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Due Date (optional)</label>
+          <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Printer Tags (optional)</label>
-          <input type="text" value={formData.required_tags} onChange={(e) => setFormData(prev => ({ ...prev, required_tags: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Room A, Production" />
-          <p className="text-xs text-farm-500 mt-0.5">Only schedule on printers with these tags</p>
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Printer Tags (optional)</label>
+          <input type="text" value={formData.required_tags} onChange={(e) => setFormData(prev => ({ ...prev, required_tags: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., Room A, Production" />
+          <p className="text-xs text-[var(--brand-text-muted)] mt-0.5">Only schedule on printers with these tags</p>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Notes</label>
-          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" rows={2} />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Notes</label>
+          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" rows={2} />
         </div>
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
           {onSavePreset && formData.item_name && !showPresetInput && (
             <button
               type="button"
               onClick={() => { setPresetName(formData.item_name); setShowPresetInput(true) }}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-md text-sm"
             >
               Save Preset
             </button>
@@ -210,7 +210,7 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
                 type="text"
                 value={presetName}
                 onChange={(e) => setPresetName(e.target.value)}
-                className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm w-40"
+                className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm w-40"
                 placeholder="Preset name"
                 autoFocus
                 onKeyDown={(e) => {
@@ -254,13 +254,13 @@ export function CreateJobModal({ isOpen, onClose, onSubmit, onSavePreset, models
                     setPresetName('')
                   }
                 }}
-                className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm"
+                className="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded-md text-sm"
               >
                 Save
               </button>
             </div>
           )}
-          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">Create Job</button>
+          <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 rounded-md text-sm">Create Job</button>
         </div>
       </form>
     </Modal>
@@ -275,22 +275,22 @@ export function RejectModal({ isOpen, onClose, onSubmit }) {
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Reject Job" size="md">
       <div className="mb-4">
-        <label className="block text-sm text-farm-400 mb-1">Reason (required)</label>
+        <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Reason (required)</label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="e.g., Too much filament. Please re-slice with 10% infill."
-          className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+          className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
           rows={3}
           autoFocus
         />
       </div>
       <div className="flex justify-end gap-3">
-        <button onClick={handleClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
+        <button onClick={handleClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
         <button
           onClick={() => { if (reason.trim()) { onSubmit(reason.trim()); setReason(''); onClose() } }}
           disabled={!reason.trim()}
-          className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm text-white"
+          className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-md text-sm text-white"
         >
           Reject
         </button>
@@ -340,31 +340,31 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
     <Modal isOpen={isOpen} onClose={onClose} title="Edit Job" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Item Name *</label>
-          <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Item Name *</label>
+          <input type="text" required value={formData.item_name} onChange={(e) => setFormData(prev => ({ ...prev, item_name: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Priority</label>
-            <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Priority</label>
+            <select value={formData.priority} onChange={(e) => setFormData(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               {priorityOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Quantity</label>
-            <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Quantity</label>
+            <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Duration (hours)</label>
-            <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Duration (hours)</label>
+            <input type="number" step="0.5" value={formData.duration_hours} onChange={(e) => setFormData(prev => ({ ...prev, duration_hours: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Assign Printer</label>
-            <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Assign Printer</label>
+            <select value={formData.printer_id} onChange={(e) => setFormData(prev => ({ ...prev, printer_id: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
               <option value="">Unassigned</option>
               {printersData?.map(p => (
                 <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
@@ -379,20 +379,20 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
           </div>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Colors Required</label>
-          <input type="text" value={formData.colors_required} onChange={(e) => setFormData(prev => ({ ...prev, colors_required: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., black, white, green matte" />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Colors Required</label>
+          <input type="text" value={formData.colors_required} onChange={(e) => setFormData(prev => ({ ...prev, colors_required: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., black, white, green matte" />
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Due Date</label>
-          <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Due Date</label>
+          <input type="date" value={formData.due_date} onChange={(e) => setFormData(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Notes</label>
-          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" rows={2} />
+          <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Notes</label>
+          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" rows={2} />
         </div>
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm">Cancel</button>
-          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm">Save Changes</button>
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm">Cancel</button>
+          <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 rounded-md text-sm">Save Changes</button>
         </div>
       </form>
     </Modal>

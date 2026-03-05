@@ -61,13 +61,13 @@ export default function FilamentLibraryView() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 md:mb-6 gap-3">
         <div>
-          <p className="text-farm-400 text-sm">{filaments?.length || 0} filament types in library</p>
+          <p className="text-[var(--brand-text-muted)] text-sm">{filaments?.length || 0} filament types in library</p>
         </div>
         <div className="flex items-center gap-3">
           <select
             value={materialFilter}
             onChange={(e) => setMaterialFilter(e.target.value)}
-            className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm text-farm-200"
+            className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm text-[var(--brand-text-secondary)]"
           >
             <option value="all">All Materials</option>
             {materials.map(m => (
@@ -77,7 +77,7 @@ export default function FilamentLibraryView() {
           {canDo('spools.edit') && (
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white text-sm"
+              className="flex items-center gap-2 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white text-sm"
             >
               <Plus size={16} />
               Add Filament
@@ -86,10 +86,10 @@ export default function FilamentLibraryView() {
         </div>
       </div>
 
-      {isLoading && <div className="text-center text-farm-400 py-12">Loading filaments...</div>}
+      {isLoading && <div className="text-center text-[var(--brand-text-muted)] py-12">Loading filaments...</div>}
 
       {!isLoading && filtered.length === 0 && (
-        <div className="text-center text-farm-500 py-12 text-sm">
+        <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">
           No filaments found. Add filament types to build your library.
         </div>
       )}
@@ -97,35 +97,35 @@ export default function FilamentLibraryView() {
       {/* Filament table grouped by brand */}
       {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([brand, brandFilaments]) => (
         <div key={brand} className="mb-6">
-          <h3 className="text-sm font-semibold text-farm-300 mb-2 uppercase tracking-wide">{brand}</h3>
-          <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
+          <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-2 uppercase tracking-wide">{brand}</h3>
+          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
             {brandFilaments.map((f, idx) => (
               <div
                 key={f.id}
                 className={clsx(
                   "flex items-center justify-between px-3 md:px-4 py-2.5 md:py-3 gap-3",
-                  idx > 0 && "border-t border-farm-800"
+                  idx > 0 && "border-t border-[var(--brand-card-border)]"
                 )}
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   {f.color_hex ? (
                     <div
-                      className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
+                      className="w-3 h-3 rounded-full flex-shrink-0"
                       style={{ backgroundColor: `#${f.color_hex}` }}
                     />
                   ) : (
-                    <div className="w-6 h-6 rounded-full border border-farm-700 bg-farm-800 flex-shrink-0 flex items-center justify-center">
-                      <Palette size={12} className="text-farm-500" />
+                    <div className="w-3 h-3 rounded-full border border-[var(--brand-card-border)] bg-[var(--brand-input-bg)] flex-shrink-0 flex items-center justify-center">
+                      <Palette size={8} className="text-[var(--brand-text-muted)]" />
                     </div>
                   )}
                   <div className="min-w-0">
-                    <span className="text-sm text-farm-100 truncate block">{f.name}</span>
+                    <span className="text-sm text-[var(--brand-text-primary)] truncate block">{f.name}</span>
                   </div>
-                  <span className="px-2 py-0.5 bg-farm-800 rounded-lg text-xs text-farm-400 flex-shrink-0">
+                  <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] flex-shrink-0">
                     {f.material}
                   </span>
                   {f.cost_per_gram && (
-                    <span className="px-2 py-0.5 bg-green-900/50 rounded-lg text-xs text-green-400 flex-shrink-0">
+                    <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 flex-shrink-0">
                       ${f.cost_per_gram}/g
                     </span>
                   )}
@@ -135,7 +135,7 @@ export default function FilamentLibraryView() {
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
                       onClick={() => setEditingFilament(f)}
-                      className="p-1.5 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-300 hover:text-farm-100 transition-colors"
+                      className="p-1.5 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] transition-colors"
                       title="Edit"
                     >
                       <Pencil size={14} />
@@ -145,13 +145,13 @@ export default function FilamentLibraryView() {
                         <button
                           onClick={() => deleteMutation.mutate(f.id)}
                           disabled={deleteMutation.isPending}
-                          className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-white text-xs font-medium"
+                          className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded-md text-white text-xs font-medium"
                         >
                           Delete
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="px-2 py-1 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-200 text-xs"
+                          className="px-2 py-1 bg-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)] rounded-md text-[var(--brand-text-secondary)] text-xs"
                         >
                           No
                         </button>
@@ -159,7 +159,7 @@ export default function FilamentLibraryView() {
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(f.id)}
-                        className="p-1.5 bg-farm-800 hover:bg-red-900 rounded-lg text-farm-300 hover:text-red-400 transition-colors"
+                        className="p-1.5 bg-[var(--brand-input-bg)] hover:bg-red-900 rounded-md text-[var(--brand-text-secondary)] hover:text-red-400 transition-colors"
                         title="Delete"
                       >
                         <Trash2 size={14} />

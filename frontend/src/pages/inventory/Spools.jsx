@@ -198,7 +198,7 @@ export default function Spools() {
       {view === 'spools' && (
         <>
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 md:mb-6">
             <StatCard label="Active Spools" value={activeSpools.length} icon={Package} />
             <StatCard label="Loaded" value={loadedSpools.length} color="blue" />
             <StatCard label="Low (<20%)" value={lowSpools.length} color="amber" />
@@ -212,7 +212,7 @@ export default function Spools() {
           {lowSpools.length > 0 && (
             <button
               onClick={() => { setFilter('active'); setSortBy('remaining') }}
-              className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3 w-full text-left hover:bg-yellow-500/20 transition-colors"
+              className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-md flex items-center gap-3 w-full text-left hover:bg-yellow-500/20 transition-colors"
             >
               <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
               <span className="text-yellow-200 text-sm md:text-base">
@@ -244,23 +244,23 @@ export default function Spools() {
             />
 
             <div className="flex gap-3 items-center sm:ml-auto">
-              <span className="text-xs md:text-sm text-farm-400">Sort:</span>
+              <span className="text-xs md:text-sm text-[var(--brand-text-muted)]">Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="bg-farm-800 border border-farm-700 rounded-lg px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-farm-200"
+                className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 md:px-3 py-1 md:py-1.5 text-xs md:text-sm text-[var(--brand-text-secondary)]"
               >
                 <option value="printer">Printer/Slot</option>
                 <option value="name">Name</option>
                 <option value="remaining">Remaining %</option>
                 <option value="material">Material</option>
               </select>
-              <label className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-farm-400">
+              <label className="flex items-center gap-1.5 md:gap-2 text-xs md:text-sm text-[var(--brand-text-muted)]">
                 <input
                   type="checkbox"
                   checked={groupByPrinter}
                   onChange={(e) => setGroupByPrinter(e.target.checked)}
-                  className="rounded-lg bg-farm-800 border-farm-700"
+                  className="rounded-md bg-[var(--brand-input-bg)] border-[var(--brand-card-border)]"
                 />
                 <span className="hidden sm:inline">Group by printer</span>
                 <span className="sm:hidden">Group</span>
@@ -269,8 +269,8 @@ export default function Spools() {
           </div>
 
           {selectedSpools.size > 0 && canDo('spools.edit') && (
-            <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
-              <span className="text-sm text-farm-300">{selectedSpools.size} selected</span>
+            <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
+              <span className="text-sm text-[var(--brand-text-secondary)]">{selectedSpools.size} selected</span>
               <Button variant="warning" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'archive' })}>Archive</Button>
               <Button variant="success" size="sm" onClick={() => bulkSpoolAction.mutate({ action: 'activate' })}>Activate</Button>
               <Button variant="danger" size="sm" onClick={() => setConfirmAction({ title: 'Delete Spools', message: `Delete ${selectedSpools.size} selected spool(s)? This cannot be undone.`, onConfirm: () => { bulkSpoolAction.mutate({ action: 'delete' }); setConfirmAction(null) } })}>Delete</Button>
@@ -279,14 +279,14 @@ export default function Spools() {
           )}
           {canDo('spools.edit') && spools?.length > 0 && (
             <div className="flex items-center gap-2 mb-3">
-              <label className="flex items-center gap-1.5 text-xs text-farm-400 cursor-pointer">
-                <input type="checkbox" checked={selectedSpools.size === spools.length && spools.length > 0} onChange={() => toggleSelectAllSpools(spools.map(s => s.id))} className="rounded border-farm-600" />
+              <label className="flex items-center gap-1.5 text-xs text-[var(--brand-text-muted)] cursor-pointer">
+                <input type="checkbox" checked={selectedSpools.size === spools.length && spools.length > 0} onChange={() => toggleSelectAllSpools(spools.map(s => s.id))} className="rounded border-[var(--brand-card-border)]" />
                 Select all
               </label>
             </div>
           )}
 
-          {isLoading && <div className="text-center text-farm-400 py-12">Loading spools...</div>}
+          {isLoading && <div className="text-center text-[var(--brand-text-muted)] py-12">Loading spools...</div>}
           {!isLoading && spools?.length === 0 && (
             <EmptyState
               icon={Package}

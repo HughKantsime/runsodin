@@ -3,12 +3,12 @@ import { AlertCircle, RefreshCw } from 'lucide-react'
 
 function SectionErrorFallback({ onRetry }) {
   return (
-    <div className="bg-farm-900/50 border border-farm-700 rounded-lg p-6 flex flex-col items-center justify-center text-center">
-      <AlertCircle size={24} className="text-farm-500 mb-2" />
-      <p className="text-sm text-farm-400 mb-3">This section couldn't load</p>
+    <div className="bg-[var(--brand-card-bg)]/50 border border-[var(--brand-card-border)] rounded-md p-6 flex flex-col items-center justify-center text-center">
+      <AlertCircle size={24} className="text-[var(--brand-text-muted)] mb-2" />
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-3">This section couldn't load</p>
       <button
         onClick={onRetry}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-farm-300 bg-farm-800 hover:bg-farm-700 border border-farm-600 rounded-lg transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--brand-text-primary)] bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md transition-colors"
       >
         <RefreshCw size={12} />
         Retry

@@ -27,8 +27,8 @@ import { useOrg } from '../../contexts/OrgContext'
 
 function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onView3D, onRevisions }) {
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden hover:border-farm-700 transition-colors">
-      <div className="h-28 md:h-32 bg-farm-950 flex items-center justify-center">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden hover:border-[var(--brand-card-border)] transition-colors">
+      <div className="h-28 md:h-32 bg-[var(--brand-content-bg)] flex items-center justify-center">
         {model.thumbnail_b64 ? (
           <img
             src={`data:image/png;base64,${model.thumbnail_b64}`}
@@ -42,7 +42,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="text-4xl text-farm-700">📦</div>
+          <div className="text-4xl text-[var(--brand-muted)]">📦</div>
         )}
       </div>
       <div className="p-3 md:p-4">
@@ -51,10 +51,10 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             <h3 className="font-medium text-sm md:text-base truncate">{model.name}</h3>
             <div className="flex items-center gap-2 mt-0.5">
               {model.default_filament_type && (
-                <span className="text-xs px-1.5 py-0.5 bg-farm-800 text-farm-400 rounded-lg">{model.default_filament_type}</span>
+                <span className="text-xs px-1.5 py-0.5 bg-[var(--brand-input-bg)] text-[var(--brand-muted)] rounded-md">{model.default_filament_type}</span>
               )}
               {model.variant_count > 1 && (
-                <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg">{model.variant_count} variants</span>
+                <span className="text-xs px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded-md">{model.variant_count} variants</span>
               )}
             </div>
           </div>
@@ -62,7 +62,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
           <div className="flex items-center gap-0.5 flex-shrink-0">
             <button
               onClick={() => onToggleFavorite(model)}
-              className={clsx("p-1.5 md:p-2 rounded-lg transition-colors", model.is_favorite ? "text-yellow-400" : "text-farm-600 hover:text-yellow-400")}
+              className={clsx("p-1.5 md:p-2 rounded-md transition-colors", model.is_favorite ? "text-yellow-400" : "text-[var(--brand-muted)] hover:text-yellow-400")}
               aria-label={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
             >
               <Star size={14} fill={model.is_favorite ? "currentColor" : "none"} />
@@ -70,28 +70,28 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
 
             {canDo('models.create') && <button
               onClick={() => onSchedule(model)}
-              className="p-1.5 md:p-2 text-print-400 hover:bg-print-900/50 rounded-lg transition-colors"
+              className="p-1.5 md:p-2 text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 rounded-md transition-colors"
               aria-label="Schedule print job"
             >
               <CalendarPlus size={14} />
             </button>}
             {canDo('models.edit') && <button
               onClick={() => onEdit(model)}
-              className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+              className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
               aria-label="Edit model"
             >
               <Pencil size={14} />
             </button>}
             <button
               onClick={() => onRevisions(model)}
-              className="p-1.5 md:p-2 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+              className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
               aria-label="View revisions"
             >
               <History size={14} />
             </button>
             {canDo('models.delete') && <button
               onClick={() => onDelete(model.id)}
-              className="p-1.5 md:p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+              className="p-1.5 md:p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
               aria-label="Delete model"
             >
               <Trash2 size={14} />
@@ -99,7 +99,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
           </div>
         </div>
 
-        <div className="flex items-center gap-3 md:gap-4 text-xs md:text-sm text-farm-400 mt-3">
+        <div className="flex items-center gap-3 md:gap-4 text-xs md:text-sm text-[var(--brand-muted)] mt-3">
           {model.build_time_hours > 0 && (
             <div className="flex items-center gap-1">
               <Clock size={12} />
@@ -115,9 +115,9 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
         </div>
 
         {(model.estimated_cost > 0 || model.suggested_price > 0) && (
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-farm-800">
-            <div className="text-xs text-farm-500">
-              Cost: <span className="text-farm-300">${model.estimated_cost?.toFixed(2) || '—'}</span>
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--brand-card-border)]">
+            <div className="text-xs text-[var(--brand-muted)]">
+              Cost: <span className="text-[var(--brand-text-secondary)]">${model.estimated_cost?.toFixed(2) || '—'}</span>
             </div>
             <div className="text-xs font-medium text-green-400">
               ${model.suggested_price?.toFixed(2) || '—'}
@@ -130,7 +130,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             {model.required_colors.map((color, i) => (
               <div
                 key={i}
-                className="w-5 h-5 rounded-full border border-farm-600"
+                className="w-5 h-5 rounded-full border border-[var(--brand-card-border)]"
                 style={{ backgroundColor: color }}
                 title={color}
               />
@@ -199,7 +199,7 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
           onChange={handleInputChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm pr-8"
+          className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm pr-8"
           placeholder={isOpen ? "Type to search..." : placeholder}
         />
         <button
@@ -208,32 +208,32 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
             e.preventDefault()
             if (isOpen) { setIsOpen(false); setSearch('') } else { setIsOpen(true); setSearch('') }
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-farm-500 hover:text-farm-300"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)]"
         >
           <ChevronDown size={16} className={clsx(isOpen && "rotate-180 transition-transform")} />
         </button>
       </div>
 
       {isOpen && (spoolmanFilaments.length > 0 || libraryFilaments.length > 0) && (
-        <div className="absolute z-50 mt-1 w-full max-h-56 overflow-auto bg-farm-800 border border-farm-700 rounded-lg shadow-lg">
+        <div className="absolute z-50 mt-1 w-full max-h-56 overflow-auto bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md shadow-lg">
           {spoolmanFilaments.length > 0 && (
             <>
-              <div className="text-xs text-print-400 font-medium px-3 py-1 bg-farm-900 sticky top-0">From Spoolman</div>
+              <div className="text-xs text-[var(--brand-primary)] font-medium px-3 py-1 bg-[var(--brand-card-bg)] sticky top-0">From Spoolman</div>
               {spoolmanFilaments.slice(0, 15).map(f => (
-                <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-farm-700 cursor-pointer">
-                  <div className="w-4 h-4 rounded-lg border border-farm-500 flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
+                <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--brand-card-border)] cursor-pointer">
+                  <div className="w-4 h-4 rounded-md border border-[var(--brand-card-border)] flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
                   <span className="text-sm truncate flex-1">{f.name}</span>
-                  {f.remaining_weight && <span className="text-xs text-farm-400">{Math.round(f.remaining_weight)}g</span>}
+                  {f.remaining_weight && <span className="text-xs text-[var(--brand-muted)]">{Math.round(f.remaining_weight)}g</span>}
                 </div>
               ))}
             </>
           )}
           {libraryFilaments.length > 0 && (
             <>
-              <div className="text-xs text-farm-400 font-medium px-3 py-1 bg-farm-900 sticky top-0">From Library</div>
+              <div className="text-xs text-[var(--brand-muted)] font-medium px-3 py-1 bg-[var(--brand-card-bg)] sticky top-0">From Library</div>
               {libraryFilaments.slice(0, 20).map(f => (
-                <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-farm-700 cursor-pointer">
-                  <div className="w-4 h-4 rounded-lg border border-farm-500 flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
+                <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--brand-card-border)] cursor-pointer">
+                  <div className="w-4 h-4 rounded-md border border-[var(--brand-card-border)] flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
                   <span className="text-sm truncate">{f.display_name}</span>
                 </div>
               ))}
@@ -252,9 +252,9 @@ function ColorSlotInput({ index, color, grams, onChange, onRemove, filamentData 
         <FilamentSelector value={color} onChange={(val) => onChange(index, 'color', val)} filamentData={filamentData} placeholder={`Color ${index + 1}`} />
       </div>
       <div className="w-20 md:w-24">
-        <input type="number" min="0" step="0.1" value={grams} onChange={(e) => onChange(index, 'grams', e.target.value)} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-2 md:px-3 py-2 text-sm" placeholder="g" />
+        <input type="number" min="0" step="0.1" value={grams} onChange={(e) => onChange(index, 'grams', e.target.value)} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 md:px-3 py-2 text-sm" placeholder="g" />
       </div>
-      <button type="button" onClick={() => onRemove(index)} className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors">
+      <button type="button" onClick={() => onRemove(index)} className="p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors">
         <X size={16} />
       </button>
     </div>
@@ -317,28 +317,28 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
     <Modal isOpen={isOpen} onClose={onClose} title={editingModel ? 'Edit Model' : 'Add New Model'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Model Name *</label>
-          <input type="text" required value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Crocodile (Mini Critter)" />
+          <label className="block text-sm text-[var(--brand-muted)] mb-1">Model Name *</label>
+          <input type="text" required value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., Crocodile (Mini Critter)" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Category</label>
-            <input type="text" value={formData.category} onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., Mini Critters" />
+            <label className="block text-sm text-[var(--brand-muted)] mb-1">Category</label>
+            <input type="text" value={formData.category} onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., Mini Critters" />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Build Time (hours)</label>
-            <input type="number" step="any" min="0" value={formData.build_time_hours} onChange={(e) => setFormData(prev => ({ ...prev, build_time_hours: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 15.5" />
+            <label className="block text-sm text-[var(--brand-muted)] mb-1">Build Time (hours)</label>
+            <input type="number" step="any" min="0" value={formData.build_time_hours} onChange={(e) => setFormData(prev => ({ ...prev, build_time_hours: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., 15.5" />
           </div>
         </div>
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm text-farm-400">Filament Colors & Usage</label>
+            <label className="block text-sm text-[var(--brand-muted)]">Filament Colors & Usage</label>
             {colorSlots.length < 4 ? (
-              <button type="button" onClick={addColorSlot} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1">
+              <button type="button" onClick={addColorSlot} className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] flex items-center gap-1">
                 <Plus size={14} /> Add Color
               </button>
             ) : (
-              <span className="text-xs text-farm-500">Max 4 colors</span>
+              <span className="text-xs text-[var(--brand-muted)]">Max 4 colors</span>
             )}
           </div>
           <div className="space-y-2">
@@ -347,32 +347,32 @@ function ModelModal({ isOpen, onClose, onSubmit, editingModel }) {
             ))}
           </div>
           {totalFilament > 0 && (
-            <div className="mt-2 text-sm text-farm-400 flex items-center gap-2">
+            <div className="mt-2 text-sm text-[var(--brand-muted)] flex items-center gap-2">
               <Scale size={14} /> Total: <span className="text-white font-medium">{totalFilament.toFixed(1)}g</span>
             </div>
           )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Cost per Item ($)</label>
-            <input type="number" step="0.01" min="0" value={formData.cost_per_item} onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" placeholder="e.g., 5.50" />
+            <label className="block text-sm text-[var(--brand-muted)] mb-1">Cost per Item ($)</label>
+            <input type="number" step="0.01" min="0" value={formData.cost_per_item} onChange={(e) => setFormData(prev => ({ ...prev, cost_per_item: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" placeholder="e.g., 5.50" />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1"># on Bed</label>
-            <input type="number" min="1" value={formData.units_per_bed} onChange={(e) => setFormData(prev => ({ ...prev, units_per_bed: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+            <label className="block text-sm text-[var(--brand-muted)] mb-1"># on Bed</label>
+            <input type="number" min="1" value={formData.units_per_bed} onChange={(e) => setFormData(prev => ({ ...prev, units_per_bed: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Markup %</label>
-          <input type="number" min="0" value={formData.markup_percent} onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm" />
+          <label className="block text-sm text-[var(--brand-muted)] mb-1">Markup %</label>
+          <input type="number" min="0" value={formData.markup_percent} onChange={(e) => setFormData(prev => ({ ...prev, markup_percent: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Notes</label>
-          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 h-20 text-sm" placeholder="Optional notes..." />
+          <label className="block text-sm text-[var(--brand-muted)] mb-1">Notes</label>
+          <textarea value={formData.notes} onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 h-20 text-sm" placeholder="Optional notes..." />
         </div>
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" onClick={onClose} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm">Cancel</button>
-          <button type="submit" className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm">{editingModel ? 'Save Changes' : 'Add Model'}</button>
+          <button type="button" onClick={onClose} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm">Cancel</button>
+          <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm">{editingModel ? 'Save Changes' : 'Add Model'}</button>
         </div>
       </form>
     </Modal>
@@ -417,20 +417,20 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Schedule Print" size="md">
-      <p className="text-sm text-farm-500 mb-2">{model.name}</p>
+      <p className="text-sm text-[var(--brand-muted)] mb-2">{model.name}</p>
 
         {variants.length > 0 && (
           <div className="flex flex-col gap-1.5 mb-3">
             {variants.map(v => (
               <div key={v.id} className="flex flex-wrap items-center gap-1">
-                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-lg text-xs">{v.printer_model}</span>
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-md text-xs">{v.printer_model}</span>
                 {v.bed_x_mm != null && v.bed_y_mm != null && (
-                  <span className="px-2 py-0.5 bg-farm-700/60 text-farm-300 rounded-lg text-xs">{v.bed_x_mm}x{v.bed_y_mm}mm</span>
+                  <span className="px-2 py-0.5 bg-[var(--brand-card-border)]/60 text-[var(--brand-text-secondary)] rounded-md text-xs">{v.bed_x_mm}x{v.bed_y_mm}mm</span>
                 )}
                 {v.compatible_api_types === 'bambu' ? (
-                  <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded-lg text-xs">Bambu only</span>
+                  <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded-md text-xs">Bambu only</span>
                 ) : v.compatible_api_types ? (
-                  <span className="px-2 py-0.5 bg-green-600/20 text-green-400 rounded-lg text-xs">Moonraker / PrusaLink</span>
+                  <span className="px-2 py-0.5 bg-green-600/20 text-green-400 rounded-md text-xs">Moonraker / PrusaLink</span>
                 ) : null}
                 {v.bed_x_mm == null && !v.compatible_api_types && (
                   <span title="No slicer metadata — re-upload to enable bed checks" className="text-yellow-500 flex items-center">
@@ -443,12 +443,12 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
         )}
 
         {model.thumbnail_b64 && (
-          <div className="h-32 bg-farm-950 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
+          <div className="h-32 bg-[var(--brand-content-bg)] rounded-md mb-4 flex items-center justify-center overflow-hidden">
             <img src={`data:image/png;base64,${model.thumbnail_b64}`} alt={model.name} className="h-full object-contain" />
           </div>
         )}
 
-        <div className="flex items-center gap-4 text-sm text-farm-400 mb-4">
+        <div className="flex items-center gap-4 text-sm text-[var(--brand-muted)] mb-4">
           {model.build_time_hours && (
             <div className="flex items-center gap-1">
               <Clock size={14} />
@@ -471,8 +471,8 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div>
-            <label className="block text-xs text-farm-400 mb-1">Priority</label>
-            <select value={scheduleOpts.priority} onChange={(e) => setScheduleOpts(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm">
+            <label className="block text-xs text-[var(--brand-muted)] mb-1">Priority</label>
+            <select value={scheduleOpts.priority} onChange={(e) => setScheduleOpts(prev => ({ ...prev, priority: Number(e.target.value) }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm">
               <option value={1}>1 - Highest</option>
               <option value={2}>2 - High</option>
               <option value={3}>3 - Normal</option>
@@ -481,17 +481,17 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
             </select>
           </div>
           <div>
-            <label className="block text-xs text-farm-400 mb-1">Quantity</label>
-            <input type="number" min="1" value={scheduleOpts.quantity} onChange={(e) => setScheduleOpts(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm" />
+            <label className="block text-xs text-[var(--brand-muted)] mb-1">Quantity</label>
+            <input type="number" min="1" value={scheduleOpts.quantity} onChange={(e) => setScheduleOpts(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm" />
           </div>
         </div>
         <div className="mb-4">
-          <label className="block text-xs text-farm-400 mb-1">Due Date (optional)</label>
-          <input type="date" value={scheduleOpts.due_date} onChange={(e) => setScheduleOpts(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm" />
+          <label className="block text-xs text-[var(--brand-muted)] mb-1">Due Date (optional)</label>
+          <input type="date" value={scheduleOpts.due_date} onChange={(e) => setScheduleOpts(prev => ({ ...prev, due_date: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm" />
         </div>
         <div className="mb-4">
-          <label className="block text-xs text-farm-400 mb-1">Notes (optional)</label>
-          <textarea value={scheduleOpts.notes} onChange={(e) => setScheduleOpts(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-sm" rows={2} />
+          <label className="block text-xs text-[var(--brand-muted)] mb-1">Notes (optional)</label>
+          <textarea value={scheduleOpts.notes} onChange={(e) => setScheduleOpts(prev => ({ ...prev, notes: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm" rows={2} />
         </div>
 
         {/* Plate selector for multi-plate files */}
@@ -500,7 +500,7 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
           if (maxPlates <= 1) return null
           return (
             <div className="mb-4">
-              <label className="block text-xs text-farm-400 mb-1">Plate</label>
+              <label className="block text-xs text-[var(--brand-muted)] mb-1">Plate</label>
               <div className="flex flex-wrap gap-2">
                 {Array.from({ length: maxPlates }, (_, i) => (
                   <button
@@ -509,8 +509,8 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
                     onClick={() => setScheduleOpts(prev => ({ ...prev, plate_index: i }))}
                     className={clsx('px-3 py-1 rounded text-xs border transition-colors',
                       scheduleOpts.plate_index === i
-                        ? 'border-print-500 bg-print-900/30 text-print-400'
-                        : 'border-farm-700 text-farm-400 hover:border-farm-500'
+                        ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]'
+                        : 'border-[var(--brand-card-border)] text-[var(--brand-muted)] hover:border-[var(--brand-card-border)]'
                     )}
                   >
                     Plate {i + 1}
@@ -521,12 +521,12 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
           )
         })()}
 
-        <p className="text-sm text-farm-400 mb-2">Assign to Printer</p>
+        <p className="text-sm text-[var(--brand-muted)] mb-2">Assign to Printer</p>
         <div className="flex flex-wrap gap-2 mb-6">
           <button
             onClick={() => setSelectedPrinter(null)}
-            className={clsx('px-3 py-1.5 rounded-lg border text-sm transition-colors',
-              selectedPrinter === null ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 hover:border-farm-500'
+            className={clsx('px-3 py-1.5 rounded-md border text-sm transition-colors',
+              selectedPrinter === null ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-card-border)]'
             )}
           >
             Auto-assign
@@ -537,8 +537,8 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
               <button
                 key={p.id}
                 onClick={() => setSelectedPrinter(p.id)}
-                className={clsx('px-3 py-1.5 rounded-lg border text-sm transition-colors flex items-center gap-1.5',
-                  selectedPrinter === p.id ? 'border-print-500 bg-print-900/30 text-print-400' : 'border-farm-700 hover:border-farm-500',
+                className={clsx('px-3 py-1.5 rounded-md border text-sm transition-colors flex items-center gap-1.5',
+                  selectedPrinter === p.id ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'border-[var(--brand-card-border)] hover:border-[var(--brand-card-border)]',
                 )}
                 title={compat ? 'Has matching variant' : variants.length > 0 ? 'No matching variant' : ''}
               >
@@ -548,13 +548,13 @@ function ScheduleModal({ isOpen, onClose, model, onConfirm, isScheduling }) {
             )
           })}
           {activePrinters.length === 0 && (
-            <p className="text-xs text-farm-500 py-1">No active printers found</p>
+            <p className="text-xs text-[var(--brand-muted)] py-1">No active printers found</p>
           )}
         </div>
 
       <div className="flex justify-end gap-3">
-        <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm transition-colors">Cancel</button>
-        <button onClick={() => onConfirm(selectedPrinter, scheduleOpts)} disabled={isScheduling} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm transition-colors">
+        <button onClick={onClose} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors">Cancel</button>
+        <button onClick={() => onConfirm(selectedPrinter, scheduleOpts)} disabled={isScheduling} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md text-sm transition-colors">
           {isScheduling ? 'Scheduling...' : 'Create Job'}
         </button>
       </div>
@@ -731,7 +731,7 @@ export default function Models() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-farm-500 text-sm">Loading models...</div>
+        <div className="text-center py-12 text-[var(--brand-muted)] text-sm">Loading models...</div>
       ) : modelsData?.length === 0 ? (
         <EmptyState
           icon={Upload}
@@ -762,7 +762,7 @@ export default function Models() {
       />
 
       {viewerModelId && (
-        <Suspense fallback={<div className="flex items-center justify-center p-8 text-farm-400">Loading 3D viewer...</div>}>
+        <Suspense fallback={<div className="flex items-center justify-center p-8 text-[var(--brand-muted)]">Loading 3D viewer...</div>}>
           <ModelViewer
             modelId={viewerModelId}
             modelName={viewerModelName}

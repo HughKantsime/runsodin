@@ -3,6 +3,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Zap } from 'lucide-react'
 import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../../api'
 
+const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
+
 export default function EnergyWidget({ jobs }) {
   const [rate, setRate] = useState(0.12)
   const [editing, setEditing] = useState(false)
@@ -48,7 +50,7 @@ export default function EnergyWidget({ jobs }) {
   const chartData = Object.entries(byDay).map(([day, kwh]) => ({ day, kwh: parseFloat(kwh.toFixed(2)), cost: parseFloat((kwh * rate).toFixed(2)) }))
 
   return (
-    <div className="rounded-lg p-5" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
+    <div className="rounded-md p-5" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-card-border)' }}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Zap size={18} className="text-yellow-400" />
@@ -57,21 +59,21 @@ export default function EnergyWidget({ jobs }) {
         <div className="flex items-center gap-2 text-xs">
           {editing ? (
             <>
-              <span className="text-farm-400">$/kWh:</span>
+              <span className="text-[var(--brand-text-muted)]">$/kWh:</span>
               <input
                 type="number"
                 step="0.01"
                 value={tempRate}
                 onChange={(e) => setTempRate(e.target.value)}
-                className="w-20 bg-farm-800 border border-farm-700 rounded-lg px-2 py-1 text-sm"
+                className="w-20 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-sm"
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && saveRate()}
               />
               <button onClick={saveRate} className="text-green-400 hover:text-green-300">Save</button>
-              <button onClick={() => setEditing(false)} className="text-farm-500 hover:text-farm-300">Cancel</button>
+              <button onClick={() => setEditing(false)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">Cancel</button>
             </>
           ) : (
-            <button onClick={() => setEditing(true)} className="text-farm-400 hover:text-farm-200 transition-colors">
+            <button onClick={() => setEditing(true)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] transition-colors">
               ${rate}/kWh ✎
             </button>
           )}
@@ -81,33 +83,33 @@ export default function EnergyWidget({ jobs }) {
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-center">
           <div className="text-2xl font-bold text-yellow-400">{totalKwh.toFixed(1)}</div>
-          <div className="text-xs text-farm-500">Total kWh</div>
+          <div className="text-xs text-[var(--brand-text-muted)]">Total kWh</div>
         </div>
         <div className="text-center">
           <div className="text-2xl font-bold text-green-400">${totalCost.toFixed(2)}</div>
-          <div className="text-xs text-farm-500">Total Cost</div>
+          <div className="text-xs text-[var(--brand-text-muted)]">Total Cost</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-farm-300">{jobsWithEnergy.length}</div>
-          <div className="text-xs text-farm-500">Jobs Tracked</div>
+          <div className="text-2xl font-bold text-[var(--brand-text-secondary)]">{jobsWithEnergy.length}</div>
+          <div className="text-xs text-[var(--brand-text-muted)]">Jobs Tracked</div>
         </div>
       </div>
 
       {chartData.length > 0 ? (
         <ResponsiveContainer width="100%" height={150}>
           <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-            <XAxis dataKey="day" tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} />
-            <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 10 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
+            <XAxis dataKey="day" tick={{ fill: '#3D4559', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#3D4559', fontSize: 11 }} />
             <Tooltip
-              contentStyle={{ backgroundColor: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: '8px', fontSize: '12px' }}
+              contentStyle={CHART_TOOLTIP}
               formatter={(val, name) => [name === 'kwh' ? `${val} kWh` : `$${val}`, name === 'kwh' ? 'Energy' : 'Cost']}
             />
             <Bar dataKey="kwh" fill="#F59E0B" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="text-center py-6 text-farm-500 text-sm">
+        <div className="text-center py-6 text-[var(--brand-text-muted)] text-sm">
           No energy data yet. Connect a smart plug to track per-job power usage.
         </div>
       )}

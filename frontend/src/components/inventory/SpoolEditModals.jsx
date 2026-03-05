@@ -22,26 +22,26 @@ export function EditSpoolModal({ spool, onClose, onSave }) {
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Edit Spool" size="md">
-      <div className="mb-4 p-3 bg-farm-800 rounded-lg">
+      <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md">
         <div className="flex items-center gap-3 mb-2">
           {spool.filament_color_hex && (
             <div
-              className="w-8 h-8 rounded-full border border-farm-600 flex-shrink-0"
+              className="w-8 h-8 rounded-full border border-[var(--brand-card-border)] flex-shrink-0"
               style={{ backgroundColor: '#' + spool.filament_color_hex }}
             />
           )}
           <div>
-            <div className="text-farm-200 font-medium">
+            <div className="text-[var(--brand-text-secondary)] font-medium">
               {spool.filament_brand} {spool.filament_name}
             </div>
-            <div className="text-xs text-farm-500 font-mono">{spool.qr_code}</div>
+            <div className="text-xs text-[var(--brand-text-muted)] font-mono">{spool.qr_code}</div>
           </div>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Remaining Weight (g)</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Remaining Weight (g)</label>
           <input
             type="number"
             step="1"
@@ -49,32 +49,32 @@ export function EditSpoolModal({ spool, onClose, onSave }) {
             value={form.remaining_weight_g}
             onChange={(e) => setForm({ ...form, remaining_weight_g: e.target.value })}
             required
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
-          <div className="text-xs text-farm-500 mt-1">
+          <div className="text-xs text-[var(--brand-text-muted)] mt-1">
             Initial: {spool.initial_weight_g}g
           </div>
         </div>
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Storage Location</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Storage Location</label>
           <input
             type="text"
             value={form.storage_location}
             onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
             placeholder="Shelf A, Drawer 2..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Notes</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Notes</label>
           <input
             type="text"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             placeholder="Any notes..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
@@ -82,13 +82,13 @@ export function EditSpoolModal({ spool, onClose, onSave }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
+            className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
+            className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white"
           >
             Save
           </button>
@@ -116,36 +116,36 @@ export function EditFilamentModal({ filament, onClose, onSave }) {
     <Modal isOpen={true} onClose={onClose} title={filament ? 'Edit Filament' : 'Add Filament'} size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Brand</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Brand</label>
           <input
             type="text"
             value={form.brand}
             onChange={(e) => setForm({ ...form, brand: e.target.value })}
             required
             placeholder="Bambu Lab, Polymaker, eSUN..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Name</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Name</label>
           <input
             type="text"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             required
             placeholder="Matte Black, Silk Gold..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Material</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Material</label>
             <select
               value={form.material}
               onChange={(e) => setForm({ ...form, material: e.target.value })}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             >
               <option value="PLA">PLA</option>
               <option value="PLA-S">PLA-S (Support)</option>
@@ -168,7 +168,7 @@ export function EditFilamentModal({ filament, onClose, onSave }) {
             </select>
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Color Hex</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Color Hex</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -176,11 +176,11 @@ export function EditFilamentModal({ filament, onClose, onSave }) {
                 onChange={(e) => setForm({ ...form, color_hex: e.target.value.replace('#', '') })}
                 placeholder="FF5733"
                 maxLength={6}
-                className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 font-mono"
+                className="flex-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] font-mono"
               />
               {form.color_hex && form.color_hex.length >= 3 && (
                 <div
-                  className="w-10 h-10 rounded-lg border border-farm-600 flex-shrink-0"
+                  className="w-10 h-10 rounded-md border border-[var(--brand-card-border)] flex-shrink-0"
                   style={{ backgroundColor: `#${form.color_hex}` }}
                 />
               )}
@@ -189,7 +189,7 @@ export function EditFilamentModal({ filament, onClose, onSave }) {
         </div>
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Cost per Gram ($/g)</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Cost per Gram ($/g)</label>
           <input
             type="number"
             step="0.001"
@@ -197,22 +197,22 @@ export function EditFilamentModal({ filament, onClose, onSave }) {
             value={form.cost_per_gram}
             onChange={(e) => setForm({ ...form, cost_per_gram: e.target.value })}
             placeholder="0.025 (leave blank for global default)"
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
-          <p className="text-xs text-farm-500 mt-1">Used for cost calculation. Leave blank to use system default.</p>
+          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Used for cost calculation. Leave blank to use system default.</p>
         </div>
 
         <div className="flex gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
+            className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
+            className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white"
           >
             {filament ? 'Save Changes' : 'Add Filament'}
           </button>

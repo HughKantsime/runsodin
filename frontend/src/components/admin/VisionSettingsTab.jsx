@@ -22,11 +22,11 @@ function ModelUpload({ onUploaded }) {
 
   return (
     <div className="flex items-center gap-2">
-      <input ref={fileRef} type="file" accept=".onnx" className="text-xs text-farm-400" />
+      <input ref={fileRef} type="file" accept=".onnx" className="text-xs text-[var(--brand-text-secondary)]" />
       <button
         onClick={handleUpload}
         disabled={uploading}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] rounded-md text-xs font-medium transition-colors disabled:opacity-50"
       >
         <Upload size={12} />
         {uploading ? 'Uploading...' : 'Upload Model'}
@@ -93,12 +93,12 @@ export default function VisionSettingsTab() {
   return (
     <div className="max-w-4xl space-y-6">
       {/* Global Settings */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
         <div className="flex items-center gap-2 mb-4">
           <Eye size={18} className="text-purple-400" />
           <h2 className="text-lg font-display font-semibold">Vigil AI</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           AI-powered print failure detection using local ONNX inference. No cloud services — all processing runs on this server.
         </p>
 
@@ -108,13 +108,13 @@ export default function VisionSettingsTab() {
               type="checkbox"
               checked={globalSettings.enabled}
               onChange={e => setGlobalSettings(s => ({ ...s, enabled: e.target.checked }))}
-              className="rounded-lg"
+              className="rounded-md"
             />
             <span className="text-sm">Enable Vigil AI globally</span>
           </label>
 
           <div className="flex items-center gap-3">
-            <label className="text-sm text-farm-400">Frame retention:</label>
+            <label className="text-sm text-[var(--brand-text-secondary)]">Frame retention:</label>
             <input
               type="range" min="7" max="90" step="1"
               value={globalSettings.retention_days}
@@ -125,7 +125,7 @@ export default function VisionSettingsTab() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={saveGlobal} disabled={saving} className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+            <button onClick={saveGlobal} disabled={saving} className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md text-sm font-medium transition-colors disabled:opacity-50">
               <Save size={14} className="inline mr-1.5" />
               Save
             </button>
@@ -135,16 +135,16 @@ export default function VisionSettingsTab() {
       </div>
 
       {/* Per-Printer Settings */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
         <h3 className="text-base font-semibold mb-3">Per-Printer Detection Settings</h3>
         {printerSettings.length === 0 && (
-          <p className="text-sm text-farm-500">No printers with cameras configured</p>
+          <p className="text-sm text-[var(--brand-text-muted)]">No printers with cameras configured</p>
         )}
         <div className="space-y-3">
           {printerSettings.map(p => {
             const vs = p.vision || {}
             return (
-              <div key={p.id} className="bg-farm-800 rounded-lg p-3">
+              <div key={p.id} className="bg-[var(--brand-input-bg)] rounded-md p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium text-sm">{p.nickname || p.name}</span>
                   <label className="flex items-center gap-2 text-xs">
@@ -171,7 +171,7 @@ export default function VisionSettingsTab() {
                         onChange={e => savePrinterVision(p.id, { spaghetti_threshold: parseFloat(e.target.value) })}
                         className="w-full"
                       />
-                      <span className="text-farm-500">{((vs.spaghetti_threshold || 0.65) * 100).toFixed(0)}%</span>
+                      <span className="text-[var(--brand-text-muted)]">{((vs.spaghetti_threshold || 0.65) * 100).toFixed(0)}%</span>
                     </div>
 
                     {/* First Layer */}
@@ -187,7 +187,7 @@ export default function VisionSettingsTab() {
                         onChange={e => savePrinterVision(p.id, { first_layer_threshold: parseFloat(e.target.value) })}
                         className="w-full"
                       />
-                      <span className="text-farm-500">{((vs.first_layer_threshold || 0.60) * 100).toFixed(0)}%</span>
+                      <span className="text-[var(--brand-text-muted)]">{((vs.first_layer_threshold || 0.60) * 100).toFixed(0)}%</span>
                     </div>
 
                     {/* Detachment */}
@@ -203,7 +203,7 @@ export default function VisionSettingsTab() {
                         onChange={e => savePrinterVision(p.id, { detachment_threshold: parseFloat(e.target.value) })}
                         className="w-full"
                       />
-                      <span className="text-farm-500">{((vs.detachment_threshold || 0.70) * 100).toFixed(0)}%</span>
+                      <span className="text-[var(--brand-text-muted)]">{((vs.detachment_threshold || 0.70) * 100).toFixed(0)}%</span>
                     </div>
 
                     {/* Options */}
@@ -221,11 +221,11 @@ export default function VisionSettingsTab() {
                         Collect data
                       </label>
                       <div className="flex items-center gap-1">
-                        <span className="text-farm-500">Interval:</span>
+                        <span className="text-[var(--brand-text-muted)]">Interval:</span>
                         <select
                           value={vs.capture_interval_sec || 10}
                           onChange={e => savePrinterVision(p.id, { capture_interval_sec: parseInt(e.target.value) })}
-                          className="bg-farm-700 border border-farm-600 rounded-lg px-1 py-0.5 text-xs"
+                          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-1 py-0.5 text-xs"
                         >
                           <option value={5}>5s</option>
                           <option value={10}>10s</option>
@@ -244,18 +244,18 @@ export default function VisionSettingsTab() {
       </div>
 
       {/* Model Management */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
         <h3 className="text-base font-semibold mb-3">ONNX Models</h3>
         {models.length === 0 && (
-          <p className="text-sm text-farm-500">No models uploaded. Upload ONNX models to enable detection.</p>
+          <p className="text-sm text-[var(--brand-text-muted)]">No models uploaded. Upload ONNX models to enable detection.</p>
         )}
         <div className="space-y-2">
           {models.map(m => (
-            <div key={m.id} className="flex items-center justify-between py-2 px-3 bg-farm-800 rounded-lg">
+            <div key={m.id} className="flex items-center justify-between py-2 px-3 bg-[var(--brand-input-bg)] rounded-md">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium">{m.name}</span>
-                <span className="text-xs text-farm-500">{m.detection_type}</span>
-                {m.version && <span className="text-xs text-farm-600">v{m.version}</span>}
+                <span className="text-xs text-[var(--brand-text-muted)]">{m.detection_type}</span>
+                {m.version && <span className="text-xs text-[var(--brand-text-muted)]">v{m.version}</span>}
               </div>
               <div className="flex items-center gap-2">
                 {m.is_active ? (
@@ -266,7 +266,7 @@ export default function VisionSettingsTab() {
                 ) : (
                   <button
                     onClick={() => activateModel(m.id)}
-                    className="text-xs text-farm-400 hover:text-white px-2 py-1 bg-farm-700 rounded-lg transition-colors"
+                    className="text-xs text-[var(--brand-text-secondary)] hover:text-white px-2 py-1 bg-[var(--brand-input-bg)] rounded-md transition-colors"
                   >
                     Activate
                   </button>

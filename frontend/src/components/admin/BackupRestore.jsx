@@ -52,14 +52,14 @@ export default function BackupRestore({ onRestored }) {
   }
 
   return (
-    <div className="mt-4 pt-4 border-t border-farm-700">
-      <h3 className="text-sm font-medium text-farm-300 mb-2">Restore from Backup</h3>
-      <p className="text-xs text-farm-500 mb-3">
+    <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)]">
+      <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Restore from Backup</h3>
+      <p className="text-xs text-[var(--brand-text-muted)] mb-3">
         Upload a .db backup file to restore. A safety backup will be created automatically before restoring.
       </p>
 
       {!confirmFile ? (
-        <label className="inline-flex items-center gap-2 px-4 py-2 bg-farm-700 hover:bg-farm-600 rounded-lg text-sm cursor-pointer transition-colors">
+        <label className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] rounded-md text-sm cursor-pointer transition-colors">
           <Upload size={16} />
           Choose backup file
           <input
@@ -71,7 +71,7 @@ export default function BackupRestore({ onRestored }) {
           />
         </label>
       ) : (
-        <div className="flex items-center gap-3 p-3 bg-amber-900/20 border border-amber-600/30 rounded-lg">
+        <div className="flex items-center gap-3 p-3 bg-amber-900/20 border border-amber-600/30 rounded-md">
           <AlertTriangle size={18} className="text-amber-400 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-amber-200">
@@ -82,14 +82,14 @@ export default function BackupRestore({ onRestored }) {
           <div className="flex gap-2 flex-shrink-0">
             <button
               onClick={handleCancel}
-              className="px-3 py-1.5 text-xs bg-farm-700 hover:bg-farm-600 rounded-lg"
+              className="px-3 py-1.5 text-xs bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] rounded-md"
             >
               Cancel
             </button>
             <button
               onClick={handleRestore}
               disabled={restoring}
-              className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg font-medium"
+              className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-md font-medium"
             >
               {restoring ? 'Restoring...' : 'Confirm Restore'}
             </button>
@@ -98,7 +98,7 @@ export default function BackupRestore({ onRestored }) {
       )}
 
       {result && (
-        <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2">
+        <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-md flex items-center gap-2">
           <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
           <span className="text-green-200 text-sm">
             Database restored successfully. Safety backup: {result.safety_backup}
@@ -107,7 +107,7 @@ export default function BackupRestore({ onRestored }) {
       )}
 
       {error && (
-        <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2">
+        <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-center gap-2">
           <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
           <span className="text-red-200 text-sm">{error}</span>
         </div>

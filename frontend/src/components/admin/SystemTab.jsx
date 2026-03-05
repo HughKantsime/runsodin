@@ -55,15 +55,15 @@ function NetworkTab() {
   return (
     <Card padding="lg" className="mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
-        <Wifi size={18} className="text-print-400" />
+        <Wifi size={18} className="text-[var(--brand-primary)]" />
         <h2 className="text-lg md:text-xl font-display font-semibold">Network & Camera Streaming</h2>
       </div>
-      <p className="text-farm-500 text-sm mb-4">
+      <p className="text-[var(--brand-text-muted)] text-sm mb-4">
         Configure the host IP address for WebRTC camera streaming. This should be the LAN IP of the server running O.D.I.N., reachable from your browser.
       </p>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-farm-300 mb-1.5">Host IP Address</label>
+          <label className="block text-sm font-medium text-[var(--brand-text-secondary)] mb-1.5">Host IP Address</label>
           <div className="flex gap-2">
             <Input
               type="text"
@@ -82,14 +82,14 @@ function NetworkTab() {
               {saved ? 'Saved!' : 'Save'}
             </Button>
           </div>
-          {detectedIp && <p className="text-xs text-farm-600 mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
+          {detectedIp && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
         </div>
         {error && (
-          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300">
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-md text-sm text-red-300">
             {error}
           </div>
         )}
-        <p className="text-xs text-farm-600">
+        <p className="text-xs text-[var(--brand-text-muted)]">
           Without this setting, camera streams may show a black screen. The IP is used for WebRTC ICE candidates so your browser can connect to the go2rtc video relay. Changes take effect immediately.
         </p>
       </div>
@@ -165,10 +165,10 @@ function PrivacyDataCard() {
   return (
     <Card padding="lg" className="mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
-        <Shield size={18} className="text-print-400" />
+        <Shield size={18} className="text-[var(--brand-primary)]" />
         <h2 className="text-lg md:text-xl font-display font-semibold">Privacy & Data</h2>
       </div>
-      <p className="text-sm text-farm-400 mb-4">
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
         Export or erase your personal data in compliance with GDPR. Exported data includes your profile, jobs, sessions, and preferences.
       </p>
       <div className="flex flex-wrap gap-3">
@@ -191,11 +191,11 @@ function PrivacyDataCard() {
         )}
       </div>
       {message && (
-        <div className={`mt-3 text-sm px-3 py-2 rounded-lg ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+        <div className={`mt-3 text-sm px-3 py-2 rounded-md ${message.type === 'success' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
           {message.text}
         </div>
       )}
-      <p className="text-xs text-farm-500 mt-3">
+      <p className="text-xs text-[var(--brand-text-muted)] mt-3">
         Erasing your data is permanent. Your account will be anonymized and you will be logged out.
       </p>
     </Card>
@@ -217,10 +217,10 @@ function InstallAppCard() {
 
   if (installed) {
     return (
-      <div className="flex items-center gap-2 bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="flex items-center gap-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <Smartphone size={18} className="text-green-400" />
         <span className="font-display font-semibold">App Installed</span>
-        <span className="text-farm-500 text-sm ml-auto">Running as standalone app</span>
+        <span className="text-[var(--brand-text-muted)] text-sm ml-auto">Running as standalone app</span>
       </div>
     )
   }
@@ -228,11 +228,11 @@ function InstallAppCard() {
   if (!deferredPrompt) return null
 
   return (
-    <div className="flex items-center gap-2 bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
-      <Smartphone size={18} className="text-print-400" />
+    <div className="flex items-center gap-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
+      <Smartphone size={18} className="text-[var(--brand-primary)]" />
       <div>
         <span className="font-display font-semibold">Install App</span>
-        <p className="text-farm-500 text-sm">Add O.D.I.N. to your home screen for quick access</p>
+        <p className="text-[var(--brand-text-muted)] text-sm">Add O.D.I.N. to your home screen for quick access</p>
       </div>
       <Button
         variant="primary"
@@ -247,10 +247,10 @@ function InstallAppCard() {
 
 function AuditLogLink() {
   return (
-    <a href="/audit" className="flex items-center gap-2 bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6 hover:bg-farm-800/50 transition-colors">
-      <FileText size={18} className="text-print-400" />
+    <a href="/audit" className="flex items-center gap-2 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6 hover:bg-[var(--brand-input-bg)]/50 transition-colors">
+      <FileText size={18} className="text-[var(--brand-primary)]" />
       <span className="font-display font-semibold">Audit Log</span>
-      <span className="text-farm-500 text-sm ml-auto">View full audit log &rarr;</span>
+      <span className="text-[var(--brand-text-muted)] text-sm ml-auto">View full audit log &rarr;</span>
     </a>
   )
 }
@@ -297,25 +297,25 @@ export default function SystemTab() {
       {/* Database Info */}
       <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <Database size={18} className="text-print-400" />
+          <Database size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Database</h2>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          <div className="bg-farm-800 rounded-lg p-3 md:p-4">
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3 md:p-4">
             <div className="text-xl md:text-2xl font-bold">{statsData?.printers?.total || 0}</div>
-            <div className="text-xs md:text-sm text-farm-400">Printers</div>
+            <div className="text-xs md:text-sm text-[var(--brand-text-secondary)]">Printers</div>
           </div>
-          <div className="bg-farm-800 rounded-lg p-3 md:p-4">
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3 md:p-4">
             <div className="text-xl md:text-2xl font-bold">{statsData?.models || 0}</div>
-            <div className="text-xs md:text-sm text-farm-400">Models</div>
+            <div className="text-xs md:text-sm text-[var(--brand-text-secondary)]">Models</div>
           </div>
-          <div className="bg-farm-800 rounded-lg p-3 md:p-4">
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3 md:p-4">
             <div className="text-xl md:text-2xl font-bold">{(statsData?.jobs?.pending || 0) + (statsData?.jobs?.scheduled || 0) + (statsData?.jobs?.printing || 0)}</div>
-            <div className="text-xs md:text-sm text-farm-400">Active Jobs</div>
+            <div className="text-xs md:text-sm text-[var(--brand-text-secondary)]">Active Jobs</div>
           </div>
-          <div className="bg-farm-800 rounded-lg p-3 md:p-4">
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3 md:p-4">
             <div className="text-xl md:text-2xl font-bold">{statsData?.jobs?.completed || 0}</div>
-            <div className="text-xs md:text-sm text-farm-400">Completed</div>
+            <div className="text-xs md:text-sm text-[var(--brand-text-secondary)]">Completed</div>
           </div>
         </div>
       </Card>
@@ -325,7 +325,7 @@ export default function SystemTab() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold">Support Bundle</h3>
-            <p className="text-xs text-farm-500 mt-1">Download a privacy-filtered diagnostic ZIP for issue reporting</p>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Download a privacy-filtered diagnostic ZIP for issue reporting</p>
           </div>
           <Button
             variant="primary"
@@ -345,7 +345,7 @@ export default function SystemTab() {
       <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div className="flex items-center gap-2 md:gap-3">
-            <HardDrive size={18} className="text-print-400" />
+            <HardDrive size={18} className="text-[var(--brand-primary)]" />
             <h2 className="text-lg md:text-xl font-display font-semibold">Database Backups</h2>
           </div>
           <Button variant="primary" icon={Plus} loading={createBackup.isPending} onClick={() => createBackup.mutate()}>
@@ -354,7 +354,7 @@ export default function SystemTab() {
         </div>
 
         {createBackup.isSuccess && (
-          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2">
+          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-md flex items-center gap-2">
             <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
             <span className="text-green-200 text-sm">
               Backup created: {createBackup.data?.filename} ({formatSize(createBackup.data?.size_bytes || 0)})
@@ -363,18 +363,18 @@ export default function SystemTab() {
         )}
 
         {createBackup.isError && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2">
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-center gap-2">
             <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
             <span className="text-red-200 text-sm">Failed to create backup</span>
           </div>
         )}
 
         {backupsLoading && (
-          <div className="text-center text-farm-400 py-6 text-sm">Loading backups...</div>
+          <div className="text-center text-[var(--brand-text-secondary)] py-6 text-sm">Loading backups...</div>
         )}
 
         {!backupsLoading && (!backups || backups.length === 0) && (
-          <div className="text-center text-farm-500 py-6 text-sm">
+          <div className="text-center text-[var(--brand-text-muted)] py-6 text-sm">
             No backups yet. Create your first backup to protect your data.
           </div>
         )}
@@ -384,11 +384,11 @@ export default function SystemTab() {
             {backups.map((backup) => (
               <div
                 key={backup.filename}
-                className="flex items-center justify-between p-3 bg-farm-800 rounded-lg gap-3"
+                className="flex items-center justify-between p-3 bg-[var(--brand-input-bg)] rounded-md gap-3"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm text-farm-100 font-mono truncate">{backup.filename}</div>
-                  <div className="text-xs text-farm-400 mt-0.5">
+                  <div className="text-sm text-[var(--brand-text-primary)] font-mono truncate">{backup.filename}</div>
+                  <div className="text-xs text-[var(--brand-text-secondary)] mt-0.5">
                     {formatSize(backup.size_bytes)} · {formatDate(backup.created_at)}
                   </div>
                 </div>
@@ -425,10 +425,10 @@ export default function SystemTab() {
           </div>
         )}
 
-        <p className="text-xs text-farm-500 mt-3">
+        <p className="text-xs text-[var(--brand-text-muted)] mt-3">
           Backups use SQLite's online backup API — safe to create while the system is running.
         </p>
-        <div className="border-t border-farm-700 mt-4 pt-4">
+        <div className="border-t border-[var(--brand-card-border)] mt-4 pt-4">
           <BackupRestore />
         </div>
       </Card>
@@ -436,10 +436,10 @@ export default function SystemTab() {
       {/* Data Export */}
       <Card padding="lg" className="mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <FileSpreadsheet size={18} className="text-print-400" />
+          <FileSpreadsheet size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Data Export</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Export your data as CSV files for analysis, reporting, or backup purposes.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

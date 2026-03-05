@@ -271,23 +271,23 @@ export default function Jobs() {
 
       {/* Quick Schedule from Presets */}
       {presetsData?.length > 0 && (
-        <div className="mb-4 bg-farm-900 border border-farm-800 rounded-lg p-3">
+        <div className="mb-4 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-3">
           <div className="flex items-center gap-2 mb-2">
             <Zap size={14} className="text-amber-400" />
-            <span className="text-xs font-medium text-farm-400 uppercase">Quick Schedule</span>
+            <span className="text-xs font-medium text-[var(--brand-text-secondary)]">Quick Schedule</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {presetsData.map(p => (
-              <div key={p.id} className="flex items-center gap-1.5 bg-farm-800 rounded-lg px-3 py-1.5 border border-farm-700">
+              <div key={p.id} className="flex items-center gap-1.5 bg-[var(--brand-input-bg)] rounded-md px-3 py-1.5 border border-[var(--brand-card-border)]">
                 <button
                   onClick={() => schedulePreset.mutate(p.id)}
-                  className="text-sm text-farm-200 hover:text-white transition-colors"
+                  className="text-sm text-[var(--brand-text-primary)] hover:text-white transition-colors"
                   title={`Schedule: ${p.item_name || p.name}`}
                 >
                   {p.name}
                 </button>
                 {canDo('jobs.delete') && (
-                  <button onClick={() => deletePreset.mutate(p.id)} className="text-farm-600 hover:text-red-400 ml-1" title="Delete preset">&times;</button>
+                  <button onClick={() => deletePreset.mutate(p.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 ml-1" title="Delete preset">&times;</button>
                 )}
               </div>
             ))}
@@ -303,8 +303,8 @@ export default function Jobs() {
           className="flex-1 sm:max-w-md"
         />
         <div className="flex items-center gap-2">
-          <Filter size={16} className="text-farm-500" />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-farm-900 border border-farm-800 rounded-lg px-3 py-2 text-sm">
+          <Filter size={16} className="text-[var(--brand-text-muted)]" />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
             {statusOptions.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
@@ -313,8 +313,8 @@ export default function Jobs() {
       </div>
 
       {selectedJobs.size > 0 && (
-        <div className="flex items-center gap-3 mb-3 p-3 bg-print-900/30 border border-print-700 rounded-lg">
-          <span className="text-sm text-farm-300">{selectedJobs.size} selected</span>
+        <div className="flex items-center gap-3 mb-3 p-3 bg-print-900/30 border border-print-700 rounded-md">
+          <span className="text-sm text-[var(--brand-text-secondary)]">{selectedJobs.size} selected</span>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'cancel' })} disabled={bulkAction.isPending}>Cancel</Button>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reprioritize', extra: { priority: 1 } })} disabled={bulkAction.isPending}>Priority 1</Button>
           <Button variant="tertiary" size="sm" onClick={() => bulkAction.mutate({ action: 'reschedule' })} disabled={bulkAction.isPending}>Reschedule</Button>
@@ -330,7 +330,7 @@ export default function Jobs() {
         </div>
       )}
 
-      <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[600px]">
             <JobTableHeader
@@ -342,9 +342,9 @@ export default function Jobs() {
             />
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
               ) : filteredJobs.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-farm-500 text-sm">
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-[var(--brand-text-muted)] text-sm">
                   {jobTypeFilter === 'order' ? 'No order jobs found' :
                    jobTypeFilter === 'adhoc' ? 'No ad-hoc jobs found' : 'No jobs found'}
                 </td></tr>

@@ -331,15 +331,15 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="model-viewer-title">
-      <div className="relative w-[90vw] h-[80vh] max-w-6xl bg-farm-900 rounded-lg border border-farm-700 overflow-hidden flex flex-col">
+      <div className="relative w-[90vw] h-[80vh] max-w-6xl bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden flex flex-col">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-farm-700 bg-farm-900/80">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--brand-card-border)] bg-[var(--brand-card-bg)]/80">
           <div className="flex items-center gap-3">
             <Box size={18} className="text-amber-400" aria-hidden="true" />
             <h3 id="model-viewer-title" className="font-medium text-white">{modelName || '3D Preview'}</h3>
             {meshInfo && (
-              <span className="text-xs text-farm-400">
+              <span className="text-xs text-[var(--brand-muted)]">
                 {meshInfo.vertices.toLocaleString()} vertices · {meshInfo.triangles.toLocaleString()} triangles
               </span>
             )}
@@ -348,7 +348,7 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
             {/* Wireframe toggle */}
             <button
               onClick={() => setWireframe(!wireframe)}
-              className={`px-2 py-1 text-xs rounded-lg ${wireframe ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-farm-700 text-farm-300 border border-farm-600'}`}
+              className={`px-2 py-1 text-xs rounded-md ${wireframe ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-transparent text-[var(--brand-text-secondary)] border border-[var(--brand-card-border)]'}`}
               title="Toggle wireframe"
             >
               Wireframe
@@ -356,14 +356,14 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
             {/* Zoom controls */}
             <button
               onClick={() => controlsRef.current?.zoomIn()}
-              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
+              className="p-1.5 bg-transparent hover:bg-white/10 rounded-md text-[var(--brand-text-secondary)]"
               aria-label="Zoom in"
             >
               <ZoomIn size={14} />
             </button>
             <button
               onClick={() => controlsRef.current?.zoomOut()}
-              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
+              className="p-1.5 bg-transparent hover:bg-white/10 rounded-md text-[var(--brand-text-secondary)]"
               aria-label="Zoom out"
             >
               <ZoomOut size={14} />
@@ -371,7 +371,7 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
             {/* Reset view */}
             <button
               onClick={() => controlsRef.current?.reset()}
-              className="p-1.5 bg-farm-700 hover:bg-farm-600 rounded-lg text-farm-300"
+              className="p-1.5 bg-transparent hover:bg-white/10 rounded-md text-[var(--brand-text-secondary)]"
               aria-label="Reset view"
             >
               <RotateCcw size={14} />
@@ -379,7 +379,7 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
             {/* Close */}
             <button
               onClick={onClose}
-              className="p-1.5 bg-farm-700 hover:bg-red-600 rounded-lg text-farm-300"
+              className="p-1.5 bg-transparent hover:bg-red-600 rounded-md text-[var(--brand-text-secondary)]"
               aria-label="Close 3D preview"
             >
               <X size={14} />
@@ -388,29 +388,29 @@ export default function ModelViewer({ modelId, fileId, modelName, onClose }) {
         </div>
         
         {/* Viewer area */}
-        <div ref={containerRef} className="flex-1 relative cursor-grab active:cursor-grabbing">
+        <div ref={containerRef} className="flex-1 relative cursor-grab active:cursor-grabbing bg-black">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
                 <div className="animate-spin w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full mx-auto mb-3" />
-                <p className="text-farm-400 text-sm">Loading 3D model...</p>
+                <p className="text-[var(--brand-muted)] text-sm">Loading 3D model...</p>
               </div>
             </div>
           )}
           {error && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <Box size={48} className="text-farm-500 mx-auto mb-3" />
-                <p className="text-farm-400 text-sm">{error}</p>
-                <p className="text-farm-500 text-xs mt-1">3D preview requires a re-upload of the .3mf file</p>
+                <Box size={48} className="text-[var(--brand-muted)] mx-auto mb-3" />
+                <p className="text-[var(--brand-muted)] text-sm">{error}</p>
+                <p className="text-[var(--brand-muted)] text-xs mt-1">3D preview requires a re-upload of the .3mf file</p>
               </div>
             </div>
           )}
         </div>
         
         {/* Footer hint */}
-        <div className="px-4 py-2 border-t border-farm-700 bg-farm-900/80">
-          <p className="text-xs text-farm-500">
+        <div className="px-4 py-2 border-t border-[var(--brand-card-border)] bg-[var(--brand-card-bg)]/80">
+          <p className="text-xs text-[var(--brand-muted)]">
             Left-click drag to rotate · Right-click drag to pan · Scroll to zoom
           </p>
         </div>

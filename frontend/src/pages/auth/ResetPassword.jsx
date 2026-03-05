@@ -40,44 +40,46 @@ export default function ResetPassword() {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-farm-950">
-        <div className="bg-farm-900 rounded-xl border border-farm-800 p-8 max-w-sm w-full text-center">
-          <p className="text-farm-400">Invalid or missing reset token.</p>
-          <a href="/login" className="text-print-400 hover:underline text-sm mt-2 block">Back to login</a>
+      <div className="min-h-screen flex items-center justify-center bg-[var(--brand-content-bg)]">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-8 max-w-sm w-full text-center">
+          <p className="text-[var(--brand-text-secondary)]">Invalid or missing reset token.</p>
+          <a href="/login" className="text-[var(--brand-primary)] hover:underline text-sm mt-2 block">Back to login</a>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-farm-950">
-      <div className="bg-farm-900 rounded-xl border border-farm-800 p-8 max-w-sm w-full">
-        <h1 className="text-xl font-semibold mb-6 text-center">Reset Password</h1>
+    <div className="min-h-screen flex items-center justify-center bg-[var(--brand-content-bg)]">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-8 max-w-sm w-full">
+        <h1 className="text-xl font-semibold mb-6 text-center" style={{ color: 'var(--brand-text-primary)' }}>Reset Password</h1>
 
         {done ? (
           <div className="text-center">
             <p className="text-green-400 mb-2">Password updated successfully.</p>
-            <p className="text-farm-500 text-sm">Redirecting to login...</p>
+            <p className="text-[var(--brand-text-muted)] text-sm">Redirecting to login...</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm text-farm-400 mb-1">New Password</label>
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">New Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
+                style={{ color: 'var(--brand-text-primary)' }}
                 autoFocus
               />
             </div>
             <div>
-              <label className="block text-sm text-farm-400 mb-1">Confirm Password</label>
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Confirm Password</label>
               <input
                 type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
+                style={{ color: 'var(--brand-text-primary)' }}
               />
             </div>
 
@@ -89,7 +91,7 @@ export default function ResetPassword() {
                 ['number', 'Number'],
                 ['match', 'Passwords match'],
               ].map(([key, label]) => (
-                <div key={key} className={checks[key] ? 'text-green-400' : 'text-farm-500'}>
+                <div key={key} className={checks[key] ? 'text-green-400' : 'text-[var(--brand-text-muted)]'}>
                   {checks[key] ? '✓' : '○'} {label}
                 </div>
               ))}
@@ -98,7 +100,8 @@ export default function ResetPassword() {
             <button
               type="submit"
               disabled={!valid || loading}
-              className="w-full py-2 rounded-lg bg-print-600 hover:bg-print-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+              className="w-full py-2 rounded-md text-white text-sm font-medium disabled:opacity-50 transition-colors"
+              style={{ backgroundColor: 'var(--brand-primary)' }}
             >
               {loading ? 'Resetting...' : 'Reset Password'}
             </button>

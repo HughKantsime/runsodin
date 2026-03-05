@@ -19,7 +19,7 @@ const LEVEL_COLORS = {
   ERROR: 'text-red-400',
   WARNING: 'text-yellow-400',
   INFO: 'text-blue-400',
-  DEBUG: 'text-farm-500',
+  DEBUG: 'text-[var(--brand-text-muted)]',
 }
 
 function detectLevel(line) {
@@ -91,7 +91,7 @@ export default function LogViewer() {
         <select
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm"
         >
           {LOG_SOURCES.map(s => (
             <option key={s.id} value={s.id}>{s.label}</option>
@@ -105,7 +105,7 @@ export default function LogViewer() {
               key={l}
               onClick={() => setLevel(l)}
               className={`px-2 py-1 rounded text-xs transition-colors ${
-                level === l ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'
+                level === l ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)]'
               }`}
             >
               {l}
@@ -120,24 +120,24 @@ export default function LogViewer() {
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && loadLogs()}
           placeholder="Search..."
-          className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm w-40"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm w-40"
         />
 
         {/* Actions */}
-        <button onClick={loadLogs} className="px-2 py-1.5 rounded-lg text-xs bg-farm-800 text-farm-400 hover:bg-farm-700">
+        <button onClick={loadLogs} className="px-2 py-1.5 rounded-md text-xs bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)]">
           Refresh
         </button>
         <button
           onClick={() => streaming ? stopStream() : startStream()}
-          className={`px-2 py-1.5 rounded-lg text-xs ${streaming ? 'bg-red-600/20 text-red-400' : 'bg-green-600/20 text-green-400'}`}
+          className={`px-2 py-1.5 rounded-md text-xs ${streaming ? 'bg-red-600/20 text-red-400' : 'bg-green-600/20 text-green-400'}`}
         >
           {streaming ? 'Stop Stream' : 'Live Stream'}
         </button>
-        <label className="flex items-center gap-1 text-xs text-farm-400 ml-auto">
+        <label className="flex items-center gap-1 text-xs text-[var(--brand-text-secondary)] ml-auto">
           <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} className="rounded" />
           Auto-scroll
         </label>
-        <button onClick={() => setLines([])} className="px-2 py-1.5 rounded-lg text-xs bg-farm-800 text-farm-500 hover:bg-farm-700">
+        <button onClick={() => setLines([])} className="px-2 py-1.5 rounded-md text-xs bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)] hover:bg-[var(--brand-input-bg)]">
           Clear
         </button>
       </div>
@@ -145,16 +145,16 @@ export default function LogViewer() {
       {/* Log output */}
       <div
         ref={containerRef}
-        className="bg-black rounded-lg border border-farm-800 p-3 font-mono text-xs leading-5 overflow-auto"
+        className="bg-black rounded-md border border-[var(--brand-card-border)] p-3 font-mono text-xs leading-5 overflow-auto"
         style={{ height: '500px' }}
       >
         {lines.length === 0 ? (
-          <span className="text-farm-600">No log lines</span>
+          <span className="text-[var(--brand-text-muted)]">No log lines</span>
         ) : (
           lines.map((line, i) => {
             const lvl = detectLevel(line)
             return (
-              <div key={i} className={`whitespace-pre-wrap break-all ${lvl ? LEVEL_COLORS[lvl] : 'text-farm-300'}`}>
+              <div key={i} className={`whitespace-pre-wrap break-all ${lvl ? LEVEL_COLORS[lvl] : 'text-[var(--brand-text-secondary)]'}`}>
                 {line}
               </div>
             )

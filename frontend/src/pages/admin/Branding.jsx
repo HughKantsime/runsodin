@@ -225,7 +225,7 @@ export default function Branding() {
   if (!draft) {
     return (
       <div className="p-6 md:p-8">
-        <div className="text-farm-400">Loading branding configuration...</div>
+        <div className="text-[var(--brand-text-secondary)]">Loading branding configuration...</div>
       </div>
     )
   }
@@ -245,10 +245,10 @@ export default function Branding() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <Palette className="text-print-400" size={24} />
+            <Palette className="text-[var(--brand-primary)]" size={24} />
             <div>
               <h1 className="text-xl md:text-2xl font-display font-bold">White-Label Branding</h1>
-              <p className="text-farm-500 text-sm mt-1">Customize every aspect of your deployment's look and feel</p>
+              <p className="text-[var(--brand-text-muted)] text-sm mt-1">Customize every aspect of your deployment's look and feel</p>
             </div>
           </div>
         </div>
@@ -274,7 +274,7 @@ export default function Branding() {
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-lg text-red-400 text-sm">
+        <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-md text-red-400 text-sm">
           {error}
         </div>
       )}
@@ -283,12 +283,12 @@ export default function Branding() {
         {/* Settings Column */}
         <div className="xl:col-span-2 space-y-6">
           {/* Tabs */}
-          <div className="flex gap-1 bg-farm-900 rounded-lg p-1 border border-farm-800">
+          <div className="flex gap-1 bg-[var(--brand-card-bg)] rounded-md p-1 border border-[var(--brand-card-border)]">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm font-medium transition-colors"
                 style={
                   activeTab === tab.id
                     ? { backgroundColor: 'var(--brand-sidebar-active-bg)', color: 'var(--brand-accent)' }
@@ -416,8 +416,8 @@ export default function Branding() {
               </div>
 
               {/* Font preview */}
-              <div className="mt-6 bg-farm-800 rounded-lg p-5 space-y-4">
-                <p className="text-xs text-farm-500 uppercase tracking-wider mb-3">Preview</p>
+              <div className="mt-6 bg-[var(--brand-input-bg)] rounded-md p-5 space-y-4">
+                <p className="text-xs text-[var(--brand-text-muted)] uppercase tracking-wider mb-3">Preview</p>
                 <div style={{ fontFamily: draft.font_display }}>
                   <p className="text-2xl font-bold" style={{ color: draft.text_primary }}>
                     The quick brown fox jumps
@@ -449,14 +449,14 @@ export default function Branding() {
 
         {/* Live Preview Column */}
         <div className="space-y-6">
-          <div className="bg-farm-900 rounded-lg border border-farm-800 p-6 sticky top-8">
-            <h2 className="text-lg font-semibold text-farm-100 mb-4 flex items-center gap-2">
+          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-6 sticky top-8">
+            <h2 className="text-lg font-semibold text-[var(--brand-text-primary)] mb-4 flex items-center gap-2">
               <Eye size={18} style={{ color: 'var(--brand-accent)' }} />
               Live Preview
             </h2>
 
             {/* Mini sidebar preview */}
-            <div className="rounded-lg overflow-hidden border" style={{ borderColor: draft.sidebar_border }}>
+            <div className="rounded-md overflow-hidden border" style={{ borderColor: draft.sidebar_border }}>
               {/* Header */}
               <div
                 className="p-4 flex items-center gap-3"
@@ -469,7 +469,7 @@ export default function Branding() {
                 {draft.logo_url ? (
                   <img src={draft.logo_url} alt="Custom logo" className="h-6 object-contain" />
                 ) : (
-                  <div className="w-6 h-6 rounded-lg" style={{ backgroundColor: draft.primary_color }} />
+                  <div className="w-6 h-6 rounded-md" style={{ backgroundColor: draft.primary_color }} />
                 )}
                 <div>
                   <div className="text-sm font-bold" style={{ color: draft.text_primary }}>{draft.app_name}</div>
@@ -483,14 +483,14 @@ export default function Branding() {
                 fontFamily: draft.font_body
               }}>
                 <div
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
+                  className="flex items-center gap-2 px-3 py-2 rounded-md text-xs"
                   style={{ backgroundColor: draft.sidebar_active_bg }}
                 >
                   <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: draft.sidebar_active_text }} />
                   <span style={{ color: draft.sidebar_active_text }}>Dashboard</span>
                 </div>
                 {["Printers", "Jobs", "Spools"].map(item => (
-                  <div key={item} className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ color: draft.sidebar_text }}>
+                  <div key={item} className="flex items-center gap-2 px-3 py-2 rounded-md text-xs" style={{ color: draft.sidebar_text }}>
                     <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: draft.sidebar_text, opacity: 0.5 }} />
                     <span>{item}</span>
                   </div>
@@ -513,27 +513,27 @@ export default function Branding() {
 
             {/* Content area preview */}
             <div className="mt-4">
-              <p className="text-xs text-farm-500 mb-2">Content Area</p>
-              <div className="rounded-lg p-3 space-y-2" style={{
+              <p className="text-xs text-[var(--brand-text-muted)] mb-2">Content Area</p>
+              <div className="rounded-md p-3 space-y-2" style={{
                 backgroundColor: draft.content_bg,
                 border: `1px solid ${draft.card_border}`,
                 fontFamily: draft.font_body
               }}>
-                <div className="rounded-lg p-3" style={{ backgroundColor: draft.card_bg, border: `1px solid ${draft.card_border}` }}>
+                <div className="rounded-md p-3" style={{ backgroundColor: draft.card_bg, border: `1px solid ${draft.card_border}` }}>
                   <p className="text-xs font-semibold" style={{ color: draft.text_primary, fontFamily: draft.font_display }}>
                     Active Printers
                   </p>
                   <p className="text-[10px] mt-0.5" style={{ color: draft.text_secondary }}>3 of 5 online</p>
                   <div className="flex gap-2 mt-2">
-                    <div className="flex-1 h-6 rounded-lg text-[10px] flex items-center justify-center font-medium text-white" style={{ backgroundColor: draft.primary_color }}>
+                    <div className="flex-1 h-6 rounded-md text-[10px] flex items-center justify-center font-medium text-white" style={{ backgroundColor: draft.primary_color }}>
                       Start Job
                     </div>
-                    <div className="flex-1 h-6 rounded-lg text-[10px] flex items-center justify-center" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_secondary }}>
+                    <div className="flex-1 h-6 rounded-md text-[10px] flex items-center justify-center" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_secondary }}>
                       Settings
                     </div>
                   </div>
                 </div>
-                <div className="rounded-lg px-3 py-2 text-[10px]" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_muted, fontFamily: `'${draft.font_mono}', monospace` }}>
+                <div className="rounded-md px-3 py-2 text-[10px]" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}`, color: draft.text_muted, fontFamily: `'${draft.font_mono}', monospace` }}>
                   printer.status = "idle"
                 </div>
               </div>
@@ -541,8 +541,8 @@ export default function Branding() {
 
             {/* Login preview */}
             <div className="mt-4">
-              <p className="text-xs text-farm-500 mb-2">Login Screen</p>
-              <div className="rounded-lg p-4" style={{ backgroundColor: draft.content_bg, border: `1px solid ${draft.card_border}` }}>
+              <p className="text-xs text-[var(--brand-text-muted)] mb-2">Login Screen</p>
+              <div className="rounded-md p-4" style={{ backgroundColor: draft.content_bg, border: `1px solid ${draft.card_border}` }}>
                 <div className="text-center mb-3" style={{ fontFamily: draft.font_display }}>
                   {draft.logo_url ? (
                     <img src={draft.logo_url} alt="Custom logo" className="h-8 mx-auto mb-1" />
@@ -554,9 +554,9 @@ export default function Branding() {
                   <div className="text-[10px]" style={{ color: draft.text_muted }}>{draft.app_subtitle}</div>
                 </div>
                 <div className="space-y-2">
-                  <div className="h-7 rounded-lg" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
-                  <div className="h-7 rounded-lg" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
-                  <div className="h-7 rounded-lg text-[10px] text-white font-medium flex items-center justify-center" style={{ backgroundColor: draft.primary_color }}>
+                  <div className="h-7 rounded-md" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
+                  <div className="h-7 rounded-md" style={{ backgroundColor: draft.input_bg, border: `1px solid ${draft.input_border}` }} />
+                  <div className="h-7 rounded-md text-[10px] text-white font-medium flex items-center justify-center" style={{ backgroundColor: draft.primary_color }}>
                     Sign In
                   </div>
                 </div>
@@ -565,7 +565,7 @@ export default function Branding() {
 
             {/* Palette swatch */}
             <div className="mt-4">
-              <p className="text-xs text-farm-500 mb-2">Active Palette</p>
+              <p className="text-xs text-[var(--brand-text-muted)] mb-2">Active Palette</p>
               <div className="grid grid-cols-4 gap-1.5">
                 {[
                   { c: draft.primary_color, l: "Primary" },
@@ -578,8 +578,8 @@ export default function Branding() {
                   { c: draft.text_muted, l: "Muted" },
                 ].map(({ c, l }) => (
                   <div key={l} className="text-center">
-                    <div className="h-6 rounded-lg border border-farm-700" style={{ backgroundColor: c }} />
-                    <p className="text-[8px] text-farm-500 mt-0.5">{l}</p>
+                    <div className="h-6 rounded-md border border-[var(--brand-card-border)]" style={{ backgroundColor: c }} />
+                    <p className="text-[8px] text-[var(--brand-text-muted)] mt-0.5">{l}</p>
                   </div>
                 ))}
               </div>
@@ -672,7 +672,7 @@ function applyLiveCSS(b) {
 function Section({ title, children }) {
   return (
     <Card padding="lg">
-      <h2 className="text-lg font-semibold text-farm-100 mb-4">{title}</h2>
+      <h2 className="text-lg font-semibold text-[var(--brand-text-primary)] mb-4">{title}</h2>
       {children}
     </Card>
   )
@@ -692,23 +692,23 @@ function TextInput({ label, value, onChange, placeholder, type = "text" }) {
 
 function ColorPicker({ label, desc, value, onChange }) {
   return (
-    <div className="flex items-center gap-4 bg-farm-800 rounded-lg p-3">
+    <div className="flex items-center gap-4 bg-[var(--brand-input-bg)] rounded-md p-3">
       <input
         type="color"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-10 h-10 rounded-lg cursor-pointer border-2 border-farm-600 bg-transparent flex-shrink-0"
+        className="w-10 h-10 rounded-md cursor-pointer border-2 border-[var(--brand-card-border)] bg-transparent flex-shrink-0"
         style={{ padding: 0 }}
       />
       <div className="flex-1 min-w-0">
-        <div className="text-sm text-farm-200 font-medium">{label}</div>
-        <div className="text-xs text-farm-500">{desc}</div>
+        <div className="text-sm text-[var(--brand-text-primary)] font-medium">{label}</div>
+        <div className="text-xs text-[var(--brand-text-muted)]">{desc}</div>
       </div>
       <input
         type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-20 bg-farm-900 border border-farm-700 rounded-lg px-2 py-1 text-xs text-farm-300 font-mono text-center"
+        className="w-20 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs text-[var(--brand-text-secondary)] font-mono text-center"
         maxLength={7}
       />
     </div>
@@ -721,17 +721,17 @@ function FontSelector({ label, desc, value, options, onChange }) {
   const displayName = currentFont ? currentFont.name : "Custom"
 
   return (
-    <div className="bg-farm-800 rounded-lg p-4">
+    <div className="bg-[var(--brand-input-bg)] rounded-md p-4">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <div className="text-sm text-farm-200 font-medium">{label}</div>
-          <div className="text-xs text-farm-500">{desc}</div>
+          <div className="text-sm text-[var(--brand-text-primary)] font-medium">{label}</div>
+          <div className="text-xs text-[var(--brand-text-muted)]">{desc}</div>
         </div>
       </div>
       <Select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="bg-farm-900 cursor-pointer"
+        className="bg-[var(--brand-card-bg)] cursor-pointer"
         style={{ fontFamily: value }}
       >
         {options.map(font => (
@@ -750,8 +750,8 @@ function FontSelector({ label, desc, value, options, onChange }) {
 function FileUpload({ label, preview, previewClass, accept, hint, inputRef, onUpload, onRemove }) {
   return (
     <div>
-      <label className="block text-sm text-farm-400 mb-2">{label}</label>
-      <div className="border-2 border-dashed border-farm-700 rounded-lg p-6 text-center hover:border-farm-500 transition-colors">
+      <label className="block text-sm text-[var(--brand-text-secondary)] mb-2">{label}</label>
+      <div className="border-2 border-dashed border-[var(--brand-card-border)] rounded-md p-6 text-center hover:border-[var(--brand-card-border)] transition-colors">
         {preview ? (
           <div className="space-y-3">
             <img src={preview} alt={label} className={`mx-auto object-contain ${previewClass}`} />
@@ -759,7 +759,7 @@ function FileUpload({ label, preview, previewClass, accept, hint, inputRef, onUp
               <button onClick={() => inputRef.current?.click()} className="text-xs" style={{ color: 'var(--brand-accent)' }}>Replace</button>
               {onRemove && (
                 <>
-                  <span className="text-farm-600">|</span>
+                  <span className="text-[var(--brand-text-muted)]">|</span>
                   <button onClick={onRemove} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                 </>
               )}
@@ -767,9 +767,9 @@ function FileUpload({ label, preview, previewClass, accept, hint, inputRef, onUp
           </div>
         ) : (
           <button onClick={() => inputRef.current?.click()} className="space-y-2 w-full">
-            <Image size={32} className="mx-auto text-farm-500" />
-            <p className="text-sm text-farm-400">Click to upload</p>
-            <p className="text-xs text-farm-600">{hint}</p>
+            <Image size={32} className="mx-auto text-[var(--brand-text-muted)]" />
+            <p className="text-sm text-[var(--brand-text-secondary)]">Click to upload</p>
+            <p className="text-xs text-[var(--brand-text-muted)]">{hint}</p>
           </button>
         )}
         <input ref={inputRef} type="file" accept={accept} onChange={onUpload} className="hidden" />

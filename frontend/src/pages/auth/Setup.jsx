@@ -269,23 +269,23 @@ export default function Setup() {
   )
 
   const errorBar = () => error && (
-    <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-lg flex items-center gap-2 text-sm text-red-300">
+    <div className="mb-4 p-3 bg-red-900/30 border border-red-700/50 rounded-md flex items-center gap-2 text-sm text-red-300">
       <AlertCircle size={16} className="shrink-0" />
       {error}
     </div>
   )
 
-  const inputClass = "w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+  const inputClass = "w-full px-3 py-2.5 rounded-md bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
   const labelClass = "block text-sm font-medium text-white/70 mb-1.5"
-  const btnPrimary = "flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-  const btnSecondary = "flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 transition-all"
+  const btnPrimary = "flex items-center justify-center gap-2 px-6 py-2.5 rounded-md bg-amber-500 hover:bg-amber-400 text-black font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+  const btnSecondary = "flex items-center justify-center gap-2 px-5 py-2.5 rounded-md bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 transition-all"
 
   // === STEP VIEWS ===
 
   const renderWelcome = () => (
     <div className="text-center">
       <div className="mb-6">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30 mb-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-md bg-amber-500/10 ring-1 ring-amber-500/30 mb-4">
           <Sparkles size={36} className="text-amber-400" />
         </div>
         <h1 className="text-3xl font-bold text-white mb-2">Welcome to O.D.I.N.</h1>
@@ -404,7 +404,7 @@ export default function Setup() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setPrinterType('bambu')}
-                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                  className={`px-4 py-3 rounded-md border text-sm font-medium transition-all ${
                     printerType === 'bambu'
                       ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
                       : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
@@ -414,7 +414,7 @@ export default function Setup() {
                 </button>
                 <button
                   onClick={() => setPrinterType('moonraker')}
-                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                  className={`px-4 py-3 rounded-md border text-sm font-medium transition-all ${
                     printerType === 'moonraker'
                       ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
                       : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
@@ -424,7 +424,7 @@ export default function Setup() {
                 </button>
                 <button
                   onClick={() => setPrinterType('prusalink')}
-                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                  className={`px-4 py-3 rounded-md border text-sm font-medium transition-all ${
                     printerType === 'prusalink'
                       ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
                       : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
@@ -434,7 +434,7 @@ export default function Setup() {
                 </button>
                 <button
                   onClick={() => setPrinterType('elegoo')}
-                  className={`px-4 py-3 rounded-lg border text-sm font-medium transition-all ${
+                  className={`px-4 py-3 rounded-md border text-sm font-medium transition-all ${
                     printerType === 'elegoo'
                       ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
                       : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
@@ -496,7 +496,7 @@ export default function Setup() {
 
             {/* Test result */}
             {testResult && (
-              <div className={`p-3 rounded-lg border text-sm ${
+              <div className={`p-3 rounded-md border text-sm ${
                 testResult.success
                   ? 'bg-emerald-900/20 border-emerald-700/50 text-emerald-300'
                   : 'bg-red-900/20 border-red-700/50 text-red-300'
@@ -589,7 +589,7 @@ export default function Setup() {
             {detectedIp && <p className="text-xs text-white/40 mt-1">Auto-detected: {detectedIp}</p>}
           </div>
           <p className="text-xs text-white/30">This is needed for WebRTC camera streaming. Use the LAN IP that your browser can reach — not 127.0.0.1 or a Docker internal IP.</p>
-          {networkSaved && <div className="p-3 bg-emerald-900/30 border border-emerald-700/50 rounded-lg text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 size={16} /> Network configured successfully</div>}
+          {networkSaved && <div className="p-3 bg-emerald-900/30 border border-emerald-700/50 rounded-md text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 size={16} /> Network configured successfully</div>}
           <div className="flex gap-3 pt-2">
             <button onClick={handleSaveNetwork} disabled={!hostIp || isLoading} className={btnPrimary + " flex-1"}>
               {isLoading ? 'Saving...' : networkSaved ? 'Saved ✓' : 'Save Network Config'}
@@ -606,7 +606,7 @@ export default function Setup() {
   const renderDone = () => (
     <div className="text-center">
       <div className="mb-6">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/40 mb-4">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-md bg-emerald-500/10 ring-1 ring-emerald-500/40 mb-4">
           <CheckCircle2 size={36} className="text-emerald-400" />
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">You're all set!</h2>
@@ -618,7 +618,7 @@ export default function Setup() {
       </div>
 
       {addedPrinters.length > 0 && (
-        <div className="mb-6 p-4 rounded-lg bg-white/5 border border-white/10 max-w-sm mx-auto">
+        <div className="mb-6 p-4 rounded-md bg-white/5 border border-white/10 max-w-sm mx-auto">
           <p className="text-white/50 text-xs uppercase tracking-wider mb-2">Connected Printers</p>
           {addedPrinters.map((p, i) => (
             <div key={i} className="flex items-center gap-2 text-white/80 text-sm py-1">
@@ -637,10 +637,10 @@ export default function Setup() {
   const stepViews = [renderWelcome, renderAdmin, renderPrinter, renderNetwork, renderDone]
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-farm-950 setup-wizard">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--brand-content-bg)] setup-wizard">
       <div className="w-full max-w-lg">
         {stepIndicator()}
-        <div className="rounded-lg p-8 bg-farm-900 border border-farm-800 shadow-2xl">
+        <div className="rounded-md p-8 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] shadow-2xl">
           {stepViews[step]()}
         </div>
         <p className="text-center text-white/20 text-xs mt-4">

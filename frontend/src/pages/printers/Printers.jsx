@@ -219,14 +219,14 @@ export default function Printers() {
       </PageHeader>
       {/* Filter Toolbar */}
       {printersData?.length > 0 && (
-        <div className="bg-farm-900 border border-farm-800 rounded-lg p-3 mb-4 md:mb-6 flex flex-wrap items-center gap-3">
+        <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-3 mb-4 md:mb-6 flex flex-wrap items-center gap-3">
           <SearchInput
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search printers..."
             className="flex-1 min-w-[180px] max-w-xs"
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
             <option value="all">All Status</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
@@ -234,7 +234,7 @@ export default function Printers() {
             <option value="idle">Idle</option>
           </select>
           {apiTypes.length > 1 && (
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
               <option value="all">All Types</option>
               {apiTypes.map(t => (
                 <option key={t} value={t}>{t === 'bambu' ? 'Bambu' : t === 'moonraker' ? 'Moonraker' : t === 'prusalink' ? 'PrusaLink' : t === 'elegoo' ? 'Elegoo' : t}</option>
@@ -242,12 +242,12 @@ export default function Printers() {
             </select>
           )}
           {allTags.length > 0 && (
-            <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+            <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
               <option value="">All Tags</option>
               {allTags.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-sm">
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
             <option value="manual">Manual Order</option>
             <option value="name_asc">Name A-Z</option>
             <option value="name_desc">Name Z-A</option>
@@ -255,16 +255,16 @@ export default function Printers() {
             <option value="model">Model</option>
           </select>
           {isFiltered && (
-            <span className="text-xs text-farm-400">
+            <span className="text-xs" style={{ color: 'var(--brand-text-secondary)' }}>
               Showing {filteredPrinters.length} of {orderedPrinters.length} printers
             </span>
           )}
-          <div className="flex items-center gap-0.5 ml-auto border border-farm-700 rounded-lg overflow-hidden">
+          <div className="flex items-center gap-0.5 ml-auto border border-[var(--brand-card-border)] rounded-md overflow-hidden">
             {['S', 'M', 'L', 'XL'].map(size => (
               <button
                 key={size}
                 onClick={() => { setCardSize(size); localStorage.setItem('printerCardSize', size) }}
-                className={`px-2 py-1.5 text-xs font-medium transition-colors ${cardSize === size ? 'bg-print-600 text-white' : 'bg-farm-800 text-farm-400 hover:bg-farm-700'}`}
+                className={`px-2 py-1.5 text-xs font-medium transition-colors ${cardSize === size ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
               >
                 {size}
               </button>
@@ -274,9 +274,9 @@ export default function Printers() {
       )}
 
       {isLoading ? (
-        <div className="text-center py-12 text-farm-500 text-sm">Loading printers...</div>
+        <div className="text-center py-12 text-sm" style={{ color: 'var(--brand-text-muted)' }}>Loading printers...</div>
       ) : printersData?.length === 0 ? (
-        <div className="bg-farm-900 rounded-lg border border-farm-800">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
           <EmptyState icon={PrinterIcon} title="No printers configured yet." description="Add your first printer to get started.">
             {canDo('printers.add') && !atLimit && (
               <Button variant="primary" icon={Plus} onClick={() => setShowModal(true)}>
@@ -288,8 +288,8 @@ export default function Printers() {
       ) : (
         <>
         {selectedPrinters.size > 0 && canDo('printers.edit') && (
-          <div className="flex items-center gap-3 mb-4 p-3 bg-print-900/50 border border-print-700 rounded-lg">
-            <span className="text-sm text-farm-300">{selectedPrinters.size} selected</span>
+          <div className="flex items-center gap-3 mb-4 p-3 bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md">
+            <span className="text-sm" style={{ color: 'var(--brand-text-secondary)' }}>{selectedPrinters.size} selected</span>
             <Button variant="success" size="sm" onClick={() => bulkPrinterAction.mutate({ action: 'enable' })}>Enable</Button>
             <Button variant="warning" size="sm" onClick={() => bulkPrinterAction.mutate({ action: 'disable' })}>Disable</Button>
             <Button variant="tertiary" size="sm" onClick={() => setSelectedPrinters(new Set())}>Clear</Button>
@@ -297,8 +297,8 @@ export default function Printers() {
         )}
         {canDo('printers.edit') && filteredPrinters.length > 0 && (
           <div className="flex items-center gap-2 mb-3">
-            <label className="flex items-center gap-1.5 text-xs text-farm-400 cursor-pointer">
-              <input type="checkbox" checked={selectedPrinters.size === filteredPrinters.length && filteredPrinters.length > 0} onChange={() => toggleSelectAllPrinters(filteredPrinters.map(p => p.id))} className="rounded border-farm-600" />
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--brand-text-secondary)' }}>
+              <input type="checkbox" checked={selectedPrinters.size === filteredPrinters.length && filteredPrinters.length > 0} onChange={() => toggleSelectAllPrinters(filteredPrinters.map(p => p.id))} className="rounded border-[var(--brand-card-border)]" />
               Select all
             </label>
           </div>
@@ -316,7 +316,7 @@ export default function Printers() {
                   type="checkbox"
                   checked={selectedPrinters.has(printer.id)}
                   onChange={() => togglePrinterSelect(printer.id)}
-                  className="absolute top-3 left-3 z-10 rounded border-farm-600"
+                  className="absolute top-3 left-3 z-10 rounded border-[var(--brand-card-border)]"
                 />
               )}
               <PrinterCard
@@ -341,7 +341,7 @@ export default function Printers() {
             </div>
           ))}
           {filteredPrinters.length === 0 && orderedPrinters.length > 0 && (
-            <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800">
+            <div className="col-span-full bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
               <EmptyState icon={Filter} title="No printers match your filters." />
             </div>
           )}

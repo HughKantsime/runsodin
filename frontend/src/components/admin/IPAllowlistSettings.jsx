@@ -58,18 +58,18 @@ export default function IPAllowlistSettings() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
-        <Shield size={20} className="text-print-400" />
+        <Shield size={20} className="text-[var(--brand-primary)]" />
         <h3 className="text-lg font-semibold">IP Allowlist</h3>
       </div>
-      <p className="text-sm text-farm-400 mb-4">Restrict API access to specific IP addresses or CIDR ranges.</p>
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Restrict API access to specific IP addresses or CIDR ranges.</p>
 
       {error && (
-        <div className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-2 text-sm text-red-400">
+        <div className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
       {success && (
-        <div className="mb-3 p-3 bg-green-900/30 border border-green-700 rounded-lg text-sm text-green-400">{success}</div>
+        <div className="mb-3 p-3 bg-green-900/30 border border-green-700 rounded-md text-sm text-green-400">{success}</div>
       )}
 
       <div className="space-y-4">
@@ -83,12 +83,12 @@ export default function IPAllowlistSettings() {
         {config.enabled && (
           <>
             <div>
-              <label className="block text-sm text-farm-400 mb-1">Allowed IPs / CIDRs</label>
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Allowed IPs / CIDRs</label>
               <div className="space-y-1 mb-2">
                 {config.cidrs.map((cidr, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <code className="flex-1 text-xs bg-farm-800 px-3 py-1.5 rounded font-mono text-farm-300">{cidr}</code>
-                    <button onClick={() => removeCidr(i)} className="p-1 rounded hover:bg-red-900/30 text-farm-500 hover:text-red-400">
+                    <code className="flex-1 text-xs bg-[var(--brand-input-bg)] px-3 py-1.5 rounded font-mono text-[var(--brand-text-secondary)]">{cidr}</code>
+                    <button onClick={() => removeCidr(i)} className="p-1 rounded hover:bg-red-900/30 text-[var(--brand-text-muted)] hover:text-red-400">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -97,10 +97,10 @@ export default function IPAllowlistSettings() {
               <div className="flex gap-2">
                 <input type="text" value={newCidr} onChange={e => setNewCidr(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCidr())}
-                  className="flex-1 bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-sm font-mono"
+                  className="flex-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-1.5 text-sm font-mono"
                   placeholder="e.g. 192.168.1.0/24 or 10.0.0.5" />
                 <button onClick={addCidr}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded bg-farm-800 hover:bg-farm-700 text-farm-300 text-sm">
+                  className="flex items-center gap-1 px-3 py-1.5 rounded bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] text-sm">
                   <Plus size={14} /> Add
                 </button>
               </div>
@@ -109,7 +109,7 @@ export default function IPAllowlistSettings() {
         )}
 
         <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 rounded bg-print-600 hover:bg-print-700 text-white text-sm disabled:opacity-50">
+          className="flex items-center gap-2 px-4 py-2 rounded bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-white text-sm disabled:opacity-50">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
           Save
         </button>

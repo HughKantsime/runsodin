@@ -12,7 +12,7 @@ function DueDateBadge({ dueDate }) {
   const now = new Date()
   const daysUntil = Math.ceil((due - now) / (1000 * 60 * 60 * 24))
 
-  let color = 'text-farm-400'
+  let color = 'text-[var(--brand-text-secondary)]'
   if (daysUntil < 0) color = 'text-red-400'
   else if (daysUntil <= 1) color = 'text-orange-400'
   else if (daysUntil <= 3) color = 'text-yellow-400'
@@ -34,16 +34,16 @@ function DueDateBadge({ dueDate }) {
 export default function JobRow({ job, onAction, dragProps, isSelected, onToggleSelect, isDispatching }) {
   return (
     <tr className={clsx(
-          'border-b border-farm-800 hover:bg-farm-800/50 even:bg-farm-950/40',
+          'border-b border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 even:bg-[var(--brand-content-bg)]/40',
           job.due_date && new Date(job.due_date) < new Date() && !['completed','cancelled','failed'].includes(job.status) && 'bg-red-950/30 border-l-2 border-l-red-500'
         )}
         {...(dragProps || {})}>
       <td className="px-2 py-3 w-10">
         <div className="flex items-center gap-1">
           {dragProps && (
-            <GripVertical size={14} className="text-farm-600 flex-shrink-0 cursor-grab" title="Drag to reorder" />
+            <GripVertical size={14} className="text-[var(--brand-text-muted)] flex-shrink-0 cursor-grab" title="Drag to reorder" />
           )}
-          <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="rounded border-farm-600" aria-label={`Select job ${job.item_name}`} />
+          <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${job.item_name}`} />
         </div>
       </td>
       <td className="px-3 md:px-4 py-3">
@@ -52,7 +52,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{job.item_name}</div>
         {job.order_item_id && (
-          <div className="text-xs text-print-400 flex items-center gap-1">
+          <div className="text-xs text-[var(--brand-primary)] flex items-center gap-1">
             <ShoppingCart size={10} />
             Order #{job.order_item?.order_id || '—'}
           </div>
@@ -63,7 +63,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
             {job.rejected_reason}
           </div>
         )}
-        {job.notes && <div className="text-xs text-farm-500 truncate max-w-xs">{job.notes}</div>}
+        {job.notes && <div className="text-xs text-[var(--brand-text-muted)] truncate max-w-xs">{job.notes}</div>}
         {job.due_date && <DueDateBadge dueDate={job.due_date} />}
         {job.fail_reason && (
           <div className="text-xs text-red-400 truncate max-w-xs">
@@ -73,9 +73,9 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       </td>
       <td className="px-3 md:px-4 py-3">
         <span className={clsx(
-          'px-2 py-0.5 rounded-lg text-xs font-medium',
+          'px-2 py-0.5 rounded-md text-xs font-medium',
           job.priority <= 2 ? 'bg-red-900/50 text-red-400' :
-          job.priority >= 4 ? 'bg-farm-800 text-farm-400' :
+          job.priority >= 4 ? 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]' :
           'bg-amber-900/50 text-amber-400'
         )}>
           P{job.priority}
@@ -86,24 +86,24 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         {job.colors_list?.length > 0 ? (
           <div className="flex gap-1 flex-wrap">
             {job.colors_list.map((color, i) => (
-              <span key={i} className="w-5 h-5 rounded-full border border-farm-700 flex items-center justify-center" style={{ backgroundColor: resolveColor(color) || "#333" }} title={color}>{!resolveColor(color) && <span className="text-[10px] text-farm-400">?</span>}</span>
+              <span key={i} className="w-5 h-5 rounded-full border border-[var(--brand-card-border)] flex items-center justify-center" style={{ backgroundColor: resolveColor(color) || "#333" }} title={color}>{!resolveColor(color) && <span className="text-[10px] text-[var(--brand-text-secondary)]">?</span>}</span>
             ))}
           </div>
         ) : '—'}
       </td>
-      <td className="px-3 md:px-4 py-3 text-sm text-farm-400 hidden md:table-cell">
-        <span>{formatHours(job.duration_hours)}</span>
+      <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden md:table-cell">
+        <span className="font-mono">{formatHours(job.duration_hours)}</span>
         {job.actual_start && job.actual_end && (() => {
           const actualH = (new Date(job.actual_end) - new Date(job.actual_start)) / 3600000
           return (
-            <span className="block text-xs text-farm-500" title="Actual duration">
+            <span className="block text-xs text-[var(--brand-text-muted)] font-mono" title="Actual duration">
               {formatHours(actualH)} actual
             </span>
           )
         })()}
       </td>
-      <td className="px-3 md:px-4 py-3 text-sm text-farm-400 hidden lg:table-cell">
-        {job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}
+      <td className="px-3 md:px-4 py-3 text-sm text-[var(--brand-text-secondary)] hidden lg:table-cell">
+        <span className="font-mono">{job.scheduled_start ? format(new Date(job.scheduled_start), 'MMM d HH:mm') : '—'}</span>
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="flex items-center gap-1">
@@ -117,7 +117,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
             <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('resubmit', job.id)} className="text-amber-400 hover:bg-amber-900/50" aria-label="Resubmit job" />
           )}
           {job.status === 'scheduled' && canDo('jobs.start') && (
-            <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-print-400 hover:bg-print-900/50" aria-label="Start print (manual)" />
+            <Button variant="ghost" size="icon" icon={Play} onClick={() => onAction('start', job.id)} className="text-[var(--brand-primary)] hover:bg-print-900/50" aria-label="Start print (manual)" />
           )}
           {job.status === 'scheduled' && job.printer_id && canDo('jobs.start') && (
             <Button
@@ -139,7 +139,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
             </>
           )}
           {canDo('jobs.edit') && ['pending', 'scheduled', 'submitted'].includes(job.status) && (
-            <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-farm-400 hover:text-print-400 hover:bg-print-900/50" aria-label="Edit job" />
+            <Button variant="ghost" size="icon" icon={Pencil} onClick={() => onAction('edit', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-print-900/50" aria-label="Edit job" />
           )}
           {canDo('jobs.cancel') && (job.status === 'scheduled' || job.status === 'printing') && (
             <Button variant="ghost" size="icon" icon={XCircle} onClick={() => onAction('cancel', job.id)} className="text-red-400 hover:bg-red-900/50" aria-label="Cancel job" />
@@ -149,8 +149,8 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
           )}
           {canDo('jobs.delete') && (job.status === 'pending' || job.status === 'scheduled' || job.status === 'failed') && (
             <>
-              <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-farm-400 hover:text-print-400 hover:bg-print-900/50" aria-label="Print again" />
-              <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onAction('delete', job.id)} className="text-farm-500 hover:text-red-400 hover:bg-red-900/50" aria-label="Delete job" />
+              <Button variant="ghost" size="icon" icon={RefreshCw} onClick={() => onAction('repeat', job.id)} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-primary)] hover:bg-print-900/50" aria-label="Print again" />
+              <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onAction('delete', job.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete job" />
             </>
           )}
         </div>

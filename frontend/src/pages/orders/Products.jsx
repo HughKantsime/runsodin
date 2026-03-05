@@ -180,19 +180,19 @@ export default function Products() {
     }
   }
 
-  if (loading) return <div className="p-6 text-farm-300">Loading...</div>
+  if (loading) return <div className="p-6 text-[var(--brand-text-secondary)]">Loading...</div>
 
   return (
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div className="flex items-center gap-3">
-          <Package className="text-print-400" size={24} />
+          <Package className="text-[var(--brand-primary)]" size={24} />
           <h1 className="text-xl md:text-2xl font-display font-bold">Products</h1>
         </div>
         {canDo('products.create') && (
           <button
             onClick={openCreateModal}
-            className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm flex items-center gap-2"
+            className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm flex items-center gap-2"
           >
             <Plus size={16} /> New Product
           </button>
@@ -203,27 +203,27 @@ export default function Products() {
       {/* Product Summary */}
       {productList.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
-          <div className="bg-blue-400/10 rounded-lg p-3 text-center border border-farm-800">
+          <div className="bg-blue-400/10 rounded-md p-3 text-center border border-[var(--brand-card-border)]">
             <div className="text-lg md:text-xl font-bold tabular-nums text-blue-400">{productList.length}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Products</div>
+            <div className="text-xs text-[var(--brand-muted)] uppercase tracking-wide">Products</div>
           </div>
-          <div className="bg-purple-400/10 rounded-lg p-3 text-center border border-farm-800">
+          <div className="bg-purple-400/10 rounded-md p-3 text-center border border-[var(--brand-card-border)]">
             <div className="text-lg md:text-xl font-bold tabular-nums text-purple-400">{productList.reduce((s, p) => s + (p.components?.length || 0), 0)}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Components</div>
+            <div className="text-xs text-[var(--brand-muted)] uppercase tracking-wide">Components</div>
           </div>
-          <div className="bg-emerald-400/10 rounded-lg p-3 text-center border border-farm-800">
+          <div className="bg-emerald-400/10 rounded-md p-3 text-center border border-[var(--brand-card-border)]">
             <div className="text-lg md:text-xl font-bold tabular-nums text-emerald-400">{'$' + (productList.reduce((s, p) => s + (p.price || 0), 0) / productList.length).toFixed(0)}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">Avg Price</div>
+            <div className="text-xs text-[var(--brand-muted)] uppercase tracking-wide">Avg Price</div>
           </div>
-          <div className="bg-yellow-400/10 rounded-lg p-3 text-center border border-farm-800">
+          <div className="bg-yellow-400/10 rounded-md p-3 text-center border border-[var(--brand-card-border)]">
             <div className="text-lg md:text-xl font-bold tabular-nums text-yellow-400">{productList.filter(p => p.sku).length}</div>
-            <div className="text-xs text-farm-500 uppercase tracking-wide">With SKU</div>
+            <div className="text-xs text-[var(--brand-muted)] uppercase tracking-wide">With SKU</div>
           </div>
         </div>
       )}
 
       {productList.length === 0 ? (
-        <div className="bg-farm-900 rounded-lg border border-farm-800">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
           <EmptyState
             icon={Package}
             title="No products yet"
@@ -231,15 +231,15 @@ export default function Products() {
           />
         </div>
       ) : (
-        <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
           {/* Mobile card view */}
-          <div className="block md:hidden divide-y divide-farm-800">
+          <div className="block md:hidden divide-y divide-[var(--brand-card-border)]">
             {productList.map(product => (
               <div key={product.id} className="p-4">
                 <div className="flex justify-between items-start mb-2">
                   <button
                     onClick={() => toggleExpand(product)}
-                    className="font-medium flex items-center gap-1 text-print-400 hover:text-print-300"
+                    className="font-medium flex items-center gap-1 text-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
                   >
                     {product.component_count > 0 && <Layers className="w-4 h-4" />}
                     {product.name}
@@ -248,7 +248,7 @@ export default function Products() {
                     {canDo('products.edit') && (
                       <button
                         onClick={() => openEditModal(product)}
-                        className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+                        className="p-1 md:p-1.5 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
                       >
                         <Pencil size={14} />
                       </button>
@@ -256,55 +256,55 @@ export default function Products() {
                     {canDo('products.delete') && (
                       <button
                         onClick={() => handleDelete(product.id)}
-                        className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors"
+                        className="p-1 md:p-1.5 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors"
                       >
                         <Trash2 size={14} />
                       </button>
                     )}
                   </div>
                 </div>
-                <div className="text-sm space-y-1 text-farm-400">
+                <div className="text-sm space-y-1 text-[var(--brand-muted)]">
                   <div>SKU: {product.sku || '-'}</div>
                   <div>Price: {product.price ? `$${product.price.toFixed(2)}` : '-'}</div>
                   <div>Components: {product.component_count || 0} parts</div>
                   {product.estimated_cogs && <div>Est. COGS: ${product.estimated_cogs.toFixed(2)}</div>}
                 </div>
                 {expandedProduct?.id === product.id && (
-                  <div className="mt-3 pt-3 border-t border-farm-800">
-                    <h4 className="font-medium mb-2 text-sm text-farm-200">Printed Components</h4>
+                  <div className="mt-3 pt-3 border-t border-[var(--brand-card-border)]">
+                    <h4 className="font-medium mb-2 text-sm text-[var(--brand-text)]">Printed Components</h4>
                     {expandedProduct.components.length === 0 ? (
-                      <p className="text-sm text-farm-500">No components.</p>
+                      <p className="text-sm text-[var(--brand-muted)]">No components.</p>
                     ) : (
                       <ul className="space-y-1">
                         {expandedProduct.components.map(comp => (
-                          <li key={comp.id} className="flex items-center gap-2 text-sm text-farm-300">
-                            <span className="px-2 py-0.5 rounded-lg bg-print-600/20 text-print-400">{comp.quantity_needed}x</span>
+                          <li key={comp.id} className="flex items-center gap-2 text-sm text-[var(--brand-text-secondary)]">
+                            <span className="px-2 py-0.5 rounded-md bg-[var(--brand-primary)]/20 text-[var(--brand-primary)]">{comp.quantity_needed}x</span>
                             <span>{comp.model_name || `Model #${comp.model_id}`}</span>
                           </li>
                         ))}
                       </ul>
                     )}
-                    <h4 className="font-medium mb-2 mt-3 text-sm text-farm-200 flex items-center justify-between">
+                    <h4 className="font-medium mb-2 mt-3 text-sm text-[var(--brand-text)] flex items-center justify-between">
                       Consumables
-                      <button onClick={() => setAddingConsumable(addingConsumable === product.id ? null : product.id)} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"><Plus size={12} /> Add</button>
+                      <button onClick={() => setAddingConsumable(addingConsumable === product.id ? null : product.id)} className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] flex items-center gap-1"><Plus size={12} /> Add</button>
                     </h4>
                     {(expandedProduct.consumables || []).length === 0 && addingConsumable !== product.id && (
-                      <p className="text-sm text-farm-500">No consumables in BOM.</p>
+                      <p className="text-sm text-[var(--brand-muted)]">No consumables in BOM.</p>
                     )}
                     {(expandedProduct.consumables || []).map(c => (
-                      <div key={c.id} className="flex items-center justify-between text-sm text-farm-300 py-1">
-                        <span><span className="px-2 py-0.5 rounded-lg bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span> {c.consumable_name || `Consumable #${c.consumable_id}`}</span>
-                        <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400"><X size={12} /></button>
+                      <div key={c.id} className="flex items-center justify-between text-sm text-[var(--brand-text-secondary)] py-1">
+                        <span><span className="px-2 py-0.5 rounded-md bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span> {c.consumable_name || `Consumable #${c.consumable_id}`}</span>
+                        <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-[var(--brand-muted)] hover:text-red-400"><X size={12} /></button>
                       </div>
                     ))}
                     {addingConsumable === product.id && (
                       <div className="flex gap-2 items-center mt-2">
-                        <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded-lg px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100">
+                        <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded-md px-2 py-1 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]">
                           <option value="">Select consumable...</option>
                           {consumableList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
-                        <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-16 rounded-lg px-2 py-1 text-sm bg-farm-950 border border-farm-700 text-farm-100" />
-                        <button onClick={() => handleAddConsumable(product.id)} className="px-2 py-1 text-xs bg-print-600 hover:bg-print-500 rounded-lg">Add</button>
+                        <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-16 rounded-md px-2 py-1 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]" />
+                        <button onClick={() => handleAddConsumable(product.id)} className="px-2 py-1 text-xs bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md">Add</button>
                       </div>
                     )}
                   </div>
@@ -315,44 +315,44 @@ export default function Products() {
 
           {/* Desktop table view */}
           <table className="w-full hidden md:table">
-            <thead className="bg-farm-950">
+            <thead className="bg-[var(--brand-content-bg)]">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Name</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">SKU</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Price</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Components</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-farm-400">Est. COGS</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-farm-400">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">Name</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">SKU</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">Price</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">Components</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-[var(--brand-muted)]">Est. COGS</th>
+                <th className="px-4 py-3 text-right text-sm font-medium text-[var(--brand-muted)]">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-farm-800">
+            <tbody className="divide-y divide-[var(--brand-card-border)]">
               {productList.map(product => (
                 <Fragment key={product.id}>
-                  <tr className="hover:bg-farm-800/50 transition-colors">
+                  <tr className="hover:bg-[var(--brand-input-bg)]/50 transition-colors">
                     <td className="px-4 py-3">
                       <button
                         onClick={() => toggleExpand(product)}
-                        className="font-medium flex items-center gap-1 text-print-400 hover:text-print-300"
+                        className="font-medium flex items-center gap-1 text-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
                       >
                         {product.component_count > 0 && <Layers className="w-4 h-4" />}
                         {product.name}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-farm-400">{product.sku || '-'}</td>
-                    <td className="px-4 py-3 text-farm-200">{product.price ? `$${product.price.toFixed(2)}` : '-'}</td>
+                    <td className="px-4 py-3 text-[var(--brand-muted)]">{product.sku || '-'}</td>
+                    <td className="px-4 py-3 text-[var(--brand-text)]">{product.price ? `$${product.price.toFixed(2)}` : '-'}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 rounded-lg text-sm bg-farm-800 text-farm-300">
+                      <span className="px-2 py-1 rounded-md text-sm bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">
                         {product.component_count || 0} parts
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-farm-200">
+                    <td className="px-4 py-3 text-[var(--brand-text)]">
                       {product.estimated_cogs ? `$${product.estimated_cogs.toFixed(2)}` : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canDo('products.edit') && (
                         <button
                           onClick={() => openEditModal(product)}
-                          className="p-1 md:p-1.5 text-farm-400 hover:bg-farm-800 rounded-lg transition-colors"
+                          className="p-1 md:p-1.5 text-[var(--brand-muted)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors"
                           title="Edit"
                         >
                           <Pencil size={14} />
@@ -361,7 +361,7 @@ export default function Products() {
                       {canDo('products.delete') && (
                         <button
                           onClick={() => handleDelete(product.id)}
-                          className="p-1 md:p-1.5 text-farm-500 hover:text-red-400 hover:bg-red-900/50 rounded-lg transition-colors ml-1"
+                          className="p-1 md:p-1.5 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/50 rounded-md transition-colors ml-1"
                           title="Delete"
                         >
                           <Trash2 size={14} />
@@ -371,47 +371,47 @@ export default function Products() {
                   </tr>
                   {expandedProduct?.id === product.id && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-3 bg-farm-950">
+                      <td colSpan={6} className="px-4 py-3 bg-[var(--brand-content-bg)]">
                         <div className="ml-4">
-                          <h4 className="font-medium mb-2 text-farm-200">Printed Components</h4>
+                          <h4 className="font-medium mb-2 text-[var(--brand-text)]">Printed Components</h4>
                           {expandedProduct.components.length === 0 ? (
-                            <p className="text-sm text-farm-500">No printed components.</p>
+                            <p className="text-sm text-[var(--brand-muted)]">No printed components.</p>
                           ) : (
                             <ul className="space-y-1">
                               {expandedProduct.components.map(comp => (
-                                <li key={comp.id} className="flex items-center gap-2 text-sm text-farm-300">
-                                  <span className="px-2 py-0.5 rounded-lg bg-print-600/20 text-print-400">{comp.quantity_needed}x</span>
+                                <li key={comp.id} className="flex items-center gap-2 text-sm text-[var(--brand-text-secondary)]">
+                                  <span className="px-2 py-0.5 rounded-md bg-[var(--brand-primary)]/20 text-[var(--brand-primary)]">{comp.quantity_needed}x</span>
                                   <span>{comp.model_name || `Model #${comp.model_id}`}</span>
                                 </li>
                               ))}
                             </ul>
                           )}
-                          <h4 className="font-medium mb-2 mt-4 text-farm-200 flex items-center justify-between">
+                          <h4 className="font-medium mb-2 mt-4 text-[var(--brand-text)] flex items-center justify-between">
                             Consumables
-                            <button onClick={() => setAddingConsumable(addingConsumable === product.id ? null : product.id)} className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"><Plus size={14} /> Add</button>
+                            <button onClick={() => setAddingConsumable(addingConsumable === product.id ? null : product.id)} className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] flex items-center gap-1"><Plus size={14} /> Add</button>
                           </h4>
                           {(expandedProduct.consumables || []).length === 0 && addingConsumable !== product.id && (
-                            <p className="text-sm text-farm-500">No consumables in BOM.</p>
+                            <p className="text-sm text-[var(--brand-muted)]">No consumables in BOM.</p>
                           )}
                           <ul className="space-y-1">
                             {(expandedProduct.consumables || []).map(c => (
-                              <li key={c.id} className="flex items-center justify-between text-sm text-farm-300">
+                              <li key={c.id} className="flex items-center justify-between text-sm text-[var(--brand-text-secondary)]">
                                 <span className="flex items-center gap-2">
-                                  <span className="px-2 py-0.5 rounded-lg bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span>
+                                  <span className="px-2 py-0.5 rounded-md bg-amber-600/20 text-amber-400">{c.quantity_per_product}x</span>
                                   <span>{c.consumable_name || `Consumable #${c.consumable_id}`}</span>
                                 </span>
-                                <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"><Trash2 size={12} /></button>
+                                <button onClick={() => handleRemoveConsumable(product.id, c.id)} className="p-1 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors"><Trash2 size={12} /></button>
                               </li>
                             ))}
                           </ul>
                           {addingConsumable === product.id && (
                             <div className="flex gap-2 items-center mt-2">
-                              <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100">
+                              <select value={newConsumable.consumable_id} onChange={e => setNewConsumable({ ...newConsumable, consumable_id: e.target.value })} className="flex-1 rounded-md px-2 py-1.5 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]">
                                 <option value="">Select consumable...</option>
                                 {consumableList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                               </select>
-                              <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-20 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100" placeholder="Qty" />
-                              <button onClick={() => handleAddConsumable(product.id)} className="px-3 py-1.5 text-xs bg-print-600 hover:bg-print-500 rounded-lg transition-colors">Add</button>
+                              <input type="number" min="0.01" step="0.01" value={newConsumable.quantity_per_product} onChange={e => setNewConsumable({ ...newConsumable, quantity_per_product: e.target.value })} className="w-20 rounded-md px-2 py-1.5 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]" placeholder="Qty" />
+                              <button onClick={() => handleAddConsumable(product.id)} className="px-3 py-1.5 text-xs bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors">Add</button>
                             </div>
                           )}
                         </div>
@@ -428,72 +428,72 @@ export default function Products() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-farm-900 rounded-lg border border-farm-800 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-farm-800 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-farm-100">
+          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--brand-card-border)] flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-[var(--brand-text)]">
                 {editingProduct ? 'Edit Product' : 'New Product'}
               </h2>
-              <button onClick={() => setShowModal(false)} className="p-1 text-farm-500 hover:text-farm-300 hover:bg-farm-800 rounded-lg transition-colors">
+              <button onClick={() => setShowModal(false)} className="p-1 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors">
                 <X size={18} />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1 text-farm-200">Name *</label>
+                <label className="block text-sm font-medium mb-1 text-[var(--brand-text)]">Name *</label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 focus:border-print-500 focus:outline-none"
+                  className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
                   required
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-farm-200">SKU</label>
+                  <label className="block text-sm font-medium mb-1 text-[var(--brand-text)]">SKU</label>
                   <input
                     type="text"
                     value={formData.sku}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 focus:border-print-500 focus:outline-none"
+                    className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
                     placeholder="YODA-001"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-farm-200">Price</label>
+                  <label className="block text-sm font-medium mb-1 text-[var(--brand-text)]">Price</label>
                   <input
                     type="number"
                     step="0.01"
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 focus:border-print-500 focus:outline-none"
+                    className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
                     placeholder="15.00"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1 text-farm-200">Description</label>
+                <label className="block text-sm font-medium mb-1 text-[var(--brand-text)]">Description</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 focus:border-print-500 focus:outline-none"
+                  className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
                   rows={2}
                 />
               </div>
 
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium text-farm-200">Components (BOM)</label>
+                  <label className="block text-sm font-medium text-[var(--brand-text)]">Components (BOM)</label>
                   <button
                     type="button"
                     onClick={addComponent}
-                    className="text-xs text-print-400 hover:text-print-300 flex items-center gap-1"
+                    className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] flex items-center gap-1"
                   >
                     <Plus size={14} /> Add
                   </button>
                 </div>
                 {components.length === 0 ? (
-                  <p className="text-sm text-farm-500">No components = simple single-print product</p>
+                  <p className="text-sm text-[var(--brand-muted)]">No components = simple single-print product</p>
                 ) : (
                   <div className="space-y-2">
                     {components.map((comp, i) => (
@@ -501,7 +501,7 @@ export default function Products() {
                         <select
                           value={comp.model_id}
                           onChange={(e) => updateComponent(i, 'model_id', e.target.value)}
-                          className="flex-1 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                          className="flex-1 rounded-md px-2 py-1.5 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]"
                           required
                         >
                           <option value="">Select model...</option>
@@ -514,13 +514,13 @@ export default function Products() {
                           min="1"
                           value={comp.quantity_needed}
                           onChange={(e) => updateComponent(i, 'quantity_needed', e.target.value)}
-                          className="w-16 rounded-lg px-2 py-1.5 text-sm bg-farm-950 border border-farm-700 text-farm-100"
+                          className="w-16 rounded-md px-2 py-1.5 text-sm bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)]"
                           placeholder="Qty"
                         />
                         <button
                           type="button"
                           onClick={() => removeComponent(i)}
-                          className="p-2 text-farm-500 hover:text-red-400 hover:bg-red-900/30 rounded-lg transition-colors"
+                          className="p-2 text-[var(--brand-muted)] hover:text-red-400 hover:bg-red-900/30 rounded-md transition-colors"
                         >
                           <X size={14} />
                         </button>
@@ -530,17 +530,17 @@ export default function Products() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-farm-800">
+              <div className="flex justify-end gap-2 pt-4 border-t border-[var(--brand-card-border)]">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg transition-colors text-sm"
+                  className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg transition-colors text-sm"
+                  className="px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] rounded-md transition-colors text-sm"
                 >
                   {editingProduct ? 'Save Changes' : 'Create Product'}
                 </button>

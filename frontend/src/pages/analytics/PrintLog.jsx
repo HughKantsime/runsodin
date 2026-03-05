@@ -95,30 +95,30 @@ export default function PrintLog() {
     <div className="p-4 md:p-6">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4 md:mb-6">
-        <ClipboardList className="text-print-400" size={24} />
+        <ClipboardList className="text-[var(--brand-primary)]" size={24} />
         <div>
           <h1 className="text-xl md:text-2xl font-display font-bold">Print Log</h1>
-          <p className="text-farm-500 text-sm mt-1">{total} entries</p>
+          <p className="text-[var(--brand-text-muted)] text-sm mt-1">{total} entries</p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
           <input
             type="text"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { setSearch(searchInput); setPage(1) } }}
             placeholder="Search prints..."
-            className="w-full pl-9 pr-3 py-2 bg-farm-800 border border-farm-700 rounded-lg text-sm"
+            className="w-full pl-9 pr-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm"
           />
         </div>
         <select
           value={filterPrinter}
           onChange={e => setFilterPrinter(e.target.value)}
-          className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-2 text-sm"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm"
         >
           <option value="">All Printers</option>
           {(printerList || []).map(p => (
@@ -128,7 +128,7 @@ export default function PrintLog() {
         <select
           value={filterStatus}
           onChange={e => setFilterStatus(e.target.value)}
-          className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-2 text-sm"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-2 text-sm"
         >
           <option value="">All Statuses</option>
           <option value="completed">Completed</option>
@@ -137,7 +137,7 @@ export default function PrintLog() {
         </select>
         <button
           onClick={handleExport}
-          className="flex items-center gap-1.5 px-3 py-2 bg-farm-800 border border-farm-700 rounded-lg text-sm hover:bg-farm-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm hover:bg-[var(--brand-card-border)] transition-colors"
         >
           <Download size={14} />
           Export CSV
@@ -146,18 +146,18 @@ export default function PrintLog() {
 
       {/* Table */}
       {isLoading ? (
-        <div className="text-center py-12 text-farm-500">Loading...</div>
+        <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-farm-500">
+        <div className="text-center py-12 text-[var(--brand-text-muted)]">
           <ClipboardList size={40} className="mx-auto mb-3 opacity-30" />
           <p>No print log entries</p>
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-lg border border-farm-800">
+          <div className="overflow-x-auto rounded-md border border-[var(--brand-card-border)]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-farm-900 text-farm-400 text-xs">
+                <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-muted)] text-xs">
                   <th className="py-2 px-3 text-left">Date</th>
                   <th className="py-2 px-3 text-left">Name</th>
                   <th className="py-2 px-3 text-left hidden md:table-cell">Printer</th>
@@ -169,20 +169,20 @@ export default function PrintLog() {
               </thead>
               <tbody>
                 {items.map(item => (
-                  <tr key={item.id} className="border-t border-farm-800 hover:bg-farm-800/50 transition-colors">
-                    <td className="py-2 px-3 text-farm-400 text-xs whitespace-nowrap">{formatDate(item.completed_at)}</td>
+                  <tr key={item.id} className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 transition-colors">
+                    <td className="py-2 px-3 text-[var(--brand-text-muted)] text-xs whitespace-nowrap font-mono">{formatDate(item.completed_at)}</td>
                     <td className="py-2 px-3 font-medium truncate max-w-[200px]">{item.print_name}</td>
-                    <td className="py-2 px-3 text-farm-400 hidden md:table-cell">{item.printer_display}</td>
-                    <td className="py-2 px-3 text-farm-400 hidden lg:table-cell">{item.user_name || '--'}</td>
+                    <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.printer_display}</td>
+                    <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.user_name || '--'}</td>
                     <td className="py-2 px-3">
-                      <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGES[item.status] || 'bg-farm-800 text-farm-400'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs ${STATUS_BADGES[item.status] || 'bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)]'}`}>
                         {item.status}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-farm-400 hidden lg:table-cell">
+                    <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
                       <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(item.actual_duration_seconds)}</span>
                     </td>
-                    <td className="py-2 px-3 text-farm-400 hidden lg:table-cell">
+                    <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
                       {item.filament_used_grams ? `${item.filament_used_grams.toFixed(1)}g` : '--'}
                     </td>
                   </tr>
@@ -194,20 +194,20 @@ export default function PrintLog() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
-              <span className="text-xs text-farm-500">{total} results</span>
+              <span className="text-xs text-[var(--brand-text-muted)]">{total} results</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { const p = Math.max(1, page - 1); setPage(p); updateSearchParams({ page: p > 1 ? String(p) : '' }) }}
                   disabled={page === 1}
-                  className="p-1.5 rounded-lg bg-farm-800 text-farm-400 hover:bg-farm-700 disabled:opacity-30"
+                  className="p-1.5 rounded-md bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] disabled:opacity-30"
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="text-sm text-farm-400">{page} / {totalPages}</span>
+                <span className="text-sm text-[var(--brand-text-muted)]">{page} / {totalPages}</span>
                 <button
                   onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); updateSearchParams({ page: p > 1 ? String(p) : '' }) }}
                   disabled={page === totalPages}
-                  className="p-1.5 rounded-lg bg-farm-800 text-farm-400 hover:bg-farm-700 disabled:opacity-30"
+                  className="p-1.5 rounded-md bg-[var(--brand-input-bg)] text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] disabled:opacity-30"
                 >
                   <ChevronRight size={16} />
                 </button>

@@ -206,7 +206,7 @@ export default function Orders() {
       })
     : orderList
 
-  if (loading) return <div className="flex items-center justify-center py-12 text-farm-500 gap-2"><RefreshCw size={16} className="animate-spin" />Loading...</div>
+  if (loading) return <div className="flex items-center justify-center py-12 text-[var(--brand-muted)] gap-2"><RefreshCw size={16} className="animate-spin" />Loading...</div>
 
   return (
     <div className="p-4 md:p-6">
@@ -214,7 +214,7 @@ export default function Orders() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg px-3 py-2 bg-farm-950 border border-farm-700 text-farm-100 text-sm"
+          className="rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] text-sm"
         >
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>

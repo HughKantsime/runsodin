@@ -19,18 +19,18 @@ import {
 function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", min = 0 }) {
   return (
     <div>
-      <label className="block text-xs md:text-sm text-farm-400 mb-1">{label}</label>
+      <label className="block text-xs md:text-sm text-[var(--brand-muted)] mb-1">{label}</label>
       <div className="relative">
-        {Icon && <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />}
+        {Icon && <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-muted)]" />}
         <input
           type="number"
           step={step}
           min={min}
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className={`w-full bg-farm-800 border border-farm-700 rounded-lg py-2 pr-10 text-sm ${Icon ? 'pl-8' : 'pl-3'}`}
+          className={`w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 pr-10 text-sm ${Icon ? 'pl-8' : 'pl-3'}`}
         />
-        {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-farm-500 text-xs">{suffix}</span>}
+        {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--brand-muted)] text-xs">{suffix}</span>}
       </div>
     </div>
   )
@@ -38,13 +38,13 @@ function InputField({ label, value, onChange, suffix, icon: Icon, step = "any", 
 
 function CostSection({ title, icon: Icon, cost, children }) {
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-3 md:p-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-3 md:p-4">
       <div className="flex items-center justify-between mb-3 md:mb-4">
         <div className="flex items-center gap-2">
-          {Icon && <Icon size={16} className="text-farm-400" />}
+          {Icon && <Icon size={16} className="text-[var(--brand-muted)]" />}
           <h3 className="font-medium text-sm">{title}</h3>
         </div>
-        <span className="text-base md:text-lg font-bold text-print-400">${cost.toFixed(2)}</span>
+        <span className="text-base md:text-lg font-bold text-[var(--brand-primary)] font-mono">${cost.toFixed(2)}</span>
       </div>
       <div className="space-y-3">{children}</div>
     </div>
@@ -58,40 +58,40 @@ function PricingBreakdown({ costs, margin, quantity }) {
   const total = perUnit * quantity
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-3 md:p-4 lg:sticky lg:top-4">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-3 md:p-4 lg:sticky lg:top-4">
       <h3 className="font-display font-semibold mb-4 text-sm md:text-base">Final Pricing</h3>
-      <div className="space-y-2 text-sm">
-        <div className="flex justify-between"><span className="text-farm-400">Material Cost:</span><span>${costs.material.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Labor Cost:</span><span>${costs.labor.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Electricity:</span><span>${costs.electricity.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Printer Depreciation:</span><span>${costs.depreciation.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Packaging:</span><span>${costs.packaging.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Failure Buffer ({costs.failureRate}%):</span><span>${costs.failure.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Overhead:</span><span>${costs.overhead.toFixed(2)}</span></div>
-        <div className="flex justify-between"><span className="text-farm-400">Other Costs:</span><span>${costs.other.toFixed(2)}</span></div>
+      <div className="space-y-2 text-sm font-mono">
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)] font-sans">Material Cost:</span><span>${costs.material.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Labor Cost:</span><span>${costs.labor.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Electricity:</span><span>${costs.electricity.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Printer Depreciation:</span><span>${costs.depreciation.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Packaging:</span><span>${costs.packaging.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Failure Buffer ({costs.failureRate}%):</span><span>${costs.failure.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Overhead:</span><span>${costs.overhead.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span className="text-[var(--brand-muted)]">Other Costs:</span><span>${costs.other.toFixed(2)}</span></div>
 
-        <div className="border-t border-farm-700 pt-2 mt-2">
+        <div className="border-t border-[var(--brand-card-border)] pt-2 mt-2">
           <div className="flex justify-between font-medium"><span>Subtotal:</span><span>${subtotal.toFixed(2)}</span></div>
         </div>
 
         <div className="pt-2">
-          <label className="block text-sm text-farm-400 mb-1">Manufacturing Margin</label>
+          <label className="block text-sm text-[var(--brand-muted)] mb-1">Manufacturing Margin</label>
           <div className="text-2xl font-bold text-center py-2">{margin}%</div>
         </div>
 
-        <div className="bg-print-900/50 border border-print-700 rounded-lg p-3 md:p-4 text-center">
-          <div className="text-xs md:text-sm text-farm-400">Recommended Price (per unit)</div>
-          <div className="text-2xl md:text-3xl font-display font-bold text-print-400">${perUnit.toFixed(2)}</div>
+        <div className="bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 rounded-md p-3 md:p-4 text-center">
+          <div className="text-xs md:text-sm text-[var(--brand-muted)]">Recommended Price (per unit)</div>
+          <div className="text-2xl md:text-3xl font-display font-bold text-[var(--brand-primary)] font-mono">${perUnit.toFixed(2)}</div>
         </div>
 
         {quantity > 1 && (
-          <div className="bg-farm-800 rounded-lg p-3 text-center">
-            <div className="text-xs md:text-sm text-farm-400">Total for {quantity} units</div>
-            <div className="text-lg md:text-xl font-bold text-green-400">${total.toFixed(2)}</div>
+          <div className="bg-[var(--brand-input-bg)] rounded-md p-3 text-center">
+            <div className="text-xs md:text-sm text-[var(--brand-muted)]">Total for {quantity} units</div>
+            <div className="text-lg md:text-xl font-bold text-green-400 font-mono">${total.toFixed(2)}</div>
           </div>
         )}
 
-        <div className="pt-2 space-y-1 text-xs text-farm-500">
+        <div className="pt-2 space-y-1 text-xs text-[var(--brand-muted)]">
           <div className="flex justify-between"><span>Cost per unit:</span><span>${subtotal.toFixed(2)}</span></div>
           <div className="flex justify-between"><span>Profit per unit:</span><span className="text-green-400">${(withMargin - subtotal).toFixed(2)}</span></div>
           <div className="flex justify-between"><span>Profit margin:</span><span className="text-green-400">{((withMargin - subtotal) / withMargin * 100).toFixed(1)}%</span></div>
@@ -258,7 +258,7 @@ export default function CalculatorPage() {
   if (configLoading) {
     return (
       <div className="p-4 md:p-6 flex items-center justify-center min-h-[400px]">
-        <div className="text-farm-400">Loading pricing configuration...</div>
+        <div className="text-[var(--brand-muted)]">Loading pricing configuration...</div>
       </div>
     )
   }
@@ -269,16 +269,16 @@ export default function CalculatorPage() {
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-3">
-              <Calculator className="text-print-400" size={24} />
+              <Calculator className="text-[var(--brand-primary)]" size={24} />
               <h1 className="text-xl md:text-2xl font-display font-bold">Pricing Calculator</h1>
             </div>
-            <p className="text-farm-500 text-sm mt-1">Calculate the true cost and recommended price for your prints</p>
+            <p className="text-[var(--brand-muted)] text-sm mt-1">Calculate the true cost and recommended price for your prints</p>
           </div>
           <div className="flex gap-2">
             {hasChanges && (
               <button
                 onClick={handleResetConfig}
-                className="flex items-center gap-2 px-3 py-2 bg-farm-800 border border-farm-700 rounded-lg text-sm hover:bg-farm-700"
+                className="flex items-center gap-2 px-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm hover:bg-[var(--brand-card-border)]"
               >
                 <RefreshCw size={16} />
                 Reset
@@ -287,10 +287,10 @@ export default function CalculatorPage() {
             <button
               onClick={handleSaveConfig}
               disabled={!hasChanges || saveConfigMutation.isPending}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                 hasChanges 
-                  ? 'bg-print-600 hover:bg-print-500 text-white' 
-                  : 'bg-farm-800 text-farm-500 cursor-not-allowed'
+                  ? 'bg-[var(--brand-primary)] hover:bg-[var(--brand-primary-hover)] text-white' 
+                  : 'bg-[var(--brand-input-bg)] text-[var(--brand-muted)] cursor-not-allowed'
               }`}
             >
               <Save size={16} />
@@ -303,14 +303,14 @@ export default function CalculatorPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <div className="lg:col-span-2 space-y-4">
           {/* Model selector */}
-          <div className="bg-farm-900 rounded-lg border border-farm-800 p-3 md:p-4">
+          <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-3 md:p-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               <div>
-                <label className="block text-xs md:text-sm text-farm-400 mb-1">Select Model (optional)</label>
+                <label className="block text-xs md:text-sm text-[var(--brand-muted)] mb-1">Select Model (optional)</label>
                 <select
                   value={selectedModel}
                   onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                  className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
                 >
                   <option value="">-- Manual Entry --</option>
                   {modelsData?.map(model => (
@@ -329,7 +329,7 @@ export default function CalculatorPage() {
               <InputField label="Spool Cost" value={spoolCost} onChange={markChanged(setSpoolCost)} suffix="$" />
               <InputField label="Spool Weight" value={spoolWeight} onChange={markChanged(setSpoolWeight)} suffix="g" />
             </div>
-            <div className="text-xs text-farm-500">Cost per gram: ${costPerGram.toFixed(3)}</div>
+            <div className="text-xs text-[var(--brand-muted)]">Cost per gram: ${costPerGram.toFixed(3)}</div>
           </CostSection>
 
           {/* Labor Costs */}

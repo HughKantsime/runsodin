@@ -58,49 +58,49 @@ function LogMaintenanceModal({ printer, task, onClose, onSave, saving }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-farm-900 border border-farm-700 rounded-lg p-6 w-full max-w-md">
+      <div className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md p-6 w-full max-w-md">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-display font-bold text-farm-50">Log Maintenance</h3>
-          <button onClick={onClose} className="text-farm-400 hover:text-farm-200"><X size={20} /></button>
+          <h3 className="text-lg font-display font-bold text-[var(--brand-text-primary)]">Log Maintenance</h3>
+          <button onClick={onClose} className="text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]"><X size={20} /></button>
         </div>
-        <div className="text-sm text-farm-400 mb-4">
-          <span className="text-farm-200 font-medium">{printer.printer_name}</span> — {task?.task_name || 'Custom task'}
+        <div className="text-sm text-[var(--brand-text-secondary)] mb-4">
+          <span className="text-[var(--brand-text-primary)] font-medium">{printer.printer_name}</span> — {task?.task_name || 'Custom task'}
         </div>
         <div className="space-y-3">
           {!task && (
             <div>
-              <label className="block text-xs text-farm-400 mb-1">Task Name</label>
-              <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+              <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Task Name</label>
+              <input className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
                 value={form.task_name} onChange={e => set('task_name', e.target.value)} placeholder="e.g. Nozzle Change" />
             </div>
           )}
           <div>
-            <label className="block text-xs text-farm-400 mb-1">Performed By</label>
-            <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+            <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Performed By</label>
+            <input className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
               value={form.performed_by} onChange={e => set('performed_by', e.target.value)} placeholder="Name" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-farm-400 mb-1">Cost ($)</label>
-              <input type="number" step="0.01" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+              <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Cost ($)</label>
+              <input type="number" step="0.01" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
                 value={form.cost} onChange={e => set('cost', e.target.value)} placeholder="0.00" />
             </div>
             <div>
-              <label className="block text-xs text-farm-400 mb-1">Downtime (min)</label>
-              <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+              <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Downtime (min)</label>
+              <input type="number" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
                 value={form.downtime_minutes} onChange={e => set('downtime_minutes', e.target.value)} placeholder="0" />
             </div>
           </div>
           <div>
-            <label className="block text-xs text-farm-400 mb-1">Notes</label>
-            <textarea className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm" rows={3}
+            <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Notes</label>
+            <textarea className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm" rows={3}
               value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any notes about this service..." />
           </div>
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 bg-farm-800 text-farm-300 px-4 py-2 rounded-lg text-sm hover:bg-farm-700">Cancel</button>
+          <button onClick={onClose} className="flex-1 bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] px-4 py-2 rounded-md text-sm hover:bg-[var(--brand-card-border)]">Cancel</button>
           <button onClick={handleSubmit} disabled={!form.task_name || saving}
-            className="flex-1 bg-print-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-print-600 disabled:opacity-40">
+            className="flex-1 bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md text-sm hover:brightness-110 disabled:opacity-40">
             {saving ? 'Saving...' : 'Log Service'}
           </button>
         </div>
@@ -136,44 +136,44 @@ function TaskForm({ task, onSave, onCancel, saving }) {
   }
 
   return (
-    <div className="bg-farm-800/50 border border-farm-700 rounded-lg p-4 space-y-3">
+    <div className="bg-[var(--brand-input-bg)]/50 border border-[var(--brand-card-border)] rounded-md p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
-          <label className="block text-xs text-farm-400 mb-1">Task Name *</label>
-          <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Task Name *</label>
+          <input className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Nozzle Change" />
         </div>
         <div className="sm:col-span-2">
-          <label className="block text-xs text-farm-400 mb-1">Description</label>
-          <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Description</label>
+          <input className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.description} onChange={e => set('description', e.target.value)} placeholder="What this maintenance involves" />
         </div>
         <div>
-          <label className="block text-xs text-farm-400 mb-1">Applies To</label>
-          <input className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Applies To</label>
+          <input className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.printer_model_filter} onChange={e => set('printer_model_filter', e.target.value)}
             placeholder="Blank = all printers (e.g. X1, P1S, A1)" />
         </div>
         <div>
-          <label className="block text-xs text-farm-400 mb-1">Interval (print hours)</label>
-          <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Interval (print hours)</label>
+          <input type="number" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.interval_print_hours} onChange={e => set('interval_print_hours', e.target.value)} placeholder="e.g. 500" />
         </div>
         <div>
-          <label className="block text-xs text-farm-400 mb-1">Interval (calendar days)</label>
-          <input type="number" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Interval (calendar days)</label>
+          <input type="number" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.interval_days} onChange={e => set('interval_days', e.target.value)} placeholder="e.g. 90" />
         </div>
         <div>
-          <label className="block text-xs text-farm-400 mb-1">Est. Cost ($)</label>
-          <input type="number" step="0.01" className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100 text-sm"
+          <label className="block text-xs text-[var(--brand-text-secondary)] mb-1">Est. Cost ($)</label>
+          <input type="number" step="0.01" className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)] text-sm"
             value={form.estimated_cost} onChange={e => set('estimated_cost', e.target.value)} />
         </div>
       </div>
       <div className="flex gap-2 pt-1">
-        <button onClick={onCancel} className="bg-farm-800 text-farm-300 px-4 py-2 rounded-lg text-sm hover:bg-farm-700">Cancel</button>
+        <button onClick={onCancel} className="bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] px-4 py-2 rounded-md text-sm hover:bg-[var(--brand-card-border)]">Cancel</button>
         <button onClick={handleSubmit} disabled={!form.name || saving}
-          className="bg-print-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-print-600 disabled:opacity-40">
+          className="bg-[var(--brand-primary)] text-white px-4 py-2 rounded-md text-sm hover:brightness-110 disabled:opacity-40">
           {saving ? 'Saving...' : task ? 'Update Task' : 'Create Task'}
         </button>
       </div>
@@ -188,46 +188,46 @@ function PrinterCard({ printer, onLogMaintenance }) {
   const colors = STATUS_COLORS[printer.overall_status] || STATUS_COLORS.ok
 
   return (
-    <div className={`border ${colors.border} rounded-lg overflow-hidden`}>
-      <div className={`flex items-center justify-between p-4 cursor-pointer hover:bg-farm-800/50 ${colors.bg}`}
+    <div className={`border ${colors.border} rounded-md overflow-hidden`}>
+      <div className={`flex items-center justify-between p-4 cursor-pointer hover:bg-[var(--brand-input-bg)]/50 ${colors.bg}`}
         onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-3">
-          {expanded ? <ChevronDown size={16} className="text-farm-400" /> : <ChevronRight size={16} className="text-farm-400" />}
+          {expanded ? <ChevronDown size={16} className="text-[var(--brand-text-secondary)]" /> : <ChevronRight size={16} className="text-[var(--brand-text-secondary)]" />}
           <div>
-            <span className="font-medium text-farm-100">{printer.printer_name}</span>
-            {printer.printer_model && <span className="text-farm-500 text-sm ml-2">{printer.printer_model}</span>}
+            <span className="font-medium text-[var(--brand-text-primary)]">{printer.printer_name}</span>
+            {printer.printer_model && <span className="text-[var(--brand-text-muted)] text-sm ml-2">{printer.printer_model}</span>}
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-farm-400 font-mono">{printer.total_print_hours}h printed</span>
+          <span className="text-xs text-[var(--brand-text-secondary)] font-mono">{printer.total_print_hours}h printed</span>
           <StatusBadge status={printer.overall_status} />
         </div>
       </div>
 
       {expanded && printer.tasks.length > 0 && (
-        <div className="border-t border-farm-800 divide-y divide-farm-800/50">
+        <div className="border-t border-[var(--brand-card-border)] divide-y divide-[var(--brand-card-border)]/50">
           {printer.tasks.map(task => (
             <div key={task.task_id} className="flex items-center justify-between px-4 py-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[task.status]?.dot || 'bg-farm-600'}`} />
-                  <span className="text-sm text-farm-200">{task.task_name}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_COLORS[task.status]?.dot || 'bg-[var(--brand-text-muted)]'}`} />
+                  <span className="text-sm text-[var(--brand-text-primary)]">{task.task_name}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 ml-4">
                   {task.interval_print_hours != null && (
-                    <span className="text-xs text-farm-500">
+                    <span className="text-xs text-[var(--brand-text-muted)]">
                       <Clock size={10} className="inline mr-1" />{task.hours_since_service}h / {task.interval_print_hours}h
                     </span>
                   )}
                   {task.interval_days != null && (
-                    <span className="text-xs text-farm-500">{task.days_since_service}d / {task.interval_days}d</span>
+                    <span className="text-xs text-[var(--brand-text-muted)]">{task.days_since_service}d / {task.interval_days}d</span>
                   )}
                   {task.last_serviced ? (
-                    <span className="text-xs text-farm-600">
+                    <span className="text-xs text-[var(--brand-text-muted)]">
                       Last: {new Date(task.last_serviced).toLocaleDateString()}{task.last_by ? ` by ${task.last_by}` : ''}
                     </span>
                   ) : (
-                    <span className="text-xs text-farm-600 italic">Never serviced</span>
+                    <span className="text-xs text-[var(--brand-text-muted)] italic">Never serviced</span>
                   )}
                 </div>
                 <div className="ml-4 mt-1.5 w-32">
@@ -260,7 +260,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
       )}
 
       {expanded && printer.tasks.length === 0 && (
-        <div className="p-4 text-sm text-farm-500 text-center border-t border-farm-800">
+        <div className="p-4 text-sm text-[var(--brand-text-muted)] text-center border-t border-[var(--brand-card-border)]">
           No maintenance tasks apply to this printer model. Add tasks in the Templates tab.
         </div>
       )}
@@ -374,7 +374,7 @@ export default function Maintenance() {
       {/* ==================== Fleet Status Tab ==================== */}
       {activeTab === 'status' && (
         <div className="space-y-3">
-          {statusLoading && <div className="text-farm-500 text-center py-8">Loading fleet status...</div>}
+          {statusLoading && <div className="text-[var(--brand-text-muted)] text-center py-8">Loading fleet status...</div>}
 
           {!statusLoading && statusData.length === 0 && (
             <EmptyState
@@ -409,7 +409,7 @@ export default function Maintenance() {
       {activeTab === 'templates' && (
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-farm-400">{tasks.length} task template{tasks.length !== 1 ? 's' : ''}</span>
+            <span className="text-sm text-[var(--brand-text-secondary)]">{tasks.length} task template{tasks.length !== 1 ? 's' : ''}</span>
             <div className="flex gap-2">
               <Button
                 variant="secondary"
@@ -434,10 +434,10 @@ export default function Maintenance() {
               saving={createTaskMutation.isPending} />
           )}
 
-          <div className="border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+          <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
               <thead>
-                <tr className="bg-farm-900 text-farm-400 text-xs uppercase">
+                <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] text-xs uppercase">
                   <th className="text-left px-4 py-3">Task</th>
                   <th className="text-left px-4 py-3 hidden sm:table-cell">Applies To</th>
                   <th className="text-right px-4 py-3">Hours</th>
@@ -458,21 +458,21 @@ export default function Maintenance() {
                       </td>
                     </tr>
                   ) : (
-                    <tr key={task.id} className="border-t border-farm-800/50 hover:bg-farm-800/30">
+                    <tr key={task.id} className="border-t border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/30">
                       <td className="px-4 py-3">
-                        <div className="text-farm-100">{task.name}</div>
-                        {task.description && <div className="text-farm-500 text-xs mt-0.5 max-w-xs truncate">{task.description}</div>}
+                        <div className="text-[var(--brand-text-primary)]">{task.name}</div>
+                        {task.description && <div className="text-[var(--brand-text-muted)] text-xs mt-0.5 max-w-xs truncate">{task.description}</div>}
                       </td>
-                      <td className="px-4 py-3 text-farm-400 hidden sm:table-cell">{task.printer_model_filter || 'All'}</td>
-                      <td className="px-4 py-3 text-right text-farm-300 font-mono">{task.interval_print_hours ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-farm-300 font-mono">{task.interval_days ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-farm-300 hidden sm:table-cell">{task.estimated_cost ? `$${task.estimated_cost}` : '—'}</td>
+                      <td className="px-4 py-3 text-[var(--brand-text-secondary)] hidden sm:table-cell">{task.printer_model_filter || 'All'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono">{task.interval_print_hours ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono">{task.interval_days ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{task.estimated_cost ? `$${task.estimated_cost}` : '—'}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center gap-1 justify-end">
                           <button onClick={() => { setEditingTask(task); setShowTaskForm(false) }}
-                            className="text-farm-500 hover:text-farm-200 p-1"><Edit2 size={14} /></button>
+                            className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] p-1"><Edit2 size={14} /></button>
                           <button onClick={() => setDeleteTaskTarget(task)}
-                            className="text-farm-500 hover:text-red-400 p-1"><Trash2 size={14} /></button>
+                            className="text-[var(--brand-text-muted)] hover:text-red-400 p-1"><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>
@@ -499,26 +499,26 @@ export default function Maintenance() {
           <div className="flex flex-wrap justify-between items-center gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <select value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
-                className="bg-farm-800 border border-farm-700 rounded-lg px-3 py-1.5 text-farm-200 text-sm">
+                className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-[var(--brand-text-primary)] text-sm">
                 <option value="">All Printers</option>
                 {statusData.map(p => <option key={p.printer_id} value={p.printer_id}>{p.printer_name}</option>)}
               </select>
               <div className="flex items-center gap-1.5">
-                <Calendar size={14} className="text-farm-500" />
+                <Calendar size={14} className="text-[var(--brand-text-muted)]" />
                 <input type="date" value={historyDateFrom} onChange={e => setHistoryDateFrom(e.target.value)}
-                  className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-farm-200 text-sm" />
-                <span className="text-farm-500 text-xs">to</span>
+                  className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-[var(--brand-text-primary)] text-sm" />
+                <span className="text-[var(--brand-text-muted)] text-xs">to</span>
                 <input type="date" value={historyDateTo} onChange={e => setHistoryDateTo(e.target.value)}
-                  className="bg-farm-800 border border-farm-700 rounded-lg px-2 py-1.5 text-farm-200 text-sm" />
+                  className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-[var(--brand-text-primary)] text-sm" />
               </div>
             </div>
-            <span className="text-sm text-farm-400">{filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''}</span>
+            <span className="text-sm text-[var(--brand-text-secondary)]">{filteredLogs.length} record{filteredLogs.length !== 1 ? 's' : ''}</span>
           </div>
 
-          <div className="border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+          <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
               <thead>
-                <tr className="bg-farm-900 text-farm-400 text-xs uppercase">
+                <tr className="bg-[var(--brand-card-bg)] text-[var(--brand-text-secondary)] text-xs uppercase">
                   <th className="text-left px-4 py-3">Date</th>
                   <th className="text-left px-4 py-3">Printer</th>
                   <th className="text-left px-4 py-3">Task</th>
@@ -533,20 +533,20 @@ export default function Maintenance() {
                 {filteredLogs.map(log => {
                   const pName = statusData.find(p => p.printer_id === log.printer_id)?.printer_name || `Printer #${log.printer_id}`
                   return (
-                    <tr key={log.id} className="border-t border-farm-800/50 hover:bg-farm-800/30">
-                      <td className="px-4 py-3 text-farm-300">{log.performed_at ? new Date(log.performed_at).toLocaleDateString() : '—'}</td>
-                      <td className="px-4 py-3 text-farm-200">{pName}</td>
-                      <td className="px-4 py-3 text-farm-200">
+                    <tr key={log.id} className="border-t border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/30">
+                      <td className="px-4 py-3 text-[var(--brand-text-secondary)]">{log.performed_at ? new Date(log.performed_at).toLocaleDateString() : '—'}</td>
+                      <td className="px-4 py-3 text-[var(--brand-text-primary)]">{pName}</td>
+                      <td className="px-4 py-3 text-[var(--brand-text-primary)]">
                         {log.task_name}
-                        {log.notes && <div className="text-farm-500 text-xs mt-0.5 truncate max-w-xs">{log.notes}</div>}
+                        {log.notes && <div className="text-[var(--brand-text-muted)] text-xs mt-0.5 truncate max-w-xs">{log.notes}</div>}
                       </td>
-                      <td className="px-4 py-3 text-farm-400 hidden sm:table-cell">{log.performed_by || '—'}</td>
-                      <td className="px-4 py-3 text-right text-farm-300 hidden sm:table-cell">{log.cost ? `$${log.cost}` : '—'}</td>
-                      <td className="px-4 py-3 text-right text-farm-300 hidden sm:table-cell">{log.downtime_minutes ? `${log.downtime_minutes}m` : '—'}</td>
-                      <td className="px-4 py-3 text-right text-farm-400 font-mono text-xs">{log.print_hours_at_service}h</td>
+                      <td className="px-4 py-3 text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.performed_by || '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.cost ? `$${log.cost}` : '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] hidden sm:table-cell">{log.downtime_minutes ? `${log.downtime_minutes}m` : '—'}</td>
+                      <td className="px-4 py-3 text-right text-[var(--brand-text-secondary)] font-mono text-xs">{log.print_hours_at_service}h</td>
                       <td className="px-4 py-2 text-right">
                         <button onClick={() => setDeleteLogTarget(log)}
-                          className="text-farm-600 hover:text-red-400 p-1"><Trash2 size={13} /></button>
+                          className="text-[var(--brand-text-muted)] hover:text-red-400 p-1"><Trash2 size={13} /></button>
                       </td>
                     </tr>
                   )

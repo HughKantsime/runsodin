@@ -19,7 +19,7 @@ const fetchUsers = async () => {
 }
 
 const roleIcons = { admin: Shield, operator: UserCheck, viewer: Eye }
-const roleColors = { admin: 'text-red-400 bg-red-900/30', operator: 'text-print-400 bg-print-900/30', viewer: 'text-farm-400 bg-farm-800' }
+const roleColors = { admin: 'text-red-400 bg-red-900/30', operator: 'text-[var(--brand-primary)] bg-[var(--brand-primary)]/30', viewer: 'text-[var(--brand-text-secondary)] bg-[var(--brand-input-bg)]' }
 
 function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
   const [formData, setFormData] = useState({
@@ -40,37 +40,37 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded border border-farm-800 w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4 md:mb-6">
           <h2 className="text-lg md:text-xl font-display font-bold">{user ? 'Edit User' : 'New User'}</h2>
-          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
+          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Username</label>
-            <input type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Username</label>
+            <input type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Email</label>
-            <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Email</label>
+            <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required />
           </div>
           {!user && formData.email && (
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="send_welcome" checked={formData.send_welcome_email} onChange={(e) => setFormData({ ...formData, send_welcome_email: e.target.checked })} className="rounded-lg" />
-              <label htmlFor="send_welcome" className="text-sm text-farm-400">Send welcome email with auto-generated password</label>
+              <input type="checkbox" id="send_welcome" checked={formData.send_welcome_email} onChange={(e) => setFormData({ ...formData, send_welcome_email: e.target.checked })} className="rounded-md" />
+              <label htmlFor="send_welcome" className="text-sm text-[var(--brand-text-secondary)]">Send welcome email with auto-generated password</label>
             </div>
           )}
           {!formData.send_welcome_email && (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">{user ? 'New Password (leave blank to keep)' : 'Password'}</label>
-            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user && !formData.send_welcome_email} placeholder={user ? '' : 'Min 8 characters'} />
-            {!user && <p className="text-xs text-farm-500 mt-1">Min 8 characters with uppercase, lowercase, and a number</p>}
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">{user ? 'New Password (leave blank to keep)' : 'Password'}</label>
+            <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500" required={!user && !formData.send_welcome_email} placeholder={user ? '' : 'Min 8 characters'} />
+            {!user && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Min 8 characters with uppercase, lowercase, and a number</p>}
           </div>
           )}
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Role</label>
-            <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500">
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Role</label>
+            <select value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500">
               <option value="viewer">Viewer (read-only)</option>
               <option value="operator">Operator (can schedule)</option>
               <option value="admin">Admin (full access)</option>
@@ -78,8 +78,8 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
           </div>
           {hasGroups && (
             <div>
-              <label className="block text-sm text-farm-400 mb-1">Group</label>
-              <select value={formData.group_id} onChange={(e) => setFormData({ ...formData, group_id: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500">
+              <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Group</label>
+              <select value={formData.group_id} onChange={(e) => setFormData({ ...formData, group_id: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500">
                 <option value="">No group</option>
                 {groupsList?.map(g => (
                   <option key={g.id} value={g.id}>{g.name}</option>
@@ -89,13 +89,13 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }) {
           )}
           {user && (
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="is_active" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="rounded-lg" />
-              <label htmlFor="is_active" className="text-sm text-farm-400">Active</label>
+              <input type="checkbox" id="is_active" checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} className="rounded-md" />
+              <label htmlFor="is_active" className="text-sm text-[var(--brand-text-secondary)]">Active</label>
             </div>
           )}
           <div className="flex gap-3 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 py-2 border border-farm-700 rounded-lg hover:bg-farm-800 transition-colors text-sm">Cancel</button>
-            <button type="submit" className="flex-1 py-2 bg-print-600 hover:bg-print-500 rounded-lg font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
+            <button type="button" onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">Cancel</button>
+            <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
           </div>
         </form>
       </div>
@@ -160,19 +160,19 @@ function ImportUsersModal({ onClose, onImported }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-farm-900 rounded-t-xl sm:rounded border border-farm-800 w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-display font-bold flex items-center gap-2">
-            <Upload size={18} className="text-print-400" />
+            <Upload size={18} className="text-[var(--brand-primary)]" />
             Import Users from CSV
           </h2>
-          <button onClick={onClose} className="text-farm-500 hover:text-white"><X size={20} /></button>
+          <button onClick={onClose} className="text-[var(--brand-text-muted)] hover:text-white"><X size={20} /></button>
         </div>
 
         {/* Instructions */}
-        <div className="bg-farm-800 rounded-lg p-3 mb-4 text-xs text-farm-400">
-          <p className="font-medium text-farm-300 mb-1">CSV Format:</p>
-          <code className="block bg-farm-900 rounded px-2 py-1 font-mono">username,email,password,role</code>
+        <div className="bg-[var(--brand-input-bg)] rounded-md p-3 mb-4 text-xs text-[var(--brand-text-secondary)]">
+          <p className="font-medium text-[var(--brand-text-secondary)] mb-1">CSV Format:</p>
+          <code className="block bg-[var(--brand-card-bg)] rounded px-2 py-1 font-mono">username,email,password,role</code>
           <p className="mt-1">Role is optional (defaults to "viewer"). Valid roles: admin, operator, viewer.</p>
           <p>Passwords must be 8+ chars with uppercase, lowercase, and a number.</p>
         </div>
@@ -181,7 +181,7 @@ function ImportUsersModal({ onClose, onImported }) {
         <input ref={fileRef} type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
         <button
           onClick={() => fileRef.current?.click()}
-          className="w-full px-4 py-3 rounded-lg border-2 border-dashed border-farm-700 text-farm-400 hover:border-print-500 hover:text-print-400 text-sm transition-colors mb-4"
+          className="w-full px-4 py-3 rounded-md border-2 border-dashed border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-print-500 hover:text-[var(--brand-primary)] text-sm transition-colors mb-4"
         >
           <FileSpreadsheet size={16} className="inline mr-2" />
           {preview?.file ? preview.file.name : 'Click to select .csv file'}
@@ -189,7 +189,7 @@ function ImportUsersModal({ onClose, onImported }) {
 
         {/* Parse error */}
         {preview?.error && (
-          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300 mb-4">
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-md text-sm text-red-300 mb-4">
             {preview.error}
           </div>
         )}
@@ -197,22 +197,22 @@ function ImportUsersModal({ onClose, onImported }) {
         {/* Preview table */}
         {preview?.rows && (
           <div className="mb-4">
-            <p className="text-sm text-farm-300 mb-2">{preview.rows.length} user{preview.rows.length !== 1 ? 's' : ''} found:</p>
-            <div className="max-h-48 overflow-y-auto border border-farm-800 rounded-lg">
+            <p className="text-sm text-[var(--brand-text-secondary)] mb-2">{preview.rows.length} user{preview.rows.length !== 1 ? 's' : ''} found:</p>
+            <div className="max-h-48 overflow-y-auto border border-[var(--brand-card-border)] rounded-md">
               <table className="w-full text-xs">
-                <thead className="bg-farm-800 sticky top-0">
+                <thead className="bg-[var(--brand-input-bg)] sticky top-0">
                   <tr>
-                    <th className="py-1.5 px-2 text-left text-farm-400">Username</th>
-                    <th className="py-1.5 px-2 text-left text-farm-400">Email</th>
-                    <th className="py-1.5 px-2 text-left text-farm-400">Role</th>
+                    <th className="py-1.5 px-2 text-left text-[var(--brand-text-secondary)]">Username</th>
+                    <th className="py-1.5 px-2 text-left text-[var(--brand-text-secondary)]">Email</th>
+                    <th className="py-1.5 px-2 text-left text-[var(--brand-text-secondary)]">Role</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.rows.map((row, i) => (
-                    <tr key={i} className="border-t border-farm-800">
-                      <td className="py-1.5 px-2 text-farm-200">{row.username}</td>
-                      <td className="py-1.5 px-2 text-farm-400">{row.email}</td>
-                      <td className="py-1.5 px-2 text-farm-400">{row.role || 'viewer'}</td>
+                    <tr key={i} className="border-t border-[var(--brand-card-border)]">
+                      <td className="py-1.5 px-2 text-[var(--brand-text-primary)]">{row.username}</td>
+                      <td className="py-1.5 px-2 text-[var(--brand-text-secondary)]">{row.email}</td>
+                      <td className="py-1.5 px-2 text-[var(--brand-text-secondary)]">{row.role || 'viewer'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -223,18 +223,18 @@ function ImportUsersModal({ onClose, onImported }) {
 
         {/* Result */}
         {result && !result.error && (
-          <div className="p-3 rounded-lg mb-4 bg-farm-800 border border-farm-700 text-sm space-y-1">
+          <div className="p-3 rounded-md mb-4 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] text-sm space-y-1">
             <div className="flex items-center gap-2 text-green-400">
               <CheckCircle size={14} />
               {result.created} user{result.created !== 1 ? 's' : ''} created
             </div>
             {result.skipped > 0 && (
-              <div className="text-farm-400">{result.skipped} skipped (duplicate usernames)</div>
+              <div className="text-[var(--brand-text-secondary)]">{result.skipped} skipped (duplicate usernames)</div>
             )}
             {result.errors?.length > 0 && (
               <div className="mt-2">
                 <p className="text-amber-400 flex items-center gap-1"><AlertTriangle size={12} /> {result.errors.length} error{result.errors.length !== 1 ? 's' : ''}:</p>
-                <ul className="ml-4 mt-1 text-xs text-farm-500 space-y-0.5">
+                <ul className="ml-4 mt-1 text-xs text-[var(--brand-text-muted)] space-y-0.5">
                   {result.errors.slice(0, 10).map((err, i) => (
                     <li key={i}>Row {err.row}: {err.reason}</li>
                   ))}
@@ -245,21 +245,21 @@ function ImportUsersModal({ onClose, onImported }) {
           </div>
         )}
         {result?.error && (
-          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300 mb-4">
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-md text-sm text-red-300 mb-4">
             {result.error}
           </div>
         )}
 
         {/* Actions */}
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-farm-700 rounded-lg hover:bg-farm-800 transition-colors text-sm">
+          <button onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">
             {result ? 'Close' : 'Cancel'}
           </button>
           {!result && (
             <button
               onClick={handleImport}
               disabled={!preview?.rows || importing}
-              className="flex-1 py-2 bg-print-600 hover:bg-print-500 rounded-lg font-medium transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md font-medium transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {importing ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
               {importing ? 'Importing...' : `Import ${preview?.rows?.length || 0} Users`}
@@ -340,21 +340,21 @@ export default function Admin() {
     <div className="p-4 md:p-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 md:mb-8">
         <div className="flex items-center gap-3">
-          <Users className="text-print-400" size={24} />
+          <Users className="text-[var(--brand-primary)]" size={24} />
           <div>
             <h1 className="text-xl md:text-2xl font-display font-bold">Admin</h1>
-            <p className="text-farm-500 text-sm mt-1">Manage users and permissions</p>
+            <p className="text-[var(--brand-text-muted)] text-sm mt-1">Manage users and permissions</p>
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-farm-700 hover:bg-farm-600 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+          <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] px-4 py-2 rounded-md font-medium transition-colors text-sm">
             <Upload size={16} /> Import CSV
           </button>
           {atUserLimit
-            ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 bg-farm-700 text-farm-400 hover:text-farm-300 px-4 py-2 rounded-lg font-medium text-sm transition-colors" title={`User limit reached (${lic.maxUsers}). Upgrade to Pro for unlimited.`}>
+            ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-secondary)] px-4 py-2 rounded-md font-medium text-sm transition-colors" title={`User limit reached (${lic.maxUsers}). Upgrade to Pro for unlimited.`}>
                 <Plus size={16} /> Add User (limit: {lic.maxUsers})
               </button>
-            : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-print-600 hover:bg-print-500 px-4 py-2 rounded-lg font-medium transition-colors text-sm">
+            : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] px-4 py-2 rounded-md font-medium transition-colors text-sm">
                 <Plus size={16} /> Add User
               </button>
           }
@@ -364,19 +364,19 @@ export default function Admin() {
       {/* Search and Filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-farm-500" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--brand-text-muted)]" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by name or email..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-print-500"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-print-500"
           />
         </div>
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="bg-farm-800 border border-farm-700 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-print-500"
+          className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-print-500"
         >
           <option value="">All Roles</option>
           <option value="admin">Admin</option>
@@ -385,58 +385,58 @@ export default function Admin() {
         </select>
       </div>
 
-      <div className="bg-farm-900 rounded-lg border border-farm-800 overflow-hidden">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[550px]">
-            <thead className="bg-farm-800">
+            <thead className="bg-[var(--brand-input-bg)]">
               <tr>
-                <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">User</th>
-                <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">Role</th>
-                {hasGroups && <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm hidden md:table-cell">Group</th>}
-                <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">Status</th>
-                <th className="text-left py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm hidden md:table-cell">Last Login</th>
-                <th className="text-right py-3 px-3 md:px-4 text-farm-400 font-medium text-xs md:text-sm">Actions</th>
+                <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm">User</th>
+                <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm">Role</th>
+                {hasGroups && <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm hidden md:table-cell">Group</th>}
+                <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm">Status</th>
+                <th className="text-left py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm hidden md:table-cell">Last Login</th>
+                <th className="text-right py-3 px-3 md:px-4 text-[var(--brand-text-secondary)] font-medium text-xs md:text-sm">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-[var(--brand-text-muted)] text-sm"><div className="flex items-center justify-center gap-2"><RefreshCw size={14} className="animate-spin" />Loading...</div></td></tr>
               ) : filteredUsers.length === 0 ? (
-                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-farm-500 text-sm">{(searchQuery || roleFilter) ? 'No users match your filters' : 'No users found'}</td></tr>
+                <tr><td colSpan={hasGroups ? 7 : 5} className="py-8 text-center text-[var(--brand-text-muted)] text-sm">{(searchQuery || roleFilter) ? 'No users match your filters' : 'No users found'}</td></tr>
               ) : (
                 filteredUsers.map((user) => {
                   const RoleIcon = roleIcons[user.role] || Eye
                   return (
-                    <tr key={user.id} className="border-t border-farm-800 hover:bg-farm-800/50 transition-colors">
+                    <tr key={user.id} className="border-t border-[var(--brand-card-border)] hover:bg-[var(--brand-input-bg)]/50 transition-colors">
                       <td className="py-3 px-3 md:px-4">
                         <div>
                           <p className="font-medium text-sm">{user.username}</p>
-                          <p className="text-xs text-farm-500">{user.email}</p>
+                          <p className="text-xs text-[var(--brand-text-muted)]">{user.email}</p>
                         </div>
                       </td>
                       <td className="py-3 px-3 md:px-4">
-                        <span className={clsx('inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs', roleColors[user.role])}>
+                        <span className={clsx('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs', roleColors[user.role])}>
                           <RoleIcon size={12} />
                           {user.role}
                         </span>
                       </td>
-                      {hasGroups && <td className="py-3 px-3 md:px-4 text-sm text-farm-300 hidden md:table-cell">
-                        {user.group_id ? (groupsById[user.group_id]?.name || '—') : <span className="text-farm-600">—</span>}
+                      {hasGroups && <td className="py-3 px-3 md:px-4 text-sm text-[var(--brand-text-secondary)] hidden md:table-cell">
+                        {user.group_id ? (groupsById[user.group_id]?.name || '—') : <span className="text-[var(--brand-text-muted)]">—</span>}
                       </td>}
                       <td className="py-3 px-3 md:px-4 text-sm">
-                        {user.is_active ? <span className="text-green-400">Active</span> : <span className="text-farm-500">Disabled</span>}
+                        {user.is_active ? <span className="text-green-400">Active</span> : <span className="text-[var(--brand-text-muted)]">Disabled</span>}
                       </td>
-                      <td className="py-3 px-3 md:px-4 text-farm-500 text-sm hidden md:table-cell">
+                      <td className="py-3 px-3 md:px-4 text-[var(--brand-text-muted)] text-sm hidden md:table-cell">
                         {user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}
                       </td>
                       <td className="py-3 px-3 md:px-4">
                         <div className="flex justify-end gap-1">
-                          <button onClick={() => handleEdit(user)} className="p-1.5 md:p-2 hover:bg-farm-800 rounded-lg transition-colors" title="Edit"><Edit2 size={14} /></button>
+                          <button onClick={() => handleEdit(user)} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors" title="Edit"><Edit2 size={14} /></button>
                           {user.email && <button onClick={async () => {
                             try { await usersApi.resetPasswordEmail(user.id); toast.success('Password reset email sent') }
                             catch { toast.error('Failed — is SMTP configured?') }
-                          }} className="p-1.5 md:p-2 hover:bg-farm-800 rounded-lg transition-colors text-farm-400" title="Reset password & email"><KeyRound size={14} /></button>}
-                          <button onClick={() => handleDelete(user)} className="p-1.5 md:p-2 hover:bg-red-900/50 text-farm-400 hover:text-red-400 rounded-lg transition-colors" title="Delete"><Trash2 size={14} /></button>
+                          }} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors text-[var(--brand-text-secondary)]" title="Reset password & email"><KeyRound size={14} /></button>}
+                          <button onClick={() => handleDelete(user)} className="p-1.5 md:p-2 hover:bg-red-900/50 text-[var(--brand-text-secondary)] hover:text-red-400 rounded-md transition-colors" title="Delete"><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>

@@ -159,7 +159,7 @@ const handleSubmit = async (e) => {
     <div className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="w-full max-w-md">
-        <div className="rounded-lg p-8"
+        <div className="rounded-md p-8"
           style={{
             backgroundColor: 'var(--brand-card-bg)',
             border: '1px solid var(--brand-card-border)',
@@ -180,7 +180,7 @@ const handleSubmit = async (e) => {
 
           {/* Error */}
           {error && (
-            <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-3">
+            <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-3">
               <AlertCircle size={20} className="text-red-400" />
               <span className="text-red-400">{error}</span>
             </div>
@@ -206,7 +206,7 @@ const handleSubmit = async (e) => {
                     maxLength={6}
                     value={mfaCode}
                     onChange={handleMfaCodeChange}
-                    className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none text-center text-2xl tracking-[0.5em] font-mono"
+                    className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none text-center text-2xl tracking-[0.5em] font-mono"
                     style={{
                       backgroundColor: 'var(--brand-input-bg)',
                       border: '1px solid var(--brand-input-border)',
@@ -221,7 +221,7 @@ const handleSubmit = async (e) => {
               <button
                 type="submit"
                 disabled={isLoading || mfaCode.length !== 6}
-                className="w-full font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+                className="w-full font-medium py-3 rounded-md transition-colors disabled:opacity-50"
                 style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
               >
                 {isLoading ? 'Verifying...' : 'Verify'}
@@ -248,7 +248,7 @@ const handleSubmit = async (e) => {
                       type="text"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
+                      className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none"
                       style={{
                         backgroundColor: 'var(--brand-input-bg)',
                         border: '1px solid var(--brand-input-border)',
@@ -268,7 +268,7 @@ const handleSubmit = async (e) => {
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-lg py-3 pl-10 pr-4 focus:outline-none"
+                      className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none"
                       style={{
                         backgroundColor: 'var(--brand-input-bg)',
                         border: '1px solid var(--brand-input-border)',
@@ -283,7 +283,7 @@ const handleSubmit = async (e) => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+                  className="w-full font-medium py-3 rounded-md transition-colors disabled:opacity-50"
                   style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
                 >
                   {isLoading ? 'Signing in...' : 'Sign In'}
@@ -308,7 +308,7 @@ const handleSubmit = async (e) => {
                           value={forgotEmail}
                           onChange={(e) => setForgotEmail(e.target.value)}
                           placeholder="you@example.com"
-                          className="w-full px-3 py-2 rounded-lg text-sm"
+                          className="w-full px-3 py-2 rounded-md text-sm"
                           style={{ backgroundColor: 'var(--brand-input-bg)', border: '1px solid var(--brand-input-border)', color: 'var(--brand-text-primary)' }}
                         />
                         <div className="flex gap-2">
@@ -321,12 +321,12 @@ const handleSubmit = async (e) => {
                               setForgotLoading(false)
                             }}
                             disabled={forgotLoading || !forgotEmail}
-                            className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                            className="flex-1 py-2 rounded-md text-sm font-medium disabled:opacity-50"
                             style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
                           >
                             {forgotLoading ? 'Sending...' : 'Send Reset Link'}
                           </button>
-                          <button onClick={() => setShowForgot(false)} className="px-3 py-2 rounded-lg text-sm" style={{ color: 'var(--brand-text-muted)' }}>
+                          <button onClick={() => setShowForgot(false)} className="px-3 py-2 rounded-md text-sm" style={{ color: 'var(--brand-text-muted)' }}>
                             Cancel
                           </button>
                         </div>

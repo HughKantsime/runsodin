@@ -58,36 +58,36 @@ export default function DataRetentionSettings() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-4">
-        <Clock size={20} className="text-print-400" />
+        <Clock size={20} className="text-[var(--brand-primary)]" />
         <h3 className="text-lg font-semibold">Data Retention</h3>
       </div>
-      <p className="text-sm text-farm-400 mb-4">Configure how long data is kept before automatic cleanup. Set to 0 to keep forever.</p>
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">Configure how long data is kept before automatic cleanup. Set to 0 to keep forever.</p>
 
       {error && (
-        <div className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-2 text-sm text-red-400">
+        <div className="mb-3 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
       {success && (
-        <div className="mb-3 p-3 bg-green-900/30 border border-green-700 rounded-lg text-sm text-green-400">{success}</div>
+        <div className="mb-3 p-3 bg-green-900/30 border border-green-700 rounded-md text-sm text-green-400">{success}</div>
       )}
 
       <div className="space-y-3 mb-4">
         {FIELDS.map(f => (
           <div key={f.key} className="flex items-center gap-3">
-            <label className="w-40 text-sm text-farm-300">{f.label}</label>
-            <input type="number" min="0" className="w-24 bg-farm-800 border border-farm-700 rounded px-3 py-1.5 text-sm"
+            <label className="w-40 text-sm text-[var(--brand-text-secondary)]">{f.label}</label>
+            <input type="number" min="0" className="w-24 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-1.5 text-sm"
               value={config[f.key] ?? ''} placeholder="0"
               onChange={e => setConfig(prev => ({ ...prev, [f.key]: parseInt(e.target.value) || 0 }))} />
-            <span className="text-xs text-farm-500">days</span>
-            <span className="text-xs text-farm-600">{f.desc}</span>
+            <span className="text-xs text-[var(--brand-text-muted)]">days</span>
+            <span className="text-xs text-[var(--brand-text-muted)]">{f.desc}</span>
           </div>
         ))}
       </div>
 
       <div className="flex gap-3">
         <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 rounded bg-print-600 hover:bg-print-700 text-white text-sm disabled:opacity-50">
+          className="flex items-center gap-2 px-4 py-2 rounded bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-white text-sm disabled:opacity-50">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
           Save Policy
         </button>
@@ -99,10 +99,10 @@ export default function DataRetentionSettings() {
       </div>
 
       {cleanResult && (
-        <div className="mt-3 p-3 bg-farm-900 rounded-lg border border-farm-700 text-sm">
-          <p className="text-farm-300 font-medium mb-1">Cleanup complete:</p>
+        <div className="mt-3 p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] text-sm">
+          <p className="text-[var(--brand-text-secondary)] font-medium mb-1">Cleanup complete:</p>
           {Object.entries(cleanResult).map(([k, v]) => (
-            <p key={k} className="text-farm-400 text-xs">{k}: {v} records deleted</p>
+            <p key={k} className="text-[var(--brand-text-secondary)] text-xs">{k}: {v} records deleted</p>
           ))}
         </div>
       )}

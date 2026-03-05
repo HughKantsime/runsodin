@@ -84,42 +84,42 @@ export default function APITokenManager() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <Key size={20} className="text-print-400" />
+          <Key size={20} className="text-[var(--brand-primary)]" />
           <h3 className="text-lg font-semibold">API Tokens</h3>
         </div>
         {!showCreate && !newToken && (
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded bg-print-600 hover:bg-print-700 text-white text-sm"
+            className="flex items-center gap-2 px-3 py-1.5 rounded bg-[var(--brand-primary)] hover:opacity-90 text-white text-sm"
           >
             <Plus size={14} /> New Token
           </button>
         )}
       </div>
 
-      <p className="text-sm text-farm-400 mb-4">
+      <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
         Create personal API tokens with specific permissions for scripts, integrations, and CI/CD.
       </p>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-center gap-2 text-sm text-red-400">
+        <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
 
       {/* New token reveal */}
       {newToken && (
-        <div className="mb-4 p-4 bg-green-900/20 border border-green-700 rounded-lg">
+        <div className="mb-4 p-4 bg-green-900/20 border border-green-700 rounded-md">
           <p className="text-sm text-green-400 mb-2 font-medium">Token created. Copy it now — it won't be shown again.</p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-farm-900 px-3 py-2 rounded font-mono text-farm-200 select-all break-all">
+            <code className="flex-1 text-xs bg-[var(--brand-card-bg)] px-3 py-2 rounded font-mono text-[var(--brand-text-primary)] select-all break-all">
               {newToken}
             </code>
-            <button onClick={copyToken} className="p-2 rounded hover:bg-farm-700 text-farm-400 shrink-0">
+            <button onClick={copyToken} className="p-2 rounded hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] shrink-0">
               {copied ? <CheckCircle size={16} className="text-green-400" /> : <Copy size={16} />}
             </button>
           </div>
-          <button onClick={() => setNewToken(null)} className="mt-2 text-xs text-farm-500 hover:text-farm-300">
+          <button onClick={() => setNewToken(null)} className="mt-2 text-xs text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
             Dismiss
           </button>
         </div>
@@ -127,21 +127,21 @@ export default function APITokenManager() {
 
       {/* Create form */}
       {showCreate && (
-        <form onSubmit={handleCreate} className="mb-4 p-4 bg-farm-900 rounded-lg border border-farm-700 space-y-4">
+        <form onSubmit={handleCreate} className="mb-4 p-4 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] space-y-4">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Token name</label>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Token name</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-farm-800 border border-farm-700 rounded px-3 py-2 text-sm"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-2 text-sm"
               placeholder="e.g. CI Pipeline, Monitoring Script"
               required
               autoFocus
             />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Scopes</label>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Scopes</label>
             <div className="flex flex-wrap gap-2">
               {AVAILABLE_SCOPES.map(s => (
                 <button
@@ -150,8 +150,8 @@ export default function APITokenManager() {
                   onClick={() => toggleScope(s.value)}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                     scopes.includes(s.value)
-                      ? 'bg-print-600 text-white'
-                      : 'bg-farm-800 text-farm-400 hover:bg-farm-700'
+                      ? 'bg-[var(--brand-primary)] text-white'
+                      : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:opacity-80'
                   }`}
                 >
                   {s.label}
@@ -160,14 +160,14 @@ export default function APITokenManager() {
             </div>
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Expires in (days, blank = never)</label>
+            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Expires in (days, blank = never)</label>
             <input
               type="number"
               min="1"
               max="365"
               value={expiresDays}
               onChange={(e) => setExpiresDays(e.target.value)}
-              className="w-32 bg-farm-800 border border-farm-700 rounded px-3 py-2 text-sm"
+              className="w-32 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-2 text-sm"
               placeholder="Never"
             />
           </div>
@@ -175,7 +175,7 @@ export default function APITokenManager() {
             <button
               type="submit"
               disabled={actionLoading || !name.trim()}
-              className="flex items-center gap-2 px-4 py-2 rounded bg-print-600 hover:bg-print-700 text-white text-sm disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 rounded bg-[var(--brand-primary)] hover:opacity-90 text-white text-sm disabled:opacity-50"
             >
               {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
               Create Token
@@ -183,7 +183,7 @@ export default function APITokenManager() {
             <button
               type="button"
               onClick={() => { setShowCreate(false); setError('') }}
-              className="px-4 py-2 rounded bg-farm-800 hover:bg-farm-700 text-farm-300 text-sm"
+              className="px-4 py-2 rounded bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] text-sm"
             >
               Cancel
             </button>
@@ -195,21 +195,21 @@ export default function APITokenManager() {
       {tokens.length > 0 ? (
         <div className="space-y-2">
           {tokens.map(t => (
-            <div key={t.id} className="flex items-center justify-between p-3 bg-farm-900 rounded-lg border border-farm-700">
+            <div key={t.id} className="flex items-center justify-between p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-sm">{t.name}</span>
-                  <code className="text-xs text-farm-500 font-mono">{t.prefix}...</code>
+                  <code className="text-xs text-[var(--brand-text-muted)] font-mono">{t.prefix}...</code>
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {(t.scopes || []).map(s => (
-                    <span key={s} className="text-xs px-1.5 py-0.5 rounded bg-farm-800 text-farm-400">{s}</span>
+                    <span key={s} className="text-xs px-1.5 py-0.5 rounded bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">{s}</span>
                   ))}
                   {(!t.scopes || t.scopes.length === 0) && (
-                    <span className="text-xs text-farm-500 italic">No scopes (global)</span>
+                    <span className="text-xs text-[var(--brand-text-muted)] italic">No scopes (global)</span>
                   )}
                 </div>
-                <div className="flex gap-3 mt-1 text-xs text-farm-500">
+                <div className="flex gap-3 mt-1 text-xs text-[var(--brand-text-muted)]">
                   {t.expires_at && (
                     <span className="flex items-center gap-1">
                       <Clock size={10} /> Expires {new Date(t.expires_at).toLocaleDateString()}
@@ -222,7 +222,7 @@ export default function APITokenManager() {
               </div>
               <button
                 onClick={() => handleRevoke(t.id)}
-                className="p-2 rounded hover:bg-red-900/30 text-farm-500 hover:text-red-400"
+                className="p-2 rounded hover:bg-red-900/30 text-[var(--brand-text-muted)] hover:text-red-400"
               >
                 <Trash2 size={14} />
               </button>
@@ -230,7 +230,7 @@ export default function APITokenManager() {
           ))}
         </div>
       ) : !showCreate && (
-        <p className="text-sm text-farm-500 italic">No API tokens created yet.</p>
+        <p className="text-sm text-[var(--brand-text-muted)] italic">No API tokens created yet.</p>
       )}
     </div>
   )

@@ -70,7 +70,7 @@ export default function OrgManager() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Building2 size={18} className="text-print-400" />
+          <Building2 size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg font-display font-semibold">Organizations</h2>
         </div>
         <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowCreate(true)}>
@@ -79,14 +79,14 @@ export default function OrgManager() {
       </div>
 
       {showCreate && (
-        <div className="mb-4 p-3 bg-farm-800 rounded-lg border border-farm-700">
+        <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md border border-[var(--brand-card-border)]">
           <div className="flex items-center gap-2">
             <Input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Organization name"
-              className="flex-1 bg-farm-900"
+              className="flex-1 bg-[var(--brand-card-bg)]"
             />
             <Button
               variant="primary"
@@ -102,10 +102,10 @@ export default function OrgManager() {
         </div>
       )}
 
-      {isLoading && <div className="text-sm text-farm-500 py-4">Loading...</div>}
+      {isLoading && <div className="text-sm text-[var(--brand-text-muted)] py-4">Loading...</div>}
 
       {!isLoading && (!orgList || orgList.length === 0) && (
-        <p className="text-sm text-farm-500 py-4">No organizations yet. Create one to group users and assign resources.</p>
+        <p className="text-sm text-[var(--brand-text-muted)] py-4">No organizations yet. Create one to group users and assign resources.</p>
       )}
 
       {orgList?.map(org => (
@@ -153,17 +153,17 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
     })
   }
 
-  const inputCls = "bg-farm-900 border border-farm-700 rounded-lg px-2 py-1.5 text-sm w-full"
-  const labelCls = "text-xs text-farm-400 mb-1"
+  const inputCls = "bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm w-full"
+  const labelCls = "text-xs text-[var(--brand-text-secondary)] mb-1"
 
   return (
-    <div className="bg-farm-800 rounded-lg p-4 mb-3 border border-farm-700">
+    <div className="bg-[var(--brand-input-bg)] rounded-md p-4 mb-3 border border-[var(--brand-card-border)]">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Building2 size={16} className="text-print-400" />
+          <Building2 size={16} className="text-[var(--brand-primary)]" />
           <span className="font-medium">{org.name}</span>
           {org.member_count != null && (
-            <span className="text-xs text-farm-500">{org.member_count} members</span>
+            <span className="text-xs text-[var(--brand-text-muted)]">{org.member_count} members</span>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -172,7 +172,7 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
             size="icon"
             icon={Settings}
             onClick={onToggleSettings}
-            className={expanded ? 'text-print-400 bg-farm-700' : ''}
+            className={expanded ? 'text-[var(--brand-primary)] bg-[var(--brand-input-bg)]' : ''}
             aria-label="Organization settings"
           />
           <Button
@@ -180,7 +180,7 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
             size="icon"
             icon={Trash2}
             onClick={() => deleteOrg.mutate(org.id)}
-            className="text-farm-500 hover:text-red-400"
+            className="text-[var(--brand-text-muted)] hover:text-red-400"
             aria-label="Delete organization"
           />
         </div>
@@ -188,11 +188,11 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
 
       <div className="flex gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <UserPlus size={12} className="text-farm-400" />
+          <UserPlus size={12} className="text-[var(--brand-text-secondary)]" />
           <select
             value={addMemberId[org.id] || ''}
             onChange={(e) => setAddMemberId(p => ({ ...p, [org.id]: e.target.value }))}
-            className="bg-farm-900 border border-farm-700 rounded-lg px-2 py-1 text-xs"
+            className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"
           >
             <option value="">Add member...</option>
             {userList?.map(u => (
@@ -207,11 +207,11 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Printer size={12} className="text-farm-400" />
+          <Printer size={12} className="text-[var(--brand-text-secondary)]" />
           <select
             value={addPrinterId[org.id] || ''}
             onChange={(e) => setAddPrinterId(p => ({ ...p, [org.id]: e.target.value }))}
-            className="bg-farm-900 border border-farm-700 rounded-lg px-2 py-1 text-xs"
+            className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"
           >
             <option value="">Assign printer...</option>
             {printerList?.map(p => (
@@ -227,10 +227,10 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
       </div>
 
       {expanded && (
-        <div className="mt-4 pt-4 border-t border-farm-700 space-y-4">
+        <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)] space-y-4">
           {/* Default Filament */}
           <fieldset>
-            <legend className="text-sm font-medium text-farm-300 mb-2">Default Filament</legend>
+            <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Default Filament</legend>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className={labelCls}>Type</div>
@@ -258,14 +258,14 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
 
           {/* Notifications */}
           <fieldset>
-            <legend className="text-sm font-medium text-farm-300 mb-2">Notifications</legend>
+            <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Notifications</legend>
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={activeDraft.quiet_hours_enabled || false}
                   onChange={(e) => set('quiet_hours_enabled', e.target.checked)}
-                  className="rounded border-farm-600"
+                  className="rounded border-[var(--brand-card-border)]"
                 />
                 Quiet hours
               </label>
@@ -318,7 +318,7 @@ function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
 
           {/* Branding */}
           <fieldset>
-            <legend className="text-sm font-medium text-farm-300 mb-2">Branding</legend>
+            <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Branding</legend>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className={labelCls}>App Name</div>

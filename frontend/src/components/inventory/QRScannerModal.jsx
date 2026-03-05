@@ -205,7 +205,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
       <div className="space-y-4">
         {/* Success message */}
         {success && (
-          <div className="bg-green-900/50 border border-green-700 rounded-lg p-4 flex items-center gap-3">
+          <div className="bg-green-900/50 border border-green-700 rounded-md p-4 flex items-center gap-3">
             <Check className="w-6 h-6 text-green-400" />
             <span className="text-green-300">{success}</span>
           </div>
@@ -213,7 +213,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
 
         {/* Error message */}
         {error && (
-          <div className="bg-red-900/50 border border-red-700 rounded-lg p-3 text-red-300 text-sm">
+          <div className="bg-red-900/50 border border-red-700 rounded-md p-3 text-red-300 text-sm">
             {error}
           </div>
         )}
@@ -225,7 +225,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
               <div className="relative">
                 <video
                   ref={videoRef}
-                  className="w-full rounded-lg bg-black aspect-square object-cover"
+                  className="w-full rounded-md bg-black aspect-square object-cover"
                   playsInline
                   muted
                 />
@@ -233,7 +233,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
 
                 {/* Scanning overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-48 h-48 border-2 border-print-500 rounded-lg opacity-50" />
+                  <div className="w-48 h-48 border-2 border-[var(--brand-primary)] rounded-md opacity-50" />
                 </div>
 
                 {scanning && (
@@ -244,19 +244,19 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
               </div>
             ) : (
               <div className="space-y-3">
-                <label className="block text-sm text-farm-400">Enter spool code manually:</label>
+                <label className="block text-sm text-[var(--brand-text-muted)]">Enter spool code manually:</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={manualCode}
                     onChange={(e) => setManualCode(e.target.value)}
                     placeholder="SPL-XXXXXXXX"
-                    className="flex-1 bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                    className="flex-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
                     onKeyDown={(e) => e.key === 'Enter' && handleManualSubmit()}
                   />
                   <button
                     onClick={handleManualSubmit}
-                    className="px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-sm"
+                    className="px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-sm"
                   >
                     Look Up
                   </button>
@@ -266,7 +266,7 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
 
             <button
               onClick={() => setUseManual(!useManual)}
-              className="w-full text-center text-sm text-farm-400 hover:text-farm-300"
+              className="w-full text-center text-sm text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]"
             >
               {useManual ? '← Use camera instead' : 'Enter code manually →'}
             </button>
@@ -276,32 +276,32 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
         {/* Scanned spool info */}
         {scannedCode && spoolData && !success && (
           <div className="space-y-4">
-            <div className="bg-farm-800 rounded-lg p-4">
+            <div className="bg-[var(--brand-input-bg)] rounded-md p-4">
               <div className="flex items-center gap-3">
                 <div
-                  className="w-10 h-10 rounded-lg border border-farm-600"
+                  className="w-10 h-10 rounded-md border border-[var(--brand-card-border)]"
                   style={{ backgroundColor: spoolData.filament_color_hex || '#666' }}
                 />
                 <div>
-                  <div className="font-medium">{spoolData.filament_name}{spoolData.filament_color_hex && <span className="text-farm-400 ml-2">({getColorName(spoolData.filament_color_hex)})</span>}</div>
-                  <div className="text-sm text-farm-400">
+                  <div className="font-medium">{spoolData.filament_name}{spoolData.filament_color_hex && <span className="text-[var(--brand-text-muted)] ml-2">({getColorName(spoolData.filament_color_hex)})</span>}</div>
+                  <div className="text-sm text-[var(--brand-text-muted)]">
                     {spoolData.filament_brand} {spoolData.filament_material} • {spoolData.remaining_weight_g || spoolData.initial_weight_g}g
                   </div>
                 </div>
               </div>
-              <div className="mt-2 text-xs text-farm-500 font-mono">{scannedCode}</div>
+              <div className="mt-2 text-xs text-[var(--brand-text-muted)] font-mono">{scannedCode}</div>
             </div>
 
             {/* Printer selection */}
             <div>
-              <label className="block text-sm text-farm-400 mb-2">Assign to printer:</label>
+              <label className="block text-sm text-[var(--brand-text-muted)] mb-2">Assign to printer:</label>
               <select
                 value={selectedPrinter || ''}
                 onChange={(e) => {
                   setSelectedPrinter(parseInt(e.target.value));
                   setSelectedSlot(null);
                 }}
-                className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
               >
                 <option value="">Select printer...</option>
                 {printerList.map(p => (
@@ -313,16 +313,16 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
             {/* Slot selection */}
             {selectedPrinter && selectedPrinterData && (
               <div>
-                <label className="block text-sm text-farm-400 mb-2">Select slot:</label>
+                <label className="block text-sm text-[var(--brand-text-muted)] mb-2">Select slot:</label>
                 <div className="grid grid-cols-4 gap-2">
                   {Array.from({ length: selectedPrinterData.slot_count || 4 }, (_, i) => (
                     <button
                       key={i}
                       onClick={() => setSelectedSlot(i + 1)}
-                      className={`p-3 rounded-lg border text-sm font-medium transition-colors ${
+                      className={`p-3 rounded-md border text-sm font-medium transition-colors ${
                         selectedSlot === i + 1
-                          ? 'bg-print-600 border-print-500 text-white'
-                          : 'bg-farm-800 border-farm-700 hover:border-farm-600'
+                          ? 'bg-[var(--brand-primary)] border-[var(--brand-primary)] text-white'
+                          : 'bg-[var(--brand-input-bg)] border-[var(--brand-card-border)] hover:border-[var(--brand-text-muted)]'
                       }`}
                     >
                       {i + 1}
@@ -336,14 +336,14 @@ export default function QRScannerModal({ isOpen, onClose, onAssigned, preselecte
             <div className="flex gap-2">
               <button
                 onClick={resetScan}
-                className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-sm"
+                className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-sm"
               >
                 Scan Again
               </button>
               <button
                 onClick={handleAssign}
                 disabled={selectedPrinter === null || selectedSlot === null}
-                className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm"
+                className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-sm"
               >
                 Assign to Slot
               </button>

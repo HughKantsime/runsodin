@@ -51,12 +51,12 @@ export default function PrinterDetail() {
     return (
       <div className="p-4 md:p-6">
         <div className="flex items-center gap-3 mb-6">
-          <div className="h-8 w-8 bg-farm-800 rounded animate-pulse" />
-          <div className="h-6 w-48 bg-farm-800 rounded animate-pulse" />
+          <div className="h-8 w-8 bg-[var(--brand-input-bg)] rounded-md animate-pulse" />
+          <div className="h-6 w-48 bg-[var(--brand-input-bg)] rounded-md animate-pulse" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-24 bg-farm-900 border border-farm-800 rounded-lg animate-pulse" />
+            <div key={i} className="h-24 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md animate-pulse" />
           ))}
         </div>
       </div>
@@ -70,7 +70,7 @@ export default function PrinterDetail() {
           Back to Printers
         </Button>
         <Card className="mt-4 text-center py-12">
-          <p className="text-farm-400 text-sm">
+          <p className="text-sm" style={{ color: 'var(--brand-text-secondary)' }}>
             {error ? `Failed to load printer: ${error.message}` : 'Printer not found.'}
           </p>
         </Card>
@@ -169,13 +169,13 @@ export default function PrinterDetail() {
                 {point.nozzle_temp != null && (
                   <div className="flex justify-between">
                     <span style={{ color: 'var(--brand-text-muted)' }}>Nozzle</span>
-                    <span style={{ color: 'var(--brand-text-primary)' }}>{Math.round(point.nozzle_temp)}{'\u00B0'}C</span>
+                    <span className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{Math.round(point.nozzle_temp)}{'\u00B0'}C</span>
                   </div>
                 )}
                 {point.bed_temp != null && (
                   <div className="flex justify-between">
                     <span style={{ color: 'var(--brand-text-muted)' }}>Bed</span>
-                    <span style={{ color: 'var(--brand-text-primary)' }}>{Math.round(point.bed_temp)}{'\u00B0'}C</span>
+                    <span className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{Math.round(point.bed_temp)}{'\u00B0'}C</span>
                   </div>
                 )}
                 {point.fan_speed != null && (
@@ -254,7 +254,7 @@ export default function PrinterDetail() {
             {jobList.slice(0, 10).map(job => (
               <div
                 key={job.id}
-                className="flex items-center justify-between py-2 border-b border-farm-800 last:border-0"
+                className="flex items-center justify-between py-2 border-b border-[var(--brand-card-border)] last:border-0"
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate" style={{ color: 'var(--brand-text-primary)' }}>

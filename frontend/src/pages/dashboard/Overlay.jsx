@@ -84,9 +84,9 @@ export default function Overlay() {
     : data.gcode_state === 'IDLE' ? 'Idle'
     : data.gcode_state || 'Unknown'
 
-  const statusColor = data.gcode_state === 'RUNNING' ? 'text-green-400'
+  const statusColor = data.gcode_state === 'RUNNING' ? 'text-[var(--status-completed)]'
     : data.gcode_state === 'PAUSE' ? 'text-yellow-400'
-    : data.gcode_state === 'FINISH' ? 'text-blue-400'
+    : data.gcode_state === 'FINISH' ? 'text-[var(--status-printing)]'
     : mutedText
 
   const cameraUrl = data.camera_url
@@ -117,7 +117,7 @@ export default function Overlay() {
 
         {/* Job info + progress */}
         {isPrinting && (
-          <div className={`rounded-lg p-3 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+          <div className={`rounded-md p-3 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
             {data.job_name && (
               <p className="text-sm font-medium truncate mb-2">{data.job_name}</p>
             )}
@@ -125,13 +125,13 @@ export default function Overlay() {
             {/* Progress bar */}
             <div className={`h-3 rounded-full overflow-hidden ${barBg}`}>
               <div
-                className="h-full rounded-full bg-green-500 transition-all duration-500"
+                className="h-full rounded-full bg-[var(--status-completed)] transition-all duration-500"
                 style={{ width: `${Math.min(progress, 100)}%` }}
               />
             </div>
             <div className="flex justify-between mt-1 text-xs">
-              <span className={mutedText}>{Math.round(progress)}%</span>
-              <span className={mutedText}>ETA {formatETA(data.time_remaining_min)}</span>
+              <span className={`font-mono ${mutedText}`}>{Math.round(progress)}%</span>
+              <span className={`font-mono ${mutedText}`}>ETA {formatETA(data.time_remaining_min)}</span>
             </div>
 
             {/* Layer info */}
@@ -144,7 +144,7 @@ export default function Overlay() {
         )}
 
         {/* Temps */}
-        <div className={`rounded-lg p-3 space-y-2 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+        <div className={`rounded-md p-3 space-y-2 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
           <TempGauge label="Nozzle" current={data.nozzle_temp} target={data.nozzle_target_temp} />
           <TempGauge label="Bed" current={data.bed_temp} target={data.bed_target_temp} />
         </div>

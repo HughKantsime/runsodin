@@ -43,12 +43,12 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
   
   const isPrinting = printer.gcode_state === 'RUNNING' || printer.gcode_state === 'PAUSE'
   const hasError = printer.hms_errors && printer.hms_errors.length > 0
-  const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-green-500' : online ? 'bg-yellow-500' : 'bg-farm-600'
+  const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
 
   return (
     <div
-      className={clsx("bg-farm-900 rounded-lg border overflow-hidden h-fit cursor-pointer hover:border-farm-600 transition-colors", hasLowSpool ? "border-amber-600/50" : "border-farm-800")}
+      className={clsx("bg-[var(--brand-card-bg)] rounded-md border overflow-hidden h-fit cursor-pointer hover:border-[var(--brand-card-border)] transition-colors", hasLowSpool ? "border-amber-600/50" : "border-[var(--brand-card-border)]")}
       onClick={onClick}
     >
       <div className="p-3 md:p-4">
@@ -56,29 +56,29 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="flex items-center gap-1.5 text-[10px] md:text-xs font-medium">
-              <span className={clsx('w-2 h-2 rounded-full', statusColor)} />
-              <span className={hasError ? 'text-red-400' : isPrinting ? 'text-green-400' : online ? 'text-yellow-400' : 'text-farm-500'}>{statusLabel}</span>
+              <span className={clsx('w-1.5 h-1.5 rounded-full', statusColor)} />
+              <span className={hasError ? 'text-[var(--status-failed)]' : isPrinting ? 'text-[var(--status-completed)]' : online ? 'text-yellow-400' : 'text-[var(--brand-text-muted)]'}>{statusLabel}</span>
             </span>
             {hasCamera && (
-              <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-farm-700 rounded-lg transition-colors" aria-label="View camera">
-                <Video size={14} className="text-farm-400" />
+              <button onClick={(e) => { e.stopPropagation(); onCameraClick(printer) }} className="p-1 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors" aria-label="View camera">
+                <Video size={14} className="text-[var(--brand-text-secondary)]" />
               </button>
             )}
           </div>
         </div>
         {activeJob && (
-          <div className="mb-3 bg-farm-800 rounded-lg p-3">
+          <div className="mb-3 bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 min-w-0">
-                <Activity size={14} className="text-print-400 animate-pulse flex-shrink-0" />
+                <Activity size={14} className="text-[var(--brand-primary)] animate-pulse flex-shrink-0" />
                 <span className="text-sm font-medium truncate">{activeJob.job_name || 'Printing'}</span>
               </div>
               <div className="text-right flex-shrink-0">
-                <span className="text-lg font-bold text-green-400">{activeJob.progress_percent || 0}%</span>
+                <span className="text-lg font-bold font-mono text-[var(--status-completed)]">{activeJob.progress_percent || 0}%</span>
               </div>
             </div>
             <ProgressBar value={activeJob.progress_percent || 0} color="green" size="md" className="mb-1.5" />
-            <div className="flex justify-between text-xs text-farm-500">
+            <div className="flex justify-between text-xs text-[var(--brand-text-muted)]">
               <span>
                 {activeJob.current_layer && activeJob.total_layers 
                   ? `Layer ${activeJob.current_layer}/${activeJob.total_layers}`
@@ -99,23 +99,23 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
 
         <div className="grid grid-cols-4 gap-1.5 md:gap-2">
           {slots.map((slot, idx) => (
-            <div key={idx} className="bg-farm-800 rounded-lg p-1.5 md:p-2 text-center min-w-0">
+            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1.5 md:p-2 text-center min-w-0">
               <div 
-                className="w-full h-2.5 md:h-3 rounded-lg mb-1" 
+                className="w-full h-2.5 md:h-3 rounded-md mb-1" 
                 style={{ backgroundColor: slot.color_hex ? `#${slot.color_hex}` : (slot.color ? '#888' : '#333') }} 
               />
-              <span className="text-[10px] md:text-xs text-farm-500 truncate block">{getShortName(slot)}</span>
+              <span className="text-[10px] md:text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
             </div>
           ))}
         </div>
       </div>
       {/* Bottom status bar */}
-      <div className="px-3 md:px-4 py-2 md:py-3 bg-farm-950 border-t border-farm-800">
+      <div className="px-3 md:px-4 py-2 md:py-3 bg-[var(--brand-content-bg)] border-t border-[var(--brand-card-border)]">
         <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${statusColor}`}></div>
-            <span className={online ? "text-green-400" : "text-farm-500"}>{statusLabel}</span>
+            <div className={`w-1.5 h-1.5 rounded-full ${statusColor}`}></div>
+            <span className={online ? "text-[var(--status-completed)]" : "text-[var(--brand-text-muted)]"}>{statusLabel}</span>
           </div>
           {printer.lights_on != null && (
             <button
@@ -125,14 +125,14 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
                   .then(() => toast.success(printer.lights_on ? 'Lights off' : 'Lights on'))
                   .catch(() => toast.error('Failed to toggle lights'))
               }}
-              className={`p-0.5 rounded-lg transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-farm-600 hover:text-farm-400'}`}
+              className={`p-0.5 rounded-md transition-colors ${printer.lights_on ? 'text-yellow-400 hover:text-yellow-300' : 'text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]'}`}
               aria-label={printer.lights_on ? 'Turn lights off' : 'Turn lights on'}
             >
               <Lightbulb size={14} />
             </button>
           )}
         </div>
-        <div className="flex items-center gap-3 text-farm-400">
+        <div className="flex items-center gap-3 text-[var(--brand-text-secondary)]">
           {nozTemp != null && (
             <span className={isHeating ? "text-orange-400" : ""} title={nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}>
               Nozzle {nozTemp}°{nozTarget > 0 ? `/${nozTarget}°` : ''}
@@ -144,7 +144,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
             </span>
           )}
           {stage && (
-            <span className="text-print-400">{stage}</span>
+            <span className="text-[var(--brand-primary)]">{stage}</span>
           )}
         </div>
         </div>
@@ -162,27 +162,27 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
   }
 
   return (
-    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800', statusColors[job.status])}>
+    <div className={clsx('bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 border-l-4 border border-[var(--brand-card-border)]', statusColors[job.status])}>
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium truncate">{job.item_name}</h4>
-          <p className="text-sm text-farm-500 truncate">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
+          <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
           {canDo('dashboard.actions') && job.status === 'scheduled' && (
-            <span className={clsx('px-2 py-1 rounded-lg text-xs font-medium',
-              job.status === 'scheduled' ? 'bg-blue-900/30 text-blue-400' :
+            <span className={clsx('px-2 py-1 rounded-md text-xs font-medium',
+              job.status === 'scheduled' ? 'bg-blue-900/30 text-[var(--status-printing)]' :
               job.status === 'pending' ? 'bg-amber-900/30 text-amber-400' :
-              'bg-farm-800 text-farm-400'
+              'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]'
             )}>{job.status}</span>
           )}
           {canDo('dashboard.actions') && job.status === 'printing' && (
-            <button onClick={() => onComplete(job.id)} className="p-1.5 md:p-2 bg-green-600 hover:bg-green-500 rounded-lg transition-colors" aria-label="Mark job complete">
+            <button onClick={() => onComplete(job.id)} className="p-1.5 md:p-2 bg-green-600 hover:bg-green-500 rounded-md transition-colors" aria-label="Mark job complete">
               <CheckCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
           {canDo('dashboard.actions') && (job.status === 'scheduled' || job.status === 'printing' || job.status === 'pending') && (
-            <button onClick={() => onCancel(job.id)} className="p-1.5 md:p-2 bg-farm-700 hover:bg-red-600 rounded-lg transition-colors" aria-label="Cancel job">
+            <button onClick={() => onCancel(job.id)} className="p-1.5 md:p-2 bg-[var(--brand-input-bg)] hover:bg-red-600 rounded-md transition-colors" aria-label="Cancel job">
               <XCircle size={14} className="md:w-4 md:h-4" />
             </button>
           )}
@@ -192,7 +192,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
       {job.colors_list?.length > 0 && (
         <div className="flex gap-1 mt-2">
           {job.colors_list.map((color, i) => (
-            <div key={i} className="w-4 h-4 md:w-5 md:h-5 rounded-full border border-farm-600" style={{ backgroundColor: color }} role="img" aria-label={`Color: ${color}`} />
+            <div key={i} className="w-4 h-4 md:w-5 md:h-5 rounded-full border border-[var(--brand-card-border)]" style={{ backgroundColor: color }} role="img" aria-label={`Color: ${color}`} />
           ))}
         </div>
       )}
@@ -202,17 +202,17 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
 
 function MqttPrintItem({ job }) {
   return (
-    <div className="bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800 border-l-print-500">
+    <div className="bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 border-l-4 border border-[var(--brand-card-border)] border-l-[var(--brand-primary)]">
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium flex items-center gap-2 truncate">
-            <Activity size={14} className="text-print-400 animate-pulse flex-shrink-0" />
+            <Activity size={14} className="text-[var(--brand-primary)] animate-pulse flex-shrink-0" />
             <span className="truncate">{job.job_name || 'Unknown'}</span>
           </h4>
-          <p className="text-sm text-farm-500 truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
+          <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
         </div>
         <div className="text-right flex-shrink-0">
-          <p className="text-lg font-bold text-print-400">{job.progress_percent || 0}%</p>
+          <p className="text-lg font-bold font-mono text-[var(--brand-primary)]">{job.progress_percent || 0}%</p>
         </div>
       </div>
     </div>
@@ -222,21 +222,21 @@ function MqttPrintItem({ job }) {
 function PrintHistoryItem({ job }) {
   const statusColors = {
     running: "border-yellow-500",
-    completed: "border-farm-600",
+    completed: "border-[var(--brand-card-border)]",
     failed: "border-red-500",
-    cancelled: "border-farm-600",
+    cancelled: "border-[var(--brand-card-border)]",
   }
 
   return (
-    <div className={clsx('bg-farm-900 rounded-lg p-3 md:p-4 border-l-4 border border-farm-800', statusColors[job.status] || 'border-l-farm-700')}>
+    <div className={clsx('bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 border-l-4 border border-[var(--brand-card-border)]', statusColors[job.status] || 'border-l-[var(--brand-card-border)]')}>
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium truncate">{job.job_name || 'Unknown'}</h4>
-          <p className="text-sm text-farm-500 truncate">{job.printer_name} • {formatTime(job.started_at)}</p>
+          <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • {formatTime(job.started_at)}</p>
         </div>
         <div className="text-right flex-shrink-0">
-          <div className="font-medium text-print-400">{formatDuration(job.duration_minutes)}</div>
-          {job.total_layers && <p className="text-xs text-farm-500">{job.total_layers} layers</p>}
+          <div className="font-medium text-[var(--brand-primary)]">{formatDuration(job.duration_minutes)}</div>
+          {job.total_layers && <p className="text-xs text-[var(--brand-text-muted)]">{job.total_layers} layers</p>}
         </div>
       </div>
     </div>
@@ -255,13 +255,13 @@ function AlertsWidget() {
   if (!summary || summary.total === 0) return null
 
   const items = [
-    { key: 'print_failed', count: summary.print_failed, icon: <XCircle size={14} className="text-red-400" />, label: 'failed print', plural: 'failed prints', filter: 'critical' },
+    { key: 'print_failed', count: summary.print_failed, icon: <XCircle size={14} className="text-[var(--status-failed)]" />, label: 'failed print', plural: 'failed prints', filter: 'critical' },
     { key: 'spool_low', count: summary.spool_low, icon: <AlertCircle size={14} className="text-amber-400" />, label: 'low spool', plural: 'low spools', filter: 'warning' },
     { key: 'maintenance_overdue', count: summary.maintenance_overdue, icon: <Wrench size={14} className="text-amber-400" />, label: 'maintenance overdue', plural: 'maintenance overdue', filter: 'warning' },
   ].filter(i => i.count > 0)
 
   return (
-    <div className="mb-6 md:mb-8 rounded-lg border border-amber-600/30 bg-amber-950/20 p-4">
+    <div className="mb-6 md:mb-8 rounded-md border border-amber-600/30 bg-amber-950/20 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <AlertTriangle size={16} className="text-amber-400" />
@@ -279,7 +279,7 @@ function AlertsWidget() {
           <button
             key={item.key}
             onClick={() => navigate(`/alerts?filter=${item.filter}`)}
-            className="flex items-center gap-2 w-full text-left hover:bg-amber-900/20 rounded-lg px-2 py-1.5 transition-colors"
+            className="flex items-center gap-2 w-full text-left hover:bg-amber-900/20 rounded-md px-2 py-1.5 transition-colors"
           >
             <span className="flex-shrink-0">{item.icon}</span>
             <span className="text-sm text-amber-200">
@@ -325,7 +325,7 @@ function MaintenanceWidget() {
 
   return (
     <div>
-      <h2 className="text-lg md:text-xl font-display font-semibold mb-4 flex items-center gap-2">
+      <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4 flex items-center gap-2">
         <Wrench size={18} className="text-purple-400" />
         Maintenance Due
       </h2>
@@ -333,21 +333,21 @@ function MaintenanceWidget() {
         {needsAttention.slice(0, 6).map((item, i) => {
           const isOverdue = item.status === 'overdue'
           return (
-            <div key={i} className={`bg-farm-900 rounded-lg border p-3 cursor-pointer hover:border-farm-600 transition-colors ${isOverdue ? 'border-red-800' : 'border-farm-800'}`} onClick={() => navigate('/maintenance')}>
+            <div key={i} className={`bg-[var(--brand-card-bg)] rounded-md border p-3 cursor-pointer hover:border-[var(--brand-card-border)] transition-colors ${isOverdue ? 'border-red-800' : 'border-[var(--brand-card-border)]'}`} onClick={() => navigate('/maintenance')}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium truncate">{item.printerName}</span>
-                {isOverdue && <span className="text-xs bg-red-900/50 text-red-400 px-1.5 py-0.5 rounded-lg font-medium">OVERDUE</span>}
+                {isOverdue && <span className="text-xs bg-red-900/50 text-[var(--status-failed)] px-1.5 py-0.5 rounded-md font-medium">OVERDUE</span>}
               </div>
-              <div className="text-xs text-farm-400 mb-2">{item.taskName}</div>
+              <div className="text-xs text-[var(--brand-text-secondary)] mb-2">{item.taskName}</div>
               <ProgressBar value={Math.min(item.progress, 100)} color={isOverdue ? 'red' : item.progress >= 90 ? 'yellow' : 'blue'} size="sm" />
-              <div className="text-xs text-farm-500 mt-1">
+              <div className="text-xs text-[var(--brand-text-muted)] mt-1">
                 {item.daysSince}d since service{item.hoursSince > 0 ? ` · ${item.hoursSince.toFixed(0)}h printed` : ''}
               </div>
             </div>
           )
         })}
         {needsAttention.length > 6 && (
-          <div className="text-xs text-farm-500 text-center py-1">+{needsAttention.length - 6} more</div>
+          <div className="text-xs text-[var(--brand-text-muted)] text-center py-1">+{needsAttention.length - 6} more</div>
         )}
       </div>
     </div>
@@ -452,14 +452,14 @@ export default function Dashboard() {
   ])
 
   const highlightClass = (key) =>
-    clsx(highlightedKeys.has(key) && 'ring-2 ring-print-500/50 transition-all duration-1000')
+    clsx(highlightedKeys.has(key) && 'ring-2 ring-[var(--brand-primary)]/50 transition-all duration-1000')
 
   const isLoading = statsLoading || printersLoading || jobsLoading
 
   if (isLoading) {
     return (
       <div className="p-4 md:p-6 flex items-center justify-center min-h-[50vh]">
-        <Loader2 size={24} className="animate-spin text-farm-500" />
+        <Loader2 size={24} className="animate-spin text-[var(--brand-text-muted)]" />
       </div>
     )
   }
@@ -491,7 +491,7 @@ export default function Dashboard() {
         {/* Printers — full width */}
         <SectionErrorBoundary>
           <div>
-            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Printers</h2>
+            <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4">Printers</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {printersData?.map((printer) => (
                 <PrinterCard
@@ -504,7 +504,7 @@ export default function Dashboard() {
                 />
               ))}
               {(!printersData || printersData.length === 0) && (
-                <div className="col-span-full bg-farm-900 rounded-lg border border-farm-800">
+                <div className="col-span-full bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
                   <EmptyState title="No printers configured." />
                 </div>
               )}
@@ -516,9 +516,9 @@ export default function Dashboard() {
         <SectionErrorBoundary>
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg md:text-xl font-display font-semibold">Scheduled Jobs</h2>
+              <h2 className="font-semibold text-sm text-[var(--brand-text-primary)]">Scheduled Jobs</h2>
               {activeJobs?.filter(j => ['scheduled', 'pending'].includes(j.status)).length > 12 && (
-                <a href="/jobs" className="text-xs text-print-400 hover:text-print-300 transition-colors">View all →</a>
+                <a href="/jobs" className="text-xs text-[var(--brand-primary)] hover:text-[var(--brand-primary)] transition-colors">View all →</a>
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -535,7 +535,7 @@ export default function Dashboard() {
                 ))}
             </div>
             {(!activeJobs || activeJobs.filter(j => ['scheduled', 'pending'].includes(j.status)).length === 0) && (
-              <div className="bg-farm-900 rounded-lg border border-farm-800">
+              <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
                 <EmptyState title="No scheduled jobs" />
               </div>
             )}
@@ -545,12 +545,12 @@ export default function Dashboard() {
         {/* Recent Prints — full width */}
         <SectionErrorBoundary>
           <div>
-            <h2 className="text-lg md:text-xl font-display font-semibold mb-4">Recent Prints</h2>
+            <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4">Recent Prints</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {completedMqttJobs.slice(0, 12).map((job) => <PrintHistoryItem key={job.id} job={job} />)}
             </div>
             {completedMqttJobs.length === 0 && (
-              <div className="bg-farm-900 rounded-lg border border-farm-800">
+              <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
                 <EmptyState title="No print history yet" />
               </div>
             )}

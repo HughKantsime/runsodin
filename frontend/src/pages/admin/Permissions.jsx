@@ -34,7 +34,7 @@ const ROLES = ['admin', 'operator', 'viewer']
 const ROLE_META = {
   admin:    { icon: Crown,   color: 'text-yellow-400', label: 'Admin' },
   operator: { icon: UserCog, color: 'text-blue-400',   label: 'Operator' },
-  viewer:   { icon: Eye,     color: 'text-farm-400',   label: 'Viewer' },
+  viewer:   { icon: Eye,     color: 'text-[var(--brand-text-secondary)]',   label: 'Viewer' },
 }
 
 // Group pages and actions for cleaner display
@@ -71,14 +71,14 @@ function Toggle({ checked, onChange, disabled, locked }) {
   if (locked) {
     return (
       <div className="flex items-center justify-center" title="Required — cannot be disabled">
-        <Lock size={14} className="text-farm-600" />
+        <Lock size={14} className="text-[var(--brand-text-muted)]" />
       </div>
     )
   }
   return (
     <button onClick={onChange} disabled={disabled}
       className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${
-        checked ? 'bg-green-500/80' : 'bg-farm-700'
+        checked ? 'bg-green-500/80' : 'bg-[var(--brand-input-bg)]'
       } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-90'}`}>
       <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0'}`} />
     </button>
@@ -88,12 +88,12 @@ function Toggle({ checked, onChange, disabled, locked }) {
 function MatrixTable({ title, groups, access, type, onToggle, saving }) {
   return (
     <div>
-      <h3 className="text-sm font-medium text-farm-300 uppercase tracking-wider mb-3">{title}</h3>
-      <div className="border border-farm-800 rounded-lg overflow-hidden overflow-x-auto">
+      <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] uppercase tracking-wider mb-3">{title}</h3>
+      <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden overflow-x-auto">
         <table className="w-full text-sm min-w-[400px]">
           <thead>
-            <tr className="bg-farm-900">
-              <th className="text-left px-4 py-3 text-farm-400 text-xs uppercase w-48">
+            <tr className="bg-[var(--brand-card-bg)]">
+              <th className="text-left px-4 py-3 text-[var(--brand-text-secondary)] text-xs uppercase w-48">
                 {type === 'page' ? 'Page' : 'Action'}
               </th>
               {ROLES.map(role => {
@@ -116,17 +116,17 @@ function MatrixTable({ title, groups, access, type, onToggle, saving }) {
               const validItems = items.filter(item => access[item] !== undefined)
               if (validItems.length === 0) return null
               return [
-                <tr key={`group-${group.label}`} className="bg-farm-800/30">
-                  <td colSpan={4} className="px-4 py-1.5 text-xs text-farm-500 font-medium uppercase tracking-wider">
+                <tr key={`group-${group.label}`} className="bg-[var(--brand-input-bg)]/30">
+                  <td colSpan={4} className="px-4 py-1.5 text-xs text-[var(--brand-text-muted)] font-medium uppercase tracking-wider">
                     {group.label}
                   </td>
                 </tr>,
                 ...validItems.map(item => (
-                  <tr key={item} className="border-t border-farm-800/50 hover:bg-farm-800/20">
-                    <td className="px-4 py-2.5 text-farm-200">
+                  <tr key={item} className="border-t border-[var(--brand-card-border)]/50 hover:bg-[var(--brand-input-bg)]/20">
+                    <td className="px-4 py-2.5 text-[var(--brand-text-primary)]">
                       {type === 'page' ? formatName(item) : (
                         <span>
-                          <span className="text-farm-500">{item.split('.')[0]}.</span>
+                          <span className="text-[var(--brand-text-muted)]">{item.split('.')[0]}.</span>
                           {formatName(item)}
                         </span>
                       )}
@@ -234,7 +234,7 @@ export default function Permissions() {
   }
 
   if (isLoading || !localPageAccess) {
-    return <div className="text-farm-500 text-center py-12">Loading permissions...</div>
+    return <div className="text-[var(--brand-text-muted)] text-center py-12">Loading permissions...</div>
   }
 
   const saving = saveMutation.isPending || resetMutation.isPending
@@ -268,7 +268,7 @@ export default function Permissions() {
                 <meta.icon size={18} className={meta.color} />
                 <span className={`font-medium ${meta.color}`}>{meta.label}</span>
               </div>
-              <div className="text-xs text-farm-400">
+              <div className="text-xs text-[var(--brand-text-secondary)]">
                 {pageCount} page{pageCount !== 1 ? 's' : ''} · {actionCount} action{actionCount !== 1 ? 's' : ''}
               </div>
             </Card>
@@ -278,7 +278,7 @@ export default function Permissions() {
 
       {/* Unsaved indicator */}
       {dirty && (
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-2 text-sm text-yellow-400 flex items-center gap-2">
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md px-4 py-2 text-sm text-yellow-400 flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
           Unsaved changes — click Save to apply
         </div>
@@ -309,7 +309,7 @@ export default function Permissions() {
       </div>
 
       {saveMutation.isError && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-400">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-md px-4 py-3 text-sm text-red-400">
           Error: {saveMutation.error?.message || 'Failed to save permissions'}
         </div>
       )}

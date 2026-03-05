@@ -53,7 +53,7 @@ export default function SessionManager() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <Globe size={20} className="text-print-400" />
+          <Globe size={20} className="text-[var(--brand-primary)]" />
           <h3 className="text-lg font-semibold">Active Sessions</h3>
         </div>
         {sessionList.length > 1 && (
@@ -69,16 +69,16 @@ export default function SessionManager() {
       </div>
 
       {sessionList.length === 0 ? (
-        <p className="text-sm text-farm-500 italic">No active sessions.</p>
+        <p className="text-sm text-[var(--brand-text-muted)] italic">No active sessions.</p>
       ) : (
         <div className="space-y-2">
           {sessionList.map(s => {
             const { device, browser } = parseUA(s.user_agent)
             const DeviceIcon = device === 'Mobile' ? Smartphone : Monitor
             return (
-              <div key={s.id} className="flex items-center justify-between p-3 bg-farm-900 rounded-lg border border-farm-700">
+              <div key={s.id} className="flex items-center justify-between p-3 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)]">
                 <div className="flex items-center gap-3">
-                  <DeviceIcon size={18} className="text-farm-400" />
+                  <DeviceIcon size={18} className="text-[var(--brand-text-secondary)]" />
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{browser} on {device}</span>
@@ -88,7 +88,7 @@ export default function SessionManager() {
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-farm-500 mt-0.5">
+                    <div className="text-[11px] text-[var(--brand-text-muted)] mt-0.5">
                       {s.ip_address} &middot; Last seen {s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : 'recently'}
                     </div>
                   </div>
@@ -97,7 +97,7 @@ export default function SessionManager() {
                   <button
                     onClick={() => handleRevoke(s.id)}
                     disabled={revoking === s.id}
-                    className="p-2 rounded hover:bg-red-900/30 text-farm-500 hover:text-red-400"
+                    className="p-2 rounded hover:bg-red-900/30 text-[var(--brand-text-muted)] hover:text-red-400"
                   >
                     {revoking === s.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                   </button>

@@ -30,12 +30,12 @@ export function CreateSpoolModal({ filaments, onClose, onCreate }) {
     <Modal isOpen={true} onClose={onClose} title="Add New Spool" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Filament Type</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Filament Type</label>
           <select
             value={form.filament_id}
             onChange={(e) => setForm({ ...form, filament_id: e.target.value })}
             required
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           >
             <option value="">Select filament...</option>
             {filaments?.map(f => (
@@ -46,59 +46,59 @@ export function CreateSpoolModal({ filaments, onClose, onCreate }) {
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Net Weight (g)</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Net Weight (g)</label>
             <input
               type="number"
               value={form.initial_weight_g}
               onChange={(e) => setForm({ ...form, initial_weight_g: parseInt(e.target.value) })}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Spool Weight (g)</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Spool Weight (g)</label>
             <input
               type="number"
               value={form.spool_weight_g}
               onChange={(e) => setForm({ ...form, spool_weight_g: parseInt(e.target.value) })}
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Vendor</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Vendor</label>
             <input
               type="text"
               value={form.vendor}
               onChange={(e) => setForm({ ...form, vendor: e.target.value })}
               placeholder="Amazon, MatterHackers..."
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Price</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Price</label>
             <input
               type="number"
               step="0.01"
               value={form.price}
               onChange={(e) => setForm({ ...form, price: e.target.value })}
               placeholder="24.99"
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Storage Location</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Storage Location</label>
           <input
             type="text"
             value={form.storage_location}
             onChange={(e) => setForm({ ...form, storage_location: e.target.value })}
             placeholder="Shelf A1, Dry Box 2..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
@@ -106,13 +106,13 @@ export function CreateSpoolModal({ filaments, onClose, onCreate }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
+            className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
+            className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white"
           >
             Add Spool
           </button>
@@ -141,26 +141,26 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Load Spool" size="md">
-      <div className="mb-4 p-3 bg-farm-800 rounded-lg flex items-center gap-3">
+      <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md flex items-center gap-3">
         {spool.filament_color_hex && (
           <div
-            className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
+            className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] flex-shrink-0"
             style={{ backgroundColor: `#${spool.filament_color_hex}` }}
           />
         )}
-        <span className="text-farm-200 truncate">
+        <span className="text-[var(--brand-text-secondary)] truncate">
           {spool.filament_brand} {spool.filament_name}
         </span>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Printer</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Printer</label>
           <select
             value={form.printer_id}
             onChange={(e) => setForm({ ...form, printer_id: e.target.value, slot_number: '' })}
             required
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           >
             <option value="">Select printer...</option>
             {printers?.map(p => (
@@ -171,12 +171,12 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
 
         {selectedPrinter && (
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Slot</label>
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Slot</label>
             <select
               value={form.slot_number}
               onChange={(e) => setForm({ ...form, slot_number: e.target.value })}
               required
-              className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
             >
               <option value="">Select slot...</option>
               {Array.from({ length: selectedPrinter.slot_count }, (_, i) => i + 1).map(n => {
@@ -195,13 +195,13 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
+            className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
+            className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white"
           >
             Load
           </button>
@@ -228,26 +228,26 @@ export function UseSpoolModal({ spool, onClose, onUse }) {
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Record Usage" size="md">
-      <div className="mb-4 p-3 bg-farm-800 rounded-lg">
+      <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md">
         <div className="flex items-center gap-3 mb-2">
           {spool.filament_color_hex && (
             <div
-              className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0"
+              className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] flex-shrink-0"
               style={{ backgroundColor: `#${spool.filament_color_hex}` }}
             />
           )}
-          <span className="text-farm-200 truncate">
+          <span className="text-[var(--brand-text-secondary)] truncate">
             {spool.filament_brand} {spool.filament_name}
           </span>
         </div>
-        <div className="text-sm text-farm-400">
+        <div className="text-sm text-[var(--brand-text-muted)]">
           Current: {spool.remaining_weight_g?.toFixed(0)}g remaining
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Weight Used (g)</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Weight Used (g)</label>
           <input
             type="number"
             step="0.1"
@@ -255,18 +255,18 @@ export function UseSpoolModal({ spool, onClose, onUse }) {
             onChange={(e) => setForm({ ...form, weight_used_g: e.target.value })}
             required
             placeholder="50"
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Notes (optional)</label>
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Notes (optional)</label>
           <input
             type="text"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             placeholder="Print job, waste..."
-            className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100"
+            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]"
           />
         </div>
 
@@ -274,13 +274,13 @@ export function UseSpoolModal({ spool, onClose, onUse }) {
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200"
+            className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-2 bg-print-600 hover:bg-print-500 rounded-lg text-white"
+            className="flex-1 px-4 py-2 bg-[var(--brand-primary)] hover:opacity-90 rounded-md text-white"
           >
             Record Usage
           </button>
@@ -311,52 +311,52 @@ export function DryingModal({ spool, onClose, onSubmit }) {
 
   return (
     <Modal isOpen={true} onClose={onClose} title="Log Drying Session" size="md">
-      <div className="mb-4 p-3 bg-farm-800 rounded-lg">
+      <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md">
         <div className="flex items-center gap-3">
           {spool.filament_color_hex && (
-            <div className="w-6 h-6 rounded-full border border-farm-600 flex-shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
+            <div className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] flex-shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
           )}
-          <span className="text-farm-200 truncate">{spool.filament_brand} {spool.filament_name}</span>
-          <span className="text-xs text-farm-500 ml-auto">{spool.filament_material}</span>
+          <span className="text-[var(--brand-text-secondary)] truncate">{spool.filament_brand} {spool.filament_name}</span>
+          <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{spool.filament_material}</span>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Duration (hours) *</label>
-            <input type="number" step="0.5" required value={form.duration_hours} onChange={(e) => setForm({ ...form, duration_hours: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100" placeholder="4" />
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Duration (hours) *</label>
+            <input type="number" step="0.5" required value={form.duration_hours} onChange={(e) => setForm({ ...form, duration_hours: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" placeholder="4" />
           </div>
           <div>
-            <label className="block text-sm text-farm-400 mb-1">Temperature (°C)</label>
-            <input type="number" value={form.temp_c} onChange={(e) => setForm({ ...form, temp_c: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100" placeholder="55" />
+            <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Temperature (°C)</label>
+            <input type="number" value={form.temp_c} onChange={(e) => setForm({ ...form, temp_c: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" placeholder="55" />
           </div>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Method</label>
-          <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100">
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Method</label>
+          <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]">
             <option value="dryer">Filament Dryer</option>
             <option value="oven">Oven</option>
             <option value="desiccant">Desiccant Box</option>
           </select>
         </div>
         <div>
-          <label className="block text-sm text-farm-400 mb-1">Notes</label>
-          <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full bg-farm-800 border border-farm-700 rounded-lg px-3 py-2 text-farm-100" placeholder="Before printing nylon parts" />
+          <label className="block text-sm text-[var(--brand-text-muted)] mb-1">Notes</label>
+          <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-[var(--brand-text-primary)]" placeholder="Before printing nylon parts" />
         </div>
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 px-4 py-2 bg-farm-800 hover:bg-farm-700 rounded-lg text-farm-200">Cancel</button>
-          <button type="submit" className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-white">Log Drying</button>
+          <button type="button" onClick={onClose} className="flex-1 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)]">Cancel</button>
+          <button type="submit" className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-md text-white">Log Drying</button>
         </div>
       </form>
 
       {/* History */}
       {history.length > 0 && (
-        <div className="mt-4 border-t border-farm-700 pt-4">
-          <h3 className="text-sm font-medium text-farm-300 mb-2">Drying History</h3>
+        <div className="mt-4 border-t border-[var(--brand-card-border)] pt-4">
+          <h3 className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Drying History</h3>
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
             {history.map(h => (
-              <div key={h.id} className="flex items-center justify-between text-xs text-farm-400">
+              <div key={h.id} className="flex items-center justify-between text-xs text-[var(--brand-text-muted)]">
                 <span>{h.dried_at ? new Date(h.dried_at).toLocaleDateString() : '—'}</span>
                 <span>{h.duration_hours}h @ {h.temp_c ? h.temp_c + '°C' : '—'}</span>
                 <span className="capitalize">{h.method}</span>

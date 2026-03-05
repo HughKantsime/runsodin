@@ -28,16 +28,16 @@ import { PageHeader, TabBar } from '../../components/ui'
 function AccessAccordion({ title, icon: Icon, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border border-farm-800 rounded-lg overflow-hidden">
+    <div className="border border-[var(--brand-card-border)] rounded-md overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-4 py-3 bg-farm-900 hover:bg-farm-800/70 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-4 py-3 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-input-bg)]/70 transition-colors text-left"
       >
-        {Icon && <Icon size={16} className="text-print-400" />}
+        {Icon && <Icon size={16} className="text-[var(--brand-primary)]" />}
         <span className="font-medium text-sm">{title}</span>
-        {open ? <ChevronDown size={14} className="ml-auto text-farm-500" /> : <ChevronRight size={14} className="ml-auto text-farm-500" />}
+        {open ? <ChevronDown size={14} className="ml-auto text-[var(--brand-text-muted)]" /> : <ChevronRight size={14} className="ml-auto text-[var(--brand-text-muted)]" />}
       </button>
-      {open && <div className="p-4 md:p-6 border-t border-farm-800">{children}</div>}
+      {open && <div className="p-4 md:p-6 border-t border-[var(--brand-card-border)]">{children}</div>}
     </div>
   )
 }
@@ -95,7 +95,7 @@ export default function Settings() {
       {activeTab === 'access' && <div className="max-w-4xl space-y-3">
         <AccessAccordion title="Users & Groups" icon={Users} defaultOpen>
           <Admin />
-          <div className="border-t border-farm-700 pt-6 mt-6">
+          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
             <GroupManager />
           </div>
         </AccessAccordion>
@@ -104,19 +104,19 @@ export default function Settings() {
         </AccessAccordion>
         <AccessAccordion title="Authentication (OIDC & MFA)" icon={Key}>
           <OIDCSettings />
-          <div className="border-t border-farm-700 pt-6 mt-6">
+          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
             <MFASetup />
           </div>
         </AccessAccordion>
         <AccessAccordion title="Tokens & Sessions" icon={Key}>
           <APITokenManager />
-          <div className="border-t border-farm-700 pt-6 mt-6">
+          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
             <SessionManager />
           </div>
         </AccessAccordion>
         <AccessAccordion title="Quotas & Restrictions" icon={Shield}>
           <QuotaManager />
-          <div className="border-t border-farm-700 pt-6 mt-6">
+          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
             <IPAllowlistSettings />
           </div>
         </AccessAccordion>
@@ -144,9 +144,9 @@ export default function Settings() {
 
       {/* ==================== LOGS TAB ==================== */}
       {activeTab === 'logs' && <div className="max-w-6xl">
-        <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6">
+        <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6">
           <div className="flex items-center gap-2 md:gap-3 mb-4">
-            <ScrollText size={18} className="text-print-400" />
+            <ScrollText size={18} className="text-[var(--brand-primary)]" />
             <h2 className="text-base md:text-lg font-semibold">Application Logs</h2>
           </div>
           <LogViewer />

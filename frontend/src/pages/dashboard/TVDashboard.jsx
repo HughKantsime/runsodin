@@ -49,17 +49,17 @@ function TVCameraStream({ cameraId }) {
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
       {status === 'connecting' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-farm-600 text-xs animate-pulse">Connecting...</div>
+          <div className="text-[var(--brand-text-muted)] text-xs animate-pulse">Connecting...</div>
         </div>
       )}
       {status === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <VideoOff size={24} className="text-farm-700" />
+          <VideoOff size={24} className="text-[var(--brand-text-muted)]" />
         </div>
       )}
       {status === 'live' && (
         <div className="absolute top-1.5 right-1.5">
-          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+          <div className="w-1.5 h-1.5 bg-[var(--status-completed)] rounded-full animate-pulse" />
         </div>
       )}
     </div>
@@ -81,19 +81,19 @@ function TVPrinterCard({ printer }) {
     return `${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m`
   }
 
-  const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-green-500' : online ? 'bg-yellow-500' : 'bg-farm-600'
+  const statusColor = hasError ? 'bg-red-500' : isPrinting ? 'bg-[var(--status-completed)]' : online ? 'bg-yellow-500' : 'bg-[var(--brand-text-muted)]'
   const statusLabel = hasError ? 'Error' : isPrinting ? 'Printing' : online ? 'Idle' : 'Offline'
 
   return (
-    <div className="bg-farm-900 rounded-xl border border-farm-800 overflow-hidden flex flex-col">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden flex flex-col">
       {/* Camera thumbnail */}
       {hasCamera ? (
         <div className="aspect-video">
           <TVCameraStream cameraId={printer.id} />
         </div>
       ) : (
-        <div className="aspect-video bg-farm-950 flex items-center justify-center">
-          <VideoOff size={32} className="text-farm-800" />
+        <div className="aspect-video bg-[var(--brand-content-bg)] flex items-center justify-center">
+          <VideoOff size={32} className="text-[var(--brand-text-muted)]" />
         </div>
       )}
 
@@ -103,25 +103,25 @@ function TVPrinterCard({ printer }) {
           <h3 className="font-display font-bold text-lg truncate">{printer.nickname || printer.name}</h3>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`} />
-            <span className="text-sm text-farm-400">{statusLabel}</span>
+            <span className="text-sm text-[var(--brand-text-secondary)]">{statusLabel}</span>
           </div>
         </div>
 
         {isPrinting && (
           <div className="mt-auto">
-            {jobName && <p className="text-sm text-farm-400 truncate mb-2">{jobName}</p>}
+            {jobName && <p className="text-sm text-[var(--brand-text-secondary)] truncate mb-2">{jobName}</p>}
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-2xl font-bold text-green-400 tabular-nums">{progress}%</span>
-              {remaining && <span className="text-sm text-farm-500">ETA {formatTime(remaining)}</span>}
+              <span className="text-2xl font-bold font-mono text-[var(--status-completed)] tabular-nums">{progress}%</span>
+              {remaining && <span className="text-sm text-[var(--brand-text-muted)]">ETA {formatTime(remaining)}</span>}
             </div>
-            <div className="w-full bg-farm-700 rounded-full h-3">
-              <div className="bg-green-500 h-3 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+            <div className="w-full bg-[var(--brand-input-bg)] rounded-full h-3">
+              <div className="bg-[var(--status-completed)] h-3 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
           </div>
         )}
 
         {hasError && !isPrinting && (
-          <div className="mt-auto flex items-center gap-2 text-red-400 text-sm">
+          <div className="mt-auto flex items-center gap-2 text-[var(--status-failed)] text-sm">
             <AlertTriangle size={14} />
             <span className="truncate">{printer.hms_errors?.[0]?.code || 'Error'}</span>
           </div>
@@ -196,30 +196,30 @@ export default function TVDashboard() {
   const visiblePrinters = allPrinters.slice(page * CARDS_PER_PAGE, (page + 1) * CARDS_PER_PAGE)
 
   return (
-    <div className="fixed inset-0 bg-farm-950 flex flex-col">
+    <div className="fixed inset-0 bg-[var(--brand-content-bg)] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-farm-800 flex-shrink-0">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--brand-card-border)] flex-shrink-0">
         <div className="flex items-center gap-6">
           <h1 className="font-display font-bold text-xl" style={{ color: 'var(--brand-accent, #6d8af0)' }}>
             {branding.app_name || 'O.D.I.N.'}
           </h1>
           <div className="flex items-center gap-4 text-sm">
-            <span className="text-green-400 font-medium">{printingCount}/{allPrinters.length} Printing</span>
-            {errorCount > 0 && <span className="text-red-400 font-medium">{errorCount} Error{errorCount !== 1 ? 's' : ''}</span>}
+            <span className="text-[var(--status-completed)] font-medium">{printingCount}/{allPrinters.length} Printing</span>
+            {errorCount > 0 && <span className="text-[var(--status-failed)] font-medium">{errorCount} Error{errorCount !== 1 ? 's' : ''}</span>}
           </div>
         </div>
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <div className="font-mono text-xl text-farm-200 tabular-nums">
+            <div className="font-mono text-xl text-[var(--brand-text-primary)] tabular-nums">
               {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
-            <div className="text-xs text-farm-500">
+            <div className="text-xs text-[var(--brand-text-muted)]">
               {currentTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
             </div>
           </div>
           <button
             onClick={() => navigate('/')}
-            className="p-1.5 text-farm-600 hover:text-farm-400 transition-colors rounded-lg"
+            className="p-1.5 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] transition-colors rounded-md"
             title="Exit TV Mode (Esc)"
           >
             <X size={18} />
@@ -231,7 +231,7 @@ export default function TVDashboard() {
       <div className="flex-1 overflow-hidden p-4">
         {printersLoading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 size={32} className="animate-spin text-farm-500" />
+            <Loader2 size={32} className="animate-spin text-[var(--brand-text-muted)]" />
           </div>
         ) : (
           <div className="grid gap-3 h-full" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
@@ -243,33 +243,33 @@ export default function TVDashboard() {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-t border-farm-800 flex-shrink-0 text-sm">
-        <div className="flex items-center gap-6 text-farm-400">
+      <div className="flex items-center justify-between px-6 py-2.5 border-t border-[var(--brand-card-border)] flex-shrink-0 text-sm">
+        <div className="flex items-center gap-6 text-[var(--brand-text-secondary)]">
           {unreadAlerts > 0 && (
             <span className="text-amber-400">{unreadAlerts} Active Alert{unreadAlerts !== 1 ? 's' : ''}</span>
           )}
-          {unreadAlerts === 0 && <span className="text-farm-600">No active alerts</span>}
+          {unreadAlerts === 0 && <span className="text-[var(--brand-text-muted)]">No active alerts</span>}
         </div>
         <div className="flex items-center gap-3">
           {totalPages > 1 && (
             <div className="flex items-center gap-2">
-              <button onClick={() => { setPage(p => (p - 1 + totalPages) % totalPages); resetAutoPage() }} className="p-1 text-farm-600 hover:text-farm-400">
+              <button onClick={() => { setPage(p => (p - 1 + totalPages) % totalPages); resetAutoPage() }} className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
                 <ChevronLeft size={16} />
               </button>
               <div className="flex items-center gap-1">
                 {Array.from({ length: totalPages }).map((_, i) => (
                   <div
                     key={i}
-                    className={`w-1.5 h-1.5 rounded-full transition-colors ${i === page ? 'bg-print-500' : 'bg-farm-700'}`}
+                    className={`w-1.5 h-1.5 rounded-full transition-colors ${i === page ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-input-bg)]'}`}
                   />
                 ))}
               </div>
-              <button onClick={() => { setPage(p => (p + 1) % totalPages); resetAutoPage() }} className="p-1 text-farm-600 hover:text-farm-400">
+              <button onClick={() => { setPage(p => (p + 1) % totalPages); resetAutoPage() }} className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">
                 <ChevronRight size={16} />
               </button>
             </div>
           )}
-          <span className="text-[10px] text-farm-700">Powered by O.D.I.N.</span>
+          <span className="text-[10px] text-[var(--brand-text-muted)]">Powered by O.D.I.N.</span>
         </div>
       </div>
     </div>

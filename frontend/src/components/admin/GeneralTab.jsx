@@ -29,7 +29,7 @@ function ApprovalToggle() {
         aria-checked={enabled}
         onClick={() => !isLoading && toggleMutation.mutate(!enabled)}
         className={`relative w-11 h-6 rounded-full transition-colors ${
-          enabled ? "bg-print-600" : "bg-farm-700"
+          enabled ? "bg-[var(--brand-primary)]" : "bg-[var(--brand-input-bg)]"
         }`}
       >
         <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
@@ -67,7 +67,7 @@ function EducationModeToggle() {
         aria-checked={enabled}
         onClick={() => !isLoading && toggleMutation.mutate(!enabled)}
         className={`relative w-11 h-6 rounded-full transition-colors ${
-          enabled ? "bg-blue-600" : "bg-farm-700"
+          enabled ? "bg-blue-600" : "bg-[var(--brand-input-bg)]"
         }`}
       >
         <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
@@ -116,17 +116,17 @@ function NetworkSection() {
   }
 
   return (
-    <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+    <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
       <div className="flex items-center gap-2 md:gap-3 mb-4">
-        <Wifi size={18} className="text-print-400" />
+        <Wifi size={18} className="text-[var(--brand-primary)]" />
         <h2 className="text-lg md:text-xl font-display font-semibold">Network & Camera Streaming</h2>
       </div>
-      <p className="text-farm-500 text-sm mb-4">
+      <p className="text-[var(--brand-text-muted)] text-sm mb-4">
         Configure the host IP address for WebRTC camera streaming. This should be the LAN IP of the server running O.D.I.N., reachable from your browser.
       </p>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-farm-300 mb-1.5">Host IP Address</label>
+          <label className="block text-sm font-medium text-[var(--brand-text-secondary)] mb-1.5">Host IP Address</label>
           <div className="flex gap-2">
             <Input
               type="text"
@@ -145,14 +145,14 @@ function NetworkSection() {
               {saved ? 'Saved!' : 'Save'}
             </Button>
           </div>
-          {detectedIp && <p className="text-xs text-farm-600 mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
+          {detectedIp && <p className="text-xs text-[var(--brand-text-muted)] mt-1">Auto-detected: {detectedIp} {detectedIp.startsWith('172.') && '(Docker internal — use your host LAN IP instead)'}</p>}
         </div>
         {error && (
-          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-lg text-sm text-red-300">
+          <div className="p-3 bg-red-900/30 border border-red-700/50 rounded-md text-sm text-red-300">
             {error}
           </div>
         )}
-        <p className="text-xs text-farm-600">
+        <p className="text-xs text-[var(--brand-text-muted)]">
           Without this setting, camera streams may show a black screen. The IP is used for WebRTC ICE candidates so your browser can connect to the go2rtc video relay. Changes take effect immediately.
         </p>
       </div>
@@ -219,23 +219,23 @@ export default function GeneralTab() {
 
       {/* Upgrade Card (Community only) */}
       {!lic.isPro && (
-        <div className="bg-amber-900/20 rounded-lg border border-amber-700/30 p-4 md:p-6 mb-4 md:mb-6">
+        <div className="bg-amber-900/20 rounded-md border border-amber-700/30 p-4 md:p-6 mb-4 md:mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <Zap size={18} className="text-amber-400" />
+            <Zap size={18} className="text-[var(--brand-primary)]" />
             <h2 className="text-lg font-display font-semibold text-amber-300">Community Edition</h2>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 text-sm">
             <div>
-              <span className="text-farm-500">Tier:</span>
-              <span className="ml-2 font-medium text-amber-400 capitalize">{lic.tier}</span>
+              <span className="text-[var(--brand-text-muted)]">Tier:</span>
+              <span className="ml-2 font-medium text-[var(--brand-primary)] capitalize">{lic.tier}</span>
             </div>
             <div>
-              <span className="text-farm-500">Printers:</span>
-              <span className="ml-2 text-farm-200">{statsData?.printers?.total || 0} / {lic.max_printers === -1 ? '\u221E' : (lic.max_printers || 5)}</span>
+              <span className="text-[var(--brand-text-muted)]">Printers:</span>
+              <span className="ml-2 text-[var(--brand-text-primary)]">{statsData?.printers?.total || 0} / {lic.max_printers === -1 ? '\u221E' : (lic.max_printers || 5)}</span>
             </div>
             <div>
-              <span className="text-farm-500">Users:</span>
-              <span className="ml-2 text-farm-200">{usersData?.length || 0} / {lic.max_users === -1 ? '\u221E' : (lic.max_users || 1)}</span>
+              <span className="text-[var(--brand-text-muted)]">Users:</span>
+              <span className="ml-2 text-[var(--brand-text-primary)]">{usersData?.length || 0} / {lic.max_users === -1 ? '\u221E' : (lic.max_users || 1)}</span>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -243,7 +243,7 @@ export default function GeneralTab() {
               href="https://runsodin.com/pricing"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-farm-950 font-semibold rounded-lg text-sm transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-[var(--brand-content-bg)] font-semibold rounded-md text-sm transition-colors"
             >
               Upgrade to Pro <ExternalLink size={14} />
             </a>
@@ -251,7 +251,7 @@ export default function GeneralTab() {
               href="https://docs.runsodin.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-farm-800 hover:bg-farm-700 text-farm-200 font-semibold rounded-lg text-sm transition-colors border border-farm-700"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-primary)] font-semibold rounded-md text-sm transition-colors border border-[var(--brand-card-border)]"
             >
               Documentation <ExternalLink size={14} />
             </a>
@@ -260,21 +260,21 @@ export default function GeneralTab() {
       )}
 
       {/* Spoolman Integration */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4 flex-wrap">
-          <Database size={18} className="text-print-400" />
+          <Database size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Spoolman Integration</h2>
           {statsData?.spoolman_connected ? (
-            <span className="flex items-center gap-1 text-xs md:text-sm text-green-400 bg-green-900/30 px-2 py-0.5 rounded-lg">
+            <span className="flex items-center gap-1 text-xs md:text-sm text-green-400 bg-green-900/30 px-2 py-0.5 rounded-md">
               <CheckCircle size={14} /> Connected
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-xs md:text-sm text-farm-400 bg-farm-800 px-2 py-0.5 rounded-lg">
+            <span className="flex items-center gap-1 text-xs md:text-sm text-[var(--brand-text-secondary)] bg-[var(--brand-input-bg)] px-2 py-0.5 rounded-md">
               <XCircle size={14} /> Not Connected
             </span>
           )}
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Connect to Spoolman to track your filament inventory and automatically sync spool data.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
@@ -307,12 +307,12 @@ export default function GeneralTab() {
       </div>
 
       {/* Scheduler Settings */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <Clock size={18} className="text-print-400" />
+          <Clock size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Scheduler Settings</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Configure when the scheduler should avoid scheduling prints (e.g., overnight quiet hours).
         </p>
         <div className="grid grid-cols-2 gap-3 md:gap-4 max-w-md">
@@ -329,40 +329,40 @@ export default function GeneralTab() {
             onChange={(e) => setSettings(s => ({ ...s, blackout_end: e.target.value }))}
           />
         </div>
-        <p className="text-xs text-farm-500 mt-2">
+        <p className="text-xs text-[var(--brand-text-muted)] mt-2">
           Jobs will not be scheduled to start during blackout hours (currently {settings.blackout_start} - {settings.blackout_end})
         </p>
       </div>
 
       {/* Job Approval Workflow */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <CheckCircle size={18} className="text-print-400" />
+          <CheckCircle size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Job Approval Workflow</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           When enabled, viewer-role users (students) must have their print jobs approved by an operator or admin (teacher) before they can be scheduled. Operators and admins bypass approval.
         </p>
         <ApprovalToggle />
-        <p className="text-xs text-farm-500 mt-2">Saves automatically when toggled.</p>
+        <p className="text-xs text-[var(--brand-text-muted)] mt-2">Saves automatically when toggled.</p>
       </div>
 
       {/* Interface Mode */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
-          <SettingsIcon size={18} className="text-print-400" />
+          <SettingsIcon size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Interface Mode</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           Simple mode hides advanced features like Orders, Products, Analytics, and Maintenance for a cleaner sidebar.
         </p>
         <div className="flex gap-3">
           <button
             onClick={() => toggleUiMode('simple')}
-            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
+            className={`flex-1 px-4 py-3 rounded-md border text-sm font-medium transition-colors ${
               uiMode === 'simple'
-                ? 'bg-print-600/20 border-print-500 text-print-300'
-                : 'bg-farm-800 border-farm-700 text-farm-400 hover:border-farm-600'
+                ? 'bg-[var(--brand-primary)]/20 border-print-500 text-[var(--brand-primary)]'
+                : 'bg-[var(--brand-input-bg)] border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-card-border)]'
             }`}
           >
             <div className="font-semibold mb-1">Simple</div>
@@ -371,10 +371,10 @@ export default function GeneralTab() {
           </button>
           <button
             onClick={() => toggleUiMode('advanced')}
-            className={`flex-1 px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
+            className={`flex-1 px-4 py-3 rounded-md border text-sm font-medium transition-colors ${
               uiMode === 'advanced'
-                ? 'bg-print-600/20 border-print-500 text-print-300'
-                : 'bg-farm-800 border-farm-700 text-farm-400 hover:border-farm-600'
+                ? 'bg-[var(--brand-primary)]/20 border-print-500 text-[var(--brand-primary)]'
+                : 'bg-[var(--brand-input-bg)] border-[var(--brand-card-border)] text-[var(--brand-text-secondary)] hover:border-[var(--brand-card-border)]'
             }`}
           >
             <div className="font-semibold mb-1">Advanced</div>
@@ -383,16 +383,16 @@ export default function GeneralTab() {
         </div>
       </div>
       {/* Education Mode */}
-      <div className="bg-farm-900 rounded-lg border border-farm-800 p-4 md:p-6 mb-4 md:mb-6">
+      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <SettingsIcon size={18} className="text-blue-400" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Education Mode</h2>
         </div>
-        <p className="text-sm text-farm-400 mb-4">
+        <p className="text-sm text-[var(--brand-text-secondary)] mb-4">
           When enabled, commerce features (Orders, Products, Consumables) are hidden from the sidebar and UI. Ideal for educational environments that don't need e-commerce functionality.
         </p>
         <EducationModeToggle />
-        <p className="text-xs text-farm-500 mt-2">Saves automatically when toggled. Users may need to refresh their browser.</p>
+        <p className="text-xs text-[var(--brand-text-muted)] mt-2">Saves automatically when toggled. Users may need to refresh their browser.</p>
       </div>
 
       {/* Network — merged into General tab */}
