@@ -131,7 +131,7 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       if (result.success) {
         setTestStatus('success')
         setTestMessage(`Connected! State: ${result.state}, Bed: ${result.bed_temp}°C, ${result.ams_slots || 0} AMS slots`)
-        if (result.ams_slots != null) {
+        if (result.ams_slots != null && result.ams_slots > 0) {
           setFormData(prev => ({ ...prev, slot_count: result.ams_slots }))
         }
         if (result.model && result.model !== 'Unknown' && !formData.model) {
@@ -155,12 +155,12 @@ export default function PrinterModal({ isOpen, onClose, onSubmit, printer, onSyn
       nickname: formData.nickname || null,
       model: formData.model,
       slot_count: formData.slot_count,
-      camera_url: formData.camera_url || null,
+      camera_url: formData.camera_url && !formData.camera_url.includes('***@') ? formData.camera_url : null,
       tags: formData.tags || [],
       timelapse_enabled: formData.timelapse_enabled || false,
       shared: formData.shared || false,
-      bed_x_mm: formData.bed_x_mm !== '' ? parseFloat(formData.bed_x_mm) || null : null,
-      bed_y_mm: formData.bed_y_mm !== '' ? parseFloat(formData.bed_y_mm) || null : null,
+      bed_x_mm: formData.bed_x_mm !== '' && !isNaN(parseFloat(formData.bed_x_mm)) ? parseFloat(formData.bed_x_mm) : null,
+      bed_y_mm: formData.bed_y_mm !== '' && !isNaN(parseFloat(formData.bed_y_mm)) ? parseFloat(formData.bed_y_mm) : null,
     }
 
     if (formData.api_type) submitData.api_type = formData.api_type
