@@ -188,6 +188,9 @@ def update_printer(
 
     update_data = updates.model_dump(exclude_unset=True)
 
+    if 'api_host' in update_data and update_data['api_host']:
+        _check_ssrf_blocklist(update_data['api_host'])
+
     if 'camera_url' in update_data and update_data['camera_url']:
         update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
         if '@' in update_data['camera_url']:
