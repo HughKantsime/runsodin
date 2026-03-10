@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Maximize2, Minimize2, VideoOff, Eye, RefreshCw, Camera } from 'lucide-react'
@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { printers } from '../../api'
 import { isOnline } from '../../utils/shared'
 import { PrinterInfoPanel, FilamentSlotsPanel, ActiveJobPanel } from '../../components/printers/PrinterPanels'
+import useWebRTC from '../../hooks/useWebRTC'
 
 const API_BASE = '/api'
 
@@ -31,59 +32,7 @@ function AiIndicator({ printerId }) {
 }
 
 function WebRTCPlayer({ cameraId, className }) {
-  const videoRef = useRef(null)
-  const pcRef = useRef(null)
-  const retryRef = useRef(null)
-  const retryCountRef = useRef(0)
-  const [status, setStatus] = useState('connecting')
-
-  const startWebRTC = useCallback(async () => {
-    try {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
-      setStatus('connecting')
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
-      pcRef.current = pc
-      pc.ontrack = (event) => {
-        if (videoRef.current) { videoRef.current.srcObject = event.streams[0]; setStatus('live'); retryCountRef.current = 0 }
-      }
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-          setStatus('disconnected')
-          const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
-          retryCountRef.current++
-          retryRef.current = setTimeout(startWebRTC, delay)
-        }
-      }
-      pc.addTransceiver('video', { direction: 'recvonly' })
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      const response = await fetch(`${API_BASE}/cameras/${cameraId}/webrtc`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, credentials: 'include', body: offer.sdp })
-      if (!response.ok) throw new Error('Failed')
-      const answerSDP = await response.text()
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))
-    } catch {
-      setStatus('error')
-      if (retryCountRef.current < 5) {
-        const delay = Math.min(2000 * Math.pow(2, retryCountRef.current), 30000)
-        retryCountRef.current++
-        retryRef.current = setTimeout(startWebRTC, delay)
-      }
-    }
-  }, [cameraId])
-
-  useEffect(() => {
-    startWebRTC()
-    return () => {
-      clearTimeout(retryRef.current)
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
-    }
-  }, [startWebRTC])
-
-  const handleRetry = () => {
-    clearTimeout(retryRef.current)
-    retryCountRef.current = 0
-    startWebRTC()
-  }
+  const { videoRef, status, retry: handleRetry } = useWebRTC(cameraId)
 
   const handleSnapshot = () => {
     const video = videoRef.current

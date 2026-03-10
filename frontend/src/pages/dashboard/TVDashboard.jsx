@@ -1,48 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { VideoOff, X, AlertTriangle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'
 import { printers as printersApi, alerts as alertsApi } from '../../api'
 import { isOnline } from '../../utils/shared'
+import useWebRTC from '../../hooks/useWebRTC'
 
-const API_BASE = '/api'
 const CARDS_PER_PAGE = 12
 
 function TVCameraStream({ cameraId }) {
-  const videoRef = useRef(null)
-  const pcRef = useRef(null)
-  const [status, setStatus] = useState('connecting')
-
-  useEffect(() => {
-    startWebRTC()
-    return () => {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
-    }
-  }, [cameraId])
-
-  const startWebRTC = async () => {
-    try {
-      setStatus('connecting')
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
-      pcRef.current = pc
-      pc.ontrack = (event) => {
-        if (videoRef.current) { videoRef.current.srcObject = event.streams[0]; setStatus('live') }
-      }
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') setStatus('disconnected')
-      }
-      pc.addTransceiver('video', { direction: 'recvonly' })
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      const response = await fetch(`${API_BASE}/cameras/${cameraId}/webrtc`, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, credentials: 'include', body: offer.sdp })
-      if (!response.ok) throw new Error('Failed')
-      const answerSDP = await response.text()
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSDP }))
-    } catch {
-      setStatus('error')
-    }
-  }
+  const { videoRef, status } = useWebRTC(cameraId)
 
   return (
     <div className="relative w-full h-full bg-black">
