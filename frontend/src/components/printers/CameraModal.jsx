@@ -1,15 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { X, Maximize2, Minimize2, Monitor, Thermometer, RefreshCw, Video } from 'lucide-react'
 import { printers as printersApi } from '../../api'
 import { PrinterInfoPanel, ActiveJobPanel, FilamentSlotsPanel } from './PrinterPanels'
 import { Modal } from '../ui'
+import useWebRTC from '../../hooks/useWebRTC'
 
 export default function CameraModal({ printer, onClose }) {
-  const videoRef = useRef(null)
-  const pcRef = useRef(null)
-  const [status, setStatus] = useState('connecting')
-  const [error, setError] = useState(null)
+  const { videoRef, status, retry: startWebRTC } = useWebRTC(printer?.id, { enabled: !!printer })
   const [size, setSize] = useState('small') // small, large, fullscreen
 
   // Fetch fresh telemetry so the prop doesn't go stale
@@ -22,65 +20,6 @@ export default function CameraModal({ printer, onClose }) {
   })
 
   const p = freshPrinter || printer
-
-  const startWebRTC = useCallback(async () => {
-    if (!printer) return
-    try {
-      if (pcRef.current) { pcRef.current.close(); pcRef.current = null }
-      setStatus('connecting')
-      setError(null)
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      })
-      pcRef.current = pc
-
-      pc.ontrack = (event) => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = event.streams[0]
-          setStatus('live')
-        }
-      }
-
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-          setStatus('disconnected')
-        }
-      }
-
-      pc.addTransceiver('video', { direction: 'recvonly' })
-
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-
-      const response = await fetch('/api/cameras/' + printer.id + '/webrtc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/sdp' },
-        credentials: 'include',
-        body: offer.sdp
-      })
-
-      if (!response.ok) throw new Error('WebRTC signaling failed')
-
-      const answerSDP = await response.text()
-      await pc.setRemoteDescription(new RTCSessionDescription({
-        type: 'answer',
-        sdp: answerSDP
-      }))
-    } catch (err) {
-      setError(err.message)
-      setStatus('error')
-    }
-  }, [printer])
-
-  useEffect(() => {
-    startWebRTC()
-    return () => {
-      if (pcRef.current) {
-        pcRef.current.close()
-        pcRef.current = null
-      }
-    }
-  }, [startWebRTC])
 
   // Custom escape handler for small and fullscreen modes only
   // (Modal handles escape for the large mode)
@@ -127,7 +66,7 @@ export default function CameraModal({ printer, onClose }) {
         )}
         {(status === 'error' || status === 'disconnected') && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <div className="text-red-400 text-sm">{error || 'Connection lost'}</div>
+            <div className="text-red-400 text-sm">Connection lost</div>
             <button
               onClick={startWebRTC}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--brand-card-bg)] hover:bg-[var(--brand-surface)] rounded-lg text-sm text-[var(--brand-text-secondary)] transition-colors"
