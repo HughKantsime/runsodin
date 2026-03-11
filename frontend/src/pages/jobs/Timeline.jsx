@@ -74,8 +74,8 @@ function TimelineHeader({ startDate, days, slotWidth }) {
 
   return (
     <div className="flex bg-[var(--brand-card-bg)] border-b border-[var(--brand-card-border)] sticky top-0 z-10">
-      <div 
-        className="flex-shrink-0 bg-[var(--brand-card-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 font-medium text-sm"
+      <div
+        className="flex-shrink-0 sticky left-0 z-20 bg-[var(--brand-card-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 font-medium text-sm"
         style={{ width: PRINTER_COL_WIDTH }}
       >
         Printer
@@ -112,8 +112,8 @@ function TimelineDateHeader({ startDate, days, slotWidth }) {
 
   return (
     <div className="flex bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)]">
-      <div 
-        className="flex-shrink-0 border-r border-[var(--brand-card-border)]"
+      <div
+        className="flex-shrink-0 sticky left-0 z-20 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)]"
         style={{ width: PRINTER_COL_WIDTH }}
       />
       <div className="flex">
@@ -517,11 +517,11 @@ export default function Timeline() {
                     className={clsx("flex border-b border-[var(--brand-card-border)] relative", dragUI.active && "bg-[var(--brand-primary)]/5")}
                     style={{ height: ROW_HEIGHT }}
                   >
-                    <div className="flex-shrink-0 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
+                    <div className="flex-shrink-0 sticky left-0 z-20 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
                       <div className="font-medium text-sm truncate">{printer.nickname || printer.name}</div>
                     </div>
 
-                    <div className="flex-1 relative bg-[var(--brand-card-bg)]/50 timeline-grid" data-printer-id={printer.id}>
+                    <div className="flex-1 relative overflow-hidden bg-[var(--brand-card-bg)]/50 timeline-grid" data-printer-id={printer.id}>
                       <div className="absolute inset-0 flex pointer-events-none">
                         {Array.from({ length: totalSlots }).map((_, i) => (
                           <div
