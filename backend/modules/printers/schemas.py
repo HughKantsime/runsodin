@@ -122,6 +122,7 @@ class PrinterResponse(PrinterBase):
     tags: List[str] = []
     shared: bool = False
     org_id: Optional[int] = None
+    has_api_key: bool = False  # Safe boolean — never exposes the actual credential
 
     @field_validator('camera_url', mode='before')
     @classmethod

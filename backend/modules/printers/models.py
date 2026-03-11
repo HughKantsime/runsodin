@@ -108,6 +108,11 @@ class Printer(Base):
     jobs = relationship("Job", back_populates="printer", passive_deletes=True)
 
     @property
+    def has_api_key(self) -> bool:
+        """Whether an API key / credential is configured (exposed safely without leaking the secret)."""
+        return bool(self.api_key)
+
+    @property
     def loaded_colors(self) -> List[str]:
         """Get list of currently loaded colors."""
         return [slot.color.lower() for slot in self.filament_slots if slot.color]

@@ -25,7 +25,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     }
   }
 
-  const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.api_key
+  const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.has_api_key
 
   const slotsNeedingAttention = printer.filament_slots?.filter(s =>
     (s.assigned_spool_id && !s.spool_confirmed) || (!s.assigned_spool_id && s.color_hex)
