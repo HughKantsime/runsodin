@@ -367,6 +367,25 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
         pass
 
     printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
+
+    # If go2rtc has no streams but we have camera-enabled printers, sync the
+    # config so streams are registered (e.g. after container restart).
+    if not active_streams and printers:
+        sync_go2rtc_config(db)
+        # Re-check go2rtc after sync
+        try:
+            resp = httpx.get("http://127.0.0.1:1984/api/streams", timeout=2.0)
+            if resp.status_code == 200:
+                streams = resp.json()
+                for key in streams:
+                    if key.startswith("printer_"):
+                        try:
+                            active_streams.add(int(key.split("_")[1]))
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+
     cameras = []
     for p in printers:
         if p.id in active_streams:
@@ -427,6 +446,22 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
 
     stream_name = f"printer_{printer_id}"
     body = await request.body()
+
+    # Ensure go2rtc has this stream configured before proxying.
+    # Without this, go2rtc returns an error if the stream hasn't been
+    # registered yet (e.g. after container restart or first access).
+    try:
+        async with httpx.AsyncClient() as client:
+            streams_resp = await client.get(
+                "http://127.0.0.1:1984/api/streams", timeout=2.0,
+            )
+            if streams_resp.status_code == 200:
+                streams = streams_resp.json()
+                if stream_name not in streams:
+                    sync_go2rtc_config(db)
+    except Exception:
+        # go2rtc not reachable — sync config to (re)start it, then try the request anyway
+        sync_go2rtc_config(db)
 
     try:
         async with httpx.AsyncClient() as client:
