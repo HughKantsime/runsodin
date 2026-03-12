@@ -163,7 +163,7 @@ class FilamentSlot(Base):
     @property
     def material_type(self) -> Optional[str]:
         """Human-readable material type string for the frontend."""
-        if self.filament_type and self.filament_type.value != 'EMPTY':
+        if self.filament_type and self.filament_type.value != 'empty':
             return self.filament_type.value
         return None
 
