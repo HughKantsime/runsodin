@@ -326,7 +326,7 @@ class PrinterMonitor:
                                             remaining = int(tray.get('remain', 0))
                                             is_empty = tray_type == ''
 
-                                            ftype = map_bambu_filament_type(tray_type) if tray_type else 'EMPTY'
+                                            ftype = map_bambu_filament_type(tray_type) if tray_type else 'empty'
 
                                             existing = conn.execute(
                                                 "SELECT id, filament_type, color_hex, assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?",
@@ -338,7 +338,7 @@ class PrinterMonitor:
                                                 if is_empty:
                                                     conn.execute(
                                                         "UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at=datetime('now') WHERE id=?",
-                                                        ('EMPTY', slot_id))
+                                                        ('empty', slot_id))
                                                 else:
                                                     updates = {"filament_type": ftype, "color_hex": color_hex, "loaded_at": "datetime('now')"}
                                                     conn.execute(
@@ -359,7 +359,7 @@ class PrinterMonitor:
                                             else:
                                                 conn.execute(
                                                     "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, datetime('now'))",
-                                                    (self.printer_id, slot_num, ftype if not is_empty else 'EMPTY', color_hex if not is_empty else None))
+                                                    (self.printer_id, slot_num, ftype if not is_empty else 'empty', color_hex if not is_empty else None))
 
                                             slot_num += 1
                                     conn.commit()
