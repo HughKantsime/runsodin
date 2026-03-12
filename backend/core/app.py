@@ -481,6 +481,14 @@ def create_app() -> FastAPI:
                 "Set API_KEY in your environment or docker-compose.yml for production use."
             )
 
+        # Sync go2rtc camera config on startup
+        try:
+            from modules.printers.route_utils import sync_go2rtc_config_standalone
+            sync_go2rtc_config_standalone()
+            log.info("go2rtc config synced on startup")
+        except Exception as e:
+            log.warning(f"go2rtc config sync failed on startup: {e}")
+
         broadcast_task = asyncio.create_task(_ws_broadcaster())
         cleanup_task = asyncio.create_task(_periodic_cleanup())
         yield
