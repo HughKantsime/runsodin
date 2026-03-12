@@ -103,7 +103,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
             <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1.5 md:p-2 text-center min-w-0 flex flex-col items-center gap-1">
               <SpoolRing
                 color={slot.color_hex ? `#${slot.color_hex}` : '#888'}
-                material={slot.material_type || slot.type || ''}
+                material=""
                 level={slot.remaining != null ? slot.remaining : 100}
                 empty={!slot.color_hex && !slot.material_type && !slot.type}
                 size={20}

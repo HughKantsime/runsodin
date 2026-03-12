@@ -64,7 +64,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
       >
         <SpoolRing
           color={colorHex ? `#${colorHex}` : '#888'}
-          material={slot.material_type || slot.type || ''}
+          material=""
           level={slot.remaining != null ? slot.remaining : 100}
           empty={!colorHex && !slot.material_type && !slot.type}
           size={20}
