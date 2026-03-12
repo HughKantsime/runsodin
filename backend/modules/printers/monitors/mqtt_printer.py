@@ -309,6 +309,63 @@ class PrinterMonitor:
                             except Exception as e:
                                 log.debug(f"[{self.name}] AMS env capture: {e}")
 
+                        # ---- AMS Filament Slot Auto-Sync ----
+                        if time.time() - getattr(self, '_last_ams_slot_sync', 0) >= 60:
+                            self._last_ams_slot_sync = time.time()
+                            try:
+                                ams_raw = self._state.get('ams', {})
+                                ams_units = ams_raw.get('ams', [])
+                                if ams_units:
+                                    from modules.printers.bambu_integration import map_bambu_filament_type
+                                    slot_num = 1
+                                    for unit in ams_units:
+                                        for tray in unit.get('tray', []):
+                                            tray_type = tray.get('tray_type', '')
+                                            color_hex = (tray.get('tray_color', '') or '')[:6]
+                                            rfid_tag = tray.get('tag_uid', '')
+                                            remaining = int(tray.get('remain', 0))
+                                            is_empty = tray_type == ''
+
+                                            ftype = map_bambu_filament_type(tray_type) if tray_type else 'EMPTY'
+
+                                            existing = conn.execute(
+                                                "SELECT id, filament_type, color_hex, assigned_spool_id FROM filament_slots WHERE printer_id=? AND slot_number=?",
+                                                (self.printer_id, slot_num)
+                                            ).fetchone()
+
+                                            if existing:
+                                                slot_id, old_type, old_hex, old_spool = existing
+                                                if is_empty:
+                                                    conn.execute(
+                                                        "UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at=datetime('now') WHERE id=?",
+                                                        ('EMPTY', slot_id))
+                                                else:
+                                                    updates = {"filament_type": ftype, "color_hex": color_hex, "loaded_at": "datetime('now')"}
+                                                    conn.execute(
+                                                        "UPDATE filament_slots SET filament_type=?, color_hex=?, loaded_at=datetime('now') WHERE id=?",
+                                                        (ftype, color_hex, slot_id))
+                                                    # RFID spool matching
+                                                    if rfid_tag and not old_spool:
+                                                        spool_row = conn.execute(
+                                                            "SELECT id FROM spools WHERE rfid_tag=?", (rfid_tag,)
+                                                        ).fetchone()
+                                                        if spool_row:
+                                                            conn.execute(
+                                                                "UPDATE filament_slots SET assigned_spool_id=?, spool_confirmed=1 WHERE id=?",
+                                                                (spool_row[0], slot_id))
+                                                            conn.execute(
+                                                                "UPDATE spools SET location_printer_id=?, location_slot=?, remaining_weight_g=initial_weight_g*?/100.0 WHERE id=?",
+                                                                (self.printer_id, slot_num, remaining, spool_row[0]))
+                                            else:
+                                                conn.execute(
+                                                    "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, datetime('now'))",
+                                                    (self.printer_id, slot_num, ftype if not is_empty else 'EMPTY', color_hex if not is_empty else None))
+
+                                            slot_num += 1
+                                    conn.commit()
+                            except Exception as e:
+                                log.debug(f"[{self.name}] AMS slot sync: {e}")
+
                     # ---- H2D Dual-Nozzle / External Spool Parsing ----
                     h2d_nozzle_data = None
                     external_spools = None
