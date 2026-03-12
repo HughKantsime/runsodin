@@ -40,6 +40,8 @@ class FilamentSlotResponse(FilamentSlotBase):
     id: int
     printer_id: int
     loaded_at: Optional[datetime] = None
+    remaining: Optional[float] = None
+    material_type: Optional[str] = None
 
 
 # ============== Printer Schemas ==============

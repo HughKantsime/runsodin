@@ -5,7 +5,7 @@ Owns tables: printers, filament_slots, nozzle_lifecycle
 """
 
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
     ForeignKey, Enum as SQLEnum, Text, JSON
@@ -151,6 +151,21 @@ class FilamentSlot(Base):
     # Relationships
     printer = relationship("Printer", back_populates="filament_slots")
     assigned_spool = relationship("Spool", foreign_keys=[assigned_spool_id])
+
+    @property
+    def remaining(self) -> Optional[float]:
+        """Percentage of filament remaining (0-100), derived from assigned spool."""
+        if self.assigned_spool and self.assigned_spool.initial_weight_g and self.assigned_spool.initial_weight_g > 0:
+            if self.assigned_spool.remaining_weight_g is not None:
+                return round((self.assigned_spool.remaining_weight_g / self.assigned_spool.initial_weight_g) * 100, 1)
+        return None
+
+    @property
+    def material_type(self) -> Optional[str]:
+        """Human-readable material type string for the frontend."""
+        if self.filament_type and self.filament_type.value != 'EMPTY':
+            return self.filament_type.value
+        return None
 
     def __repr__(self):
         return f"<FilamentSlot {self.printer_id}:{self.slot_number} - {self.color}>"

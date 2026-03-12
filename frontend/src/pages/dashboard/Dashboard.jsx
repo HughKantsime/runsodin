@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
 import CameraModal from '../../components/printers/CameraModal'
+import SpoolRing from '../../components/ui/SpoolRing'
 import { StatCard, Button, PageHeader, EmptyState, ProgressBar } from '../../components/ui'
 import SectionErrorBoundary from './SectionErrorBoundary'
 
@@ -99,10 +100,13 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }) 
 
         <div className="grid grid-cols-4 gap-1.5 md:gap-2">
           {slots.map((slot, idx) => (
-            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1.5 md:p-2 text-center min-w-0">
-              <div 
-                className="w-full h-2.5 md:h-3 rounded-md mb-1" 
-                style={{ backgroundColor: slot.color_hex ? `#${slot.color_hex}` : (slot.color ? '#888' : '#333') }} 
+            <div key={idx} className="bg-[var(--brand-input-bg)] rounded-md p-1.5 md:p-2 text-center min-w-0 flex flex-col items-center gap-1">
+              <SpoolRing
+                color={slot.color_hex ? `#${slot.color_hex}` : '#888'}
+                material={slot.material_type || slot.type || ''}
+                level={slot.remaining != null ? slot.remaining : 100}
+                empty={!slot.color_hex && !slot.material_type && !slot.type}
+                size={20}
               />
               <span className="text-[10px] md:text-xs text-[var(--brand-text-muted)] truncate block">{getShortName(slot)}</span>
             </div>
