@@ -374,18 +374,30 @@ def _register_http_middleware(app: FastAPI) -> None:
             return await call_next(request)
 
         import hmac
+
+        # Check X-API-Key header (API clients, CLI tools)
         api_key = request.headers.get("X-API-Key")
-        if not api_key:
+        if api_key:
+            # Global API key (constant-time comparison)
+            if hmac.compare_digest(api_key, settings.api_key):
+                return await call_next(request)
+            # Per-user scoped tokens (odin_ prefix) are validated by get_current_user
+            if api_key.startswith("odin_"):
+                return await call_next(request)
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing API key"},
             )
-        # Global API key (constant-time comparison)
-        if hmac.compare_digest(api_key, settings.api_key):
-            return await call_next(request)
-        # Per-user scoped tokens (odin_ prefix) are validated by get_current_user
-        if api_key.startswith("odin_"):
-            return await call_next(request)
+
+        # Fallback: allow requests with a valid session cookie (browser SPA auth).
+        # The login endpoint (bypassed above) sets an httpOnly session cookie;
+        # subsequent browser requests include it automatically via credentials:'include'.
+        session_cookie = request.cookies.get("session")
+        if session_cookie:
+            from core.auth import decode_token
+            if decode_token(session_cookie):
+                return await call_next(request)
+
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid or missing API key"},
