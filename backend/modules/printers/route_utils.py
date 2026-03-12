@@ -7,6 +7,7 @@ external modules (e.g. system/routes.py imports _check_ssrf_blocklist).
 import logging
 import os
 import re
+from urllib.parse import quote as urlquote
 
 import yaml
 from fastapi import HTTPException
@@ -105,7 +106,7 @@ def get_camera_url(printer):
         try:
             parts = crypto.decrypt(printer.api_key).split("|")
             if len(parts) == 2:
-                return f"rtsps://bblp:{parts[1]}@{printer.api_host}:322/streaming/live/1"
+                return f"rtsps://bblp:{urlquote(parts[1], safe='')}@{printer.api_host}:322/streaming/live/1"
         except Exception:
             pass
     return None

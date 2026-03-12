@@ -114,7 +114,7 @@ def discover_camera(printer_id: int, rtsp_url: str):
     try:
         # Regenerate go2rtc config so the camera stream is available
         try:
-            from main import sync_go2rtc_config_standalone
+            from modules.printers.route_utils import sync_go2rtc_config_standalone
             sync_go2rtc_config_standalone()
             log.info(f"go2rtc config synced after camera discovery for printer {printer_id}")
         except Exception as e2:

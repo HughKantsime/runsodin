@@ -14,6 +14,7 @@ sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 import json
 import logging
 import time
+from urllib.parse import quote as urlquote
 from datetime import datetime, timezone
 from threading import Thread, Lock
 from typing import Dict, Optional, Any
@@ -370,7 +371,7 @@ class PrinterMonitor:
             ipcam = raw.get('ipcam', {})
             rtsp_url = ipcam.get('rtsp_url')
             if rtsp_url:
-                full_url = f"rtsps://bblp:{self.access_code}@{self.ip}:322/streaming/live/1"
+                full_url = f"rtsps://bblp:{urlquote(self.access_code, safe='')}@{self.ip}:322/streaming/live/1"
                 printer_events.discover_camera(self.printer_id, full_url)
 
             # Merge partial updates into state
