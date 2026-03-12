@@ -353,9 +353,14 @@ class PrinterMonitor:
                                                             conn.execute(
                                                                 "UPDATE filament_slots SET assigned_spool_id=?, spool_confirmed=1 WHERE id=?",
                                                                 (spool_row[0], slot_id))
-                                                            conn.execute(
-                                                                "UPDATE spools SET location_printer_id=?, location_slot=?, remaining_weight_g=initial_weight_g*?/100.0 WHERE id=?",
-                                                                (self.printer_id, slot_num, remaining, spool_row[0]))
+                                                            if remaining > 0:
+                                                                conn.execute(
+                                                                    "UPDATE spools SET location_printer_id=?, location_slot=?, remaining_weight_g=initial_weight_g*?/100.0 WHERE id=?",
+                                                                    (self.printer_id, slot_num, remaining, spool_row[0]))
+                                                            else:
+                                                                conn.execute(
+                                                                    "UPDATE spools SET location_printer_id=?, location_slot=? WHERE id=?",
+                                                                    (self.printer_id, slot_num, spool_row[0]))
                                             else:
                                                 conn.execute(
                                                     "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, datetime('now'))",

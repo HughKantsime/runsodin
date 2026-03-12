@@ -327,7 +327,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 rfid_match.location_printer_id = printer_id
                 rfid_match.location_slot = ams_slot.slot_number
                 rfid_match.storage_location = None
-                if ams_slot.remaining_percent >= 0:
+                if ams_slot.remaining_percent and ams_slot.remaining_percent > 0:
                     rfid_match.remaining_weight_g = rfid_match.initial_weight_g * (ams_slot.remaining_percent / 100)
                 updated_slots.append({
                     "slot": ams_slot.slot_number, "type": ftype.value, "color": color_name,
@@ -369,7 +369,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                     qr_code=f"SPL-{uuid.uuid4().hex[:8].upper()}",
                     rfid_tag=ams_slot.rfid_tag,
                     color_hex=color_hex,
-                    remaining_weight_g=max(0, 1000.0 * (ams_slot.remaining_percent / 100)),
+                    remaining_weight_g=1000.0 * (ams_slot.remaining_percent / 100) if ams_slot.remaining_percent else 1000.0,
                     status=SpoolStatus.ACTIVE,
                     location_printer_id=printer_id,
                     location_slot=ams_slot.slot_number,
