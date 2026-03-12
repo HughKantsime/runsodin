@@ -79,6 +79,7 @@ def create_printer(
         printer.camera_url = _validate_camera_url(printer.camera_url)
         if '@' in printer.camera_url:
             printer.camera_url = crypto.encrypt(printer.camera_url)
+        printer.camera_enabled = True
 
     from license_manager import check_printer_limit
 
@@ -191,10 +192,14 @@ def update_printer(
     if 'api_host' in update_data and update_data['api_host']:
         _check_ssrf_blocklist(update_data['api_host'])
 
-    if 'camera_url' in update_data and update_data['camera_url']:
-        update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
-        if '@' in update_data['camera_url']:
-            update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
+    if 'camera_url' in update_data:
+        if update_data['camera_url']:
+            update_data['camera_url'] = _validate_camera_url(update_data['camera_url'])
+            if '@' in update_data['camera_url']:
+                update_data['camera_url'] = crypto.encrypt(update_data['camera_url'])
+            update_data['camera_enabled'] = True
+        else:
+            update_data['camera_enabled'] = False
 
     if 'api_key' in update_data and update_data['api_key']:
         update_data['api_key'] = crypto.encrypt(update_data['api_key'])
@@ -225,6 +230,14 @@ def update_printer(
     db.refresh(printer)
     log_audit(db, "printer.updated", "printer", printer_id,
               {"fields": list(update_data.keys())})
+
+    if 'camera_url' in update_data:
+        try:
+            from modules.printers.route_utils import sync_go2rtc_config
+            sync_go2rtc_config(db)
+        except Exception:
+            pass
+
     return printer
 
 
