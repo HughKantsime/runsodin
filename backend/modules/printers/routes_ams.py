@@ -294,7 +294,12 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
             FilamentSlot.slot_number == ams_slot.slot_number,
         ).first()
         if not db_slot:
-            continue
+            db_slot = FilamentSlot(
+                printer_id=printer_id,
+                slot_number=ams_slot.slot_number,
+            )
+            db.add(db_slot)
+            db.flush()
 
         color_hex = ams_slot.color_hex[:6] if ams_slot.color_hex else None
         ftype = filament_type_map.get(ams_slot.filament_type.upper(), FilamentType.PLA)
