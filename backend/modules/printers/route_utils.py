@@ -140,6 +140,10 @@ def sync_go2rtc_config(db: Session):
     for p in printers:
         url = get_camera_url(p)
         if url:
+            # UniFi Protect: rtsps + port 7441 needs rtspx (no SRTP, skip cert check)
+            if url.startswith("rtsps://") and ":7441" in url:
+                url = "rtspx://" + url[8:]
+                url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
             if url.startswith(("http://", "https://")):
                 streams[f"printer_{p.id}"] = f"ffmpeg:{url}#video=h264"
             else:
