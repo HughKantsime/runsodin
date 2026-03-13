@@ -77,6 +77,7 @@ class PrinterMonitor:
             )
             if self._bambu.connect():
                 log.info(f"[{self.name}] Connected")
+                self._recover_orphaned_jobs()
                 return True
             else:
                 log.error(f"[{self.name}] Connection failed")
@@ -84,6 +85,43 @@ class PrinterMonitor:
         except Exception as e:
             log.error(f"[{self.name}] Connection error: {e}")
             return False
+
+    def _recover_orphaned_jobs(self):
+        """Close any 'running' jobs in the DB if the printer is not actually printing."""
+        try:
+            with get_db() as conn:
+                cur = conn.cursor()
+                rows = cur.execute(
+                    "SELECT id, job_name, started_at FROM print_jobs "
+                    "WHERE printer_id = ? AND status = 'running' ORDER BY id",
+                    (self.printer_id,)
+                ).fetchall()
+                if not rows:
+                    return
+                # Wait briefly for first MQTT status to arrive
+                time.sleep(3)
+                gcode_state = self._state.get('gcode_state', '')
+                if gcode_state in ('RUNNING', 'PAUSE'):
+                    # Printer is actually printing — resume tracking the most recent job
+                    latest = rows[-1]
+                    self._current_job_id = latest[0]
+                    log.info(f"[{self.name}] Resumed tracking job {latest[0]} ({latest[1]})")
+                    # Close any older orphaned jobs
+                    for row in rows[:-1]:
+                        cur.execute(
+                            "UPDATE print_jobs SET status = 'completed', ended_at = datetime('now') WHERE id = ?",
+                            (row[0],))
+                        log.info(f"[{self.name}] Closed stale job {row[0]} ({row[1]})")
+                else:
+                    # Printer is idle — close all orphaned jobs
+                    for row in rows:
+                        cur.execute(
+                            "UPDATE print_jobs SET status = 'completed', ended_at = datetime('now') WHERE id = ?",
+                            (row[0],))
+                        log.info(f"[{self.name}] Closed orphaned job {row[0]} ({row[1]}) — printer is {gcode_state or 'idle'}")
+                conn.commit()
+        except Exception as e:
+            log.error(f"[{self.name}] Orphaned job recovery failed: {e}")
 
     def disconnect(self):
         """Disconnect from printer."""
