@@ -184,6 +184,71 @@ def sync_go2rtc_config_standalone():
         db.close()
 
 
+def sync_go2rtc_config_raw():
+    """Regenerate go2rtc config using raw SQL (safe to call from monitors)."""
+    from core.db_utils import get_db
+    streams = {}
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            rows = cur.execute(
+                "SELECT id, api_type, api_host, api_key, camera_url, model "
+                "FROM printers WHERE is_active = 1 AND camera_enabled = 1"
+            ).fetchall()
+            for row in rows:
+                pid, api_type, api_host, api_key, camera_url, model = row
+                url = None
+                if camera_url:
+                    try:
+                        url = crypto.decrypt(camera_url)
+                    except Exception:
+                        url = camera_url
+                elif api_type == 'bambu' and api_key and api_host:
+                    RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
+                    if (model or '').strip() in RTSP_MODELS:
+                        try:
+                            parts = crypto.decrypt(api_key).split('|')
+                            if len(parts) == 2:
+                                url = f"rtsps://bblp:{urlquote(parts[1], safe='')}@{api_host}:322/streaming/live/1"
+                        except Exception:
+                            pass
+                if url:
+                    if url.startswith("rtsps://") and ":7441" in url:
+                        url = "rtspx://" + url[8:]
+                        url = url.split("?enableSrtp")[0].split("&enableSrtp")[0]
+                    if url.startswith(("http://", "https://")):
+                        streams[f"printer_{pid}"] = f"ffmpeg:{url}#video=h264"
+                    else:
+                        streams[f"printer_{pid}"] = url
+
+            lan_ip = os.environ.get("ODIN_HOST_IP")
+            if not lan_ip:
+                r = cur.execute("SELECT value FROM system_config WHERE key = 'host_ip'").fetchone()
+                if r:
+                    lan_ip = r[0]
+    except Exception as e:
+        log.error(f"go2rtc raw sync DB error: {e}")
+        return
+
+    if not lan_ip:
+        lan_ip = _get_lan_ip()
+    webrtc_config = {"listen": "0.0.0.0:8555"}
+    if lan_ip:
+        webrtc_config["candidates"] = [f"{lan_ip}:8555"]
+    config = {
+        "api": {"listen": "127.0.0.1:1984"},
+        "webrtc": webrtc_config,
+        "streams": streams,
+    }
+    with open(GO2RTC_CONFIG, "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
+    try:
+        import subprocess
+        subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
 # ====================================================================
 # Printer command helpers
 # ====================================================================
