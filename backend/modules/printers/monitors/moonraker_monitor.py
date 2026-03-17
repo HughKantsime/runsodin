@@ -150,11 +150,30 @@ class MoonrakerMonitor:
                 if self.printer.connect():
                     self._discover_and_save_camera()
                     log.info(f"[{self.name}] Reconnected")
+                    # Recover job tracking state after reconnect
+                    self._recover_after_reconnect()
                     return
             except Exception:
                 pass
             log.warning(f"[{self.name}] Reconnect failed, retrying...")
     
+    def _recover_after_reconnect(self):
+        """Restore job tracking state after a reconnect."""
+        try:
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id, job_name FROM print_jobs "
+                    "WHERE printer_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
+                    (self.printer_id,))
+                row = cur.fetchone()
+                if row:
+                    self._current_job_db_id = row[0]
+                    self._last_filename = row[1] or ""
+                    log.info(f"[{self.name}] Recovered job tracking: {row[0]} ({row[1]})")
+        except Exception as e:
+            log.warning(f"[{self.name}] Job recovery after reconnect failed: {e}")
+
     # ==================== Status Processing ====================
     
     def _process_status(self, status):
@@ -339,14 +358,32 @@ class MoonrakerMonitor:
     
     def _job_started(self, status):
         """Record a new print job starting."""
+        # Guard: already tracking a job
+        if self._current_job_db_id:
+            log.debug(f"[{self.name}] _job_started called but already tracking job {self._current_job_db_id}")
+            return
+
         filename = status.filename or "Unknown"
         total_layers = status.total_layers
         bed_target = status.bed_target
         nozzle_target = status.nozzle_target
-        
+
         try:
             with get_db() as conn:
                 cur = conn.cursor()
+
+                # Check for existing running job — resume it instead of creating duplicate
+                cur.execute(
+                    "SELECT id, job_name FROM print_jobs "
+                    "WHERE printer_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
+                    (self.printer_id,))
+                existing = cur.fetchone()
+                if existing:
+                    self._current_job_db_id = existing[0]
+                    self._last_filename = existing[1] or filename
+                    log.info(f"[{self.name}] Resumed tracking existing job {existing[0]} ({existing[1]})")
+                    return
+
                 cur.execute("""
                     INSERT INTO print_jobs
                     (printer_id, job_id, filename, job_name, started_at, status,
@@ -383,11 +420,34 @@ class MoonrakerMonitor:
         try:
             with get_db() as conn:
                 cur = conn.cursor()
+                now_utc = datetime.now(timezone.utc).isoformat()
+
+                # Calculate duration
+                duration_seconds = None
+                pj_row = cur.execute(
+                    "SELECT started_at FROM print_jobs WHERE id = ?",
+                    (self._current_job_db_id,)).fetchone()
+                if pj_row and pj_row[0]:
+                    try:
+                        started = datetime.fromisoformat(pj_row[0])
+                        ended = datetime.fromisoformat(now_utc)
+                        duration_seconds = int((ended - started).total_seconds())
+                    except Exception:
+                        pass
+
+                # Calculate filament used (Klipper reports mm extruded)
+                # Convert mm to grams: PLA ~1.24 g/cm³, 1.75mm filament ≈ 2.98g/m
+                filament_used_g = None
+                if status.filament_used_mm and status.filament_used_mm > 0:
+                    filament_used_g = round(status.filament_used_mm / 1000.0 * 2.98, 2)
+
                 cur.execute("""
                     UPDATE print_jobs
-                    SET ended_at = ?, status = ?
+                    SET ended_at = ?, status = ?, print_duration_seconds = ?,
+                        filament_used_g = ?
                     WHERE id = ?
-                """, (datetime.now(timezone.utc).isoformat(), end_status, self._current_job_db_id))
+                """, (now_utc, end_status, duration_seconds,
+                      filament_used_g, self._current_job_db_id))
 
                 # If linked to a scheduled job, update it too
                 cur.execute("""
@@ -395,10 +455,13 @@ class MoonrakerMonitor:
                 """, (self._current_job_db_id,))
                 row = cur.fetchone()
                 if row and row[0]:
-                    sched_status = "COMPLETED" if end_status == "completed" else "FAILED"
+                    sched_status = "completed" if end_status == "completed" else "failed"
+                    duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
                     cur.execute("""
-                        UPDATE jobs SET status = ? WHERE id = ?
-                    """, (sched_status, row[0]))
+                        UPDATE jobs SET status = ?, actual_end = ?,
+                               duration_hours = COALESCE(?, duration_hours)
+                        WHERE id = ?
+                    """, (sched_status, now_utc, duration_hours, row[0]))
                     log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")
 
                     # Auto-deduct filament if completed
@@ -450,7 +513,19 @@ class MoonrakerMonitor:
                     severity="error",
                     create_alert=False,
                 )
-            
+
+            # Archive the print (completed, failed, or cancelled)
+            try:
+                from modules.archives.archive import create_print_archive
+                create_print_archive(
+                    print_job_id=self._current_job_db_id,
+                    printer_id=self.printer_id,
+                    success=(end_status == 'completed'),
+                    result_status=end_status if end_status == 'cancelled' else None,
+                )
+            except Exception as ae:
+                log.warning(f"[{self.name}] Failed to create print archive: {ae}")
+
             self._current_job_db_id = None
             self._last_filename = ""
             

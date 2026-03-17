@@ -193,17 +193,24 @@ def record_job_started(
                       linked_job_id))
                 new_job_id = cur.lastrowid
 
-                # Snapshot spool weights at job start for filament usage calculation
+                # Snapshot AMS remain percentages at job start for filament usage calc
                 try:
                     spool_rows = cur.execute("""
-                        SELECT fs.slot_number, s.id, s.remaining_weight_g
+                        SELECT fs.slot_number, s.id, s.initial_weight_g
                         FROM filament_slots fs
                         JOIN spools s ON fs.assigned_spool_id = s.id
                         WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
                     """, (printer_id,)).fetchall()
-                    for slot, spool_id, weight in spool_rows:
-                        if weight is not None:
-                            start_weights[spool_id] = weight
+                    for slot, spool_id, initial_wt in spool_rows:
+                        if initial_wt is not None:
+                            # Read current AMS remain % from the printer's MQTT state
+                            remain_pct = state.get('_ams_remain', {}).get(slot)
+                            if remain_pct is not None:
+                                start_weights[spool_id] = {
+                                    'remain_pct': remain_pct,
+                                    'initial_weight_g': initial_wt,
+                                    'slot': slot,
+                                }
                 except Exception:
                     pass
 
@@ -296,21 +303,18 @@ def record_job_ended(
                 except Exception:
                     pass
 
-            # Calculate filament used by comparing spool weights
+            # Calculate filament used by comparing AMS remain percentages
             filament_used_g = None
             if start_spool_weights:
                 try:
                     total_used = 0.0
-                    spool_rows = cur.execute("""
-                        SELECT s.id, s.remaining_weight_g FROM filament_slots fs
-                        JOIN spools s ON fs.assigned_spool_id = s.id
-                        WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
-                    """, (printer_id,)).fetchall()
-                    for spool_id, current_weight in spool_rows:
-                        if spool_id in start_spool_weights and current_weight is not None:
-                            delta = start_spool_weights[spool_id] - current_weight
-                            if delta > 0:
-                                total_used += delta
+                    for spool_id, snap in start_spool_weights.items():
+                        slot_num = snap['slot']
+                        end_pct = state.get('_ams_remain', {}).get(slot_num)
+                        if end_pct is not None:
+                            delta_pct = snap['remain_pct'] - end_pct
+                            if delta_pct > 0:
+                                total_used += snap['initial_weight_g'] * delta_pct / 100.0
                     if total_used > 0:
                         filament_used_g = round(total_used, 2)
                 except Exception as e:

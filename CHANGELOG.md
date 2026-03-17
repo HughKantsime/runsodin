@@ -2,6 +2,16 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.5.10] - 2026-03-17
+
+### Fixed
+- **Moonraker missing print archives** — Moonraker monitor now calls `create_print_archive()` on job end, matching Bambu monitor behavior
+- **Duplicate print_jobs rows on reconnect (Moonraker)** — guard in `_job_started()` checks for existing running job before INSERT; `_recover_after_reconnect()` restores tracking state across connection drops
+- **Duplicate print_jobs rows on reconnect (Bambu)** — guard in `_job_started()` checks DB for existing running job; orphan recovery marks stale duplicates as cancelled instead of completed
+- **Filament tracking always NULL (Bambu)** — switched from spool weight delta (never updated during prints) to AMS remain percentage delta × initial_weight_g
+- **Filament tracking always NULL (Moonraker)** — added filament_used_g from Klipper `print_stats.filament_used` (mm→grams conversion), plus print_duration_seconds and duration_hours
+- **Moonraker scheduled job status case** — corrected uppercase COMPLETED/FAILED to lowercase to match jobs table convention
+
 ## [1.5.3] - 2026-03-05
 
 ### Changed

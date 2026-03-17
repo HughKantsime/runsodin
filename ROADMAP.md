@@ -2,6 +2,12 @@
 
 Updated — see CHANGELOG for current version.
 
+## Shipped in v1.5.10
+
+- ~~Moonraker print archives~~ — Moonraker monitor now creates archives on job completion (was silently skipping)
+- ~~Duplicate print_jobs on reconnect~~ — both Bambu and Moonraker monitors guard against creating duplicate rows when connection drops and recovers
+- ~~Filament usage tracking~~ — Bambu uses AMS remain % delta, Moonraker uses Klipper filament_used extruder data; both were previously NULL
+
 ## Shipped in v1.5.3
 
 - ~~UI redesign~~ — Complete visual overhaul (117 files). Warm industrial aesthetic, CSS custom property system, SpoolRing component, all emoji→Lucide icons, camera views redesigned, dark+light mode parity. Zero functionality changes.

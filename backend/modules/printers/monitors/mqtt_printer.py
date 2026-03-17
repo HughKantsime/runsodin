@@ -109,9 +109,9 @@ class PrinterMonitor:
                     # Close any older orphaned jobs
                     for row in rows[:-1]:
                         cur.execute(
-                            "UPDATE print_jobs SET status = 'completed', ended_at = datetime('now') WHERE id = ?",
+                            "UPDATE print_jobs SET status = 'cancelled', ended_at = datetime('now') WHERE id = ?",
                             (row[0],))
-                        log.info(f"[{self.name}] Closed stale job {row[0]} ({row[1]})")
+                        log.info(f"[{self.name}] Closed stale duplicate job {row[0]} ({row[1]})")
                 else:
                     # Printer is idle — close all orphaned jobs
                     for row in rows:
@@ -479,6 +479,20 @@ class PrinterMonitor:
                 if value is not None:
                     self._state[key] = value
 
+            # Keep AMS remain percentages fresh for filament tracking
+            ams_raw = self._state.get('ams', {})
+            ams_units = ams_raw.get('ams', [])
+            if ams_units:
+                ams_remain = {}
+                slot_idx = 1
+                for unit in ams_units:
+                    for tray in unit.get('tray', []):
+                        remain = tray.get('remain')
+                        if remain is not None:
+                            ams_remain[slot_idx] = int(remain)
+                        slot_idx += 1
+                self._state['_ams_remain'] = ams_remain
+
             # Update progress if we have an active job (throttled to every 5 seconds)
             if self._current_job_id and time.time() - self._last_progress_update >= 5:
                 self._update_progress()
@@ -568,6 +582,40 @@ class PrinterMonitor:
 
     def _job_started(self):
         """Thin wrapper: delegate to mqtt_job_lifecycle.record_job_started()."""
+        # Guard: already tracking a job — skip duplicate start
+        if self._current_job_id:
+            log.debug(f"[{self.name}] _job_started called but already tracking job {self._current_job_id}")
+            return
+
+        # Check for existing running job in DB (e.g. after reconnect)
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT id, job_name, scheduled_job_id FROM print_jobs "
+                    "WHERE printer_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
+                    (self.printer_id,)).fetchone()
+                if row:
+                    self._current_job_id = row[0]
+                    self._linked_job_id = row[2]
+                    # Restore spool weight snapshot (best-effort)
+                    self._start_spool_weights = {}
+                    try:
+                        spool_rows = conn.execute("""
+                            SELECT s.id, s.remaining_weight_g
+                            FROM filament_slots fs
+                            JOIN spools s ON fs.assigned_spool_id = s.id
+                            WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
+                        """, (self.printer_id,)).fetchall()
+                        for spool_id, weight in spool_rows:
+                            if weight is not None:
+                                self._start_spool_weights[spool_id] = weight
+                    except Exception:
+                        pass
+                    log.info(f"[{self.name}] Resumed tracking existing job {row[0]} ({row[1]})")
+                    return
+        except Exception as e:
+            log.warning(f"[{self.name}] DB check for running job failed: {e}")
+
         new_job_id, linked_job_id, start_weights = record_job_started(
             printer_id=self.printer_id,
             printer_name=self.name,
