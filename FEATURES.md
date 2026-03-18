@@ -36,6 +36,8 @@
 - **H2D external spools** — Ext-L / Ext-R spool positions parsed from `vt_tray` MQTT field; material, color, and remaining percentage displayed on printer cards
 - **AMS RFID re-read** — trigger filament re-scan from UI via MQTT `ams_change_filament` command
 - **AMS slot configuration** — set material type, color hex, and K-factor per slot via MQTT `ams_filament_setting` command
+- **AMS auto-sync** — filament slot data (material, color, remaining %) automatically synced from MQTT telemetry to inventory; creates missing slot rows on first detection (v1.5.9)
+- **SpoolRing visualization** — SVG circular arc indicator for filament visualization across all pages (color, material, fill level); dashed ring for empty, amber warning below 15% (v1.5.3+)
 
 ### 1.5 Printer Controls
 - **Emergency Stop** — floating red button visible on every page, sends stop to all connected printers (operator/admin)
@@ -351,6 +353,7 @@
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
 - Bidirectional sync: pull spools from Spoolman, push consumption back on print completion
 - **Auto-deduction** — filament consumption auto-deducted from assigned spool on print completion; consumption_json stored in archive; syncs to Spoolman if linked
+- **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament prints distribute weight across all assigned spools (v1.5.10)
 
 ### 6.7 Filament Drying Log (v1.2.0)
 - Log drying sessions per spool: start time, duration, temperature
@@ -880,3 +883,14 @@
 | v1.3.69 | 2026-02-23 | RBAC matrix: ~120 routes added (1507 total tests, all passing), CI security pipeline (gitleaks + bandit + pip-audit + npm audit), invoice PDF crash fix (em dash in fpdf), retention cleanup 500 fix |
 | v1.3.70 | 2026-02-24 | Competitive parity (HMS expansion, skip objects, speed adjust, resizable cards, OBS overlay, log viewer, support bundle, email onboarding, password reset, print archive); platform expansion (timelapse editor, build plate detection, slicer profiles, H2D dual-nozzle AMS, Windows installer, docs wiki) |
 | v1.3.74 | 2026-02-25 | Feature depth track: archive depth (print log, comparison, tags, reprint, projects), printer controls (fan speed, AMS RFID refresh, AMS slot config, plate-cleared), batch job send, file duplicate detection, WhatsApp + Pushover notifications, low-stock spool alerts, PA profiles, Spoolman link, CSV spool export, user theme preferences |
+| v1.3.75 | 2026-02-26 | Multi-plate reprint, H2D external spools, scheduler target types, bed cooled + queue notifications, filament auto-deduction, Italian locale, Projects page |
+| v1.3.76 | 2026-02-26 | Printer model auto-detection for all 4 protocols |
+| v1.4.0 | 2026-02-27 | Modular architecture: 12 domain modules, app factory, InMemoryEventBus, ModuleRegistry DI, module-owned migrations, 171 contract tests |
+| v1.4.1–v1.4.3 | 2026-02-27 | Route sub-router decomposition, frontend modular refactor (api/ + pages/ + components/ reorganization), cross-module violation cleanup, oversized file splitting |
+| v1.4.4–v1.4.7 | 2026-02-28 | Circular import fixes, alerts 500 fix, WebRTC signaling fixes, archive data completeness, 3D model viewer in archives, cancelled print archiving, multi-filament deduction |
+| v1.5.0 | 2026-03-03 | Design system (13 UI primitives), printer detail page, sidebar extraction, modal migration, filter persistence, frontend test infra, ESLint, bundle analysis, utility consolidation |
+| v1.5.1–v1.5.2 | 2026-03-04 | Analytics enum fixes, scoped token auth, license portal integration (activate/unactivate/reactivate), Ed25519 key update |
+| v1.5.3 | 2026-03-05 | Complete UI redesign (117 files): industrial aesthetic, CSS custom property system, SpoolRing component, all emoji→Lucide icons, camera views redesigned |
+| v1.5.4–v1.5.8 | 2026-03-11–12 | Timeline overlap fix, session cookie auth fix, go2rtc camera pipeline (sync on startup/connect/signaling), AMS slot creation, GHCR Git LFS |
+| v1.5.9 | 2026-03-12 | Unified filament visualization (SpoolRing everywhere), AMS auto-sync from MQTT telemetry, UniFi Protect camera support |
+| v1.5.10 | 2026-03-17 | Monitor reliability: Moonraker archives, duplicate job guards, filament usage tracking (Bambu AMS % delta + Moonraker Klipper extruder), orphaned job recovery |

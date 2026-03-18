@@ -11,6 +11,52 @@ All notable changes to O.D.I.N. are documented here.
 - **Filament tracking always NULL (Bambu)** — switched from spool weight delta (never updated during prints) to AMS remain percentage delta × initial_weight_g
 - **Filament tracking always NULL (Moonraker)** — added filament_used_g from Klipper `print_stats.filament_used` (mm→grams conversion), plus print_duration_seconds and duration_hours
 - **Moonraker scheduled job status case** — corrected uppercase COMPLETED/FAILED to lowercase to match jobs table convention
+- **Default spool weight** — new spools default to full weight when printer reports 0% remaining
+- **FilamentType enum case** — material_type property and MQTT auto-sync compare against lowercase 'empty' enum value
+- **Compact SpoolRing labels** — hide inline material label on compact slots to prevent overlap
+- **Orphaned job recovery** — MQTT monitor recovers orphaned running jobs on reconnect
+- **go2rtc monitor sync** — raw-SQL go2rtc config sync for monitor processes (avoids ORM session conflicts)
+
+## [1.5.9] - 2026-03-12
+
+### Added
+- **Unified filament visualization** — SpoolRing component used consistently across all pages (printers, inventory, jobs, dashboard)
+- **AMS auto-sync** — filament slot data automatically synced from MQTT telemetry to inventory; creates missing slots during sync
+
+### Fixed
+- **AMS polling** — poll for AMS data instead of fixed 2-second sleep on printer detail
+- **UniFi Protect cameras** — auto-convert `rtsps://` URLs to `rtspx://` for go2rtc compatibility
+
+## [1.5.8] - 2026-03-12
+
+### Fixed
+- **Camera auto-enable** — automatically enable camera and sync go2rtc config when `camera_url` is set on a printer
+- **go2rtc startup sync** — sync camera config on app startup so streams are available immediately
+- **AMS slot creation** — create missing filament slot rows during AMS sync instead of silently skipping
+
+## [1.5.7] - 2026-03-12
+
+### Fixed
+- **GHCR Docker build** — enable Git LFS in CI workflow so ONNX models are included in image
+- **go2rtc config sync** — fix import path for config sync module; URL-encode RTSP credentials with special characters
+
+## [1.5.6] - 2026-03-12
+
+### Fixed
+- **WebRTC 502 on first connect** — sync go2rtc config before WebRTC signaling so camera sources exist before negotiation
+
+## [1.5.5] - 2026-03-12
+
+### Fixed
+- **Session cookie auth** — allow httpOnly session cookie authentication through perimeter middleware when `API_KEY` is not configured (trusted-network deployments)
+
+## [1.5.4] - 2026-03-11
+
+### Fixed
+- **Timeline overlap** — prevented entries from overlapping printer name column
+- **Sync AMS button** — button disappeared after timeline CSS fix; restored
+- **Printer test connection 422** — `slot_count=0` from test connection caused PATCH validation failure
+- **useWebRTC hook** — extracted shared hook to fix infinite retry loops and inconsistent error handling across camera views
 
 ## [1.5.3] - 2026-03-05
 

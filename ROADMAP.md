@@ -7,6 +7,28 @@ Updated — see CHANGELOG for current version.
 - ~~Moonraker print archives~~ — Moonraker monitor now creates archives on job completion (was silently skipping)
 - ~~Duplicate print_jobs on reconnect~~ — both Bambu and Moonraker monitors guard against creating duplicate rows when connection drops and recovers
 - ~~Filament usage tracking~~ — Bambu uses AMS remain % delta, Moonraker uses Klipper filament_used extruder data; both were previously NULL
+- ~~Orphaned job recovery~~ — MQTT monitor recovers orphaned running jobs on reconnect
+- ~~go2rtc monitor sync~~ — raw-SQL config sync avoids ORM session conflicts in monitor processes
+
+## Shipped in v1.5.9
+
+- ~~Unified filament visualization~~ — SpoolRing component used consistently across all pages
+- ~~AMS auto-sync~~ — filament slot data automatically synced from MQTT telemetry to inventory
+- ~~UniFi Protect camera support~~ — auto-convert rtsps:// URLs to rtspx:// for go2rtc
+
+## Shipped in v1.5.5–v1.5.8
+
+- ~~Session cookie auth fix~~ — httpOnly cookie works without API_KEY configured (trusted-network deployments)
+- ~~go2rtc camera pipeline~~ — sync config before WebRTC signaling, on startup, and when camera_url is set; URL-encode RTSP credentials
+- ~~GHCR Docker build~~ — Git LFS enabled in CI so ONNX models are included in image
+- ~~AMS slot creation~~ — create missing filament slot rows during sync instead of skipping
+
+## Shipped in v1.5.4
+
+- ~~Timeline overlap fix~~ — prevented entries from overlapping printer name column
+- ~~Sync AMS button restored~~ — button disappeared after timeline CSS fix
+- ~~Printer test connection 422~~ — slot_count=0 from test connection caused PATCH failure
+- ~~useWebRTC hook~~ — extracted shared hook to fix infinite retry loops across camera views
 
 ## Shipped in v1.5.3
 
