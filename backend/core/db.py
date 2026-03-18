@@ -85,8 +85,30 @@ def _run_sql_file(db_path: str, sql_file: Path) -> None:
 
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(sql)
-        conn.commit()
+        # If the file contains ALTER TABLE statements, execute each statement
+        # individually so that "duplicate column name" errors (from prior runs
+        # or create_all) are caught per-statement without aborting the rest.
+        if "ALTER TABLE" in sql.upper():
+            for stmt in sql.split(";"):
+                stmt = stmt.strip()
+                if not stmt or stmt.startswith("--"):
+                    continue
+                # Skip pure-comment blocks
+                real_lines = [l for l in stmt.splitlines()
+                              if l.strip() and not l.strip().startswith("--")]
+                if not real_lines:
+                    continue
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" in str(exc):
+                        pass  # idempotent — column already exists
+                    else:
+                        raise
+            conn.commit()
+        else:
+            conn.executescript(sql)
+            conn.commit()
     finally:
         conn.close()
 

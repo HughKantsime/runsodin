@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import get_org_scope, require_role
 
 router = APIRouter()
 
@@ -22,9 +22,21 @@ def list_tags(
     db: Session = Depends(get_db),
 ):
     """Return all unique tags across archives with usage counts."""
-    rows = db.execute(
-        text("SELECT tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
-    ).fetchall()
+    org = get_org_scope(user)
+    if org is not None:
+        rows = db.execute(
+            text(
+                "SELECT a.tags FROM print_archives a "
+                "LEFT JOIN printers p ON a.printer_id = p.id "
+                "WHERE a.tags IS NOT NULL AND a.tags != '' "
+                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+            ),
+            {"org": org},
+        ).fetchall()
+    else:
+        rows = db.execute(
+            text("SELECT tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
+        ).fetchall()
 
     counts = {}
     for r in rows:
@@ -49,9 +61,21 @@ def rename_tag(
     old_tag = body.old.strip()
     new_tag = body.new.strip()
 
-    rows = db.execute(
-        text("SELECT id, tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
-    ).fetchall()
+    org = get_org_scope(user)
+    if org is not None:
+        rows = db.execute(
+            text(
+                "SELECT a.id, a.tags FROM print_archives a "
+                "LEFT JOIN printers p ON a.printer_id = p.id "
+                "WHERE a.tags IS NOT NULL AND a.tags != '' "
+                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+            ),
+            {"org": org},
+        ).fetchall()
+    else:
+        rows = db.execute(
+            text("SELECT id, tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
+        ).fetchall()
 
     updated = 0
     for r in rows:
@@ -81,9 +105,21 @@ def delete_tag(
     if not tag:
         raise HTTPException(status_code=400, detail="Tag name cannot be empty")
 
-    rows = db.execute(
-        text("SELECT id, tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
-    ).fetchall()
+    org = get_org_scope(user)
+    if org is not None:
+        rows = db.execute(
+            text(
+                "SELECT a.id, a.tags FROM print_archives a "
+                "LEFT JOIN printers p ON a.printer_id = p.id "
+                "WHERE a.tags IS NOT NULL AND a.tags != '' "
+                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+            ),
+            {"org": org},
+        ).fetchall()
+    else:
+        rows = db.execute(
+            text("SELECT id, tags FROM print_archives WHERE tags IS NOT NULL AND tags != ''")
+        ).fetchall()
 
     updated = 0
     for r in rows:

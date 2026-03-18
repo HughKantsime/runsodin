@@ -4,7 +4,7 @@
 
 ```bash
 # On the server (your-odin-host)
-cd /opt/printfarm-scheduler
+cd /opt/odin
 
 # Install dependencies
 pip install -r tests/requirements-test.txt --break-system-packages
@@ -28,8 +28,8 @@ pytest tests/ -v --html=test_report.html 2>&1 | tee full_results.txt
 | File | Tests | Count | Purpose |
 |------|-------|-------|---------|
 | `conftest.py` | — | — | Shared fixtures, auth, test data |
-| `test_rbac.py` | 126 endpoints × 4 roles | ~500 | RBAC enforcement proof |
-| `test_security.py` | Audit regression | ~35 | Verify v1.0.0 fixes hold |
+| `test_rbac.py` | ~190 endpoints × 4 roles | ~770 | RBAC enforcement proof |
+| `test_security.py` | Audit regression | ~65 | Verify security hardening holds |
 
 ## Test Users
 

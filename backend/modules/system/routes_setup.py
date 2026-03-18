@@ -253,7 +253,7 @@ def setup_create_printer(
     """Create a printer during setup. Requires JWT from admin creation step."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if _setup_is_locked(db):
+    if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     encrypted_api_key = None
     if request.api_key:
@@ -281,7 +281,7 @@ def setup_mark_complete(current_user: dict = Depends(get_current_user), db: Sess
     """Mark setup as complete. Prevents wizard from showing again."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    if _setup_is_locked(db):
+    if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     existing = db.execute(text("SELECT key FROM system_config WHERE key = 'setup_complete'")).fetchone()
     if existing:
@@ -294,12 +294,14 @@ def setup_mark_complete(current_user: dict = Depends(get_current_user), db: Sess
 
 
 @router.get("/setup/network", tags=["Setup"])
-def setup_network_info(request: Request, db: Session = Depends(get_db)):
+async def setup_network_info(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Return auto-detected host IP for network configuration."""
-    if _setup_is_locked(db):
-        current_user = get_current_user(request, db)
-        if not current_user:
-            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+    if _setup_is_complete(db) and not current_user:
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
     detected_ip = ""
     host_header = request.headers.get("host", "")
     host_part = host_header.split(":")[0] if host_header else ""
@@ -315,7 +317,7 @@ def setup_network_info(request: Request, db: Session = Depends(get_db)):
 @router.post("/setup/network", tags=["Setup"])
 async def setup_save_network(request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
     """Save host IP for WebRTC camera streaming. Admin only."""
-    if _setup_is_locked(db):
+    if _setup_is_complete(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
     data = await request.json()
     host_ip = data.get("host_ip", "").strip()

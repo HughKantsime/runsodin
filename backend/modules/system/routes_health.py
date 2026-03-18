@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 from modules.system.schemas import HealthCheck
 from core.config import settings
 from license_manager import get_license, save_license_file, get_installation_id
@@ -67,7 +67,7 @@ def get_license_info():
 @router.post("/license/upload", tags=["License"])
 async def upload_license(
     file: UploadFile = File(...),
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
     """Upload a license file. Admin only."""
@@ -101,7 +101,7 @@ async def upload_license(
 
 
 @router.delete("/license", tags=["License"])
-def remove_license(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def remove_license(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Remove the license file (revert to Community tier). Admin only."""
     import os as _os
     from license_manager import LICENSE_DIR, LICENSE_FILENAME
@@ -116,7 +116,7 @@ def remove_license(current_user: dict = Depends(require_role("admin")), db: Sess
 
 
 @router.get("/license/installation-id", tags=["License"])
-def get_license_installation_id(current_user: dict = Depends(require_role("admin"))):
+def get_license_installation_id(current_user: dict = Depends(require_superadmin())):
     """Return the installation ID for this ODIN instance. Admin only."""
     return {"installation_id": get_installation_id()}
 
@@ -128,7 +128,7 @@ class LicenseActivateRequest(PydanticBaseModel):
 @router.post("/license/activate", tags=["License"])
 async def activate_license(
     request: LicenseActivateRequest,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
 ):
     """Activate a license by key via the license server. Admin only."""
     license_server_url = settings.license_server_url
@@ -173,7 +173,7 @@ async def activate_license(
 
 
 @router.get("/license/activation-request", tags=["License"])
-def get_activation_request(current_user: dict = Depends(require_role("admin"))):
+def get_activation_request(current_user: dict = Depends(require_superadmin())):
     """Generate a downloadable activation request file for offline binding. Admin only."""
     import socket
     from starlette.responses import Response as _Response
@@ -199,7 +199,7 @@ class LicenseUnactivateRequest(PydanticBaseModel):
 @router.post("/license/unactivate", tags=["License"])
 async def unactivate_license(
     request: LicenseUnactivateRequest = None,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
     """Unactivate the current license to free the grant for another server. Admin only."""
@@ -243,7 +243,7 @@ async def unactivate_license(
 
 @router.post("/license/reactivate", tags=["License"])
 async def reactivate_license(
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
     """Reactivate the license to pick up tier/feature changes. Admin only."""
@@ -294,7 +294,7 @@ async def reactivate_license(
 
 
 @router.get("/license/unactivation-request", tags=["License"])
-def get_unactivation_request(current_user: dict = Depends(require_role("admin"))):
+def get_unactivation_request(current_user: dict = Depends(require_superadmin())):
     """Generate a downloadable unactivation request file for offline unactivation. Admin only."""
     import socket
     from starlette.responses import Response as _Response
@@ -366,7 +366,7 @@ def get_config(current_user: dict = Depends(require_role("viewer"))):
 
 
 @router.put("/config", tags=["Config"])
-def update_config(config: ConfigUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def update_config(config: ConfigUpdate, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update configuration. Writes to .env file."""
     env_path = os.environ.get('ENV_FILE_PATH', '/data/.env')
     env_vars = {}
@@ -404,7 +404,7 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_rol
 
 
 @router.get("/spoolman/test", tags=["Spoolman"])
-async def test_spoolman_connection(current_user: dict = Depends(require_role("admin"))):
+async def test_spoolman_connection(current_user: dict = Depends(require_superadmin())):
     """Test Spoolman connection. Admin only."""
     if not settings.spoolman_url:
         return {"success": False, "message": "Spoolman URL not configured"}

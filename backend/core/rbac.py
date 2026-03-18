@@ -102,6 +102,25 @@ def require_role(required_role: str, scope: str = None):
     return role_checker
 
 
+def require_superadmin():
+    """FastAPI dependency that requires superadmin (admin role + no group_id).
+
+    Use for system-wide operations: config, backup/restore, license, OIDC, etc.
+    Org-scoped admins (admin role + group_id) are rejected with 403.
+    """
+    from core.dependencies import get_current_user
+
+    async def superadmin_checker(current_user: dict = Depends(get_current_user)):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        if current_user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        if current_user.get("group_id"):
+            raise HTTPException(status_code=403, detail="Superadmin access required")
+        return current_user
+    return superadmin_checker
+
+
 def require_scope(scope: str):
     """FastAPI dependency that enforces API token scope for per-user token auth.
 

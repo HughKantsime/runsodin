@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import require_role
+from core.rbac import check_org_access, get_org_scope, require_role
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -98,6 +98,31 @@ def _build_archive_query(conditions, params, printer_id, status, search,
         params["tag_end"] = f"%, {tag}"
 
 
+def _check_archive_org_access(db, archive_printer_id, current_user):
+    """Check if user can access an archive via its printer's org."""
+    org = get_org_scope(current_user)
+    if org is None:
+        return  # superadmin
+    printer = db.execute(
+        text("SELECT org_id, shared FROM printers WHERE id = :pid"),
+        {"pid": archive_printer_id},
+    ).fetchone()
+    if not printer:
+        return  # orphaned archive, allow access
+    if not check_org_access(current_user, printer.org_id) and not printer.shared:
+        raise HTTPException(status_code=404, detail="Archive not found")
+
+
+def _apply_org_scope(conditions, params, current_user, join_clauses=None):
+    """Add org-scoping condition for list queries. Returns any extra JOIN needed."""
+    org = get_org_scope(current_user)
+    if org is None:
+        return ""  # superadmin — no filter
+    params["_org"] = org
+    conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+    return " JOIN printers p ON a.printer_id = p.id" if join_clauses is None else ""
+
+
 # ──────────────────────────────────────────────
 # Archive CRUD
 # ──────────────────────────────────────────────
@@ -120,11 +145,20 @@ def list_archives(
     params = {}
     _build_archive_query(conditions, params, printer_id, status, search,
                          start_date, end_date, None, tag)
+
+    # Org scoping — main query already JOINs printers as p
+    org = get_org_scope(user)
+    if org is not None:
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+        params["_org"] = org
+
     where = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
 
+    # Count query needs the printer JOIN for org scoping
+    count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if org is not None else ""
     total = db.execute(
-        text(f"SELECT COUNT(*) FROM print_archives a WHERE {where}"), params
+        text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params
     ).scalar() or 0
 
     rows = db.execute(
@@ -174,6 +208,9 @@ def compare_archives(
     if not row_a or not row_b:
         raise HTTPException(status_code=404, detail="One or both archives not found")
 
+    _check_archive_org_access(db, dict(row_a._mapping).get("printer_id"), user)
+    _check_archive_org_access(db, dict(row_b._mapping).get("printer_id"), user)
+
     da = _archive_row_to_dict(row_a)
     db_dict = _archive_row_to_dict(row_b)
 
@@ -211,11 +248,19 @@ def archive_log(
     params = {}
     _build_archive_query(conditions, params, printer_id, status, search,
                          start_date, end_date, user_id, tag)
+
+    # Org scoping — main query already JOINs printers as p
+    org = get_org_scope(user)
+    if org is not None:
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+        params["_org"] = org
+
     where = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
 
+    count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if org is not None else ""
     total = db.execute(
-        text(f"SELECT COUNT(*) FROM print_archives a WHERE {where}"), params
+        text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params
     ).scalar() or 0
 
     rows = db.execute(
@@ -265,6 +310,13 @@ def export_archive_log(
     params = {}
     _build_archive_query(conditions, params, printer_id, status, search,
                          start_date, end_date, user_id, tag)
+
+    # Org scoping — main query already JOINs printers as p
+    org = get_org_scope(user)
+    if org is not None:
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+        params["_org"] = org
+
     where = " AND ".join(conditions) if conditions else "1=1"
 
     rows = db.execute(
@@ -329,6 +381,7 @@ def get_archive(
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Archive not found")
+    _check_archive_org_access(db, dict(row._mapping).get("printer_id"), user)
     return _archive_row_to_dict(row)
 
 
@@ -341,10 +394,11 @@ def update_archive(
 ):
     """Update archive notes."""
     existing = db.execute(
-        text("SELECT id FROM print_archives WHERE id = :id"), {"id": archive_id}
+        text("SELECT id, printer_id FROM print_archives WHERE id = :id"), {"id": archive_id}
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Archive not found")
+    _check_archive_org_access(db, existing.printer_id, user)
 
     db.execute(
         text("UPDATE print_archives SET notes = :notes WHERE id = :id"),
@@ -362,10 +416,11 @@ def delete_archive(
 ):
     """Delete a print archive. Admin only."""
     existing = db.execute(
-        text("SELECT id FROM print_archives WHERE id = :id"), {"id": archive_id}
+        text("SELECT id, printer_id FROM print_archives WHERE id = :id"), {"id": archive_id}
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Archive not found")
+    _check_archive_org_access(db, existing.printer_id, user)
 
     db.execute(text("DELETE FROM print_archives WHERE id = :id"), {"id": archive_id})
     db.commit()
@@ -385,10 +440,11 @@ def update_archive_tags(
 ):
     """Set tags on an archive entry."""
     existing = db.execute(
-        text("SELECT id FROM print_archives WHERE id = :id"), {"id": archive_id}
+        text("SELECT id, printer_id FROM print_archives WHERE id = :id"), {"id": archive_id}
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Archive not found")
+    _check_archive_org_access(db, existing.printer_id, user)
 
     # Store as comma-separated, trimmed, deduplicated
     clean = list(dict.fromkeys(t.strip() for t in body.tags if t.strip()))
@@ -421,6 +477,7 @@ def ams_preview(
         raise HTTPException(status_code=404, detail="Archive not found")
 
     ad = dict(archive._mapping)
+    _check_archive_org_access(db, ad.get("printer_id"), user)
 
     # Try to find the associated print_file for filament metadata
     required = []
@@ -499,6 +556,7 @@ def reprint_archive(
         raise HTTPException(status_code=404, detail="Archive not found")
 
     ad = dict(archive._mapping)
+    _check_archive_org_access(db, ad.get("printer_id"), user)
 
     # Verify we have a file to reprint (check before printer to give better error)
     file_path = ad.get("file_path")

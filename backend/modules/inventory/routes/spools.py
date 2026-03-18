@@ -31,7 +31,11 @@ def low_stock_spools(
     db: Session = Depends(get_db),
 ):
     """List spools below their low-stock threshold."""
-    spools = db.query(Spool).filter(Spool.status == SpoolStatus.ACTIVE).all()
+    query = db.query(Spool).filter(Spool.status == SpoolStatus.ACTIVE)
+    effective_org = get_org_scope(current_user)
+    if effective_org is not None:
+        query = query.filter((Spool.org_id == effective_org) | (Spool.org_id == None))
+    spools = query.all()
     result = []
     for s in spools:
         threshold = s.low_stock_threshold_g or 50
@@ -55,7 +59,7 @@ def list_spools(
     filament_id: Optional[int] = None,
     printer_id: Optional[int] = None,
     org_id: Optional[int] = None,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """List all spools with optional filters."""
@@ -148,12 +152,12 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
 
 
 @router.get("/{spool_id}", tags=["Spools"])
-def get_spool(spool_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a single spool with details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
-    if current_user and not check_org_access(current_user, spool.org_id):
+    if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     return {
@@ -241,6 +245,8 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
+        raise HTTPException(status_code=404, detail="Spool not found")
 
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
     if not printer:
@@ -292,6 +298,8 @@ def unload_spool(
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
+        raise HTTPException(status_code=404, detail="Spool not found")
 
     # Clear slot assignment
     if spool.location_printer_id and spool.location_slot:
@@ -317,6 +325,8 @@ def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depe
     """Record filament usage from a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     # Deduct weight
@@ -350,6 +360,8 @@ def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = 
     """Update spool weight from scale measurement."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     # Calculate net filament weight
@@ -399,6 +411,8 @@ def log_drying_session(
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
         raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
+        raise HTTPException(status_code=404, detail="Spool not found")
 
     drying_log = DryingLog(
         spool_id=spool_id,
@@ -430,6 +444,8 @@ def get_drying_history(spool_id: int, current_user: dict = Depends(require_role(
     from modules.inventory.models import DryingLog
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
+        raise HTTPException(status_code=404, detail="Spool not found")
+    if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     logs = (

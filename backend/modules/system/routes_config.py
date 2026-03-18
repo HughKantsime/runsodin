@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 import core.crypto as crypto
 
 log = logging.getLogger("odin.api")
@@ -21,7 +21,7 @@ router = APIRouter()
 # ============== IP Allowlist ==============
 
 @router.get("/config/ip-allowlist", tags=["Config"])
-async def get_ip_allowlist(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def get_ip_allowlist(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Get the IP allowlist configuration."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'ip_allowlist'")).fetchone()
     if not row:
@@ -31,7 +31,7 @@ async def get_ip_allowlist(current_user: dict = Depends(require_role("admin")), 
 
 
 @router.put("/config/ip-allowlist", tags=["Config"])
-async def set_ip_allowlist(request: Request, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_ip_allowlist(request: Request, body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Set the IP allowlist. Includes lock-out protection."""
     import ipaddress
     enabled = body.get("enabled", False)
@@ -73,7 +73,7 @@ RETENTION_DEFAULTS = {
 
 
 @router.get("/config/retention", tags=["Config"])
-async def get_retention_config(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def get_retention_config(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Get data retention policy configuration."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
     if not row:
@@ -83,7 +83,7 @@ async def get_retention_config(current_user: dict = Depends(require_role("admin"
 
 
 @router.put("/config/retention", tags=["Config"])
-async def set_retention_config(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_retention_config(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Set data retention policy configuration."""
     config = {}
     for key in RETENTION_DEFAULTS:
@@ -103,7 +103,7 @@ async def set_retention_config(body: dict, current_user: dict = Depends(require_
 
 
 @router.post("/admin/retention/cleanup", tags=["Config"])
-async def run_retention_cleanup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def run_retention_cleanup(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Manually trigger data retention cleanup."""
     row = db.execute(text("SELECT value FROM system_config WHERE key = 'data_retention'")).fetchone()
     config = {**RETENTION_DEFAULTS}
@@ -145,7 +145,7 @@ async def run_retention_cleanup(current_user: dict = Depends(require_role("admin
 # ============== Quiet Hours Config ==============
 
 @router.get("/config/quiet-hours")
-async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: dict = Depends(require_superadmin())):
     """Get quiet hours settings."""
     keys = ["quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "quiet_hours_digest"]
     config = {}
@@ -165,7 +165,7 @@ async def get_quiet_hours_config(db: Session = Depends(get_db), current_user: di
 
 
 @router.put("/config/quiet-hours")
-async def update_quiet_hours_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_quiet_hours_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update quiet hours settings. Admin only."""
     body = await request.json()
     for short_key, value in body.items():
@@ -194,7 +194,7 @@ except ImportError:
 
 
 @router.get("/config/mqtt-republish")
-async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user: dict = Depends(require_superadmin())):
     """Get MQTT republish settings."""
     keys = [
         "mqtt_republish_enabled", "mqtt_republish_host", "mqtt_republish_port",
@@ -228,7 +228,7 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
 
 
 @router.put("/config/mqtt-republish")
-async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update MQTT republish settings. Admin only."""
     body = await request.json()
     for short_key, value in body.items():
@@ -251,7 +251,7 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
 
 
 @router.post("/config/mqtt-republish/test")
-async def test_mqtt_republish(request: Request, current_user: dict = Depends(require_role("admin"))):
+async def test_mqtt_republish(request: Request, current_user: dict = Depends(require_superadmin())):
     """Test connection to external MQTT broker."""
     if not mqtt_republish:
         raise HTTPException(status_code=503, detail="MQTT republish module not available")

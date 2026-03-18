@@ -15,7 +15,7 @@ import os
 import re
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope, check_org_access
 from core.config import settings
 from core.models import SystemConfig
 from modules.printers.models import Printer
@@ -81,11 +81,17 @@ async def list_vision_detections(
     db: Session = Depends(get_db),
 ):
     """List vision detections with optional filters."""
+    org = get_org_scope(current_user)
     query = (
         db.query(VisionDetection, Printer.name, Printer.nickname)
         .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
     )
-    count_query = db.query(sa_func.count(VisionDetection.id))
+    count_query = db.query(sa_func.count(VisionDetection.id)).outerjoin(Printer, Printer.id == VisionDetection.printer_id)
+
+    if org is not None:
+        org_filter = (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
+        query = query.filter(org_filter)
+        count_query = count_query.filter(org_filter)
 
     if printer_id is not None:
         query = query.filter(VisionDetection.printer_id == printer_id)
@@ -120,14 +126,16 @@ async def get_vision_detection(
 ):
     """Get a single detection detail."""
     row = (
-        db.query(VisionDetection, Printer.name, Printer.nickname)
+        db.query(VisionDetection, Printer.name, Printer.nickname, Printer.org_id)
         .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
         .filter(VisionDetection.id == detection_id)
         .first()
     )
     if not row:
         raise HTTPException(status_code=404, detail="Detection not found")
-    det, pname, pnick = row
+    det, pname, pnick, printer_org_id = row
+    if not check_org_access(current_user, printer_org_id):
+        raise HTTPException(status_code=404, detail="Detection not found")
     return _detection_to_dict(det, printer_name=pname, printer_nickname=pnick)
 
 
@@ -148,6 +156,12 @@ async def review_vision_detection(
     if not det:
         raise HTTPException(status_code=404, detail="Detection not found")
 
+    # Check org access via the detection's printer
+    if det.printer_id:
+        printer = db.query(Printer).filter(Printer.id == det.printer_id).first()
+        if printer and not check_org_access(current_user, printer.org_id):
+            raise HTTPException(status_code=404, detail="Detection not found")
+
     det.status = new_status
     det.reviewed_by = current_user["id"]
     det.reviewed_at = sa_func.now()
@@ -166,6 +180,8 @@ async def get_printer_vision_settings(
     """Get per-printer vision settings."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     row = db.query(VisionSettings).filter(VisionSettings.printer_id == printer_id).first()
@@ -194,6 +210,8 @@ async def update_printer_vision_settings(
     """Update per-printer vision settings."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     body = await request.json()

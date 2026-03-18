@@ -59,6 +59,8 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
 
     if job.status not in [JobStatus.SCHEDULED, JobStatus.PENDING]:
         raise HTTPException(status_code=400, detail=f"Cannot start job in {job.status} status")
@@ -78,6 +80,8 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     """Mark a job as completed and auto-deduct filament from loaded spools."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     job.status = JobStatus.COMPLETED
@@ -174,6 +178,8 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
 
     job.status = JobStatus.FAILED
     job.actual_end = datetime.now(timezone.utc)
@@ -193,6 +199,8 @@ def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator"
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
     if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
         raise HTTPException(status_code=400, detail="Can only cancel pending or scheduled jobs")
     job.status = JobStatus.CANCELLED
@@ -208,6 +216,8 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
     """Reset a job back to pending status."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     job.status = JobStatus.PENDING
@@ -239,6 +249,8 @@ def dispatch_job_to_printer(
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
 
     if not job.printer_id:
         raise HTTPException(status_code=400, detail="Job is not assigned to a printer")
@@ -264,6 +276,8 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.status != "submitted":
@@ -302,6 +316,8 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.status != "submitted":
@@ -345,6 +361,8 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
 
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.status != "rejected":
@@ -433,6 +451,8 @@ def move_job(
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
 
     # Verify printer exists
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
@@ -487,11 +507,13 @@ async def update_job_failure(
     """Add or update failure reason and notes on a failed job."""
     data = await request.json()
 
-    job = db.execute(text("SELECT id, status FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
+    job = db.execute(text("SELECT id, status, charged_to_org_id FROM jobs WHERE id = :id"), {"id": job_id}).fetchone()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     job_dict = dict(job._mapping)
+    if not check_org_access(current_user, job_dict.get("charged_to_org_id")):
+        raise HTTPException(status_code=404, detail="Job not found")
     if job_dict["status"] != "failed":
         raise HTTPException(status_code=400, detail="Can only add failure info to failed jobs")
 

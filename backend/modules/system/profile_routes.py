@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope, check_org_access
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -66,8 +66,12 @@ def list_profiles(
     """List profiles with optional filters."""
     if not current_user:
         raise HTTPException(status_code=401)
+    org = get_org_scope(current_user)
     clauses = ["1=1"]
     params = {}
+    if org is not None:
+        clauses.append("(org_id = :org OR org_id IS NULL)")
+        params["org"] = org
     if slicer:
         clauses.append("slicer = :slicer")
         params["slicer"] = slicer
@@ -124,7 +128,7 @@ async def create_profile(
     """), {
         "created_by": current_user.get("id"),
         "printer_id": body.get("printer_id"),
-        "org_id": body.get("org_id"),
+        "org_id": current_user.get("group_id"),
         "name": name,
         "description": body.get("description"),
         "slicer": slicer,
@@ -265,6 +269,8 @@ def get_profile(
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if not check_org_access(current_user, row.org_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
     d = _profile_row_to_dict(row)
     d["raw_content"] = row.raw_content
     return d
@@ -280,6 +286,8 @@ async def update_profile(
     """Update profile metadata."""
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
     if not row:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not check_org_access(current_user, row.org_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     # Operator can edit own; admin can edit any
     if current_user.get("role") != "admin" and row.created_by != current_user.get("id"):
@@ -307,6 +315,8 @@ def delete_profile(
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if not check_org_access(current_user, row.org_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
     if current_user.get("role") != "admin" and row.created_by != current_user.get("id"):
         raise HTTPException(status_code=403, detail="Can only delete your own profiles")
     db.execute(text("DELETE FROM printer_profiles WHERE id = :id"), {"id": profile_id})
@@ -325,6 +335,8 @@ def export_profile(
         raise HTTPException(status_code=401)
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
     if not row:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not check_org_access(current_user, row.org_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     ext = ".ini" if row.file_format == "ini" else ".json"
     safe_name = re.sub(r'[^\w\-]', '_', row.name)[:80] + ext
@@ -346,6 +358,8 @@ async def apply_profile(
     """Apply a Klipper profile to a printer via Moonraker GCode API."""
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
     if not row:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not check_org_access(current_user, row.org_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     if row.slicer != "klipper":
         raise HTTPException(

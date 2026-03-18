@@ -25,13 +25,20 @@ from sqlalchemy.orm import Session
 from core.auth import decode_token
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access
 from modules.printers.models import Printer
 from modules.archives.models import Timelapse
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+def _check_printer_org(current_user: dict, printer_id: int, db) -> None:
+    """Verify the caller has org access to the printer behind a timelapse/camera."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if printer and not check_org_access(current_user, printer.org_id) and not printer.shared:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 # ====================================================================
@@ -45,12 +52,16 @@ def list_timelapses(
     limit: int = Query(default=50, le=200),
     offset: int = 0,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
 ):
     """List timelapse recordings with optional filters."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    from core.rbac import get_org_scope
+    org = get_org_scope(current_user)
     q = db.query(Timelapse).order_by(Timelapse.created_at.desc())
+    if org is not None:
+        q = q.join(Printer, Timelapse.printer_id == Printer.id).filter(
+            (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
+        )
     if printer_id:
         q = q.filter(Timelapse.printer_id == printer_id)
     if status_filter:
@@ -84,14 +95,13 @@ def list_timelapses(
 def get_timelapse(
     timelapse_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
 ):
     """Get a single timelapse by ID."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     return {
         "id": t.id,
         "printer_id": t.printer_id,
@@ -123,6 +133,7 @@ def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Sess
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     if t.status != "ready":
         raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
     video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
@@ -139,6 +150,7 @@ def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_u
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     # Delete video file
     video_path = Path(os.path.realpath(Path("/data/timelapses") / t.filename))
     if not str(video_path).startswith("/data/timelapses/"):
@@ -193,6 +205,7 @@ def stream_timelapse(
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     if t.status != "ready":
         raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
     video_path = _get_timelapse_path(t)
@@ -211,6 +224,7 @@ def download_timelapse(
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     if t.status != "ready":
         raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
     video_path = _get_timelapse_path(t)
@@ -243,6 +257,7 @@ def trim_timelapse(
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     if t.status != "ready":
         raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
     video_path = _get_timelapse_path(t)
@@ -298,6 +313,7 @@ def speed_timelapse(
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
+    _check_printer_org(current_user, t.printer_id, db)
     if t.status != "ready":
         raise HTTPException(status_code=400, detail=f"Timelapse is {t.status}, not ready")
     video_path = _get_timelapse_path(t)
@@ -366,7 +382,12 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
     except Exception:
         pass
 
-    printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
+    from core.rbac import get_org_scope
+    org = get_org_scope(current_user)
+    pq = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True))
+    if org is not None:
+        pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    printers = pq.all()
 
     # If go2rtc has no streams but we have camera-enabled printers, sync the
     # config so streams are registered (e.g. after container restart).
@@ -399,6 +420,8 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("op
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id) and not printer.shared:
+        raise HTTPException(status_code=404, detail="Printer not found")
 
     # Toggle the camera_enabled flag
     new_state = not (printer.camera_enabled if printer.camera_enabled is not None else True)
@@ -414,6 +437,8 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
     """Get go2rtc stream info for a printer camera."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
 
     camera_url = get_camera_url(printer)
@@ -438,6 +463,8 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     """Proxy WebRTC signaling to go2rtc."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
 
     camera_url = get_camera_url(printer)

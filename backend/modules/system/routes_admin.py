@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin, get_org_scope
 from modules.models_library.models import Model
 from modules.jobs.models import Job
 from modules.inventory.models import Spool, FilamentLibrary
@@ -43,9 +43,9 @@ def get_logs(
     lines: int = Query(200, ge=1, le=5000),
     level: Optional[str] = Query(None, description="Filter by log level: DEBUG, INFO, WARNING, ERROR"),
     search: Optional[str] = Query(None, description="Text filter"),
-    user=Depends(require_role("admin")),
+    user=Depends(require_superadmin()),
 ):
-    """Return the last N lines from a log file, optionally filtered by level/text."""
+    """Return the last N lines from a log file. Superadmin only — exposes server internals."""
     log_path = _LOG_FILES.get(source)
     if not log_path or not os.path.isfile(log_path):
         return {"lines": [], "source": source}
@@ -72,9 +72,9 @@ async def stream_logs(
     source: str = Query("backend"),
     level: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    user=Depends(require_role("admin")),
+    user=Depends(require_superadmin()),
 ):
-    """SSE endpoint — streams new log lines in real time."""
+    """SSE endpoint — streams new log lines in real time. Superadmin only."""
     import asyncio
 
     log_path = _LOG_FILES.get(source)
@@ -106,8 +106,8 @@ async def stream_logs(
 # ============== Support Bundle ==============
 
 @router.get("/admin/support-bundle", tags=["Admin"])
-def download_support_bundle(user=Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Generate a privacy-filtered diagnostic ZIP for issue reporting."""
+def download_support_bundle(user=Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Generate a privacy-filtered diagnostic ZIP for issue reporting. Superadmin only."""
     import collections
     import io
     import platform
@@ -222,28 +222,35 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
     if len(q) > 200:
         return {"models": [], "jobs": [], "spools": [], "printers": []}
 
+    org = get_org_scope(current_user)
     query = f"%{q.lower()}%"
 
-    models = db.query(Model).filter(
-        (Model.name.ilike(query)) | (Model.notes.ilike(query))
-    ).limit(5).all()
+    mq = db.query(Model).filter((Model.name.ilike(query)) | (Model.notes.ilike(query)))
+    if org is not None:
+        mq = mq.filter((Model.org_id == org) | (Model.org_id == None))
+    models = mq.limit(5).all()
 
-    jobs = db.query(Job).filter(
-        (Job.item_name.ilike(query)) | (Job.notes.ilike(query))
-    ).order_by(Job.created_at.desc()).limit(5).all()
+    jq = db.query(Job).filter((Job.item_name.ilike(query)) | (Job.notes.ilike(query)))
+    if org is not None:
+        jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    jobs = jq.order_by(Job.created_at.desc()).limit(5).all()
 
-    spools = db.query(Spool).outerjoin(FilamentLibrary, Spool.filament_id == FilamentLibrary.id).filter(
+    sq = db.query(Spool).outerjoin(FilamentLibrary, Spool.filament_id == FilamentLibrary.id).filter(
         (Spool.qr_code.ilike(query)) |
         (Spool.vendor.ilike(query)) |
         (Spool.notes.ilike(query)) |
         (FilamentLibrary.brand.ilike(query)) |
         (FilamentLibrary.name.ilike(query)) |
         (FilamentLibrary.material.ilike(query))
-    ).limit(5).all()
+    )
+    if org is not None:
+        sq = sq.filter((Spool.org_id == org) | (Spool.org_id == None))
+    spools = sq.limit(5).all()
 
-    printers = db.query(Printer).filter(
-        Printer.name.ilike(query)
-    ).limit(5).all()
+    pq = db.query(Printer).filter(Printer.name.ilike(query))
+    if org is not None:
+        pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    printers = pq.limit(5).all()
 
     return {
         "models": [{"id": m.id, "name": m.name, "type": "model"} for m in models],

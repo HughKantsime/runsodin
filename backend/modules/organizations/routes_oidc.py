@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 import core.auth as auth_module
 from core.auth import create_access_token
 from core.config import settings as _settings
@@ -214,8 +214,8 @@ async def oidc_exchange_code(body: dict, request: Request, db: Session = Depends
 # ============== Admin OIDC config ==============
 
 @router.get("/admin/oidc", tags=["Admin"])
-async def get_oidc_config(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Get full OIDC configuration (admin only)."""
+async def get_oidc_config(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Get full OIDC configuration. Superadmin only — system-wide auth config."""
     row = db.execute(text("SELECT * FROM oidc_config LIMIT 1")).fetchone()
     if not row:
         return {"configured": False}
@@ -227,8 +227,8 @@ async def get_oidc_config(current_user: dict = Depends(require_role("admin")), d
 
 
 @router.put("/admin/oidc", tags=["Admin"])
-async def update_oidc_config(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Update OIDC configuration (admin only)."""
+async def update_oidc_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Update OIDC configuration. Superadmin only."""
     data = await request.json()
     client_secret = data.get("client_secret")
     if client_secret:

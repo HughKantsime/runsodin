@@ -30,6 +30,9 @@ class Product(Base):
     price = Column(Float, nullable=True)      # Default selling price
     description = Column(Text, nullable=True)
 
+    # Multi-tenant scoping
+    org_id = Column(Integer, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -102,6 +105,9 @@ class Order(Base):
     order_date = Column(DateTime, nullable=True)
     shipped_date = Column(DateTime, nullable=True)
     tracking_number = Column(String(100), nullable=True)
+
+    # Multi-tenant scoping
+    org_id = Column(Integer, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())

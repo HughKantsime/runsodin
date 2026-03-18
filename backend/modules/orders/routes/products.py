@@ -6,7 +6,7 @@ from typing import List
 import logging
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope, check_org_access
 from modules.orders.models import Product, ProductComponent
 from modules.inventory.models import Consumable, ProductConsumable
 from modules.models_library.models import Model
@@ -24,7 +24,11 @@ router = APIRouter(prefix="/products", tags=["Products"])
 @router.get("", response_model=List[ProductResponse])
 def list_products(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List all products."""
-    products = db.query(Product).all()
+    org = get_org_scope(current_user)
+    query = db.query(Product)
+    if org is not None:
+        query = query.filter((Product.org_id == org) | (Product.org_id == None))
+    products = query.all()
     result = []
     for p in products:
         resp = ProductResponse.model_validate(p)
@@ -56,7 +60,8 @@ def create_product(data: ProductCreate, current_user: dict = Depends(require_rol
         name=data.name,
         sku=data.sku,
         price=data.price,
-        description=data.description
+        description=data.description,
+        org_id=current_user.get("group_id"),
     )
     db.add(product)
     db.flush()  # Get the ID before adding components
@@ -82,6 +87,8 @@ def get_product(product_id: int, current_user: dict = Depends(require_role("view
     """Get a product with its BOM components."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
     resp = ProductResponse.model_validate(product)
@@ -121,6 +128,8 @@ def update_product(product_id: int, data: ProductUpdate, current_user: dict = De
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
+        raise HTTPException(status_code=404, detail="Product not found")
 
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(product, key, value)
@@ -136,6 +145,8 @@ def delete_product(product_id: int, current_user: dict = Depends(require_role("o
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
+        raise HTTPException(status_code=404, detail="Product not found")
 
     db.delete(product)
     db.commit()
@@ -148,6 +159,8 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
     """Add a component to a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
     model = db.query(Model).filter(Model.id == data.model_id).first()
@@ -172,6 +185,12 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
 @router.delete("/{product_id}/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_product_component(product_id: int, component_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a component from a product's BOM."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
+        raise HTTPException(status_code=404, detail="Product not found")
+
     comp = db.query(ProductComponent).filter(
         ProductComponent.id == component_id,
         ProductComponent.product_id == product_id
@@ -191,6 +210,8 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
     """Add a consumable to a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
     consumable = db.query(Consumable).filter(Consumable.id == data.consumable_id).first()
     if not consumable:
@@ -213,6 +234,12 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
 def remove_product_consumable(product_id: int, consumable_link_id: int,
                               current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a consumable from a product's BOM."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not check_org_access(current_user, product.org_id):
+        raise HTTPException(status_code=404, detail="Product not found")
+
     link = db.query(ProductConsumable).filter(
         ProductConsumable.id == consumable_link_id,
         ProductConsumable.product_id == product_id

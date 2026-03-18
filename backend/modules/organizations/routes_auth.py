@@ -75,6 +75,17 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         )
         return {"access_token": mfa_token, "token_type": "bearer", "mfa_required": True}
 
+    # Enforce system-wide require_mfa: if enabled and user hasn't enrolled, block login
+    if not user.mfa_enabled:
+        row = db.execute(text("SELECT value FROM system_config WHERE key = 'require_mfa'")).fetchone()
+        if row and row[0] == "true":
+            # Issue a short-lived token so user can enroll MFA via /auth/mfa/setup
+            setup_token = create_access_token(
+                data={"sub": user.username, "role": user.role, "mfa_setup_required": True},
+                expires_delta=timedelta(minutes=10)
+            )
+            return {"access_token": setup_token, "token_type": "bearer", "mfa_setup_required": True}
+
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
     log_audit(db, "auth.login", "user", user.id, details={"username": user.username}, ip=client_ip)

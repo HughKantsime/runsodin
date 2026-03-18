@@ -13,7 +13,7 @@ import logging
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope, check_org_access
 from core.base import JobStatus
 from modules.jobs.models import Job, SchedulerRun
 from modules.printers.models import Printer
@@ -53,10 +53,12 @@ def run_scheduler_endpoint(
     # Get the run ID from the most recent log
     run_log = db.query(SchedulerRun).order_by(SchedulerRun.id.desc()).first()
 
-    # Get scheduled job summaries
-    scheduled_jobs = db.query(Job).filter(
-        Job.status == JobStatus.SCHEDULED
-    ).order_by(Job.scheduled_start).all()
+    # Get scheduled job summaries (org-scoped)
+    org = get_org_scope(current_user)
+    jq = db.query(Job).filter(Job.status == JobStatus.SCHEDULED)
+    if org is not None:
+        jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    scheduled_jobs = jq.order_by(Job.scheduled_start).all()
 
     job_summaries = []
     for job in scheduled_jobs:
@@ -94,7 +96,10 @@ def list_scheduler_runs(
     current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
-    """Get scheduler run history."""
+    """Get scheduler run history. Superadmin sees all; org admins see summary only."""
+    if current_user.get("group_id"):
+        # Org-scoped users: return empty — scheduler runs are system-wide operations
+        return []
     return db.query(SchedulerRun).order_by(SchedulerRun.run_at.desc()).limit(limit).all()
 
 
@@ -116,8 +121,12 @@ def get_timeline(
     end_date = start_date + timedelta(days=days)
     slot_duration = 30  # minutes
 
-    # Get printers
-    printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
+    # Get printers (org-scoped)
+    org = get_org_scope(current_user)
+    pq = db.query(Printer).filter(Printer.is_active.is_(True))
+    if org is not None:
+        pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    printers = pq.all()
     printer_summaries = [
         PrinterSummary(
             id=p.id,
@@ -129,13 +138,16 @@ def get_timeline(
         for p in printers
     ]
 
-    # Get scheduled/printing/completed jobs in range
-    jobs = db.query(Job).filter(
+    # Get scheduled/printing/completed jobs in range (org-scoped)
+    jq = db.query(Job).filter(
         Job.scheduled_start.isnot(None),
         Job.scheduled_start < end_date,
         Job.scheduled_end > start_date,
         Job.status.in_([JobStatus.SCHEDULED, JobStatus.PRINTING, JobStatus.COMPLETED])
-    ).all()
+    )
+    if org is not None:
+        jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    jobs = jq.all()
 
     # Build timeline slots
     slots = []
@@ -160,18 +172,21 @@ def get_timeline(
         ))
 
 
-    # Add MQTT-tracked print jobs to timeline
-    mqtt_jobs_query = text("""
+    # Add MQTT-tracked print jobs to timeline (org-scoped)
+    mqtt_org_filter = ""
+    mqtt_params = {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()}
+    if org is not None:
+        mqtt_org_filter = "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        mqtt_params["org"] = org
+    mqtt_jobs_query = text(f"""
         SELECT pj.*, p.name as printer_name
         FROM print_jobs pj
         JOIN printers p ON p.id = pj.printer_id
         WHERE pj.started_at < :end_date
         AND (pj.ended_at > :start_date OR pj.ended_at IS NULL)
+        {mqtt_org_filter}
     """)
-    mqtt_jobs = db.execute(mqtt_jobs_query, {
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat()
-    }).fetchall()
+    mqtt_jobs = db.execute(mqtt_jobs_query, mqtt_params).fetchall()
 
     for mj in mqtt_jobs:
         row = dict(mj._mapping)

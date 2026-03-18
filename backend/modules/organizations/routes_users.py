@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 from core.auth_helpers import _validate_password
 from core.auth import hash_password, UserCreate
 from core.models import SystemConfig
@@ -21,6 +21,22 @@ from license_manager import require_feature, check_user_limit
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+def _is_superadmin(current_user: dict) -> bool:
+    """Superadmin = role admin with no group_id."""
+    return current_user.get("role") == "admin" and not current_user.get("group_id")
+
+
+def _check_org_admin_access(current_user: dict, target_group_id, db=None) -> bool:
+    """Check if an org-scoped admin can manage a user with the given group_id.
+
+    Superadmins can manage anyone. Org-scoped admins can only manage users
+    in their own group (or unassigned users visible to all).
+    """
+    if _is_superadmin(current_user):
+        return True
+    return target_group_id == current_user.get("group_id")
 
 
 # ============== Email helper ==============
@@ -72,12 +88,26 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
 
 @router.get("/users", tags=["Users"])
 async def list_users(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users")).fetchall()
+    if _is_superadmin(current_user):
+        users = db.execute(text("SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users")).fetchall()
+    else:
+        # Org-scoped admin: only users in their group (plus unassigned users)
+        users = db.execute(text(
+            "SELECT id, username, email, role, is_active, last_login, created_at, group_id FROM users "
+            "WHERE group_id = :gid OR group_id IS NULL"),
+            {"gid": current_user["group_id"]}).fetchall()
     return [dict(u._mapping) for u in users]
 
 
 @router.post("/users", tags=["Users"])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    # Org-scoped admin: enforce group assignment
+    if not _is_superadmin(current_user):
+        admin_gid = current_user["group_id"]
+        if user.group_id is not None and user.group_id != admin_gid:
+            raise HTTPException(status_code=403, detail="Cannot create users in a different group")
+        user.group_id = admin_gid  # default to admin's group
+
     current_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
     check_user_limit(current_count)
 
@@ -126,9 +156,13 @@ async def reset_password_email(user_id: int, current_user: dict = Depends(requir
     """Admin action: generate a new random password and email it to the user."""
     import secrets as _secrets
 
-    user_row = db.execute(text("SELECT username, email FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    user_row = db.execute(text("SELECT username, email, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user_row:
         raise HTTPException(status_code=404, detail="User not found")
+    # Org-scoped admin: verify target is in their group
+    if not _is_superadmin(current_user):
+        if not _check_org_admin_access(current_user, user_row.group_id):
+            raise HTTPException(status_code=403, detail="Cannot reset password for users outside your group")
     if not user_row[1]:
         raise HTTPException(status_code=400, detail="User has no email address")
 
@@ -160,6 +194,17 @@ async def reset_password_email(user_id: int, current_user: dict = Depends(requir
 
 @router.patch("/users/{user_id}", tags=["Users"])
 async def update_user(user_id: int, updates: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    # Org-scoped admin: verify target user is in their group
+    if not _is_superadmin(current_user):
+        target = db.execute(text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not _check_org_admin_access(current_user, target.group_id):
+            raise HTTPException(status_code=403, detail="Cannot modify users outside your group")
+        # Prevent org-scoped admin from moving user to a different group
+        if "group_id" in updates and updates["group_id"] != current_user["group_id"]:
+            raise HTTPException(status_code=403, detail="Cannot move users to a different group")
+
     if 'password' in updates and updates['password']:
         pw_valid, pw_msg = _validate_password(updates['password'])
         if not pw_valid:
@@ -198,9 +243,13 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
 async def delete_user(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if current_user["id"] == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
-    target = db.execute(text("SELECT role FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    target = db.execute(text("SELECT role, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    # Org-scoped admin: verify target is in their group
+    if not _is_superadmin(current_user):
+        if not _check_org_admin_access(current_user, target.group_id):
+            raise HTTPException(status_code=403, detail="Cannot delete users outside your group")
     if target.role == "admin":
         admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
         if admin_count <= 1:
@@ -289,10 +338,13 @@ async def import_users_csv(
             errors.append({"row": row_num, "reason": "License user limit reached"})
             break
 
+        # Org-scoped admin: assign imported users to their group
+        import_group_id = current_user.get("group_id") if not _is_superadmin(current_user) else None
+
         password_hash_val = hash_password(password)
         try:
-            db.execute(text("INSERT INTO users (username, email, password_hash, role) VALUES (:username, :email, :password_hash, :role)"),
-                       {"username": username, "email": email, "password_hash": password_hash_val, "role": role})
+            db.execute(text("INSERT INTO users (username, email, password_hash, role, group_id) VALUES (:username, :email, :password_hash, :role, :group_id)"),
+                       {"username": username, "email": email, "password_hash": password_hash_val, "role": role, "group_id": import_group_id})
             db.commit()
             existing.add(username)
             current_count += 1
@@ -332,7 +384,7 @@ async def list_groups(current_user: dict = Depends(require_role("operator")), db
 
 
 @router.post("/groups", tags=["Groups"])
-async def create_group(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def create_group(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     require_feature("user_groups")
     name = body.get("name", "").strip()
     if not name:
@@ -378,6 +430,8 @@ async def get_group(group_id: int, current_user: dict = Depends(require_role("op
 @router.patch("/groups/{group_id}", tags=["Groups"])
 async def update_group(group_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     require_feature("user_groups")
+    if not _is_superadmin(current_user) and current_user.get("group_id") != group_id:
+        raise HTTPException(status_code=403, detail="Can only manage your own group")
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Group not found")
@@ -402,7 +456,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
 
 
 @router.delete("/groups/{group_id}", tags=["Groups"])
-async def delete_group(group_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def delete_group(group_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     require_feature("user_groups")
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
     if not existing:

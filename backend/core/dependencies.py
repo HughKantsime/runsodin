@@ -54,7 +54,9 @@ async def get_current_user(
                 )
                 if payload.get("ws"):
                     pass  # ws-tokens are not valid for REST API access — fall through
-                elif not payload.get("mfa_pending"):
+                elif payload.get("mfa_pending") or payload.get("mfa_setup_required"):
+                    pass  # limited-purpose tokens — fall through
+                else:
                     jti = payload.get("jti")
                     if jti:
                         blacklisted = db.execute(
@@ -87,8 +89,8 @@ async def get_current_user(
                 payload = _jwt.decode(
                     token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
                 )
-                # Reject ws-tokens and mfa_pending tokens from normal routes
-                if payload.get("ws") or payload.get("mfa_pending"):
+                # Reject ws-tokens, mfa_pending, and mfa_setup_required tokens from normal routes
+                if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
                     return None
                 # Check token blacklist (revoked sessions)
                 jti = payload.get("jti")

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import require_role
+from core.rbac import check_org_access, get_org_scope, require_role
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -64,6 +64,13 @@ def _project_row_to_dict(r, archive_count=None):
     return d
 
 
+def _check_project_org_access(db, project_row, current_user):
+    """Check if user can access a project via its org_id."""
+    org_id = project_row.org_id if hasattr(project_row, "org_id") else dict(project_row._mapping).get("org_id")
+    if not check_org_access(current_user, org_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
 # ──────────────────────────────────────────────
 # CRUD
 # ──────────────────────────────────────────────
@@ -80,6 +87,13 @@ def list_projects(
     if status:
         conditions.append("p.status = :status")
         params["status"] = status
+
+    # Org scoping — projects have org_id directly
+    org = get_org_scope(user)
+    if org is not None:
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL)")
+        params["_org"] = org
+
     where = " AND ".join(conditions) if conditions else "1=1"
 
     rows = db.execute(
@@ -101,6 +115,8 @@ def create_project(
 ):
     """Create a new project."""
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
+    # Default org_id to user's org scope if not explicitly provided
+    org_id = body.org_id if body.org_id is not None else get_org_scope(user)
     result = db.execute(
         text("""
             INSERT INTO projects (name, description, color, expected_parts, created_by, org_id)
@@ -108,7 +124,7 @@ def create_project(
         """),
         {
             "name": body.name, "desc": body.description, "color": body.color,
-            "parts": body.expected_parts, "uid": uid, "org": body.org_id,
+            "parts": body.expected_parts, "uid": uid, "org": org_id,
         },
     )
     db.commit()
@@ -128,6 +144,7 @@ def get_project(
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_org_access(db, row, user)
     d = dict(row._mapping)
 
     archives = db.execute(
@@ -153,10 +170,11 @@ def update_project(
 ):
     """Update a project."""
     existing = db.execute(
-        text("SELECT id FROM projects WHERE id = :id"), {"id": project_id}
+        text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_org_access(db, existing, user)
 
     updates = []
     params = {"id": project_id}
@@ -181,10 +199,11 @@ def delete_project(
 ):
     """Soft-delete a project (set status to 'archived'). Admin only."""
     existing = db.execute(
-        text("SELECT id FROM projects WHERE id = :id"), {"id": project_id}
+        text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_org_access(db, existing, user)
     db.execute(
         text("UPDATE projects SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = :id"),
         {"id": project_id},
@@ -206,10 +225,11 @@ def assign_archives(
 ):
     """Bulk assign archives to a project."""
     existing = db.execute(
-        text("SELECT id FROM projects WHERE id = :id"), {"id": project_id}
+        text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_org_access(db, existing, user)
 
     if not body.archive_ids:
         raise HTTPException(status_code=400, detail="archive_ids cannot be empty")
@@ -248,6 +268,7 @@ def export_project(
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
+    _check_project_org_access(db, row, user)
 
     project = dict(row._mapping)
     archives = db.execute(
@@ -298,11 +319,12 @@ async def import_project(
 
     meta = json.loads(zf.read("project.json"))
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
+    org_id = get_org_scope(user)
 
     result = db.execute(
         text("""
-            INSERT INTO projects (name, description, color, expected_parts, created_by, status)
-            VALUES (:name, :desc, :color, :parts, :uid, 'active')
+            INSERT INTO projects (name, description, color, expected_parts, created_by, status, org_id)
+            VALUES (:name, :desc, :color, :parts, :uid, 'active', :org)
         """),
         {
             "name": meta.get("name", "Imported Project"),
@@ -310,6 +332,7 @@ async def import_project(
             "color": meta.get("color", "#6366f1"),
             "parts": meta.get("expected_parts"),
             "uid": uid,
+            "org": org_id,
         },
     )
     db.commit()

@@ -41,7 +41,11 @@ def _validate_password(password: str) -> tuple:
 
 
 def _check_rate_limit(ip: str) -> bool:
-    """Returns True if rate limited. Queries login_attempts table."""
+    """Returns True if rate limited. Queries login_attempts table.
+
+    Fails closed: if the DB is unavailable, assume rate-limited to prevent
+    brute-force during SQLite contention.
+    """
     try:
         import sqlite3
         conn = sqlite3.connect(_login_db_path(), timeout=10)
@@ -56,7 +60,8 @@ def _check_rate_limit(ip: str) -> bool:
         conn.close()
         return count >= _LOGIN_RATE_LIMIT
     except Exception:
-        return False  # fail open on DB errors
+        log.warning("Rate limit check failed (DB unavailable) — failing closed")
+        return True  # fail closed: block login if we can't verify rate limit
 
 
 def _record_login_attempt(ip: str, username: str, success: bool, db=None):
@@ -111,7 +116,10 @@ def _record_login_attempt(ip: str, username: str, success: bool, db=None):
 
 
 def _is_locked_out(username: str) -> bool:
-    """Returns True if account is locked (>= LOCKOUT_THRESHOLD failures in window)."""
+    """Returns True if account is locked (>= LOCKOUT_THRESHOLD failures in window).
+
+    Fails closed: if the DB is unavailable, assume locked to prevent brute-force.
+    """
     try:
         import sqlite3
         conn = sqlite3.connect(_login_db_path(), timeout=10)
@@ -126,4 +134,5 @@ def _is_locked_out(username: str) -> bool:
         conn.close()
         return count >= _LOCKOUT_THRESHOLD
     except Exception:
-        return False  # fail open on DB errors
+        log.warning("Lockout check failed (DB unavailable) — failing closed")
+        return True  # fail closed: block login if we can't verify lockout status

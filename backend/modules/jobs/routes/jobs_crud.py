@@ -57,6 +57,8 @@ def check_filament_compatibility(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id) and not printer.shared:
+        raise HTTPException(status_code=404, detail="Printer not found")
 
     warnings = []
     slots = db.query(FilamentSlot).filter(FilamentSlot.printer_id == printer_id).all()
@@ -115,7 +117,9 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
             hold=job.hold,
             status=JobStatus.PENDING,
             estimated_cost=estimated_cost,
-            suggested_price=suggested_price
+            suggested_price=suggested_price,
+            charged_to_user_id=current_user.get("id") if current_user else None,
+            charged_to_org_id=current_user.get("group_id") if current_user else None,
         )
         db.add(db_job)
         db_jobs.append(db_job)
@@ -143,9 +147,10 @@ def create_jobs_batch(
     if len(body.printer_ids) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 printers per batch")
 
-    # Validate all printers exist
+    # Validate all printers exist and are accessible
     printers = db.query(Printer).filter(Printer.id.in_(body.printer_ids)).all()
-    found_ids = {p.id for p in printers}
+    accessible = [p for p in printers if check_org_access(current_user, p.org_id) or p.shared]
+    found_ids = {p.id for p in accessible}
     missing = set(body.printer_ids) - found_ids
     if missing:
         raise HTTPException(status_code=400, detail=f"Printer IDs not found: {sorted(missing)}")
@@ -185,13 +190,18 @@ def create_jobs_batch(
 @router.patch("/reorder", tags=["Jobs"])
 async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Reorder job queue. Sets queue_position on each job based on array index."""
+    reordered = 0
     for position, job_id in enumerate(req.job_ids):
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job or not check_org_access(current_user, job.charged_to_org_id):
+            continue
         db.execute(
             text("UPDATE jobs SET queue_position = :pos WHERE id = :id AND status IN ('pending', 'scheduled')"),
             {"pos": position, "id": job_id}
         )
+        reordered += 1
     db.commit()
-    return {"reordered": len(req.job_ids)}
+    return {"reordered": reordered}
 
 
 @router.post("/bulk-update", tags=["Jobs"])

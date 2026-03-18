@@ -36,7 +36,7 @@ def list_printers(
     active_only: bool = False,
     tag: Optional[str] = None,
     org_id: Optional[int] = None,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db),
 ):
     """List all printers, optionally filtered by tag and org."""
@@ -57,7 +57,7 @@ def list_printers(
 
 
 @router.get("/printers/tags", tags=["Printers"])
-def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get all unique tags across all printers."""
     printers = db.query(Printer).filter(Printer.tags.isnot(None)).all()
     tags = set()
@@ -164,12 +164,12 @@ def get_all_printers_live_status_early(
 
 
 @router.get("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
-def get_printer(printer_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_printer(printer_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a specific printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
-    if current_user and not check_org_access(current_user, printer.org_id) and not printer.shared:
+    if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
     return printer
 
@@ -261,7 +261,7 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
 # ====================================================================
 
 @router.get("/printers/{printer_id}/slots", response_model=List[FilamentSlotResponse], tags=["Filament"])
-def list_filament_slots(printer_id: int, db: Session = Depends(get_db)):
+def list_filament_slots(printer_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """List filament slots for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

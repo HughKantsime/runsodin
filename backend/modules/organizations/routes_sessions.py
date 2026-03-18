@@ -16,6 +16,8 @@ import core.auth as auth_module
 from core.quota import _get_quota_usage
 from core.rate_limit import limiter
 
+from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
+
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
@@ -114,10 +116,18 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
 @router.get("/admin/sessions", tags=["Sessions"])
 async def admin_list_sessions(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: list all active sessions across all users."""
-    rows = db.execute(text(
-        "SELECT s.id, s.user_id, u.username, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
-        "FROM active_sessions s JOIN users u ON s.user_id = u.id "
-        "ORDER BY s.last_seen_at DESC LIMIT 200")).fetchall()
+    if _is_superadmin(current_user):
+        rows = db.execute(text(
+            "SELECT s.id, s.user_id, u.username, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
+            "FROM active_sessions s JOIN users u ON s.user_id = u.id "
+            "ORDER BY s.last_seen_at DESC LIMIT 200")).fetchall()
+    else:
+        rows = db.execute(text(
+            "SELECT s.id, s.user_id, u.username, s.ip_address, s.user_agent, s.created_at, s.last_seen_at "
+            "FROM active_sessions s JOIN users u ON s.user_id = u.id "
+            "WHERE u.group_id = :gid OR u.group_id IS NULL "
+            "ORDER BY s.last_seen_at DESC LIMIT 200"),
+            {"gid": current_user["group_id"]}).fetchall()
     return [{
         "id": r.id, "user_id": r.user_id, "username": r.username,
         "ip_address": r.ip_address, "user_agent": r.user_agent,
@@ -131,6 +141,12 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id"), {"id": session_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Org-scoped admin: verify session belongs to a user in their group
+    if not _is_superadmin(current_user):
+        session_user = db.execute(text("SELECT group_id FROM users WHERE id = :id"), {"id": row.user_id}).fetchone()
+        if not session_user or not _check_org_admin_access(current_user, session_user.group_id):
+            raise HTTPException(status_code=403, detail="Cannot revoke sessions for users outside your group")
 
     try:
         parse_dt = lambda s: datetime.fromisoformat(s) if isinstance(s, str) else s
@@ -256,9 +272,15 @@ async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db:
 @router.get("/admin/quotas", tags=["Quotas"])
 async def admin_list_quotas(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: list all users' quota config and usage."""
-    users = db.execute(text(
-        "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users WHERE is_active = 1"
-    )).fetchall()
+    if _is_superadmin(current_user):
+        users = db.execute(text(
+            "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users WHERE is_active = 1"
+        )).fetchall()
+    else:
+        users = db.execute(text(
+            "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users "
+            "WHERE is_active = 1 AND (group_id = :gid OR group_id IS NULL)"),
+            {"gid": current_user["group_id"]}).fetchall()
     result = []
     for u in users:
         period = u.quota_period or "monthly"
@@ -275,9 +297,13 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
 @router.put("/admin/quotas/{user_id}", tags=["Quotas"])
 async def admin_set_quota(user_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: set quotas for a user."""
-    user = db.execute(text("SELECT id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    user = db.execute(text("SELECT id, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    # Org-scoped admin: verify target user is in their group
+    if not _is_superadmin(current_user):
+        if not _check_org_admin_access(current_user, user.group_id):
+            raise HTTPException(status_code=403, detail="Cannot set quotas for users outside your group")
 
     sets = []
     params = {"id": user_id}
@@ -305,6 +331,11 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Org-scoped admin exporting another user: verify they're in the same group
+    if current_user["id"] != user_id and not _is_superadmin(current_user):
+        if not _check_org_admin_access(current_user, dict(user._mapping).get("group_id")):
+            raise HTTPException(status_code=403, detail="Cannot export data for users outside your group")
 
     u = dict(user._mapping)
     u.pop("password_hash", None)
@@ -346,6 +377,10 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     user = db.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    # Org-scoped admin: verify target is in their group
+    if not _is_superadmin(current_user):
+        if not _check_org_admin_access(current_user, dict(user._mapping).get("group_id")):
+            raise HTTPException(status_code=403, detail="Cannot erase users outside your group")
     if user.role == "admin":
         admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
         if admin_count <= 1:

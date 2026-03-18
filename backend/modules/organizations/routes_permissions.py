@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 from core.models import SystemConfig
 
 log = logging.getLogger("odin.api")
@@ -101,8 +101,8 @@ class RBACUpdateRequest(PydanticBaseModel):
 
 
 @router.put("/permissions", tags=["RBAC"])
-def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Update RBAC permissions. Admin only."""
+def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Update RBAC permissions. Superadmin only — system-wide policy."""
     valid_roles = {"admin", "operator", "viewer"}
     for key, roles in data.page_access.items():
         if not isinstance(roles, list):
@@ -133,8 +133,8 @@ def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(req
 
 
 @router.post("/permissions/reset", tags=["RBAC"])
-def reset_permissions(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Reset permissions to defaults. Admin only."""
+def reset_permissions(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Reset permissions to defaults. Superadmin only."""
     row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
     if row:
         db.delete(row)

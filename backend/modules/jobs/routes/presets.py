@@ -8,8 +8,7 @@ from datetime import datetime as dt
 import logging
 
 from core.db import get_db
-from core.dependencies import get_current_user
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope
 from modules.jobs.models import Job, PrintPreset
 from modules.models_library.models import Model
 from modules.jobs.schemas import JobResponse
@@ -89,6 +88,7 @@ def get_print_jobs(
     current_user: dict = Depends(require_role("viewer")),
 ):
     """Get print job history from MQTT tracking."""
+    org = get_org_scope(current_user)
     # Build query dynamically
     sql = """
         SELECT pj.*, p.name as printer_name
@@ -98,6 +98,9 @@ def get_print_jobs(
     """
     params = {}
 
+    if org is not None:
+        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        params["org"] = org
     if printer_id is not None:
         sql += " AND pj.printer_id = :printer_id"
         params["printer_id"] = printer_id
@@ -130,7 +133,13 @@ def get_print_jobs(
 @router.get("/print-jobs/stats", tags=["Print Jobs"])
 def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get aggregated print job statistics."""
-    query = text("""
+    org = get_org_scope(current_user)
+    org_filter = ""
+    params = {}
+    if org is not None:
+        org_filter = "WHERE (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        params["org"] = org
+    query = text(f"""
         SELECT
             p.id as printer_id,
             p.name as printer_name,
@@ -145,16 +154,18 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
             ), 2) as total_hours
         FROM print_jobs pj
         JOIN printers p ON p.id = pj.printer_id
+        {org_filter}
         GROUP BY p.id
         ORDER BY total_hours DESC
     """)
-    result = db.execute(query).fetchall()
+    result = db.execute(query, params).fetchall()
     return [dict(row._mapping) for row in result]
 
 
 @router.get("/print-jobs/unlinked", tags=["Print Jobs"])
 def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get recent print jobs not linked to scheduled jobs."""
+    org = get_org_scope(current_user)
     sql = """
         SELECT pj.*, p.name as printer_name
         FROM print_jobs pj
@@ -163,6 +174,9 @@ def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db
     """
     params = {}
 
+    if org is not None:
+        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        params["org"] = org
     if printer_id:
         sql += " AND pj.printer_id = :printer_id"
         params["printer_id"] = printer_id
@@ -242,7 +256,7 @@ def delete_preset(
 @router.post("/presets/{preset_id}/schedule", tags=["Presets"])
 def schedule_from_preset(
     preset_id: int,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("operator")),
     db: Session = Depends(get_db),
 ):
     """Create a new job from a preset."""
@@ -260,6 +274,8 @@ def schedule_from_preset(
         filament_type=preset.filament_type,
         required_tags=preset.required_tags or [],
         notes=preset.notes,
+        submitted_by=current_user.get("id"),
+        charged_to_org_id=current_user.get("group_id"),
     )
 
     # Cost calculation from model if available

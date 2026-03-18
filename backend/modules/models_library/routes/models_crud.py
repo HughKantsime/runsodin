@@ -35,7 +35,7 @@ router = APIRouter(prefix="/models", tags=["Models"])
 def list_models(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer")),
     db: Session = Depends(get_db)
 ):
     """List all print models."""
@@ -55,7 +55,7 @@ def list_models_with_pricing(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_role("viewer"))
 ):
     """List all print models with calculated cost and suggested price."""
     query = db.query(Model)
@@ -184,12 +184,12 @@ def create_model(model: ModelCreate, current_user: dict = Depends(require_role("
 
 
 @router.get("/{model_id}", response_model=ModelResponse)
-def get_model(model_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_model(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get a specific model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
-    if current_user and not check_org_access(current_user, model.org_id):
+    if not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
     return model
 
@@ -239,6 +239,8 @@ def schedule_from_model(
     """Create a print job from a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     colors = []

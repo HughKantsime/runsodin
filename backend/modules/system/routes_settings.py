@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 from modules.organizations.branding import get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
 
 log = logging.getLogger("odin.api")
@@ -56,7 +56,7 @@ async def get_branding(db: Session = Depends(get_db)):
 
 
 @router.put("/branding", tags=["Branding"])
-async def update_branding(data: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_branding(data: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
     branding = get_or_create_branding(db)
     for key, value in data.items():
@@ -69,7 +69,7 @@ async def update_branding(data: dict, current_user: dict = Depends(require_role(
 
 
 @router.post("/branding/logo", tags=["Branding"])
-async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Upload brand logo. Admin only."""
     import shutil
     content = await file.read()
@@ -91,7 +91,7 @@ async def upload_logo(file: UploadFile = File(...), current_user: dict = Depends
 
 
 @router.post("/branding/favicon", tags=["Branding"])
-async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Upload favicon. Admin only."""
     content = await file.read()
     detected_type = _detect_image_type(content)
@@ -112,7 +112,7 @@ async def upload_favicon(file: UploadFile = File(...), current_user: dict = Depe
 
 
 @router.delete("/branding/logo", tags=["Branding"])
-async def remove_logo(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def remove_logo(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Remove brand logo. Admin only."""
     branding = get_or_create_branding(db)
     if branding.logo_url:
@@ -134,7 +134,7 @@ async def get_education_mode(db: Session = Depends(get_db)):
 
 
 @router.put("/settings/education-mode", tags=["Settings"])
-async def set_education_mode(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_education_mode(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Enable or disable education mode. Admin only."""
     data = await request.json()
     enabled = bool(data.get("enabled", False))
@@ -159,7 +159,7 @@ async def get_language(db: Session = Depends(get_db)):
 
 
 @router.put("/settings/language", tags=["Settings"])
-async def set_language(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_language(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Set interface language."""
     data = await request.json()
     lang = data.get("language", "en")

@@ -14,7 +14,7 @@ import logging
 
 import core.crypto as crypto
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin, get_org_scope
 from core.dependencies import log_audit
 from core.webhook_utils import _validate_webhook_url
 
@@ -58,7 +58,19 @@ def _get_org_settings(db, org_id: int) -> dict:
 
 @router.get("/orgs", tags=["Organizations"])
 async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """List all organizations."""
+    """List all organizations. Org-scoped admins see only their own org."""
+    user_group = current_user.get("group_id")
+    if user_group:
+        rows = db.execute(text(
+            "SELECT g.*, g.settings_json, "
+            "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
+            "FROM groups g WHERE g.is_org = 1 AND g.id = :gid ORDER BY g.name"),
+            {"gid": user_group}).fetchall()
+        return [{
+            "id": r.id, "name": r.name, "description": r.description,
+            "owner_id": r.owner_id, "member_count": r.member_count,
+            "created_at": r.created_at, "has_settings": bool(r.settings_json),
+        } for r in rows]
     rows = db.execute(text(
         "SELECT g.*, g.settings_json, "
         "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
@@ -72,8 +84,8 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
 
 
 @router.post("/orgs", tags=["Organizations"])
-async def create_org(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Create a new organization."""
+async def create_org(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Create a new organization. Superadmin only."""
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Organization name is required")
@@ -94,7 +106,9 @@ async def create_org(body: dict, current_user: dict = Depends(require_role("admi
 
 @router.patch("/orgs/{org_id}", tags=["Organizations"])
 async def update_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Update an organization."""
+    """Update an organization. Org-scoped admins can only update their own org."""
+    if current_user.get("group_id") and current_user["group_id"] != org_id:
+        raise HTTPException(status_code=404, detail="Organization not found")
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -113,8 +127,8 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
 
 
 @router.delete("/orgs/{org_id}", tags=["Organizations"])
-async def delete_org(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Delete an organization. Unlinks members but does not delete them."""
+async def delete_org(org_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Delete an organization. Superadmin only."""
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -134,7 +148,9 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_role("adm
 
 @router.post("/orgs/{org_id}/members", tags=["Organizations"])
 async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Add a user to an organization."""
+    """Add a user to an organization. Org-scoped admins can only add to their own org."""
+    if current_user.get("group_id") and current_user["group_id"] != org_id:
+        raise HTTPException(status_code=403, detail="Cannot manage other organizations")
     user_id = body.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
@@ -149,8 +165,8 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
 
 
 @router.post("/orgs/{org_id}/printers", tags=["Organizations"])
-async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Assign a printer to an organization."""
+async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Assign a printer to an organization. Superadmin only."""
     printer_id = body.get("printer_id")
     db.execute(text("UPDATE printers SET org_id = :oid WHERE id = :pid"),
                {"oid": org_id, "pid": printer_id})
@@ -164,7 +180,9 @@ async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = De
 
 @router.get("/orgs/{org_id}/settings", tags=["Organizations"])
 async def get_org_settings(org_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Get org-level settings (default filament, notifications, branding)."""
+    """Get org-level settings. Org-scoped admins can only view their own org."""
+    if current_user.get("group_id") and current_user["group_id"] != org_id:
+        raise HTTPException(status_code=404, detail="Organization not found")
     org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -173,7 +191,9 @@ async def get_org_settings(org_id: int, current_user: dict = Depends(require_rol
 
 @router.put("/orgs/{org_id}/settings", tags=["Organizations"])
 async def update_org_settings(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Update org-level settings. Only known keys are accepted."""
+    """Update org-level settings. Org-scoped admins can only update their own org."""
+    if current_user.get("group_id") and current_user["group_id"] != org_id:
+        raise HTTPException(status_code=404, detail="Organization not found")
     org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")

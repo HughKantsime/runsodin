@@ -8,6 +8,28 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────
+  # Job 0: Contract & Architecture Tests
+  # Module boundaries, import rules, architecture lint.
+  # These run without a container — pure static analysis of code structure.
+  # ─────────────────────────────────────────────────────────
+  contract-tests:
+    name: Contract & Architecture Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Run contract tests
+        run: pytest tests/test_contracts/ -v --tb=short
+
+  # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
   # Catches credentials/keys committed to the repo.
   # Belt-and-suspenders over the pre-commit gitleaks hook.

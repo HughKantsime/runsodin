@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
 @router.post("/backups/restore", tags=["System"])
-async def restore_backup(file: UploadFile = File(...), current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def restore_backup(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Restore database from an uploaded backup file."""
     import sqlite3
     import tempfile
@@ -83,7 +83,7 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
 
 
 @router.post("/backups", tags=["System"])
-def create_backup(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def create_backup(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Create a database backup using SQLite online backup API."""
     import sqlite3 as sqlite3_mod
 
@@ -120,7 +120,7 @@ def create_backup(current_user: dict = Depends(require_role("admin")), db: Sessi
 
 
 @router.get("/backups", tags=["System"])
-def list_backups(current_user: dict = Depends(require_role("admin"))):
+def list_backups(current_user: dict = Depends(require_superadmin())):
     """List all database backups."""
     backup_dir = Path(__file__).parent.parent / "backups"
     if not backup_dir.exists():
@@ -139,7 +139,7 @@ def list_backups(current_user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/backups/{filename}", tags=["System"])
-def download_backup(filename: str, current_user: dict = Depends(require_role("admin"))):
+def download_backup(filename: str, current_user: dict = Depends(require_superadmin())):
     """Download a database backup file."""
     backup_dir = os.path.realpath(str(Path(__file__).parent.parent / "backups"))
     backup_path = os.path.realpath(os.path.join(backup_dir, filename))
@@ -157,7 +157,7 @@ def download_backup(filename: str, current_user: dict = Depends(require_role("ad
 
 
 @router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
-def delete_backup(filename: str, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def delete_backup(filename: str, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Delete a database backup."""
     backup_dir = os.path.realpath(str(Path(__file__).parent.parent / "backups"))
     backup_path = os.path.realpath(os.path.join(backup_dir, filename))

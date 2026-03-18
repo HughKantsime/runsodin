@@ -8,7 +8,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.dependencies import get_current_user
 from core.rbac import require_role
 import core.crypto as crypto
 from modules.printers.models import Printer
@@ -85,7 +84,7 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
 
 
 @router.get("/printers/{printer_id}/live-status", tags=["Printers"])
-def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get real-time status from printer via MQTT."""
     return _fetch_printer_live_status(printer_id, db)
 
@@ -134,7 +133,7 @@ def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
 # ====================================================================
 
 @router.get("/printers/{printer_id}/nozzle-status", tags=["Printers"])
-def get_nozzle_status(printer_id: int, current_user: dict = Depends(get_current_user),
+def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role("viewer")),
                       db: Session = Depends(get_db)):
     """Get live nozzle temperature status. Returns dual nozzle data for H2D printers."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()

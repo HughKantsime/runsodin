@@ -9,7 +9,7 @@ import logging
 import httpx
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope, check_org_access
 from core.config import settings
 from core.base import JobStatus
 from modules.printers.models import Printer
@@ -27,26 +27,56 @@ router = APIRouter(tags=["Analytics"])
 @router.get("/stats")
 async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get dashboard statistics."""
-    total_printers = db.query(Printer).count()
-    active_printers = db.query(Printer).filter(Printer.is_active.is_(True)).count()
+    org = get_org_scope(current_user)
 
-    pending_jobs = db.query(Job).filter(Job.status == JobStatus.PENDING).count()
-    scheduled_jobs = db.query(Job).filter(Job.status == JobStatus.SCHEDULED).count()
-    printing_jobs = db.query(Job).filter(Job.status == JobStatus.PRINTING).count()
-    completed_today = db.query(Job).filter(
+    # Printer queries — org-scoped users see their org's printers + shared + unscoped
+    printer_query = db.query(Printer)
+    active_printer_query = db.query(Printer).filter(Printer.is_active.is_(True))
+    if org is not None:
+        printer_org_filter = (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
+        printer_query = printer_query.filter(printer_org_filter)
+        active_printer_query = active_printer_query.filter(printer_org_filter)
+    total_printers = printer_query.count()
+    active_printers = active_printer_query.count()
+
+    # Job queries — org-scoped users see jobs charged to their org + unscoped
+    job_query = db.query(Job)
+    if org is not None:
+        job_org_filter = (Job.charged_to_org_id == org) | (Job.charged_to_org_id == None)
+        job_query = job_query.filter(job_org_filter)
+
+    pending_jobs = job_query.filter(Job.status == JobStatus.PENDING).count()
+    scheduled_jobs = job_query.filter(Job.status == JobStatus.SCHEDULED).count()
+    printing_jobs = job_query.filter(Job.status == JobStatus.PRINTING).count()
+    completed_today = job_query.filter(
         Job.status == JobStatus.COMPLETED,
         Job.actual_end >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
     ).count()
 
     # Include MQTT-tracked jobs
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
-    mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
-    mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed' AND ended_at >= :today"), {"today": today_start}).scalar() or 0
+    if org is not None:
+        mqtt_printing = db.execute(text(
+            "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
+            "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        ), {"org": org}).scalar() or 0
+        mqtt_completed_today = db.execute(text(
+            "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
+            "WHERE pj.status = 'completed' AND pj.ended_at >= :today "
+            "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        ), {"today": today_start, "org": org}).scalar() or 0
+    else:
+        mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
+        mqtt_completed_today = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed' AND ended_at >= :today"), {"today": today_start}).scalar() or 0
 
     printing_jobs += mqtt_printing
     completed_today += mqtt_completed_today
 
-    total_models = db.query(Model).count()
+    # Model queries — org-scoped users see their org's models + unscoped
+    model_query = db.query(Model)
+    if org is not None:
+        model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
+    total_models = model_query.count()
 
     # Check Spoolman connection
     spoolman_connected = False
@@ -60,7 +90,10 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
     # --- Printer utilization stats for Utilization page ---
     printer_stats = []
-    all_printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
+    all_printers_q = db.query(Printer).filter(Printer.is_active.is_(True))
+    if org is not None:
+        all_printers_q = all_printers_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    all_printers = all_printers_q.all()
     for p in all_printers:
         # Count completed and failed jobs for this printer
         completed_jobs = db.query(Job).filter(
@@ -127,8 +160,13 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     """Get analytics data for dashboard."""
     from sqlalchemy import func
 
+    org = get_org_scope(current_user)
+
     # Get all models with profitability data
-    models = db.query(Model).all()
+    model_query = db.query(Model)
+    if org is not None:
+        model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
+    models = model_query.all()
 
     # Top models by value per hour
     models_by_value = sorted(
@@ -161,7 +199,10 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     } for m in models_by_value_asc]
 
     # Jobs stats
-    all_jobs = db.query(Job).all()
+    job_query = db.query(Job)
+    if org is not None:
+        job_query = job_query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    all_jobs = job_query.all()
     completed_jobs = [j for j in all_jobs if j.status == JobStatus.COMPLETED]
     pending_jobs = [j for j in all_jobs if j.status in (JobStatus.PENDING, JobStatus.SCHEDULED)]
 
@@ -207,7 +248,10 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             projected_cost += job.estimated_cost * job.quantity
 
     # Printer utilization
-    printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
+    printer_q = db.query(Printer).filter(Printer.is_active.is_(True))
+    if org is not None:
+        printer_q = printer_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
+    printers = printer_q.all()
     printer_stats = []
     # Calculate time window for utilization (since first completed job or 30 days)
     now = datetime.now(timezone.utc)
@@ -245,7 +289,10 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
     # Jobs over time (last 30 days)
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-    recent_jobs = db.query(Job).filter(Job.created_at >= thirty_days_ago).all()
+    recent_jobs_q = db.query(Job).filter(Job.created_at >= thirty_days_ago)
+    if org is not None:
+        recent_jobs_q = recent_jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    recent_jobs = recent_jobs_q.all()
 
     # Group by date
     jobs_by_date = {}
@@ -301,14 +348,17 @@ def get_failure_analytics(
     current_user: dict = Depends(require_role("viewer")),
 ):
     """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
+    org = get_org_scope(current_user)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # All completed + failed jobs in window
-    jobs = (
+    jobs_q = (
         db.query(Job)
         .filter(Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]), Job.created_at >= cutoff)
-        .all()
     )
+    if org is not None:
+        jobs_q = jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    jobs = jobs_q.all()
 
     # --- By printer ---
     by_printer = {}
@@ -383,10 +433,21 @@ def get_failure_analytics(
     top_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:10]
 
     # --- HMS error frequency ---
-    hms_rows = db.execute(
-        text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code ORDER BY cnt DESC LIMIT 10"),
-        {"cutoff": cutoff.isoformat()},
-    ).fetchall()
+    if org is not None:
+        hms_rows = db.execute(
+            text(
+                "SELECT h.code, h.message, COUNT(*) as cnt FROM hms_error_history h "
+                "JOIN printers p ON h.printer_id = p.id "
+                "WHERE h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1) "
+                "GROUP BY h.code ORDER BY cnt DESC LIMIT 10"
+            ),
+            {"cutoff": cutoff.isoformat(), "org": org},
+        ).fetchall()
+    else:
+        hms_rows = db.execute(
+            text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code ORDER BY cnt DESC LIMIT 10"),
+            {"cutoff": cutoff.isoformat()},
+        ).fetchall()
     hms_errors = [{"code": r[0], "message": r[1], "count": r[2]} for r in hms_rows]
 
     total_completed = sum(1 for j in jobs if j.status.value == "completed")
@@ -413,8 +474,9 @@ def get_time_accuracy(
     current_user: dict = Depends(require_role("viewer")),
 ):
     """Estimated vs actual print time accuracy stats."""
+    org = get_org_scope(current_user)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    completed = (
+    completed_q = (
         db.query(Job)
         .filter(
             Job.status == JobStatus.COMPLETED,
@@ -424,8 +486,10 @@ def get_time_accuracy(
             Job.duration_hours > 0,
             Job.actual_end >= cutoff,
         )
-        .all()
     )
+    if org is not None:
+        completed_q = completed_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
+    completed = completed_q.all()
 
     per_printer = {}
     per_model = {}

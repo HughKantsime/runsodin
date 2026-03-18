@@ -8,7 +8,7 @@ import json
 import logging
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin, get_org_scope
 
 log = logging.getLogger("odin.api")
 
@@ -25,7 +25,8 @@ async def chargeback_report(
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)
 ):
-    """Generate chargeback report — cost summary by user."""
+    """Generate chargeback report — cost summary by user (org-scoped)."""
+    org = get_org_scope(current_user)
     query = """
         SELECT j.charged_to_user_id as user_id, u.username,
                COUNT(*) as job_count,
@@ -36,6 +37,9 @@ async def chargeback_report(
         WHERE j.charged_to_user_id IS NOT NULL
     """
     params = {}
+    if org is not None:
+        query += " AND (j.charged_to_org_id = :org OR j.charged_to_org_id IS NULL)"
+        params["org"] = org
     if start_date:
         query += " AND j.created_at >= :start"
         params["start"] = start_date
@@ -56,8 +60,8 @@ async def chargeback_report(
 # ============== Report Schedules ==============
 
 @router.get("/report-schedules")
-async def list_report_schedules(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """List all scheduled reports."""
+async def list_report_schedules(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """List all scheduled reports. Superadmin only — system-wide report config."""
     rows = db.execute(text("SELECT * FROM report_schedules ORDER BY created_at DESC")).fetchall()
     return [{
         "id": r.id, "name": r.name, "report_type": r.report_type,
@@ -69,8 +73,8 @@ async def list_report_schedules(current_user: dict = Depends(require_role("admin
 
 
 @router.post("/report-schedules")
-async def create_report_schedule(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Create a new scheduled report."""
+async def create_report_schedule(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Create a new scheduled report. Superadmin only."""
     name = body.get("name", "").strip()
     report_type = body.get("report_type", "")
     frequency = body.get("frequency", "weekly")
@@ -107,8 +111,8 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
 
 
 @router.delete("/report-schedules/{schedule_id}")
-async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Delete a scheduled report."""
+async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Delete a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -118,8 +122,8 @@ async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(
 
 
 @router.patch("/report-schedules/{schedule_id}")
-async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Update a scheduled report (toggle active, change recipients, etc.)."""
+async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Update a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -141,8 +145,8 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
 
 
 @router.post("/report-schedules/{schedule_id}/run")
-async def run_report_now(schedule_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Immediately generate and email a scheduled report."""
+async def run_report_now(schedule_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+    """Immediately generate and email a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")

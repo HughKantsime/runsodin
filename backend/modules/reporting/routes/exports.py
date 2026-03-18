@@ -1,6 +1,6 @@
 """O.D.I.N. — CSV Export and Audit Log endpoints."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -12,7 +12,7 @@ import csv
 import io
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, require_superadmin, get_org_scope
 from core.models import AuditLog
 from modules.jobs.models import Job
 from modules.inventory.models import Spool, SpoolUsage
@@ -32,7 +32,10 @@ def export_jobs_csv(
     db: Session = Depends(get_db)
 ):
     """Export jobs as CSV."""
+    org = get_org_scope(current_user)
     query = db.query(Job)
+    if org is not None:
+        query = query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     if status:
         query = query.filter(Job.status == status)
     jobs = query.order_by(Job.created_at.desc()).all()
@@ -77,7 +80,11 @@ def export_jobs_csv(
 @router.get("/export/spools")
 def export_spools_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Export spools as CSV."""
-    spools = db.query(Spool).order_by(Spool.id).all()
+    org = get_org_scope(current_user)
+    sq = db.query(Spool)
+    if org is not None:
+        sq = sq.filter((Spool.org_id == org) | (Spool.org_id == None))
+    spools = sq.order_by(Spool.id).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -119,7 +126,13 @@ def export_spools_csv(current_user: dict = Depends(require_role("operator")), db
 @router.get("/export/filament-usage")
 def export_filament_usage_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Export filament usage history as CSV."""
-    usage_records = db.query(SpoolUsage).order_by(SpoolUsage.used_at.desc()).all()
+    org = get_org_scope(current_user)
+    uq = db.query(SpoolUsage)
+    if org is not None:
+        uq = uq.join(Spool, SpoolUsage.spool_id == Spool.id).filter(
+            (Spool.org_id == org) | (Spool.org_id == None)
+        )
+    usage_records = uq.order_by(SpoolUsage.used_at.desc()).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -151,7 +164,11 @@ def export_filament_usage_csv(current_user: dict = Depends(require_role("operato
 @router.get("/export/models")
 def export_models_csv(current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Export models as CSV."""
-    models = db.query(Model).order_by(Model.name).all()
+    org = get_org_scope(current_user)
+    mq = db.query(Model)
+    if org is not None:
+        mq = mq.filter((Model.org_id == org) | (Model.org_id == None))
+    models = mq.order_by(Model.name).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -189,10 +206,10 @@ def export_models_csv(current_user: dict = Depends(require_role("operator")), db
 def export_audit_logs_csv(
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
-    """Export audit logs as CSV."""
+    """Export audit logs as CSV. Superadmin only — audit logs span all tenants."""
     query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
     if entity_type:
         query = query.filter(AuditLog.entity_type == entity_type)
@@ -233,9 +250,9 @@ def list_audit_logs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
 ):
-    """List audit log entries with pagination and filters."""
+    """List audit log entries with pagination and filters. Superadmin only."""
     query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
 
     if entity_type:

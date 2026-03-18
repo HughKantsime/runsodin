@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import logging
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, get_org_scope, check_org_access
 from core.base import OrderStatus, JobStatus
 from modules.orders.models import Product, Order, OrderItem
 from modules.inventory.models import Consumable, ConsumableUsage
@@ -84,7 +84,11 @@ def list_orders(
     db: Session = Depends(get_db)
 ):
     """List all orders with optional filters."""
+    org = get_org_scope(current_user)
     query = db.query(Order)
+
+    if org is not None:
+        query = query.filter((Order.org_id == org) | (Order.org_id == None))
 
     if status_filter:
         query = query.filter(Order.status == status_filter)
@@ -125,7 +129,8 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
         payment_fees=data.payment_fees,
         shipping_charged=data.shipping_charged,
         shipping_cost=data.shipping_cost,
-        labor_minutes=data.labor_minutes or 0
+        labor_minutes=data.labor_minutes or 0,
+        org_id=current_user.get("group_id"),
     )
     db.add(order)
     db.flush()
@@ -157,6 +162,8 @@ def get_order(order_id: int, current_user: dict = Depends(require_role("viewer")
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
+        raise HTTPException(status_code=404, detail="Order not found")
 
     return _enrich_order_response(order, db)
 
@@ -166,6 +173,8 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
     """Update an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
     for key, value in data.model_dump(exclude_unset=True).items():
@@ -182,6 +191,8 @@ def delete_order(order_id: int, current_user: dict = Depends(require_role("opera
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
+        raise HTTPException(status_code=404, detail="Order not found")
 
     db.delete(order)
     db.commit()
@@ -194,6 +205,8 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
     """Add a line item to an order."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
     product = db.query(Product).filter(Product.id == data.product_id).first()
@@ -221,6 +234,12 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
 @router.patch("/{order_id}/items/{item_id}", response_model=OrderItemResponse)
 def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an order line item."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
+        raise HTTPException(status_code=404, detail="Order not found")
+
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,
         OrderItem.order_id == order_id
@@ -247,6 +266,12 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
 @router.delete("/{order_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove a line item from an order."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
+        raise HTTPException(status_code=404, detail="Order not found")
+
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,
         OrderItem.order_id == order_id
@@ -265,6 +290,8 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     """Generate jobs for an order based on BOM."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
     jobs_created = []
@@ -356,6 +383,8 @@ def get_order_invoice(
     order = db.query(Order).options(joinedload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
+        raise HTTPException(status_code=404, detail="Order not found")
 
     try:
         from modules.organizations.branding import get_or_create_branding, branding_to_dict
@@ -386,6 +415,8 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
     """Mark an order as shipped."""
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
     order.status = OrderStatus.SHIPPED
