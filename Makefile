@@ -1,4 +1,5 @@
-.PHONY: build test test-contracts test-security test-e2e test-coverage scan verify bump release logs shell help
+.PHONY: build test test-contracts test-security test-e2e test-coverage scan verify bump release logs shell help \
+       odin-seed odin-screenshots odin-video odin-record odin-marketing odin-marketing-full
 
 build: ## Build and start the container
 	docker compose up -d --build
@@ -49,6 +50,48 @@ logs: ## Tail container logs
 
 shell: ## Open a shell in the container
 	docker exec -it odin bash
+
+# ─── Marketing Automation ──────────────────────────────────────────────
+
+odin-seed: ## Seed staging DB with photogenic demo data
+	@echo "=== Seeding ODIN with demo data ==="
+	python3 marketing/seed.py
+
+odin-screenshots: ## Capture screenshots of all pages (dark + light, desktop + mobile)
+	@echo "=== Capturing ODIN screenshots ==="
+	python3 marketing/screenshots.py
+
+odin-video: ## Record a scripted navigation walkthrough video
+	@echo "=== Recording ODIN walkthrough video ==="
+	python3 marketing/video.py
+
+odin-record: ## Record a live MQTT session. Usage: make odin-record BROKER=<host> DURATION=1800 NAME=bambu-benchy
+	@test -n "$(NAME)" || (echo "Usage: make odin-record BROKER=<host> DURATION=1800 NAME=bambu-benchy" && exit 1)
+	@test -n "$(BROKER)" || (echo "Usage: make odin-record BROKER=<host> DURATION=1800 NAME=bambu-benchy" && exit 1)
+	python3 marketing/mqtt_recorder.py \
+		--broker $(BROKER) \
+		--duration $(or $(DURATION),1800) \
+		--output marketing/recordings/$(NAME).json
+
+odin-marketing: odin-seed odin-screenshots odin-video ## Generate all marketing assets (seed + screenshots + video, no MQTT)
+
+odin-marketing-full: odin-seed ## Full marketing pipeline with MQTT replay. Usage: make odin-marketing-full RECORDING=bambu-benchy BROKER=localhost
+	@test -n "$(RECORDING)" || (echo "Usage: make odin-marketing-full RECORDING=bambu-benchy BROKER=localhost" && exit 1)
+	@echo "=== Starting MQTT replayer in background ==="
+	python3 marketing/mqtt_replayer.py \
+		--broker $(or $(BROKER),localhost) \
+		--recording marketing/recordings/$(RECORDING).json \
+		--speed 2 --loop &
+	@REPLAYER_PID=$$!; \
+	echo "  Replayer PID: $$REPLAYER_PID"; \
+	sleep 5; \
+	echo "=== Capturing live-data screenshots ==="; \
+	python3 marketing/screenshots.py; \
+	echo "=== Recording walkthrough video ==="; \
+	python3 marketing/video.py; \
+	echo "=== Stopping replayer ==="; \
+	kill $$REPLAYER_PID 2>/dev/null || true
+	@echo "=== Marketing pipeline complete ==="
 
 help: ## Show this help
 	@grep -E '^[a-z][a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
