@@ -64,7 +64,7 @@ def _get_jwt_token() -> str:
     login_url = f"{BASE_URL}/api/auth/login"
     resp = requests.post(
         login_url,
-        json={"username": ADMIN_USER, "password": ADMIN_PASSWORD},
+        data={"username": ADMIN_USER, "password": ADMIN_PASSWORD},
         timeout=15,
     )
     resp.raise_for_status()
