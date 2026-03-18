@@ -116,3 +116,10 @@ README[[:space:]]*.md
 plan.md
 docs/plans/audit-baseline.md
 docs/plans/2026-03-03-beta-readiness-audit.md
+
+# Marketing automation outputs
+marketing/screenshots/*.png
+marketing/videos/*.mp4
+marketing/videos/*.webm
+marketing/videos/_raw/
+marketing/recordings/*.json
