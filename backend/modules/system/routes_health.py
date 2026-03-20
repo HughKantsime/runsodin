@@ -23,7 +23,7 @@ from license_manager import get_license, save_license_file, get_installation_id
 log = logging.getLogger("odin.api")
 router = APIRouter()
 
-_version_file = _pathlib.Path(__file__).parent.parent.parent / "VERSION"
+_version_file = _pathlib.Path(__file__).parent.parent.parent.parent / "VERSION"
 if _version_file.exists():
     __version__ = _version_file.read_text().strip()
 else:

@@ -132,7 +132,7 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         except Exception:
             pass
 
-        _version_file = Path(__file__).parent.parent.parent / "VERSION"
+        _version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
         odin_version = _version_file.read_text().strip() if _version_file.exists() else "unknown"
 
         zf.writestr("system_info.json", json.dumps({
