@@ -4,9 +4,12 @@ These helpers are used by multiple printer route split files and by
 external modules (e.g. system/routes.py imports _check_ssrf_blocklist).
 """
 
+import fcntl
 import logging
 import os
 import re
+import threading
+import time
 from urllib.parse import quote as urlquote
 
 import yaml
@@ -21,6 +24,13 @@ import core.crypto as crypto
 log = logging.getLogger("odin.api")
 
 GO2RTC_CONFIG = os.environ.get("GO2RTC_CONFIG", "/app/go2rtc/go2rtc.yaml")
+
+# go2rtc restart protection — prevents restart storms when multiple
+# cameras trigger sync simultaneously (e.g. control room page load).
+# Uses a file lock so it works across processes (monitors + backend).
+_go2rtc_thread_lock = threading.Lock()
+_GO2RTC_MIN_RESTART_INTERVAL = 10.0  # seconds
+_GO2RTC_LOCKFILE = os.environ.get("GO2RTC_LOCKFILE", "/tmp/go2rtc_sync.lock")
 
 # ====================================================================
 # Inline Pydantic models shared across route files
@@ -132,8 +142,8 @@ def _get_lan_ip():
         return None
 
 
-def sync_go2rtc_config(db: Session):
-    """Regenerate go2rtc config from printer camera URLs."""
+def _build_go2rtc_config(db: Session) -> dict:
+    """Build go2rtc config dict from current printer state."""
     from modules.printers.models import Printer
     printers = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True)).all()
     streams = {}
@@ -159,19 +169,66 @@ def sync_go2rtc_config(db: Session):
         lan_ip = _get_lan_ip()
     if lan_ip:
         webrtc_config["candidates"] = [f"{lan_ip}:8555"]
-        log.info(f"go2rtc WebRTC ICE candidate: {lan_ip}:8555")
-    config = {
+    return {
         "api": {"listen": "127.0.0.1:1984"},
         "webrtc": webrtc_config,
         "streams": streams,
     }
-    with open(GO2RTC_CONFIG, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
+
+
+def _go2rtc_restart_with_lock(config: dict, *, force: bool = False):
+    """Write go2rtc config and restart if changed, with cross-process locking."""
+    lockfd = None
     try:
-        import subprocess
-        subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
-    except Exception:
-        pass
+        lockfd = open(_GO2RTC_LOCKFILE, "w")
+        fcntl.flock(lockfd, fcntl.LOCK_EX)
+
+        # Check if config actually changed
+        try:
+            with open(GO2RTC_CONFIG, "r") as f:
+                existing = yaml.safe_load(f)
+            if existing == config and not force:
+                return  # nothing changed, skip restart
+        except (FileNotFoundError, yaml.YAMLError):
+            pass  # file missing or corrupt — write it
+
+        # Cooldown: check mtime of lockfile as cross-process timestamp
+        if not force:
+            try:
+                mtime = os.path.getmtime(GO2RTC_CONFIG)
+                if (time.time() - mtime) < _GO2RTC_MIN_RESTART_INTERVAL:
+                    with open(GO2RTC_CONFIG, "w") as f:
+                        yaml.dump(config, f, default_flow_style=False)
+                    log.debug("go2rtc config updated but restart skipped (cooldown)")
+                    return
+            except OSError:
+                pass
+
+        with open(GO2RTC_CONFIG, "w") as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+        try:
+            import subprocess
+            subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
+            log.info("go2rtc restarted (config changed)")
+        except Exception:
+            pass
+    finally:
+        if lockfd:
+            fcntl.flock(lockfd, fcntl.LOCK_UN)
+            lockfd.close()
+
+
+def sync_go2rtc_config(db: Session, *, force: bool = False):
+    """Regenerate go2rtc config from printer camera URLs.
+
+    Only restarts go2rtc if the config actually changed or if force=True.
+    Protected by a cross-process file lock and cooldown to prevent
+    restart storms when multiple cameras trigger sync simultaneously.
+    """
+    config = _build_go2rtc_config(db)
+    with _go2rtc_thread_lock:
+        _go2rtc_restart_with_lock(config, force=force)
 
 
 def sync_go2rtc_config_standalone():
@@ -240,13 +297,8 @@ def sync_go2rtc_config_raw():
         "webrtc": webrtc_config,
         "streams": streams,
     }
-    with open(GO2RTC_CONFIG, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-    try:
-        import subprocess
-        subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
-    except Exception:
-        pass
+
+    _go2rtc_restart_with_lock(config)
 
 
 # ====================================================================

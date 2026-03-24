@@ -63,6 +63,7 @@ class PrinterMonitor:
         self._linked_job_id: Optional[int] = None  # Linked scheduled job from jobs table
         self._last_progress_update: float = 0
         self._last_spool_check: float = 0
+        self._camera_discovered: bool = False
         self._lock = Lock()
 
     def connect(self) -> bool:
@@ -468,11 +469,15 @@ class PrinterMonitor:
                     log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
 
             # Check for camera URL auto-discovery (only X1C/H2D broadcast rtsp_url)
-            ipcam = raw.get('ipcam', {})
-            rtsp_url = ipcam.get('rtsp_url')
-            if rtsp_url:
-                full_url = f"rtsps://bblp:{urlquote(self.access_code, safe='')}@{self.ip}:322/streaming/live/1"
-                printer_events.discover_camera(self.printer_id, full_url)
+            # Only sync once per connection — MQTT broadcasts this on every message
+            # and each sync restarts go2rtc, killing all active camera streams.
+            if not self._camera_discovered:
+                ipcam = raw.get('ipcam', {})
+                rtsp_url = ipcam.get('rtsp_url')
+                if rtsp_url:
+                    full_url = f"rtsps://bblp:{urlquote(self.access_code, safe='')}@{self.ip}:322/streaming/live/1"
+                    printer_events.discover_camera(self.printer_id, full_url)
+                    self._camera_discovered = True
 
             # Merge partial updates into state
             for key, value in raw.items():

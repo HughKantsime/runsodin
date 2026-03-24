@@ -18,7 +18,7 @@ const BASE_DELAY_MS = 2000
  *
  * @param {number|string|null} cameraId  Printer / camera ID
  * @param {object}  opts
- * @param {number}  opts.maxRetries   Max auto-retry attempts (default 5, 0 = no auto-retry)
+ * @param {number}  opts.maxRetries   Max auto-retry attempts (default 5, 0 = infinite)
  * @param {boolean} opts.enabled      Set false to skip connecting (default true)
  * @returns {{ videoRef, status, retry }}
  */
@@ -46,9 +46,9 @@ export default function useWebRTC(cameraId, { maxRetries = 5, enabled = true } =
     disconnectGraceRef.current = null
   }, [])
 
-  // Schedule a retry with exponential backoff (respects cap)
+  // Schedule a retry with exponential backoff (respects cap; 0 = infinite)
   const scheduleRetry = useCallback((startFn) => {
-    if (retryCountRef.current >= maxRetries) return
+    if (maxRetries > 0 && retryCountRef.current >= maxRetries) return
     clearTimers()
     const delay = Math.min(BASE_DELAY_MS * Math.pow(2, retryCountRef.current), MAX_BACKOFF_MS)
     retryCountRef.current++

@@ -365,23 +365,12 @@ def speed_timelapse(
 
 @router.get("/cameras", tags=["Cameras"])
 def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
-    """List printers with active camera streams in go2rtc."""
-    # Check which streams go2rtc actually has configured
-    active_streams = set()
-    try:
-        resp = httpx.get("http://127.0.0.1:1984/api/streams", timeout=2.0)
-        if resp.status_code == 200:
-            streams = resp.json()
-            for key in streams:
-                # Stream names are "printer_{id}"
-                if key.startswith("printer_"):
-                    try:
-                        active_streams.add(int(key.split("_")[1]))
-                    except ValueError:
-                        pass
-    except Exception:
-        pass
+    """List printers with active camera streams.
 
+    Returns cameras based on DB state (printers with camera URLs).
+    go2rtc streams are synced lazily — if no streams exist yet, we
+    trigger a config sync but don't block the response on it.
+    """
     from core.rbac import get_org_scope
     org = get_org_scope(current_user)
     pq = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True))
@@ -389,28 +378,17 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
         pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     printers = pq.all()
 
-    # If go2rtc has no streams but we have camera-enabled printers, sync the
-    # config so streams are registered (e.g. after container restart).
-    if not active_streams and printers:
-        sync_go2rtc_config(db)
-        # Re-check go2rtc after sync
-        try:
-            resp = httpx.get("http://127.0.0.1:1984/api/streams", timeout=2.0)
-            if resp.status_code == 200:
-                streams = resp.json()
-                for key in streams:
-                    if key.startswith("printer_"):
-                        try:
-                            active_streams.add(int(key.split("_")[1]))
-                        except ValueError:
-                            pass
-        except Exception:
-            pass
-
+    # Build camera list from DB — don't gate on go2rtc being live
     cameras = []
     for p in printers:
-        if p.id in active_streams:
+        url = get_camera_url(p)
+        if url:
             cameras.append({"id": p.id, "name": p.name, "has_camera": True, "display_order": p.display_order or 0, "camera_enabled": bool(p.camera_enabled)})
+
+    # Ensure go2rtc config is synced (no-op if already up to date)
+    if cameras:
+        sync_go2rtc_config(db)
+
     return sorted(cameras, key=lambda x: x.get("display_order", 0))
 
 
@@ -447,9 +425,6 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
 
     stream_name = f"printer_{printer_id}"
 
-    # Ensure go2rtc config is up to date
-    sync_go2rtc_config(db)
-
     return {
         "printer_id": printer_id,
         "printer_name": printer.name,
@@ -475,8 +450,8 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     body = await request.body()
 
     # Ensure go2rtc has this stream configured before proxying.
-    # Without this, go2rtc returns an error if the stream hasn't been
-    # registered yet (e.g. after container restart or first access).
+    # Only sync if the stream is genuinely missing — never restart just
+    # because go2rtc is temporarily unreachable (e.g. mid-restart).
     try:
         async with httpx.AsyncClient() as client:
             streams_resp = await client.get(
@@ -487,7 +462,8 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
                 if stream_name not in streams:
                     sync_go2rtc_config(db)
     except Exception:
-        # go2rtc not reachable — sync config to (re)start it, then try the request anyway
+        # go2rtc not reachable — write config but don't force a restart
+        # (it may already be restarting). The client will retry.
         sync_go2rtc_config(db)
 
     try:
@@ -503,5 +479,5 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
         return Response(content=resp.content, media_type=resp.headers.get("content-type", "application/sdp"))
     except httpx.ConnectError:
         raise HTTPException(status_code=502, detail="go2rtc is not reachable")
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="go2rtc timed out")
+    except (httpx.TimeoutException, httpx.RemoteProtocolError):
+        raise HTTPException(status_code=504, detail="go2rtc not ready — try again")

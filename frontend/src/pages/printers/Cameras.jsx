@@ -428,9 +428,9 @@ export default function Cameras() {
               filteredCameras.length <= 9 ? 'grid-cols-3' :
               'grid-cols-4'
             }`}>
-              {filteredCameras.map(camera => (
+              {filteredCameras.map((camera, index) => (
                 <div key={camera.id} className="relative bg-black overflow-hidden">
-                  <ControlRoomCamera camera={camera} />
+                  <ControlRoomCamera camera={camera} delay={index * 500} />
                   <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
                     <span className="text-[10px] font-mono text-white">{camera.name}</span>
                   </div>
@@ -445,13 +445,25 @@ export default function Cameras() {
 }
 
 // Simplified camera component for control room (no controls, just video)
-function ControlRoomCamera({ camera }) {
-  const { videoRef, status } = useWebRTC(camera.id)
+function ControlRoomCamera({ camera, delay = 0 }) {
+  const [ready, setReady] = useState(false)
+
+  // Stagger connections so cameras don't all hit go2rtc at once
+  useEffect(() => {
+    if (delay === 0) { setReady(true); return }
+    const timer = setTimeout(() => setReady(true), delay)
+    return () => clearTimeout(timer)
+  }, [delay])
+
+  const { videoRef, status, retry } = useWebRTC(camera.id, {
+    maxRetries: 0, // infinite retries for control room
+    enabled: ready,
+  })
 
   return (
     <>
       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-      {status === 'connecting' && (
+      {(!ready || status === 'connecting') && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-[var(--brand-text-muted)] text-sm animate-pulse">Connecting...</div>
         </div>
