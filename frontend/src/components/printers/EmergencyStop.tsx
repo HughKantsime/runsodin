@@ -1,0 +1,164 @@
+import { useState, useEffect } from 'react'
+import { StopCircle, Pause, Play, X, AlertTriangle } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { fetchAPI } from '../../api'
+
+interface ActivePrinter {
+  id: number
+  name: string
+  nickname?: string
+  gcode_state: string
+  [key: string]: any // TODO: type this properly
+}
+
+/**
+ * Emergency Stop Button - Floating button that shows when any printer is actively printing.
+ * Provides quick access to stop, pause, or resume prints.
+ */
+export default function EmergencyStop() {
+  const [printers, setPrinters] = useState<ActivePrinter[]>([])
+  const [showPanel, setShowPanel] = useState(false)
+  const [loading, setLoading] = useState<Record<number, string | null>>({})
+  const [confirmStop, setConfirmStop] = useState<number | null>(null)
+
+  // Fetch printer status
+  useEffect(() => {
+    const fetchPrinters = async () => {
+      try {
+        const data = await fetchAPI('/printers')
+        setPrinters(data.filter((p: ActivePrinter) =>
+          p.gcode_state === 'RUNNING' ||
+          p.gcode_state === 'PRINTING' ||
+          p.gcode_state === 'PAUSED' ||
+          p.gcode_state === 'PAUSE'
+        ))
+      } catch (err) {
+        console.error('Failed to fetch printers:', err)
+      }
+    }
+
+    fetchPrinters()
+    const interval = setInterval(fetchPrinters, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const sendCommand = async (printerId: number, action: string) => {
+    setLoading(prev => ({ ...prev, [printerId]: action }))
+
+    try {
+      await fetchAPI(`/printers/${printerId}/${action}`, { method: 'POST' })
+    } catch (err: any) {
+      toast.error(`Failed to ${action}: ${err.message || 'Unknown error'}`)
+    } finally {
+      setLoading(prev => ({ ...prev, [printerId]: null }))
+      setConfirmStop(null)
+    }
+  }
+
+  // Don't show if no active prints
+  if (printers.length === 0) return null
+
+  const activePrinting = printers.filter(p =>
+    p.gcode_state === 'RUNNING' || p.gcode_state === 'PRINTING'
+  ).length
+
+  return (
+    <>
+      {/* Floating Button */}
+      <button
+        onClick={() => setShowPanel(!showPanel)}
+        className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-md shadow-lg transition-all ${
+          showPanel
+            ? 'bg-[var(--brand-card-bg)] text-white'
+            : 'border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white'
+        }`}
+        aria-label={showPanel ? "Close emergency controls" : `Emergency controls, ${activePrinting} active prints`}
+      >
+        {showPanel ? (
+          <X size={20} />
+        ) : (
+          <>
+            <StopCircle size={20} />
+            <span className="font-medium">{activePrinting} Active</span>
+          </>
+        )}
+      </button>
+
+      {/* Control Panel */}
+      {showPanel && (
+        <div className="fixed bottom-20 right-6 z-40 w-80 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-2xl overflow-hidden" role="region" aria-label="Emergency printer controls">
+          <div className="p-3 bg-red-900/50 border-b border-red-800 flex items-center gap-2">
+            <AlertTriangle className="text-red-400" size={18} aria-hidden="true" />
+            <span className="font-medium text-red-200">Emergency Controls</span>
+          </div>
+
+          <div className="p-3 space-y-2 max-h-80 overflow-y-auto">
+            {printers.map(printer => {
+              const isPaused = printer.gcode_state === 'PAUSED' || printer.gcode_state === 'PAUSE'
+              const isLoading = loading[printer.id]
+
+              return (
+                <div key={printer.id} className="p-3 bg-[var(--brand-card-border)] rounded-md">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-sm">{printer.nickname || printer.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-md ${
+                      isPaused ? 'bg-yellow-900/50 text-yellow-400' : 'bg-green-900/50 text-green-400'
+                    }`}>
+                      {isPaused ? 'Paused' : 'Printing'}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {isPaused ? (
+                      <button
+                        onClick={() => sendCommand(printer.id, 'resume')}
+                        disabled={!!isLoading}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-700 hover:bg-green-600 rounded-md text-sm transition-colors disabled:opacity-50"
+                      >
+                        <Play size={14} />
+                        {isLoading === 'resume' ? 'Resuming...' : 'Resume'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => sendCommand(printer.id, 'pause')}
+                        disabled={!!isLoading}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-yellow-700 hover:bg-yellow-600 rounded-md text-sm transition-colors disabled:opacity-50"
+                      >
+                        <Pause size={14} />
+                        {isLoading === 'pause' ? 'Pausing...' : 'Pause'}
+                      </button>
+                    )}
+
+                    {confirmStop === printer.id ? (
+                      <button
+                        onClick={() => sendCommand(printer.id, 'stop')}
+                        disabled={!!isLoading}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-600 text-white hover:bg-red-500 rounded-md text-sm transition-colors disabled:opacity-50 animate-pulse"
+                      >
+                        <StopCircle size={14} />
+                        {isLoading === 'stop' ? 'Stopping...' : 'Confirm Stop'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmStop(printer.id)}
+                        disabled={!!isLoading}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-900 hover:bg-red-800 rounded-md text-sm transition-colors disabled:opacity-50"
+                      >
+                        <StopCircle size={14} />
+                        Stop
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="p-2 bg-[var(--brand-card-bg)] text-xs text-[var(--brand-text-muted)] text-center">
+            Stop will cancel the print permanently
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
