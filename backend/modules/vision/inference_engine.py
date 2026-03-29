@@ -7,11 +7,11 @@ Extracted from VisionMonitorDaemon to isolate model lifecycle management.
 
 import os
 import logging
-import sqlite3
 import time
 from typing import Dict, List, Optional
 
 import numpy as np
+from sqlalchemy import text
 
 try:
     import onnxruntime as ort
@@ -23,7 +23,7 @@ try:
 except ImportError:
     cv2 = None
 
-from core.db_utils import get_db
+from core.db import engine
 
 log = logging.getLogger('vision_monitor')
 
@@ -45,13 +45,11 @@ class VisionInferenceEngine:
             return
 
         try:
-            with get_db(row_factory=sqlite3.Row) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT id, name, detection_type, filename, input_size "
-                    "FROM vision_models WHERE is_active = 1"
-                )
-                rows = cur.fetchall()
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    text("SELECT id, name, detection_type, filename, input_size "
+                    "FROM vision_models WHERE is_active = 1")
+                ).mappings().fetchall()
         except Exception as e:
             log.error(f"Failed to load model registry: {e}")
             return

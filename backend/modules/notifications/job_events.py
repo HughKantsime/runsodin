@@ -9,6 +9,7 @@ import logging
 from typing import Optional
 
 from core.db_utils import get_db
+from core.db_compat import sql
 from core.event_bus import get_event_bus
 from core.interfaces.event_bus import Event
 from core import events as ev
@@ -36,9 +37,9 @@ def job_started(
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute(
-                """INSERT INTO print_jobs
+                f"""INSERT INTO print_jobs
                     (printer_id, job_name, started_at, status, total_layers, scheduled_job_id)
-                VALUES (?, ?, datetime('now'), 'running', ?, ?)""",
+                VALUES (?, ?, {sql.now()}, 'running', ?, ?)""",
                 (printer_id, job_name, total_layers, scheduled_job_id)
             )
             job_id = cur.lastrowid
@@ -83,9 +84,9 @@ def job_completed(
 
             # Update print_jobs record
             cur.execute(
-                """UPDATE print_jobs SET
+                f"""UPDATE print_jobs SET
                     status = ?,
-                    ended_at = datetime('now')
+                    ended_at = {sql.now()}
                 WHERE id = ?""",
                 (status, print_job_id)
             )
@@ -186,9 +187,9 @@ def job_cancelled(
             cur = conn.cursor()
 
             cur.execute(
-                """UPDATE print_jobs SET
+                f"""UPDATE print_jobs SET
                     status = 'cancelled',
-                    ended_at = datetime('now')
+                    ended_at = {sql.now()}
                 WHERE id = ?""",
                 (print_job_id,)
             )

@@ -9,6 +9,7 @@ import threading
 
 import core.crypto as crypto
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role
 from core.webhook_utils import _validate_webhook_url
@@ -79,12 +80,18 @@ async def create_webhook(
     if isinstance(alert_types, list):
         alert_types = json.dumps(alert_types)
 
-    db.execute(text("""
+    insert_sql = """
         INSERT INTO webhooks (name, url, webhook_type, alert_types)
         VALUES (:name, :url, :type, :alerts)
-    """), {"name": name, "url": url, "type": webhook_type, "alerts": alert_types})
-    db.commit()
-    wh_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    """
+    params = {"name": name, "url": url, "type": webhook_type, "alerts": alert_types}
+    if sql.is_sqlite:
+        db.execute(text(insert_sql), params)
+        db.commit()
+        wh_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    else:
+        wh_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        db.commit()
     log_audit(db, "webhook.created", "webhook", wh_id, {"name": name, "type": webhook_type})
 
     return {"success": True, "message": "Webhook created"}
@@ -117,7 +124,7 @@ async def update_webhook(
             params[field] = value
 
     if updates:
-        updates.append("updated_at = datetime('now')")
+        updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE webhooks SET {', '.join(updates)} WHERE id = :id"
         db.execute(text(query), params)
         db.commit()

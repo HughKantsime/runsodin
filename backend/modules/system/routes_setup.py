@@ -167,8 +167,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
                         kinematics = (cfg_r.json().get("result", {}).get("config", {}).get("printer", {}).get("kinematics", "") or "")
                         if kinematics.lower() == "corexy":
                             detected_model = "Voron"
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to detect Moonraker kinematics: {e}")
                 if detected_model is None:
                     try:
                         hostname = (info.get("hostname") or "").lower()
@@ -176,8 +176,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
                         elif "trident" in hostname: detected_model = "Voron Trident"
                         elif "switchwire" in hostname: detected_model = "Voron Switchwire"
                         elif "v0" in hostname: detected_model = "Voron V0"
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Failed to detect model from hostname: {e}")
                 return {"success": True, "state": info.get("state", "unknown"), "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
             return {"success": False, "error": f"Moonraker returned {r.status_code}"}
         except Exception as e:
@@ -214,8 +214,8 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
         try:
             httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
             reachable = True
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to reach Elegoo printer: {e}")
         if not reachable:
             return {"success": False, "error": "Cannot reach Elegoo printer on port 3030"}
         detected_model = None

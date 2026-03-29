@@ -4,11 +4,15 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role
 from core.auth import hash_password
@@ -41,8 +45,8 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
             import jwt as _jwt
             payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             current_jti = payload.get("jti")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decode session token for current-session check: {e}")
 
     return [{
         "id": r.id,
@@ -69,7 +73,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     except Exception:
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
-    db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+    db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                {"jti": row.token_jti, "exp": expires_at})
     db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
     db.commit()
@@ -88,8 +92,8 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
             import jwt as _jwt
             payload = _jwt.decode(raw_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
             current_jti = payload.get("jti")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decode session token: {e}")
 
     rows = db.execute(text("SELECT token_jti, created_at FROM active_sessions WHERE user_id = :uid"),
                       {"uid": current_user["id"]}).fetchall()
@@ -103,7 +107,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
             expires_at = created + timedelta(hours=24)
         except Exception:
             expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-        db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                    {"jti": r.token_jti, "exp": expires_at})
         count += 1
 
@@ -155,7 +159,7 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
     except Exception:
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
-    db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+    db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                {"jti": row.token_jti, "exp": expires_at})
     db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
     db.commit()
@@ -205,13 +209,17 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
     if expires_days and int(expires_days) > 0:
         expires_at = datetime.now(timezone.utc) + timedelta(days=int(expires_days))
 
-    db.execute(text("""INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
-                       VALUES (:user_id, :name, :token_hash, :prefix, :scopes, :expires_at)"""),
-               {"user_id": current_user["id"], "name": name, "token_hash": token_hash_val,
-                "prefix": token_prefix, "scopes": json.dumps(scopes), "expires_at": expires_at})
-    db.commit()
-
-    token_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    insert_sql = """INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
+                       VALUES (:user_id, :name, :token_hash, :prefix, :scopes, :expires_at)"""
+    params = {"user_id": current_user["id"], "name": name, "token_hash": token_hash_val,
+              "prefix": token_prefix, "scopes": json.dumps(scopes), "expires_at": expires_at}
+    if sql.is_sqlite:
+        db.execute(text(insert_sql), params)
+        db.commit()
+        token_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    else:
+        token_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        db.commit()
     log_audit(db, "api_token_created", "api_token", token_id, f"Token '{name}' created")
 
     return {
@@ -294,8 +302,15 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
     return result
 
 
+class QuotaUpdateRequest(PydanticBaseModel):
+    quota_grams: Optional[float] = None
+    quota_hours: Optional[float] = None
+    quota_jobs: Optional[int] = None
+    quota_period: Optional[str] = None
+
+
 @router.put("/admin/quotas/{user_id}", tags=["Quotas"])
-async def admin_set_quota(user_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: set quotas for a user."""
     user = db.execute(text("SELECT id, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user:
@@ -305,18 +320,19 @@ async def admin_set_quota(user_id: int, body: dict, current_user: dict = Depends
         if not _check_org_admin_access(current_user, user.group_id):
             raise HTTPException(status_code=403, detail="Cannot set quotas for users outside your group")
 
+    body_data = body.model_dump(exclude_unset=True)
     sets = []
     params = {"id": user_id}
     for field in ["quota_grams", "quota_hours", "quota_jobs", "quota_period"]:
-        if field in body:
+        if field in body_data:
             sets.append(f"{field} = :{field}")
-            params[field] = body[field]
+            params[field] = body_data[field]
 
     if sets:
         db.execute(text(f"UPDATE users SET {', '.join(sets)} WHERE id = :id"), params)
         db.commit()
 
-    log_audit(db, "quota_updated", "user", user_id, f"Quotas updated: {body}")
+    log_audit(db, "quota_updated", "user", user_id, f"Quotas updated: {body_data}")
     return {"status": "ok"}
 
 

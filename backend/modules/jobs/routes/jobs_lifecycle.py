@@ -10,6 +10,7 @@ import json
 import logging
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, check_org_access
 from core.base import JobStatus, AlertType, AlertSeverity
@@ -532,7 +533,7 @@ async def update_job_failure(
         params["notes"] = fail_notes
 
     if updates:
-        updates.append("updated_at = datetime('now')")
+        updates.append(f"updated_at = {sql.now()}")
         db.execute(text(f"UPDATE jobs SET {', '.join(updates)} WHERE id = :id"), params)
         db.commit()
 

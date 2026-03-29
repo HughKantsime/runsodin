@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.rbac import require_role
 import core.crypto as crypto
 from modules.printers.models import Printer
@@ -97,11 +98,12 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), curr
 def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
                           current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get timeseries telemetry data for a printer (recorded during prints)."""
+    cutoff_expr = sql.now_offset(f"-{hours} hours")
     rows = db.execute(text(
-        "SELECT recorded_at, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed "
-        "FROM printer_telemetry WHERE printer_id = :pid AND recorded_at > datetime('now', :cutoff) "
-        "ORDER BY recorded_at ASC"
-    ), {"pid": printer_id, "cutoff": f"-{hours} hours"}).fetchall()
+        f"SELECT recorded_at, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed "
+        f"FROM printer_telemetry WHERE printer_id = :pid AND recorded_at > {cutoff_expr} "
+        f"ORDER BY recorded_at ASC"
+    ), {"pid": printer_id}).fetchall()
     return [{"recorded_at": r[0], "bed_temp": r[1], "nozzle_temp": r[2],
              "bed_target": r[3], "nozzle_target": r[4], "fan_speed": r[5]} for r in rows]
 
@@ -114,11 +116,12 @@ def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
 def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
                           current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get HMS error history with occurrence timestamps."""
+    cutoff_expr = sql.now_offset(f"-{days} days")
     rows = db.execute(text(
-        "SELECT id, printer_id, code, message, severity, source, occurred_at "
-        "FROM hms_error_history WHERE printer_id = :pid AND occurred_at > datetime('now', :cutoff) "
-        "ORDER BY occurred_at DESC"
-    ), {"pid": printer_id, "cutoff": f"-{days} days"}).fetchall()
+        f"SELECT id, printer_id, code, message, severity, source, occurred_at "
+        f"FROM hms_error_history WHERE printer_id = :pid AND occurred_at > {cutoff_expr} "
+        f"ORDER BY occurred_at DESC"
+    ), {"pid": printer_id}).fetchall()
     entries = [{"id": r[0], "printer_id": r[1], "code": r[2], "message": r[3],
                 "severity": r[4], "source": r[5], "occurred_at": r[6]} for r in rows]
     freq = {}
@@ -152,8 +155,8 @@ def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role
         nozzle_1_target = None
         try:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to get H2D nozzle 1 temps: {e}")
 
         return {
             "nozzle_count": 2,

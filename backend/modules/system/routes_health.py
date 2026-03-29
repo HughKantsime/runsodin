@@ -44,8 +44,8 @@ async def health_check():
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
                 spoolman_ok = resp.status_code == 200
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Spoolman health check failed: {e}")
 
     return HealthCheck(
         status="ok",

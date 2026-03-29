@@ -18,11 +18,13 @@ import os
 import sys
 import time
 import logging
-import sqlite3
 import threading
 from datetime import datetime, timezone
 
-from core.db_utils import get_db
+from sqlalchemy import text
+
+from core.db import engine
+from core.db_compat import sql
 
 # WebSocket push (same as mqtt_monitor / moonraker_monitor)
 try:
@@ -91,11 +93,10 @@ class PrusaLinkMonitorThread(threading.Thread):
                     if not self._marked_offline:
                         self._marked_offline = True
                         try:
-                            with get_db() as conn:
-                                conn.execute("UPDATE printers SET gcode_state='OFFLINE' WHERE id=?", (self.printer_id,))
-                                conn.commit()
-                        except Exception:
-                            pass
+                            with engine.begin() as conn:
+                                conn.execute(text("UPDATE printers SET gcode_state='OFFLINE' WHERE id=:pid"), {"pid": self.printer_id})
+                        except Exception as e:
+                            log.debug(f"Failed to mark printer offline: {e}")
                 log.warning(f"[{self.name}] Poll error ({self._consecutive_failures}): {e}")
             time.sleep(POLL_INTERVAL)
         log.info(f"[{self.name}] PrusaLink monitor stopped")
@@ -188,8 +189,8 @@ class PrusaLinkMonitorThread(threading.Thread):
                         source="prusalink",
                         severity="error",
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to record PrusaLink error: {e}")
             elif odin_state == "PAUSE":
                 printer_events.on_print_paused(self.printer_id)
 
@@ -219,7 +220,7 @@ class PrusaLinkMonitorThread(threading.Thread):
         # ----------------------------------------------------------
         if time.time() - self._last_heartbeat >= 10:
             try:
-                with get_db() as conn:
+                with engine.begin() as conn:
                     bed_t = status.bed_temp
                     bed_tt = status.bed_target
                     noz_t = status.nozzle_temp
@@ -247,14 +248,14 @@ class PrusaLinkMonitorThread(threading.Thread):
                         stage = "Idle"
 
                     conn.execute(
-                        "UPDATE printers SET last_seen=datetime('now'),"
-                        " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
-                        " nozzle_temp=COALESCE(?,nozzle_temp),nozzle_target_temp=COALESCE(?,nozzle_target_temp),"
-                        " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage),"
-                        " fan_speed=COALESCE(?,fan_speed) WHERE id=?",
-                        (bed_t, bed_tt, noz_t, noz_tt, gstate, stage, fan_speed_val, self.printer_id)
+                        text(f"UPDATE printers SET last_seen={sql.now()},"
+                        " bed_temp=COALESCE(:bed_t,bed_temp),bed_target_temp=COALESCE(:bed_tt,bed_target_temp),"
+                        " nozzle_temp=COALESCE(:noz_t,nozzle_temp),nozzle_target_temp=COALESCE(:noz_tt,nozzle_target_temp),"
+                        " gcode_state=COALESCE(:gstate,gcode_state),print_stage=COALESCE(:stage,print_stage),"
+                        " fan_speed=COALESCE(:fan_speed,fan_speed) WHERE id=:pid"),
+                        {"bed_t": bed_t, "bed_tt": bed_tt, "noz_t": noz_t, "noz_tt": noz_tt,
+                         "gstate": gstate, "stage": stage, "fan_speed": fan_speed_val, "pid": self.printer_id}
                     )
-                    conn.commit()
 
                     # WebSocket push to frontend
                     ws_push('printer_telemetry', {
@@ -284,8 +285,8 @@ class PrusaLinkMonitorThread(threading.Thread):
                                 "total_layers": total_layers,
                                 "fan_speed": fan_speed_val,
                             })
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.debug(f"Failed to push printer state event: {e}")
 
                     # ---- Timeseries Telemetry Capture ----
                     # Record temps + fan speed every 60s during active prints
@@ -293,11 +294,10 @@ class PrusaLinkMonitorThread(threading.Thread):
                         self._last_telemetry_insert = time.time()
                         try:
                             conn.execute(
-                                "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
-                                (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
+                                text("INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (:pid, :bed_t, :noz_t, :bed_tt, :noz_tt, :fan)"),
+                                {"pid": self.printer_id, "bed_t": bed_t, "noz_t": noz_t, "bed_tt": bed_tt, "noz_tt": noz_tt, "fan": fan_speed_val}
                             )
-                            conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
-                            conn.commit()
+                            conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
                         except Exception as e:
                             log.debug(f"[{self.name}] Telemetry insert: {e}")
 
@@ -317,10 +317,10 @@ def start_prusalink_monitors():
     """
     threads = []
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
+        with engine.connect() as conn:
             rows = conn.execute(
-                "SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active=1"
-            ).fetchall()
+                text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active=1")
+            ).mappings().fetchall()
 
         for row in rows:
             printer_id = row["id"]

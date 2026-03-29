@@ -5,6 +5,7 @@
 # Owns tables: groups, oidc_config, oidc_pending_states, oidc_auth_codes, quota_usage
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
@@ -14,6 +15,7 @@ import logging
 
 import core.crypto as crypto
 from core.db import get_db
+from core.db_compat import sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.dependencies import log_audit
 from core.webhook_utils import _validate_webhook_url
@@ -46,8 +48,8 @@ def _get_org_settings(db, org_id: int) -> dict:
         if stored.get("webhook_url"):
             try:
                 stored["webhook_url"] = crypto.decrypt(stored["webhook_url"])
-            except Exception:
-                pass  # already plaintext (pre-v1.3.67 rows)
+            except Exception as e:
+                log.debug(f"Failed to decrypt webhook_url (using raw): {e}")
         return {**DEFAULT_ORG_SETTINGS, **stored}
     return dict(DEFAULT_ORG_SETTINGS)
 
@@ -94,11 +96,16 @@ async def create_org(body: dict, current_user: dict = Depends(require_superadmin
     if existing:
         raise HTTPException(status_code=409, detail="Organization name already exists")
 
-    db.execute(text("""INSERT INTO groups (name, description, owner_id, is_org)
-                       VALUES (:name, :desc, :owner, 1)"""),
-               {"name": name, "desc": body.get("description", ""), "owner": current_user["id"]})
-    db.commit()
-    org_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    insert_sql = """INSERT INTO groups (name, description, owner_id, is_org)
+                       VALUES (:name, :desc, :owner, 1)"""
+    params = {"name": name, "desc": body.get("description", ""), "owner": current_user["id"]}
+    if sql.is_sqlite:
+        db.execute(text(insert_sql), params)
+        db.commit()
+        org_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    else:
+        org_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        db.commit()
 
     log_audit(db, "org_created", "org", org_id, f"Organization '{name}' created")
     return {"id": org_id, "name": name, "status": "ok"}
@@ -164,10 +171,14 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     return {"status": "ok"}
 
 
+class AssignPrinterRequest(PydanticBaseModel):
+    printer_id: int
+
+
 @router.post("/orgs/{org_id}/printers", tags=["Organizations"])
-async def assign_printer_to_org(org_id: int, body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def assign_printer_to_org(org_id: int, body: AssignPrinterRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Assign a printer to an organization. Superadmin only."""
-    printer_id = body.get("printer_id")
+    printer_id = body.printer_id
     db.execute(text("UPDATE printers SET org_id = :oid WHERE id = :pid"),
                {"oid": org_id, "pid": printer_id})
     db.commit()

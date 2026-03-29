@@ -85,8 +85,8 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
                             "remaining_weight": spool.get("remaining_weight"),
                             "display_name": f"{filament.get('name')} ({filament.get('material')}) - {int(spool.get('remaining_weight', 0))}g",
                         })
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to fetch spoolman spools: {e}")
 
     library = db.query(FilamentLibrary).all()
     for f in library:

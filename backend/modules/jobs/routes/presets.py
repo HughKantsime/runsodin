@@ -1,9 +1,10 @@
 """Print presets, failure reasons, config, and print-job tracking."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime as dt
 import logging
 
@@ -214,24 +215,37 @@ def list_presets(db: Session = Depends(get_db), current_user: dict = Depends(req
     ]
 
 
+class CreatePresetRequest(BaseModel):
+    name: str
+    model_id: Optional[int] = None
+    item_name: Optional[str] = None
+    quantity: int = 1
+    priority: int = 3
+    duration_hours: Optional[float] = None
+    colors_required: Optional[str] = None
+    filament_type: Optional[str] = None
+    required_tags: List[str] = []
+    notes: Optional[str] = None
+
+
 @router.post("/presets", tags=["Presets"], status_code=status.HTTP_201_CREATED)
 def create_preset(
-    request_data: dict,
+    request_data: CreatePresetRequest,
     current_user: dict = Depends(require_role("operator")),
     db: Session = Depends(get_db),
 ):
     """Create a new print preset."""
     preset = PrintPreset(
-        name=request_data["name"],
-        model_id=request_data.get("model_id"),
-        item_name=request_data.get("item_name"),
-        quantity=request_data.get("quantity", 1),
-        priority=request_data.get("priority", 3),
-        duration_hours=request_data.get("duration_hours"),
-        colors_required=request_data.get("colors_required"),
-        filament_type=request_data.get("filament_type"),
-        required_tags=request_data.get("required_tags", []),
-        notes=request_data.get("notes"),
+        name=request_data.name,
+        model_id=request_data.model_id,
+        item_name=request_data.item_name,
+        quantity=request_data.quantity,
+        priority=request_data.priority,
+        duration_hours=request_data.duration_hours,
+        colors_required=request_data.colors_required,
+        filament_type=request_data.filament_type,
+        required_tags=request_data.required_tags,
+        notes=request_data.notes,
     )
     db.add(preset)
     db.commit()

@@ -1,6 +1,9 @@
 """Pricing configuration and model cost endpoints."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 import logging
 
@@ -26,16 +29,36 @@ def get_pricing_config(current_user: dict = Depends(require_role("viewer")), db:
     return config.value
 
 
+class PricingConfigRequest(PydanticBaseModel):
+    spool_cost: Optional[float] = None
+    spool_weight: Optional[float] = None
+    hourly_rate: Optional[float] = None
+    electricity_rate: Optional[float] = None
+    printer_wattage: Optional[int] = None
+    printer_cost: Optional[float] = None
+    printer_lifespan: Optional[int] = None
+    packaging_cost: Optional[float] = None
+    failure_rate: Optional[float] = None
+    monthly_rent: Optional[float] = None
+    parts_per_month: Optional[int] = None
+    post_processing_min: Optional[int] = None
+    packing_min: Optional[int] = None
+    support_min: Optional[int] = None
+    default_margin: Optional[float] = None
+    other_costs: Optional[float] = None
+    ui_mode: Optional[str] = None
+
+
 @router.put("/pricing-config")
 def update_pricing_config(
-    config_data: dict,
+    config_data: PricingConfigRequest,
     current_user: dict = Depends(require_role("admin")),
     db: Session = Depends(get_db)
 ):
     """Update system pricing configuration."""
 
     # Merge with defaults to ensure all fields exist
-    merged_config = {**DEFAULT_PRICING_CONFIG, **config_data}
+    merged_config = {**DEFAULT_PRICING_CONFIG, **config_data.model_dump(exclude_unset=True)}
 
     config = db.query(SystemConfig).filter(SystemConfig.key == "pricing_config").first()
     if config:

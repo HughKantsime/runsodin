@@ -319,8 +319,8 @@ class PrusaLinkPrinter:
                 # The camera config contains resolution info; the actual
                 # snapshot/stream is at a fixed path
                 return f"{self.base_url}/api/v1/cameras/snap"
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Camera API probe failed: {e}")
 
         # Fallback: try the snapshot endpoint directly
         try:
@@ -334,8 +334,8 @@ class PrusaLinkPrinter:
             resp = requests.head(url, headers=headers, **kwargs)
             if resp.status_code == 200:
                 return url
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Camera snapshot probe failed: {e}")
 
         return None
 

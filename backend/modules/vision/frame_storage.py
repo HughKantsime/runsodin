@@ -8,14 +8,15 @@ all filesystem operations for vision frame management.
 import json
 import logging
 import os
-import sqlite3
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
 import cv2
+from sqlalchemy import text
 
-from core.db_utils import get_db
+from core.db import engine
+from core.db_compat import sql
 
 log = logging.getLogger('vision_monitor')
 
@@ -67,29 +68,25 @@ def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
     Also cleans up training frames via cleanup_training_frames().
     """
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.cursor()
-
+        with engine.begin() as conn:
             # Get retention days from global settings (default 30)
-            cur.execute(
-                "SELECT value FROM system_config WHERE key = 'vision_retention_days'"
-            )
-            row = cur.fetchone()
+            row = conn.execute(
+                text("SELECT value FROM system_config WHERE key = 'vision_retention_days'")
+            ).fetchone()
             retention_days = 30
             if row:
                 try:
-                    retention_days = int(json.loads(row['value']))
+                    retention_days = int(json.loads(row[0]))
                 except (ValueError, TypeError):
                     pass
 
             # Find old detections with frame paths
-            cur.execute(
-                """SELECT id, frame_path FROM vision_detections
-                WHERE created_at < datetime('now', ? || ' days')
-                  AND frame_path IS NOT NULL""",
-                (f"-{retention_days}",)
-            )
-            old_rows = cur.fetchall()
+            _cutoff_sql = sql.now_offset(f"-{retention_days} days")
+            old_rows = conn.execute(
+                text(f"""SELECT id, frame_path FROM vision_detections
+                WHERE created_at < {_cutoff_sql}
+                  AND frame_path IS NOT NULL""")
+            ).mappings().fetchall()
 
             deleted = 0
             for old in old_rows:
@@ -101,11 +98,10 @@ def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
             # Clear frame_path on old records (keep detection metadata)
             if old_rows:
                 ids = [str(r['id']) for r in old_rows]
-                cur.execute(
-                    f"UPDATE vision_detections SET frame_path = NULL "
-                    f"WHERE id IN ({','.join(ids)})"
+                conn.execute(
+                    text(f"UPDATE vision_detections SET frame_path = NULL "
+                    f"WHERE id IN ({','.join(ids)})")
                 )
-                conn.commit()
 
         if deleted:
             log.info(f"Cleaned up {deleted} old vision frames (>{retention_days} days)")

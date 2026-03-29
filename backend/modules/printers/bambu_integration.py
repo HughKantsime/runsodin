@@ -13,6 +13,8 @@ import json
 import ssl
 import time
 import math
+import logging
+log = logging.getLogger("odin.bambu")
 from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass, field
 
@@ -213,7 +215,8 @@ class BambuMQTTClient:
             if 'print' in payload:
                 self.printer_data = payload['print']
                 self._response_received = True
-        except Exception: pass
+        except Exception as e:
+            log.debug(f"Failed to parse Bambu MQTT message: {e}")
 
     def connect(self) -> bool:
         try:

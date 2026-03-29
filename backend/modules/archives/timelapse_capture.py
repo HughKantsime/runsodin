@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from core.db_compat import sql
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,9 +72,9 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int) -> int:
     # Create new timelapse
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"printer_{printer_id}/{ts}.mp4"
-    session.execute(text("""
+    session.execute(text(f"""
         INSERT INTO timelapses (printer_id, print_job_id, filename, frame_count, status, created_at)
-        VALUES (:pid, :jid, :fname, 0, 'capturing', datetime('now'))
+        VALUES (:pid, :jid, :fname, 0, 'capturing', {sql.now()})
     """), {"pid": printer_id, "jid": job_id, "fname": filename})
     session.commit()
 
@@ -123,8 +124,8 @@ def encode_timelapse(timelapse_id: int) -> bool:
         frames = sorted(frame_dir.glob("*.jpg"))
         if len(frames) < 2:
             # Not enough frames, mark as failed
-            session.execute(text("""
-                UPDATE timelapses SET status = 'failed', completed_at = datetime('now')
+            session.execute(text(f"""
+                UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
                 WHERE id = :tid
             """), {"tid": timelapse_id})
             session.commit()
@@ -156,8 +157,8 @@ def encode_timelapse(timelapse_id: int) -> bool:
         result = subprocess.run(cmd, capture_output=True, timeout=300)
         if result.returncode != 0:
             log.error(f"ffmpeg failed for timelapse {timelapse_id}: {result.stderr.decode()[-500:]}")
-            session.execute(text("""
-                UPDATE timelapses SET status = 'failed', completed_at = datetime('now')
+            session.execute(text(f"""
+                UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
                 WHERE id = :tid
             """), {"tid": timelapse_id})
             session.commit()
@@ -166,13 +167,13 @@ def encode_timelapse(timelapse_id: int) -> bool:
         # Update record
         file_size = output_path.stat().st_size / (1024 * 1024)
         duration = len(frames) / FFMPEG_FPS
-        session.execute(text("""
+        session.execute(text(f"""
             UPDATE timelapses
             SET status = 'ready',
                 frame_count = :fc,
                 duration_seconds = :dur,
                 file_size_mb = :sz,
-                completed_at = datetime('now')
+                completed_at = {sql.now()}
             WHERE id = :tid
         """), {"tid": timelapse_id, "fc": len(frames), "dur": round(duration, 1), "sz": round(file_size, 2)})
         session.commit()
@@ -184,8 +185,8 @@ def encode_timelapse(timelapse_id: int) -> bool:
 
     except Exception as e:
         log.error(f"Encode error for timelapse {timelapse_id}: {e}")
-        session.execute(text("""
-            UPDATE timelapses SET status = 'failed', completed_at = datetime('now')
+        session.execute(text(f"""
+            UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
             WHERE id = :tid
         """), {"tid": timelapse_id})
         session.commit()

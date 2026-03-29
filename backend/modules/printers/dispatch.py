@@ -35,8 +35,8 @@ def _ws(job_id: int, status: str, message: str):
     """Push a dispatch progress event to connected WebSocket clients."""
     try:
         _ws_push("job_dispatch_event", {"job_id": job_id, "status": status, "message": message})
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"WebSocket push failed: {e}")
 
 
 # ──────────────────────────────────────────────
@@ -49,15 +49,15 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
     Returns a dict with keys: api_type, ip, port, and type-specific creds.
     Returns None if the printer can't be loaded.
     """
-    import sqlite3
     import core.crypto as crypto
-    from core.db_utils import get_db
+    from core.db import engine
+    from sqlalchemy import text
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
+        with engine.connect() as conn:
             row = conn.execute(
-                "SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm FROM printers WHERE id = ?",
-                (printer_id,),
+                text("SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm FROM printers WHERE id = :id"),
+                {"id": printer_id},
             ).fetchone()
     except Exception as e:
         log.error(f"[dispatch] DB error loading printer {printer_id}: {e}")
@@ -67,9 +67,10 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
         log.warning(f"[dispatch] Printer {printer_id} not found")
         return None
 
-    api_type = (row["api_type"] or "").lower()
-    api_host = row["api_host"] or ""
-    api_key_raw = row["api_key"] or ""
+    r = row._mapping
+    api_type = (r["api_type"] or "").lower()
+    api_host = r["api_host"] or ""
+    api_key_raw = r["api_key"] or ""
 
     # Parse host:port
     host, port = api_host, 80
@@ -84,8 +85,8 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
         "api_type": api_type,
         "ip": host,
         "port": port,
-        "bed_x_mm": row["bed_x_mm"],
-        "bed_y_mm": row["bed_y_mm"],
+        "bed_x_mm": r["bed_x_mm"],
+        "bed_y_mm": r["bed_y_mm"],
     }
 
     if api_type == "bambu":
@@ -137,27 +138,27 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
 
 def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
     """Find the next SCHEDULED job for this printer that has a stored file on disk."""
-    import sqlite3
-    from core.db_utils import get_db
+    from core.db import engine
+    from sqlalchemy import text
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
+        with engine.connect() as conn:
             row = conn.execute(
-                """
+                text("""
                 SELECT j.id, j.item_name, pf.stored_path, pf.original_filename
                 FROM jobs j
                 JOIN models m ON j.model_id = m.id
                 JOIN print_files pf ON pf.model_id = m.id
-                WHERE j.printer_id = ?
+                WHERE j.printer_id = :pid
                   AND j.status = 'scheduled'
                   AND pf.stored_path IS NOT NULL
                   AND pf.stored_path != ''
                 ORDER BY j.queue_position ASC, j.priority ASC, j.created_at ASC
                 LIMIT 1
-                """,
-                (printer_id,),
+                """),
+                {"pid": printer_id},
             ).fetchone()
-        return dict(row) if row else None
+        return dict(row._mapping) if row else None
     except Exception as e:
         log.error(f"[dispatch] Job lookup failed for printer {printer_id}: {e}")
         return None
@@ -165,24 +166,24 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
 
 def _load_job(job_id: int) -> Optional[dict]:
     """Load a specific job's dispatch info from the DB."""
-    import sqlite3
-    from core.db_utils import get_db
+    from core.db import engine
+    from sqlalchemy import text
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
+        with engine.connect() as conn:
             row = conn.execute(
-                """
+                text("""
                 SELECT j.id, j.item_name, j.status, j.printer_id,
                        pf.stored_path, pf.original_filename,
                        pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types
                 FROM jobs j
                 JOIN models m ON j.model_id = m.id
                 JOIN print_files pf ON pf.model_id = m.id
-                WHERE j.id = ?
-                """,
-                (job_id,),
+                WHERE j.id = :jid
+                """),
+                {"jid": job_id},
             ).fetchone()
-        return dict(row) if row else None
+        return dict(row._mapping) if row else None
     except Exception as e:
         log.error(f"[dispatch] Failed to load job {job_id}: {e}")
         return None
@@ -276,8 +277,6 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     Returns:
         (success, message) tuple.
     """
-    from core.db_utils import get_db
-
     # Load job
     job = _load_job(job_id)
     if not job:
@@ -361,13 +360,14 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     # Mark job as printing
     try:
         from datetime import datetime, timezone
-        with get_db() as conn:
+        from core.db import engine
+        from sqlalchemy import text as _text
+        with engine.begin() as conn:
             conn.execute(
-                "UPDATE jobs SET status = 'printing',"
-                " actual_start = COALESCE(actual_start, ?) WHERE id = ?",
-                (datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), job_id),
+                _text("UPDATE jobs SET status = 'printing',"
+                      " actual_start = COALESCE(actual_start, :now) WHERE id = :jid"),
+                {"now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), "jid": job_id},
             )
-            conn.commit()
     except Exception as e:
         log.warning(f"[dispatch] DB status update failed (print already started): {e}")
 

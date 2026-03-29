@@ -24,8 +24,9 @@ import json
 import time
 import signal
 import logging
-import sqlite3
 from typing import Dict, Optional
+
+from sqlalchemy import text
 
 try:
     import cv2
@@ -38,7 +39,7 @@ except ImportError:
     )
     sys.exit(0)  # Exit cleanly so supervisor doesn't restart
 
-from core.db_utils import get_db
+from core.db import engine
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision.detection_thread import PrinterVisionThread
 from modules.vision import frame_storage
@@ -110,12 +111,8 @@ class VisionMonitorDaemon:
     def _scan_printers(self):
         """Query DB for printers that should have vision monitoring."""
         try:
-            with get_db(row_factory=sqlite3.Row) as conn:
-                cur = conn.cursor()
-
-                # Find printers: active, camera enabled, camera URL set,
-                # either printing (for failure detection) or idle with build_plate_empty enabled
-                cur.execute("""
+            with engine.connect() as conn:
+                rows = conn.execute(text("""
                     SELECT p.id, p.name, p.nickname, p.gcode_state,
                            pj.id as print_job_id, pj.current_layer,
                            vs.enabled, vs.spaghetti_enabled, vs.spaghetti_threshold,
@@ -134,8 +131,7 @@ class VisionMonitorDaemon:
                       AND (p.gcode_state = 'RUNNING'
                            OR (p.gcode_state IN ('IDLE', 'FINISH', 'FINISHED')
                                AND COALESCE(vs.build_plate_empty_enabled, 0) = 1))
-                """)
-                rows = cur.fetchall()
+                """)).mappings().fetchall()
         except Exception as e:
             log.error(f"Failed to scan printers: {e}")
             return

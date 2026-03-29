@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 from core.db_utils import get_db
+from core.db_compat import sql
 from modules.notifications.alert_dispatch import dispatch_alert
 
 log = logging.getLogger("printer_events")
@@ -57,10 +58,10 @@ def record_error(
 
             # Update printer's last error
             cur.execute(
-                """UPDATE printers SET
+                f"""UPDATE printers SET
                     last_error_code = ?,
                     last_error_message = ?,
-                    last_error_at = datetime('now')
+                    last_error_at = {sql.now()}
                 WHERE id = ?""",
                 (error_code, error_message, printer_id)
             )
@@ -169,9 +170,9 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
             print_job_id, scheduled_job_id, job_name, started_at = row
 
             # Mark print_jobs as failed (WHERE status='running' guards against races)
-            cur.execute("""
+            cur.execute(f"""
                 UPDATE print_jobs
-                SET status = 'failed', ended_at = datetime('now'), error_code = ?
+                SET status = 'failed', ended_at = {sql.now()}, error_code = ?
                 WHERE id = ? AND status = 'running'
             """, (hms_code, print_job_id))
 
@@ -181,7 +182,7 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
             # Mark linked scheduled job as failed
             if scheduled_job_id:
                 cur.execute(
-                    "UPDATE jobs SET status = 'failed', actual_end = datetime('now') WHERE id = ?",
+                    f"UPDATE jobs SET status = 'failed', actual_end = {sql.now()} WHERE id = ?",
                     (scheduled_job_id,))
 
             conn.commit()
@@ -193,8 +194,8 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
         try:
             from modules.archives.archive import create_print_archive
             create_print_archive(print_job_id, printer_id, success=False)
-        except Exception:
-            pass
+        except Exception as e:
+            log.error(f"Failed to create print archive for job {print_job_id}: {e}")
 
         # Dispatch failure alert (uses Path B — webhooks, push, email)
         dispatch_alert(

@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 from modules.models_library.models import Model
 from modules.jobs.models import Job
@@ -129,8 +130,8 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         docker_version = "unknown"
         try:
             docker_version = subprocess.check_output(["docker", "--version"], timeout=5, text=True).strip()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to get docker version: {e}")
 
         _version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
         odin_version = _version_file.read_text().strip() if _version_file.exists() else "unknown"
@@ -177,24 +178,28 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
         zf.writestr("recent_errors.txt", "\n".join(error_lines))
 
         health = {}
-        try:
-            conn = sqlite3.connect(db_path)
-            integrity = conn.execute("PRAGMA integrity_check").fetchone()
-            health["integrity"] = integrity[0] if integrity else "unknown"
-            tables = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            ).fetchall()
-            counts = {}
-            for (tname,) in tables:
-                try:
-                    cnt = conn.execute(f"SELECT COUNT(*) FROM [{tname}]").fetchone()
-                    counts[tname] = cnt[0] if cnt else 0
-                except Exception:
-                    counts[tname] = "error"
-            health["table_row_counts"] = counts
-            conn.close()
-        except Exception as e:
-            health["error"] = str(e)
+        if sql.is_sqlite:
+            try:
+                conn = sqlite3.connect(db_path)
+                integrity = conn.execute("PRAGMA integrity_check").fetchone()
+                health["integrity"] = integrity[0] if integrity else "unknown"
+                tables = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+                counts = {}
+                for (tname,) in tables:
+                    try:
+                        cnt = conn.execute(f"SELECT COUNT(*) FROM [{tname}]").fetchone()
+                        counts[tname] = cnt[0] if cnt else 0
+                    except Exception:
+                        counts[tname] = "error"
+                health["table_row_counts"] = counts
+                conn.close()
+            except Exception as e:
+                health["error"] = str(e)
+        else:
+            health["integrity"] = "n/a (PostgreSQL)"
+            health["note"] = "Use pg_dump or PostgreSQL admin tools for DB health checks"
         zf.writestr("db_health.json", json.dumps(health, indent=2))
 
         zf.writestr("bundle_metadata.json", json.dumps({

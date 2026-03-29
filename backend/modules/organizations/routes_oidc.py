@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, require_superadmin
 import core.auth as auth_module
@@ -26,8 +27,8 @@ def _record_session(db, user_id, access_token, ip, user_agent):
         payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
         jti = payload.get("jti")
         if jti:
-            db.execute(text("""INSERT OR IGNORE INTO active_sessions (user_id, token_jti, ip_address, user_agent)
-                               VALUES (:uid, :jti, :ip, :ua)"""),
+            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)
+                               VALUES (:uid, :jti, :ip, :ua){sql.on_conflict_ignore('token_jti')}"""),
                        {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
             db.commit()
     except Exception:
@@ -127,14 +128,20 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
             while db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": username}).fetchone():
                 username = f"{base_username}{counter}"
                 counter += 1
-            db.execute(text("""
+            insert_sql = """
                 INSERT INTO users (username, email, password_hash, role, oidc_subject, oidc_provider, last_login)
                 VALUES (:username, :email, '', :role, :sub, :provider, :now)
-            """), {"username": username, "email": email, "role": default_role,
-                   "sub": oidc_subject, "provider": oidc_provider,
-                   "now": datetime.now(timezone.utc).isoformat()})
-            db.commit()
-            user_id = db.execute(text("SELECT last_insert_rowid()")).fetchone()[0]
+            """
+            insert_params = {"username": username, "email": email, "role": default_role,
+                             "sub": oidc_subject, "provider": oidc_provider,
+                             "now": datetime.now(timezone.utc).isoformat()}
+            if sql.is_sqlite:
+                db.execute(text(insert_sql), insert_params)
+                db.commit()
+                user_id = db.execute(text("SELECT last_insert_rowid()")).fetchone()[0]
+            else:
+                user_id = db.execute(text(insert_sql + " RETURNING id"), insert_params).scalar()
+                db.commit()
             user_role = default_role
             log.info(f"Created OIDC user: {username} ({email})")
         else:
@@ -248,7 +255,7 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
             params[field] = data[field]
 
     if updates:
-        updates.append("updated_at = datetime('now')")
+        updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE oidc_config SET {', '.join(updates)} WHERE id = 1"
         db.execute(text(query), params)
         db.commit()

@@ -169,6 +169,7 @@ class JobSummary(BaseModel):
 
 class SchedulerConfig(BaseModel):
     """Configuration for a scheduler run."""
+    model_config = ConfigDict(strict=True)
     blackout_start: str = "22:30"  # HH:MM format
     blackout_end: str = "05:30"
     setup_duration_slots: int = 1  # 30-min slots for color change

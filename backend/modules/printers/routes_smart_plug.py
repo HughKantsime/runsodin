@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.rbac import require_role
 import core.crypto as crypto
 import modules.printers.smart_plug as smart_plug
@@ -146,7 +147,8 @@ async def set_energy_rate(request: Request, current_user: dict = Depends(require
     data = await request.json()
     rate = data.get("energy_cost_per_kwh", 0.12)
     db.execute(text(
-        "INSERT OR REPLACE INTO system_config (key, value) VALUES ('energy_cost_per_kwh', :rate)"
+        f"{sql.upsert_prefix()} system_config (key, value) VALUES ('energy_cost_per_kwh', :rate)"
+        f"{sql.on_conflict_suffix('key', ['value'])}"
     ), {"rate": str(rate)})
     db.commit()
     return {"energy_cost_per_kwh": rate}

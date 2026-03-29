@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 
@@ -20,7 +21,9 @@ router = APIRouter()
 
 @router.post("/backups/restore", tags=["System"])
 async def restore_backup(file: UploadFile = File(...), current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
-    """Restore database from an uploaded backup file."""
+    """Restore database from an uploaded backup file. SQLite only."""
+    if sql.is_postgres:
+        raise HTTPException(status_code=501, detail="Backup restore is only supported for SQLite databases. Use pg_dump/pg_restore for PostgreSQL.")
     import sqlite3
     import tempfile
 
@@ -84,7 +87,9 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
 
 @router.post("/backups", tags=["System"])
 def create_backup(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
-    """Create a database backup using SQLite online backup API."""
+    """Create a database backup using SQLite online backup API. SQLite only."""
+    if sql.is_postgres:
+        raise HTTPException(status_code=501, detail="Backup creation is only supported for SQLite databases. Use pg_dump for PostgreSQL.")
     import sqlite3 as sqlite3_mod
 
     backup_dir = Path(__file__).parent.parent / "backups"

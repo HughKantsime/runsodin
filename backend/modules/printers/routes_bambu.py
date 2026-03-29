@@ -137,8 +137,8 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
                             "material": filament.get("material", "PLA"),
                             "color_hex": filament.get("color_hex"),
                         })
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to fetch spoolman spools: {e}")
 
     result = sync_ams_filaments(
         ip_address=ip_address,

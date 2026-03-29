@@ -30,14 +30,16 @@ log = logging.getLogger("oidc")
 
 
 def _state_db_store(state: str, expires: datetime):
-    """Persist an OIDC state token to SQLite."""
+    """Persist an OIDC state token to the database."""
     try:
         from core.db import SessionLocal
+        from core.db_compat import sql
         from sqlalchemy import text
         db = SessionLocal()
         try:
             db.execute(text(
-                "INSERT OR REPLACE INTO oidc_pending_states (state, expires_at) VALUES (:s, :e)"
+                f"{sql.upsert_prefix()} oidc_pending_states (state, expires_at) VALUES (:s, :e)"
+                f"{sql.on_conflict_suffix('state', ['expires_at'])}"
             ), {"s": state, "e": expires.isoformat()})
             db.commit()
         finally:
@@ -87,8 +89,8 @@ def _state_db_cleanup():
             db.commit()
         finally:
             db.close()
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"Failed to clean expired OIDC states: {e}")
 
 
 class OIDCHandler:

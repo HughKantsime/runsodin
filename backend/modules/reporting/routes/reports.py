@@ -8,6 +8,7 @@ import json
 import logging
 
 from core.db import get_db
+from core.db_compat import sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 
 log = logging.getLogger("odin.api")
@@ -99,14 +100,18 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
         next_run = now + timedelta(days=30)
     next_run = next_run.replace(hour=8, minute=0, second=0)
 
-    db.execute(text("""INSERT INTO report_schedules (name, report_type, frequency, recipients, filters, next_run_at, created_by)
-                       VALUES (:name, :type, :freq, :recip, :filters, :next, :uid)"""),
-               {"name": name, "type": report_type, "freq": frequency,
-                "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
-                "next": next_run, "uid": current_user["id"]})
-    db.commit()
-
-    sched_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    insert_sql = """INSERT INTO report_schedules (name, report_type, frequency, recipients, filters, next_run_at, created_by)
+                       VALUES (:name, :type, :freq, :recip, :filters, :next, :uid)"""
+    params = {"name": name, "type": report_type, "freq": frequency,
+              "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
+              "next": next_run, "uid": current_user["id"]}
+    if sql.is_sqlite:
+        db.execute(text(insert_sql), params)
+        db.commit()
+        sched_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    else:
+        sched_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        db.commit()
     return {"id": sched_id, "status": "ok"}
 
 

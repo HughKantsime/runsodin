@@ -11,14 +11,15 @@ import os
 import sys
 sys.path.insert(0, os.environ.get('BACKEND_PATH', '/app/backend'))
 
-import sqlite3
 import time
 import signal
 import logging
 from typing import Dict
 
+from sqlalchemy import text
+
 import core.crypto as crypto
-from core.db_utils import get_db
+from core.db import engine
 from modules.printers.monitors.mqtt_printer import PrinterMonitor
 
 # Moonraker support (Klipper printers like Kobra S1 w/ Rinkhals)
@@ -52,16 +53,15 @@ class MQTTMonitorDaemon:
             log.error("ENCRYPTION_KEY not set")
             return []
 
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.cursor()
-            cur.execute('''
+        with engine.connect() as conn:
+            result = conn.execute(text('''
                 SELECT id, name, model, api_host, api_key
                 FROM printers
                 WHERE api_host IS NOT NULL AND api_key IS NOT NULL AND api_key != ''
-            ''')
+            '''))
 
             printers = []
-            for row in cur.fetchall():
+            for row in result.mappings():
                 try:
                     decrypted = crypto.decrypt(row['api_key'])
                     parts = decrypted.split('|')
@@ -80,19 +80,18 @@ class MQTTMonitorDaemon:
 
     def load_moonraker_printers(self):
         """Load Moonraker-based printers from database."""
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.cursor()
-            cur.execute("""
+        with engine.connect() as conn:
+            result = conn.execute(text("""
                 SELECT id, name, api_host
                 FROM printers
                 WHERE api_type = 'moonraker'
                   AND api_host IS NOT NULL
                   AND api_host != ''
                   AND is_active = 1
-            """)
+            """))
 
             printers = []
-            for row in cur.fetchall():
+            for row in result.mappings():
                 host_str = row['api_host']
                 # Parse host:port
                 if ':' in host_str:
@@ -257,8 +256,8 @@ class MQTTMonitorDaemon:
                 log.info(f"[{monitor.name}] Connection dead, reconnecting...")
                 try:
                     monitor.disconnect()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Error disconnecting stale monitor: {e}")
                 time.sleep(1)  # let old TLS socket fully tear down
 
                 new_mon = PrinterMonitor(
@@ -299,8 +298,8 @@ class MQTTMonitorDaemon:
                     log.info(f"[{monitor.name}] Moonraker stale, reconnecting...")
                     try:
                         monitor.disconnect()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Error disconnecting stale Moonraker monitor: {e}")
                     new_mon = MoonrakerMonitor(
                         printer_id=p['id'],
                         name=p['name'],

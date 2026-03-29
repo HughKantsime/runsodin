@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.responses import Response
@@ -30,13 +31,19 @@ async def get_ip_allowlist(current_user: dict = Depends(require_superadmin()), d
     return val
 
 
+class IPAllowlistRequest(PydanticBaseModel):
+    enabled: bool = False
+    cidrs: list[str] = []
+    mode: str = "api_and_ui"
+
+
 @router.put("/config/ip-allowlist", tags=["Config"])
-async def set_ip_allowlist(request: Request, body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Set the IP allowlist. Includes lock-out protection."""
     import ipaddress
-    enabled = body.get("enabled", False)
-    cidrs = body.get("cidrs", [])
-    mode = body.get("mode", "api_and_ui")
+    enabled = body.enabled
+    cidrs = list(body.cidrs)
+    mode = body.mode
 
     for cidr in cidrs:
         try:
@@ -82,13 +89,21 @@ async def get_retention_config(current_user: dict = Depends(require_superadmin()
     return {**RETENTION_DEFAULTS, **val}
 
 
+class RetentionConfigRequest(PydanticBaseModel):
+    completed_jobs_days: int | None = None
+    audit_logs_days: int | None = None
+    timelapses_days: int | None = None
+    alert_history_days: int | None = None
+
+
 @router.put("/config/retention", tags=["Config"])
-async def set_retention_config(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def set_retention_config(body: RetentionConfigRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Set data retention policy configuration."""
+    body_data = body.model_dump(exclude_unset=True)
     config = {}
     for key in RETENTION_DEFAULTS:
-        if key in body:
-            val = int(body[key])
+        if key in body_data:
+            val = int(body_data[key])
             if val < 0:
                 raise HTTPException(status_code=400, detail=f"{key} must be >= 0")
             config[key] = val
@@ -180,8 +195,8 @@ async def update_quiet_hours_config(request: Request, current_user: dict = Depen
     try:
         from modules.notifications.quiet_hours import invalidate_cache
         invalidate_cache()
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"Failed to invalidate quiet hours cache: {e}")
     return {"status": "ok"}
 
 
@@ -215,8 +230,8 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
                 raw = val
                 try:
                     raw = crypto.decrypt(val)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to decrypt MQTT password (using raw): {e}")
                 config[short_key] = "••••••••" if raw else ""
             else:
                 config[short_key] = val
@@ -293,8 +308,8 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
                 if ls.tzinfo is None:
                     ls = ls.replace(tzinfo=timezone.utc)
                 is_online = (now - ls).total_seconds() < 90
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Failed to parse printer last_seen: {e}")
 
         if is_online:
             online_count += 1

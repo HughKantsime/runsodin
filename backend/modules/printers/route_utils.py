@@ -105,8 +105,8 @@ def get_camera_url(printer):
         url = printer.camera_url
         try:
             url = crypto.decrypt(url)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decrypt camera URL (using raw): {e}")
         return url
     if printer.api_type == "bambu" and printer.api_key and printer.api_host:
         RTSP_MODELS = {'X1C', 'X1 Carbon', 'X1E', 'X1 Carbon Combo', 'H2D'}
@@ -117,8 +117,8 @@ def get_camera_url(printer):
             parts = crypto.decrypt(printer.api_key).split("|")
             if len(parts) == 2:
                 return f"rtsps://bblp:{urlquote(parts[1], safe='')}@{printer.api_host}:322/streaming/live/1"
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decrypt Bambu API key: {e}")
     return None
 
 
@@ -211,8 +211,8 @@ def _go2rtc_restart_with_lock(config: dict, *, force: bool = False):
             import subprocess
             subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
             log.info("go2rtc restarted (config changed)")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to restart go2rtc: {e}")
     finally:
         if lockfd:
             fcntl.flock(lockfd, fcntl.LOCK_UN)
@@ -267,8 +267,8 @@ def sync_go2rtc_config_raw():
                             parts = crypto.decrypt(api_key).split('|')
                             if len(parts) == 2:
                                 url = f"rtsps://bblp:{urlquote(parts[1], safe='')}@{api_host}:322/streaming/live/1"
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.debug(f"Failed to decrypt Bambu key for go2rtc: {e}")
                 if url:
                     if url.startswith("rtsps://") and ":7441" in url:
                         url = "rtspx://" + url[8:]

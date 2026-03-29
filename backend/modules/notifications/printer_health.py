@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 from core.db_utils import get_db
+from core.db_compat import sql
 
 log = logging.getLogger("printer_events")
 
@@ -37,7 +38,7 @@ def update_telemetry(
     Called by all monitors on each status update.
     Only updates fields that are provided (not None).
     """
-    updates = ["last_seen = datetime('now')"]
+    updates = [f"last_seen = {sql.now()}"]
     params = []
 
     field_map = {
@@ -78,7 +79,7 @@ def mark_online(printer_id: int):
         with get_db() as conn:
             cur = conn.cursor()
             cur.execute(
-                "UPDATE printers SET last_seen = datetime('now') WHERE id = ?",
+                f"UPDATE printers SET last_seen = {sql.now()} WHERE id = ?",
                 (printer_id,)
             )
             conn.commit()

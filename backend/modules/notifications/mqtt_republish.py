@@ -21,9 +21,11 @@ import json
 import time
 import logging
 import threading
-import sqlite3
 from typing import Optional, Dict, Any
-from core.db_utils import get_db
+
+from sqlalchemy import text
+
+from core.db import engine
 
 log = logging.getLogger("mqtt_republish")
 
@@ -44,9 +46,9 @@ def _get_config() -> Optional[Dict[str, Any]]:
         return _config_cache
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.execute("SELECT key, value FROM system_config WHERE key LIKE 'mqtt_republish_%'")
-            rows = {r["key"]: r["value"] for r in cur.fetchall()}
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'mqtt_republish_%'"))
+            rows = {r._mapping["key"]: r._mapping["value"] for r in result.fetchall()}
 
         if rows.get("mqtt_republish_enabled", "").lower() not in ("true", "1", "yes"):
             _config_cache = None
@@ -59,8 +61,8 @@ def _get_config() -> Optional[Dict[str, Any]]:
             try:
                 import core.crypto as crypto
                 raw_password = crypto.decrypt(raw_password)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Failed to decrypt mqtt password (using raw): {e}")
 
         _config_cache = {
             "host": rows.get("mqtt_republish_host", ""),
@@ -98,13 +100,13 @@ def _get_client():
             try:
                 if _client.is_connected():
                     return _client
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"MQTT client connection check failed: {e}")
             # Stale client — disconnect and recreate
             try:
                 _client.disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Failed to disconnect stale MQTT client: {e}")
             _client = None
 
         try:
@@ -217,8 +219,8 @@ def disconnect():
             try:
                 _client.loop_stop()
                 _client.disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Error during MQTT shutdown: {e}")
             _client = None
 
 
@@ -273,8 +275,8 @@ def invalidate_cache():
             try:
                 _client.loop_stop()
                 _client.disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Error during MQTT cache invalidation disconnect: {e}")
             _client = None
 
 

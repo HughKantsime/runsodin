@@ -4,10 +4,12 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.rbac import require_role
 from modules.printers.models import Printer, FilamentSlot
 
@@ -27,13 +29,14 @@ async def get_ams_environment(
     db: Session = Depends(get_db)
 ):
     """Get AMS humidity/temperature history for charts."""
-    query = """
+    _cutoff = sql.now_offset(f"-{hours} hours")
+    query = f"""
         SELECT ams_unit, humidity, temperature, recorded_at
         FROM ams_telemetry
         WHERE printer_id = :printer_id
-        AND recorded_at >= datetime('now', :hours_ago)
+        AND recorded_at >= {_cutoff}
     """
-    params = {"printer_id": printer_id, "hours_ago": f"-{hours} hours"}
+    params = {"printer_id": printer_id}
 
     if unit is not None:
         query += " AND ams_unit = :unit"
@@ -102,12 +105,19 @@ async def refresh_ams_rfid(
     raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
 
 
+class AMSSlotConfigRequest(PydanticBaseModel):
+    material: str = "PLA"
+    color: str = "#FFFFFF"
+    k_factor: float = 0.0
+    spool_id: Optional[int] = None
+
+
 @router.put("/printers/{printer_id}/ams/{ams_id}/slots/{slot_id}", tags=["AMS"])
 async def configure_ams_slot(
     printer_id: int,
     ams_id: int,
     slot_id: int,
-    body: dict,
+    body: AMSSlotConfigRequest,
     current_user: dict = Depends(require_role("operator")),
     db: Session = Depends(get_db),
 ):
@@ -124,10 +134,10 @@ async def configure_ams_slot(
     if ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3:
         raise HTTPException(status_code=422, detail="ams_id and slot_id must be 0-3")
 
-    material = body.get("material", "PLA")
-    color = body.get("color", "#FFFFFF")
-    k_factor = body.get("k_factor", 0.0)
-    spool_id = body.get("spool_id")
+    material = body.material
+    color = body.color
+    k_factor = body.k_factor
+    spool_id = body.spool_id
 
     _bambu_command_direct(printer, "set_ams_filament", ams_id, slot_id, material, color, k_factor)
 
@@ -139,7 +149,7 @@ async def configure_ams_slot(
         ).first()
         if slot:
             slot.filament_type = material
-            slot.color = body.get("color", slot.color)
+            slot.color = body.color
             slot.assigned_spool_id = spool_id
             db.commit()
 

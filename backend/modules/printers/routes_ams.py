@@ -217,8 +217,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                 resp = client.get(f"{settings.spoolman_url}/api/v1/spool")
                 if resp.status_code == 200:
                     spoolman_spools = resp.json()
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to fetch spoolman spools: {e}")
 
     def find_library_match(hex_code, filament_type):
         if not hex_code:
@@ -459,8 +459,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                         if distance > 60:
                             mismatch = True
                             mismatch_reason.append(f"Color: spool={spool_hex}, slot={slot_hex}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Failed to compute color distance: {e}")
                 if mismatch and not spool.rfid_tag:
                     db_slot.spool_confirmed = False
                     mismatches.append({

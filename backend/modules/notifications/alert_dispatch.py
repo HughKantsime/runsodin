@@ -7,11 +7,13 @@ Central alert creation for all notification channels.
 
 import json
 import logging
-import sqlite3
 import threading
 from typing import Optional
 
-from core.db_utils import get_db
+from sqlalchemy import text
+
+from core.db import engine
+from core.db_compat import sql
 from core.event_bus import get_event_bus
 from core.interfaces.event_bus import Event
 
@@ -43,17 +45,14 @@ def dispatch_alert(
     _email_users = []  # user_ids with email enabled
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.cursor()
-
+        with engine.begin() as conn:
             # Get all users with preferences for this alert type
-            cur.execute("""
+            pref_rows = conn.execute(text("""
                 SELECT DISTINCT ap.user_id, ap.in_app, ap.browser_push, ap.email
                 FROM alert_preferences ap
-                WHERE UPPER(ap.alert_type) = ?
+                WHERE UPPER(ap.alert_type) = :atype
                   AND (ap.in_app = 1 OR ap.browser_push = 1 OR ap.email = 1)
-            """, (alert_type.upper(),))
-            pref_rows = cur.fetchall()
+            """), {"atype": alert_type.upper()}).mappings().fetchall()
 
             in_app_users = [r['user_id'] for r in pref_rows if r['in_app']]
             _push_users = [r['user_id'] for r in pref_rows if r['browser_push']]
@@ -61,35 +60,34 @@ def dispatch_alert(
 
             # If no preferences exist, alert all users in-app (default on)
             if not pref_rows:
-                cur.execute("SELECT id FROM users")
-                in_app_users = [row['id'] for row in cur.fetchall()]
+                all_users = conn.execute(text("SELECT id FROM users")).mappings().fetchall()
+                in_app_users = [row['id'] for row in all_users]
 
             # Check for duplicate (same type, printer, title in last 5 minutes)
-            cur.execute("""
+            dup = conn.execute(text(f"""
                 SELECT id FROM alerts
-                WHERE alert_type = ?
-                  AND printer_id IS ?
-                  AND title = ?
-                  AND created_at > datetime('now', '-5 minutes')
+                WHERE alert_type = :atype
+                  AND printer_id IS :pid
+                  AND title = :title
+                  AND created_at > {sql.now_offset('-5 minutes')}
                 LIMIT 1
-            """, (alert_type.lower(), printer_id, title))
+            """), {"atype": alert_type.lower(), "pid": printer_id, "title": title}).fetchone()
 
-            if cur.fetchone():
+            if dup:
                 return  # Duplicate, skip
 
             # Create in-app alert for each user
             metadata_json = json.dumps(metadata) if metadata else None
 
             for user_id in in_app_users:
-                cur.execute("""
+                conn.execute(text(f"""
                     INSERT INTO alerts (user_id, alert_type, severity, title, message,
                                         printer_id, job_id, spool_id, metadata_json,
                                         is_read, is_dismissed, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, datetime('now'))
-                """, (user_id, alert_type.lower(), severity.lower(), title, message,
-                      printer_id, job_id, spool_id, metadata_json))
-
-            conn.commit()
+                    VALUES (:uid, :atype, :sev, :title, :msg, :pid, :jid, :sid, :meta, 0, 0, {sql.now()})
+                """), {"uid": user_id, "atype": alert_type.lower(), "sev": severity.lower(),
+                       "title": title, "msg": message, "pid": printer_id, "jid": job_id,
+                       "sid": spool_id, "meta": metadata_json})
 
         log.debug(f"Dispatched alert '{title}' to {len(in_app_users)} users")
 
@@ -168,21 +166,17 @@ def check_low_spool(
         return
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.cursor()
-
-            # Get printer and slot info
-            cur.execute("""
+        with engine.connect() as conn:
+            row = conn.execute(text("""
                 SELECT p.name, p.nickname, fs.id as slot_id, s.id as spool_id,
                        fl.brand, fl.material, s.color
                 FROM printers p
-                LEFT JOIN filament_slots fs ON fs.printer_id = p.id AND fs.slot_number = ?
+                LEFT JOIN filament_slots fs ON fs.printer_id = p.id AND fs.slot_number = :sn
                 LEFT JOIN spools s ON s.id = fs.assigned_spool_id
                 LEFT JOIN filament_library fl ON fl.id = s.filament_id
-                WHERE p.id = ?
-            """, (slot_number, printer_id))
+                WHERE p.id = :pid
+            """), {"sn": slot_number, "pid": printer_id}).mappings().fetchone()
 
-            row = cur.fetchone()
             if not row:
                 return
 
@@ -226,16 +220,16 @@ def _start_bed_cooled_monitor(printer_id: int, printer_name: str):
 
         # Read threshold from alert preferences if available
         try:
-            with get_db(row_factory=sqlite3.Row) as conn:
-                row = conn.execute("""
+            with engine.connect() as conn:
+                row = conn.execute(text("""
                     SELECT threshold_value FROM alert_preferences
                     WHERE UPPER(alert_type) = 'BED_COOLED' AND threshold_value IS NOT NULL
                     LIMIT 1
-                """).fetchone()
+                """)).mappings().fetchone()
                 if row and row['threshold_value']:
                     threshold = float(row['threshold_value'])
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to read bed_cooled threshold: {e}")
 
         for _ in range(max_checks):
             if stop_event.is_set():
@@ -245,10 +239,10 @@ def _start_bed_cooled_monitor(printer_id: int, printer_name: str):
                 return
 
             try:
-                with get_db(row_factory=sqlite3.Row) as conn:
+                with engine.connect() as conn:
                     row = conn.execute(
-                        "SELECT bed_temp FROM printers WHERE id = ?", (printer_id,)
-                    ).fetchone()
+                        text("SELECT bed_temp FROM printers WHERE id = :pid"), {"pid": printer_id}
+                    ).mappings().fetchone()
                     if row and row['bed_temp'] is not None:
                         bed_temp = float(row['bed_temp'])
                         if bed_temp < threshold:

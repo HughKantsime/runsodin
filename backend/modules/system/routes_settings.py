@@ -3,12 +3,15 @@
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 from modules.organizations.branding import get_or_create_branding, branding_to_dict, UPDATABLE_FIELDS
@@ -42,8 +45,8 @@ def _detect_image_type(content: bytes) -> str | None:
         text_head = head.decode("utf-8", errors="ignore").lstrip()
         if text_head.startswith("<svg") or text_head.startswith("<?xml"):
             return "svg"
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"Failed to detect SVG format: {e}")
     return None
 
 
@@ -55,11 +58,36 @@ async def get_branding(db: Session = Depends(get_db)):
     return branding_to_dict(get_or_create_branding(db))
 
 
+class BrandingUpdateRequest(PydanticBaseModel):
+    app_name: Optional[str] = None
+    app_subtitle: Optional[str] = None
+    primary_color: Optional[str] = None
+    accent_color: Optional[str] = None
+    sidebar_bg: Optional[str] = None
+    sidebar_border: Optional[str] = None
+    sidebar_text: Optional[str] = None
+    sidebar_active_bg: Optional[str] = None
+    sidebar_active_text: Optional[str] = None
+    content_bg: Optional[str] = None
+    card_bg: Optional[str] = None
+    card_border: Optional[str] = None
+    text_primary: Optional[str] = None
+    text_secondary: Optional[str] = None
+    text_muted: Optional[str] = None
+    input_bg: Optional[str] = None
+    input_border: Optional[str] = None
+    font_display: Optional[str] = None
+    font_body: Optional[str] = None
+    font_mono: Optional[str] = None
+    footer_text: Optional[str] = None
+    support_url: Optional[str] = None
+
+
 @router.put("/branding", tags=["Branding"])
-async def update_branding(data: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def update_branding(data: BrandingUpdateRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Update branding config. Admin only."""
     branding = get_or_create_branding(db)
-    for key, value in data.items():
+    for key, value in data.model_dump(exclude_unset=True).items():
         if key in UPDATABLE_FIELDS:
             setattr(branding, key, value)
     branding.updated_at = datetime.now(timezone.utc)
@@ -166,6 +194,6 @@ async def set_language(request: Request, current_user: dict = Depends(require_su
     supported = ["en", "de", "ja", "es"]
     if lang not in supported:
         raise HTTPException(400, f"Unsupported language. Choose from: {', '.join(supported)}")
-    db.execute(text("INSERT OR REPLACE INTO system_config (key, value) VALUES ('language', :lang)"), {"lang": lang})
+    db.execute(text(f"{sql.upsert_prefix()} system_config (key, value) VALUES ('language', :lang){sql.on_conflict_suffix('key', ['value'])}"), {"lang": lang})
     db.commit()
     return {"language": lang}

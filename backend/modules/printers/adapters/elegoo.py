@@ -253,8 +253,8 @@ class ElegooPrinter:
         if self._ws:
             try:
                 self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Error closing SDCP websocket: {e}")
 
     def _on_open(self, ws):
         log.info(f"SDCP connected to {self.host}")
@@ -407,7 +407,8 @@ class ElegooPrinter:
                 resp = _req.head(url, timeout=3)
                 if resp.status_code == 200:
                     return url
-            except Exception:
+            except Exception as e:
+                log.debug(f"Camera probe failed for {url}: {e}")
                 continue
         return None
 

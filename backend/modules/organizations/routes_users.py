@@ -8,10 +8,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 from core.auth_helpers import _validate_password
@@ -59,8 +61,8 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
         try:
             import core.crypto as crypto
             password = crypto.decrypt(password)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decrypt SMTP password (using raw): {e}")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -192,8 +194,19 @@ async def reset_password_email(user_id: int, current_user: dict = Depends(requir
     return {"status": "password_reset_email_sent"}
 
 
+class UserUpdateRequest(PydanticBaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+    group_id: Optional[int] = None
+
+
 @router.patch("/users/{user_id}", tags=["Users"])
-async def update_user(user_id: int, updates: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    updates = body.model_dump(exclude_unset=True)
+
     # Org-scoped admin: verify target user is in their group
     if not _is_superadmin(current_user):
         target = db.execute(text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
@@ -232,7 +245,7 @@ async def update_user(user_id: int, updates: dict, current_user: dict = Depends(
         sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
         expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
         for session in sessions:
-            db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                        {"jti": session.token_jti, "exp": expiry})
         db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
         db.commit()

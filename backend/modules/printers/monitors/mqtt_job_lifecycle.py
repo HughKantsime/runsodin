@@ -14,6 +14,7 @@ from threading import Thread
 from typing import Optional, Tuple, Dict, Any
 
 from core.db_utils import get_db
+from core.db_compat import sql
 
 log = logging.getLogger('mqtt_monitor')
 
@@ -62,10 +63,10 @@ def record_job_started(
                 cur.execute("BEGIN IMMEDIATE")
 
                 # ---- Stale schedule cleanup ----
-                cur.execute("""
+                cur.execute(f"""
                     SELECT id, item_name FROM jobs
                     WHERE printer_id = ? AND status = 'scheduled'
-                      AND scheduled_start < datetime('now', 'localtime', '-2 hours')
+                      AND scheduled_start < {sql.now_offset('-2 hours', local=True)}
                 """, (printer_id,))
                 stale_rows = cur.fetchall()
                 if stale_rows:
@@ -211,8 +212,8 @@ def record_job_started(
                                     'initial_weight_g': initial_wt,
                                     'slot': slot,
                                 }
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to read AMS spool weights: {e}")
 
                 # Update linked job status to 'printing'
                 if linked_job_id:
@@ -226,8 +227,8 @@ def record_job_started(
             except Exception:
                 try:
                     conn.execute("ROLLBACK")
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to rollback transaction: {e}")
                 raise
 
         log.info(f"[{printer_name}] Job started: {job_name} (DB id: {new_job_id})")
@@ -300,8 +301,8 @@ def record_job_ended(
                     ended = datetime.fromisoformat(now_utc)
                     duration_seconds = (ended - started).total_seconds()
                     duration_hours = round(duration_seconds / 3600, 4)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to parse job duration: {e}")
 
             # Calculate filament used by comparing AMS remain percentages
             filament_used_g = None

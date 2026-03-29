@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict, List
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
@@ -96,8 +97,9 @@ def get_permissions(db: Session = Depends(get_db)):
 
 
 class RBACUpdateRequest(PydanticBaseModel):
-    page_access: dict
-    action_access: dict
+    model_config = {"strict": True}
+    page_access: Dict[str, List[str]]
+    action_access: Dict[str, List[str]]
 
 
 @router.put("/permissions", tags=["RBAC"])

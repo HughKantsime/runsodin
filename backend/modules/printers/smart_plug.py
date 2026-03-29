@@ -8,7 +8,6 @@ Each printer can optionally have a smart plug configured for:
 - Manual on/off control
 """
 
-import sqlite3
 import json
 import logging
 import threading
@@ -16,7 +15,9 @@ import time
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 
-from core.db_utils import get_db
+from sqlalchemy import text
+
+from core.db import engine
 import core.crypto as crypto
 
 log = logging.getLogger("smart_plug")
@@ -63,8 +64,8 @@ def tasmota_power(host: str, action: str = "TOGGLE") -> Optional[bool]:
             data = json.loads(body)
             power = data.get("POWER", data.get("Power", ""))
             return power == "ON"
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse Tasmota power response: {e}")
     return None
 
 
@@ -85,8 +86,8 @@ def tasmota_energy(host: str) -> Optional[Dict]:
                 "voltage": energy.get("Voltage", 0),
                 "current": energy.get("Current", 0),
             }
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse Tasmota energy response: {e}")
     return None
 
 
@@ -122,8 +123,8 @@ def ha_get_state(ha_url: str, entity_id: str, token: str) -> Optional[bool]:
         try:
             data = json.loads(body)
             return data.get("state") == "on"
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse HA state response: {e}")
     return None
 
 
@@ -150,15 +151,13 @@ def mqtt_power(topic: str, action: str = "TOGGLE") -> Optional[bool]:
 
 def get_plug_config(printer_id: int) -> Optional[Dict]:
     """Get smart plug config for a printer."""
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """SELECT plug_type, plug_host, plug_entity_id, plug_auth_token,
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""SELECT plug_type, plug_host, plug_entity_id, plug_auth_token,
                       plug_auto_on, plug_auto_off, plug_cooldown_minutes, plug_power_state
-               FROM printers WHERE id = ?""",
-            (printer_id,)
-        )
-        row = cur.fetchone()
+               FROM printers WHERE id = :pid"""),
+            {"pid": printer_id}
+        ).fetchone()
 
     if not row or not row[0]:
         return None
@@ -291,10 +290,9 @@ def get_power_state(printer_id: int) -> Optional[bool]:
 def _update_power_state(printer_id: int, state: bool):
     """Update cached power state in database."""
     try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("UPDATE printers SET plug_power_state = ? WHERE id = ?", (state, printer_id))
-            conn.commit()
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE printers SET plug_power_state = :state WHERE id = :pid"),
+                         {"state": state, "pid": printer_id})
     except Exception as e:
         log.error(f"Failed to update power state: {e}")
 
@@ -361,28 +359,24 @@ def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
         return
     
     try:
-        with get_db() as conn:
-            cur = conn.cursor()
-
+        with engine.begin() as conn:
             # Get energy cost rate
-            cur.execute("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")
-            row = cur.fetchone()
+            row = conn.execute(text("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")).fetchone()
             rate = float(row[0]) if row else 0.12
 
             cost = round(consumed * rate, 4)
 
-            cur.execute(
-                "UPDATE jobs SET energy_kwh = ?, energy_cost = ? WHERE id = ?",
-                (round(consumed, 4), cost, job_id)
+            conn.execute(
+                text("UPDATE jobs SET energy_kwh = :kwh, energy_cost = :cost WHERE id = :jid"),
+                {"kwh": round(consumed, 4), "cost": cost, "jid": job_id}
             )
 
             # Update printer cumulative
-            cur.execute(
-                "UPDATE printers SET plug_energy_kwh = plug_energy_kwh + ? WHERE id = ?",
-                (round(consumed, 4), printer_id)
+            conn.execute(
+                text("UPDATE printers SET plug_energy_kwh = plug_energy_kwh + :kwh WHERE id = :pid"),
+                {"kwh": round(consumed, 4), "pid": printer_id}
             )
 
-            conn.commit()
             log.info(f"Energy recorded for job {job_id}: {consumed:.4f} kWh (${cost:.4f})")
     except Exception as e:
         log.error(f"Failed to record energy: {e}")

@@ -56,8 +56,8 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     dt_start = datetime.strptime(sa, fmt)
                     dt_end = datetime.strptime(ea, fmt)
                     duration_seconds = int((dt_end - dt_start).total_seconds())
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to parse archive duration: {e}")
 
             # Try to find filament used from the scheduled job's print_file
             filament_used = None

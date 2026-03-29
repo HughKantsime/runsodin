@@ -252,8 +252,8 @@ async def get_global_vision_settings(
     if row:
         try:
             return {**defaults, **(json.loads(row.value) if isinstance(row.value, str) else row.value)}
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse vision settings: {e}")
     return defaults
 
 

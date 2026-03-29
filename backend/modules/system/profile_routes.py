@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, get_org_scope, check_org_access
 
@@ -119,13 +120,14 @@ async def create_profile(
         raise HTTPException(status_code=400, detail=f"slicer must be one of {VALID_SLICERS}")
 
     file_format = "ini" if slicer == "prusa" else "json"
-    db.execute(text("""
+    insert_sql = """
         INSERT INTO printer_profiles
             (created_by, printer_id, org_id, name, description, slicer, category,
              file_format, filament_type, raw_content, is_shared, is_default, tags)
         VALUES (:created_by, :printer_id, :org_id, :name, :description, :slicer, :category,
                 :file_format, :filament_type, :raw_content, :is_shared, :is_default, :tags)
-    """), {
+    """
+    params = {
         "created_by": current_user.get("id"),
         "printer_id": body.get("printer_id"),
         "org_id": current_user.get("group_id"),
@@ -139,9 +141,14 @@ async def create_profile(
         "is_shared": body.get("is_shared", 1),
         "is_default": body.get("is_default", 0),
         "tags": body.get("tags"),
-    })
-    db.commit()
-    pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    }
+    if sql.is_sqlite:
+        db.execute(text(insert_sql), params)
+        db.commit()
+        pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
+    else:
+        pid = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        db.commit()
     log_audit(db, "create", "profile", pid, {"name": name, "slicer": slicer})
     return {"id": pid, "name": name}
 
@@ -236,11 +243,12 @@ async def import_profile(
 
     ids = []
     for p in profiles_created:
-        db.execute(text("""
+        import_insert_sql = """
             INSERT INTO printer_profiles
                 (created_by, name, slicer, category, file_format, filament_type, raw_content, is_shared)
             VALUES (:created_by, :name, :slicer, :category, :file_format, :filament_type, :raw_content, 1)
-        """), {
+        """
+        import_params = {
             "created_by": current_user.get("id"),
             "name": p["name"],
             "slicer": p["slicer"],
@@ -248,9 +256,14 @@ async def import_profile(
             "file_format": p["file_format"],
             "filament_type": p.get("filament_type"),
             "raw_content": p["raw_content"],
-        })
-        db.commit()
-        pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
+        }
+        if sql.is_sqlite:
+            db.execute(text(import_insert_sql), import_params)
+            db.commit()
+            pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
+        else:
+            pid = db.execute(text(import_insert_sql + " RETURNING id"), import_params).scalar()
+            db.commit()
         ids.append(pid)
         log_audit(db, "create", "profile", pid, {"name": p["name"], "slicer": p["slicer"], "source": "import"})
 
@@ -299,7 +312,7 @@ async def update_profile(
         raise HTTPException(status_code=400, detail="No valid fields")
     sets = ", ".join(f"{k} = :{k}" for k in updates)
     updates["id"] = profile_id
-    db.execute(text(f"UPDATE printer_profiles SET {sets}, updated_at = datetime('now') WHERE id = :id"), updates)
+    db.execute(text(f"UPDATE printer_profiles SET {sets}, updated_at = {sql.now()} WHERE id = :id"), updates)
     db.commit()
     log_audit(db, "update", "profile", profile_id, updates)
     return {"updated": True}
@@ -439,9 +452,9 @@ async def apply_profile(
             failures.append(gcode)
 
     # Update last_applied
-    db.execute(text("""
+    db.execute(text(f"""
         UPDATE printer_profiles
-        SET last_applied_at = datetime('now'), last_applied_printer_id = :pid
+        SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
         WHERE id = :id
     """), {"pid": target_printer_id, "id": profile_id})
     db.commit()

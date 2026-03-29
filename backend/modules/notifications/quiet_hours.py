@@ -9,13 +9,15 @@ Alerts still get created in the database — just not dispatched externally.
 At quiet_hours_end, a digest email summarizes all alerts from the quiet period.
 """
 
-import sqlite3
 import time
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
-from core.db_utils import get_db
+
+from sqlalchemy import text
+
+from core.db import engine
 
 log = logging.getLogger("quiet_hours")
 
@@ -33,9 +35,9 @@ def _get_config() -> Dict[str, Any]:
         return _config_cache
 
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.execute("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'")
-            rows = {r["key"]: r["value"] for r in cur.fetchall()}
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT key, value FROM system_config WHERE key LIKE 'quiet_hours_%'"))
+            rows = {r._mapping["key"]: r._mapping["value"] for r in result.fetchall()}
 
         _config_cache = {
             "enabled": rows.get("quiet_hours_enabled", "false").lower() in ("true", "1"),
@@ -104,8 +106,8 @@ def should_suppress_notification(org_id: int = None) -> bool:
     Checks org-level quiet hours first (if org_id given), then system-level."""
     if org_id:
         try:
-            with get_db(row_factory=sqlite3.Row) as conn:
-                row = conn.execute("SELECT settings_json FROM groups WHERE id = ?", (org_id,)).fetchone()
+            with engine.connect() as conn:
+                row = conn.execute(text("SELECT settings_json FROM groups WHERE id = :oid"), {"oid": org_id}).mappings().fetchone()
                 if row and row["settings_json"]:
                     settings = json.loads(row["settings_json"])
                     org_qh = {
@@ -142,14 +144,14 @@ def get_queued_alerts_for_digest() -> list:
         if quiet_start >= quiet_end:
             quiet_start -= timedelta(days=1)
 
-        with get_db(row_factory=sqlite3.Row) as conn:
-            cur = conn.execute("""
+        with engine.connect() as conn:
+            result = conn.execute(text("""
                 SELECT alert_type, severity, title, message, created_at
                 FROM alerts
-                WHERE created_at BETWEEN ? AND ?
+                WHERE created_at BETWEEN :start AND :end
                 ORDER BY created_at DESC
-            """, (quiet_start.isoformat(), quiet_end.isoformat()))
-            alerts = [dict(r) for r in cur.fetchall()]
+            """), {"start": quiet_start.isoformat(), "end": quiet_end.isoformat()})
+            alerts = [dict(r._mapping) for r in result.fetchall()]
 
         return alerts
 

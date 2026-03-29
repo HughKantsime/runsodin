@@ -85,8 +85,8 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=3)
                 spoolman_connected = resp.status_code == 200
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Spoolman health check failed: {e}")
 
     # --- Printer utilization stats for Utilization page ---
     printer_stats = []

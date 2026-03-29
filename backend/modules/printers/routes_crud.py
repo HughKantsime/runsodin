@@ -7,6 +7,7 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -131,13 +132,17 @@ def create_printer(
     return db_printer
 
 
+class ReorderPrintersRequest(PydanticBaseModel):
+    printer_ids: List[int] = []
+
+
 @router.post("/printers/reorder", tags=["Printers"])
 def reorder_printers(
-    data: dict,
+    data: ReorderPrintersRequest,
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Update printer display order."""
-    printer_ids = data.get("printer_ids", [])
+    printer_ids = data.printer_ids
     for idx, printer_id in enumerate(printer_ids):
         db.execute(
             text("UPDATE printers SET display_order = :order WHERE id = :id"),
@@ -235,8 +240,8 @@ def update_printer(
         try:
             from modules.printers.route_utils import sync_go2rtc_config
             sync_go2rtc_config(db)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to sync go2rtc config: {e}")
 
     return printer
 
@@ -437,8 +442,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                         )
                         if kinematics.lower() == "corexy":
                             detected_model = "Voron"
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug(f"Failed to detect Moonraker kinematics: {e}")
                 if detected_model is None:
                     try:
                         hostname = (info.get("hostname") or "").lower()
@@ -450,8 +455,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
                             detected_model = "Voron Switchwire"
                         elif "v0" in hostname:
                             detected_model = "Voron V0"
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Failed to detect model from hostname: {e}")
                 return {"success": True, "state": info.get("state", "unknown"), "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
             return {"success": False, "error": f"Moonraker returned HTTP {r.status_code}"}
         except Exception as e:
@@ -491,8 +496,8 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         try:
             httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
             reachable = True
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to reach Elegoo printer: {e}")
         if not reachable:
             return {"success": False, "error": "Cannot reach Elegoo printer on port 3030"}
         detected_model = None

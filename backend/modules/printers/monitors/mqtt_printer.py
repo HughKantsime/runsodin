@@ -22,6 +22,7 @@ from typing import Dict, Optional, Any
 import core.crypto as crypto
 from modules.printers.adapters.bambu import BambuPrinter
 from core.db_utils import get_db
+from core.db_compat import sql
 from modules.printers.monitors.mqtt_telemetry import (
     resolve_stage_label,
     parse_lights,
@@ -110,14 +111,14 @@ class PrinterMonitor:
                     # Close any older orphaned jobs
                     for row in rows[:-1]:
                         cur.execute(
-                            "UPDATE print_jobs SET status = 'cancelled', ended_at = datetime('now') WHERE id = ?",
+                            f"UPDATE print_jobs SET status = 'cancelled', ended_at = {sql.now()} WHERE id = ?",
                             (row[0],))
                         log.info(f"[{self.name}] Closed stale duplicate job {row[0]} ({row[1]})")
                 else:
                     # Printer is idle — close all orphaned jobs
                     for row in rows:
                         cur.execute(
-                            "UPDATE print_jobs SET status = 'completed', ended_at = datetime('now') WHERE id = ?",
+                            f"UPDATE print_jobs SET status = 'completed', ended_at = {sql.now()} WHERE id = ?",
                             (row[0],))
                         log.info(f"[{self.name}] Closed orphaned job {row[0]} ({row[1]}) — printer is {gcode_state or 'idle'}")
                 conn.commit()
@@ -182,10 +183,10 @@ class PrinterMonitor:
                     }
                     for (uid,) in users:
                         for at, (ia, bp, em) in defaults.items():
-                            cur.execute("""
-                                INSERT OR IGNORE INTO alert_preferences
+                            cur.execute(f"""
+                                {sql.insert_or_ignore_prefix()} alert_preferences
                                 (user_id, alert_type, in_app, browser_push, email, threshold_value)
-                                VALUES (?, ?, ?, ?, ?, ?)
+                                VALUES (?, ?, ?, ?, ?, ?){sql.on_conflict_ignore('user_id, alert_type')}
                             """, (uid, at, ia, bp, em, 100.0 if at == 'spool_low' else None))
                     conn.commit()
                     # Re-query
@@ -256,8 +257,8 @@ class PrinterMonitor:
                             try:
                                 if (_dt.utcnow() - _dt.fromisoformat(cooldown_row[0])).total_seconds() < 20:
                                     lights_on = None
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                log.debug(f"Failed to parse lights toggle cooldown: {e}")
                         noz_type = self._state.get('nozzle_type')
                         noz_dia = self._state.get('nozzle_diameter')
                         if isinstance(noz_dia, str):
@@ -267,7 +268,7 @@ class PrinterMonitor:
                                 noz_dia = None
                         fan_speed_val = self._state.get('cooling_fan_speed')
                         conn.execute(
-                            "UPDATE printers SET last_seen=datetime('now'),"
+                            f"UPDATE printers SET last_seen={sql.now()},"
                             " bed_temp=?,bed_target_temp=?,nozzle_temp=?,nozzle_target_temp=?,"
                             " gcode_state=?,print_stage=?,hms_errors=?,lights_on=COALESCE(?,lights_on),"
                             " nozzle_type=?,nozzle_diameter=?,fan_speed=COALESCE(?,fan_speed) WHERE id=?",
@@ -314,8 +315,8 @@ class PrinterMonitor:
                                     "current_layer": self._state.get('layer_num'),
                                     "total_layers": self._state.get('total_layer_num'),
                                 })
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                log.debug(f"Failed to push printer state event: {e}")
                         self._last_heartbeat = time.time()
 
                         # ---- Timeseries Telemetry Capture ----
@@ -326,7 +327,7 @@ class PrinterMonitor:
                                     "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
                                     (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
                                 )
-                                conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
+                                conn.execute(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}")
                                 conn.commit()
                             except Exception as e:
                                 log.debug(f"[{self.name}] Telemetry insert: {e}")
@@ -342,7 +343,7 @@ class PrinterMonitor:
                                         (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'])
                                     )
                                 conn.execute(
-                                    "DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-90 days')"
+                                    f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"
                                 )
                                 conn.commit()
                             except Exception as e:
@@ -376,12 +377,12 @@ class PrinterMonitor:
                                                 slot_id, old_type, old_hex, old_spool = existing
                                                 if is_empty:
                                                     conn.execute(
-                                                        "UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at=datetime('now') WHERE id=?",
+                                                        f"UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at={sql.now()} WHERE id=?",
                                                         ('empty', slot_id))
                                                 else:
-                                                    updates = {"filament_type": ftype, "color_hex": color_hex, "loaded_at": "datetime('now')"}
+                                                    updates = {"filament_type": ftype, "color_hex": color_hex, "loaded_at": sql.now()}
                                                     conn.execute(
-                                                        "UPDATE filament_slots SET filament_type=?, color_hex=?, loaded_at=datetime('now') WHERE id=?",
+                                                        f"UPDATE filament_slots SET filament_type=?, color_hex=?, loaded_at={sql.now()} WHERE id=?",
                                                         (ftype, color_hex, slot_id))
                                                     # RFID spool matching
                                                     if rfid_tag and not old_spool:
@@ -402,7 +403,7 @@ class PrinterMonitor:
                                                                     (self.printer_id, slot_num, spool_row[0]))
                                             else:
                                                 conn.execute(
-                                                    "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, datetime('now'))",
+                                                    f"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, {sql.now()})",
                                                     (self.printer_id, slot_num, ftype if not is_empty else 'empty', color_hex if not is_empty else None))
 
                                             slot_num += 1
@@ -459,7 +460,7 @@ class PrinterMonitor:
                                             "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",
                                             (self.printer_id, err.get('code', ''), err.get('message', ''), err.get('severity', 'warning'), 'bambu_hms')
                                         )
-                                    hconn.execute("DELETE FROM hms_error_history WHERE occurred_at < datetime('now', '-90 days')")
+                                    hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {sql.now_offset('-90 days')}")
                                     hconn.commit()
                             except Exception as e:
                                 log.debug(f"[{self.name}] HMS history insert: {e}")
@@ -614,8 +615,8 @@ class PrinterMonitor:
                         for spool_id, weight in spool_rows:
                             if weight is not None:
                                 self._start_spool_weights[spool_id] = weight
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Failed to load spool weights for job resume: {e}")
                     log.info(f"[{self.name}] Resumed tracking existing job {row[0]} ({row[1]})")
                     return
         except Exception as e:

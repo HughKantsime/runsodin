@@ -8,6 +8,9 @@ import qrcode
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict
 
+import logging
+log = logging.getLogger("odin.api")
+
 
 # ====================================================================
 # Inline Pydantic models
@@ -147,8 +150,8 @@ def generate_single_label(spool, width, height):
         try:
             rgb = tuple(int(hex_clean[i:i+2], 16) for i in (0, 2, 4))
             draw.rectangle([text_x, y, text_x + 40, y + 40], fill=rgb, outline="black")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse color hex '{hex_clean}': {e}")
         title_x = text_x + 50
     else:
         title_x = text_x

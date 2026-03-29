@@ -16,6 +16,7 @@ from email.mime.multipart import MIMEMultipart
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from core.db_compat import sql
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,8 +54,8 @@ def get_smtp_config(session):
             import core.crypto as crypto
             config = dict(config)
             config["password"] = crypto.decrypt(config["password"])
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decrypt SMTP password (using raw): {e}")
     return config
 
 
@@ -139,10 +140,10 @@ def generate_fleet_utilization(session, filters):
 
 def generate_job_summary(session, filters):
     """Jobs by status in period."""
-    rows = session.execute(text("""
+    rows = session.execute(text(f"""
         SELECT status, COUNT(*) as cnt
         FROM jobs
-        WHERE created_at >= datetime('now', '-7 days')
+        WHERE created_at >= {sql.now_offset('-7 days')}
         GROUP BY status ORDER BY cnt DESC
     """)).fetchall()
 
@@ -171,12 +172,12 @@ def generate_job_summary(session, filters):
 
 def generate_filament_consumption(session, filters):
     """Usage by material type."""
-    rows = session.execute(text("""
+    rows = session.execute(text(f"""
         SELECT fl.material, COALESCE(SUM(su.weight_used_g), 0) as total_g
         FROM spool_usage su
         JOIN spools s ON su.spool_id = s.id
         JOIN filament_library fl ON s.filament_id = fl.id
-        WHERE su.used_at >= datetime('now', '-30 days')
+        WHERE su.used_at >= {sql.now_offset('-30 days')}
         GROUP BY fl.material ORDER BY total_g DESC
     """)).fetchall()
 
@@ -203,19 +204,19 @@ def generate_filament_consumption(session, filters):
 
 def generate_failure_analysis(session, filters):
     """Detection counts, failure reasons."""
-    rows = session.execute(text("""
+    rows = session.execute(text(f"""
         SELECT detection_type, COUNT(*) as cnt, AVG(confidence) as avg_conf
         FROM vision_detections
-        WHERE created_at >= datetime('now', '-30 days')
+        WHERE created_at >= {sql.now_offset('-30 days')}
         GROUP BY detection_type ORDER BY cnt DESC
     """)).fetchall()
 
     # Also get job failure reasons
-    fail_rows = session.execute(text("""
+    fail_rows = session.execute(text(f"""
         SELECT fail_reason, COUNT(*) as cnt
         FROM jobs
         WHERE status = 'failed' AND fail_reason IS NOT NULL
-          AND created_at >= datetime('now', '-30 days')
+          AND created_at >= {sql.now_offset('-30 days')}
         GROUP BY fail_reason ORDER BY cnt DESC
     """)).fetchall()
 
@@ -261,14 +262,14 @@ def generate_failure_analysis(session, filters):
 
 def generate_chargeback_summary(session, filters):
     """Reuse query pattern from /api/reports/chargebacks."""
-    rows = session.execute(text("""
+    rows = session.execute(text(f"""
         SELECT u.username, COUNT(j.id) as job_count,
                COALESCE(SUM(j.estimated_cost), 0) as total_cost,
                COALESCE(SUM(j.duration_hours), 0) as total_hours
         FROM jobs j
         LEFT JOIN users u ON j.charged_to_user_id = u.id
         WHERE j.charged_to_user_id IS NOT NULL
-          AND j.created_at >= datetime('now', '-30 days')
+          AND j.created_at >= {sql.now_offset('-30 days')}
         GROUP BY j.charged_to_user_id
         ORDER BY total_cost DESC
     """)).fetchall()
@@ -413,8 +414,8 @@ def process_quiet_hours_digest(session):
             last_date = str(val)[:10]
             if last_date == now.strftime("%Y-%m-%d"):
                 return  # Already sent today
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse last digest date: {e}")
 
     alerts = get_queued_alerts_for_digest()
     if not alerts:

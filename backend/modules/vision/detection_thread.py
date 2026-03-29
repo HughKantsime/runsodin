@@ -8,7 +8,6 @@ Frame storage delegated to frame_storage module.
 
 import json
 import logging
-import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -16,8 +15,10 @@ from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
+from sqlalchemy import text
 
-from core.db_utils import get_db
+from core.db import engine
+from core.db_compat import sql
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision import frame_storage
 
@@ -289,24 +290,25 @@ class PrinterVisionThread(threading.Thread):
     ) -> Optional[int]:
         """Insert detection record into vision_detections table."""
         try:
-            with get_db() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    """INSERT INTO vision_detections
-                        (printer_id, print_job_id, detection_type, confidence,
-                         status, frame_path, bbox_json, created_at)
-                    VALUES (?, ?, ?, ?, 'pending', ?, ?, datetime('now'))""",
-                    (
-                        self.printer_id,
-                        self.print_job_id,
-                        detection_type,
-                        confidence,
-                        frame_path,
-                        json.dumps(bbox),
-                    )
-                )
-                detection_id = cur.lastrowid
-                conn.commit()
+            with engine.begin() as conn:
+                insert_sql = (
+                    f"INSERT INTO vision_detections"
+                    f" (printer_id, print_job_id, detection_type, confidence,"
+                    f"  status, frame_path, bbox_json, created_at)"
+                    f" VALUES (:pid, :jid, :dtype, :conf, 'pending', :fpath, :bbox, {sql.now()})")
+                params = {
+                    "pid": self.printer_id,
+                    "jid": self.print_job_id,
+                    "dtype": detection_type,
+                    "conf": confidence,
+                    "fpath": frame_path,
+                    "bbox": json.dumps(bbox),
+                }
+                if sql.is_sqlite:
+                    conn.execute(text(insert_sql), params)
+                    detection_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
+                else:
+                    detection_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()
                 return detection_id
         except Exception as e:
             log.error(f"Failed to insert detection: {e}")
@@ -315,13 +317,11 @@ class PrinterVisionThread(threading.Thread):
     def _auto_pause(self):
         """Pause the printer using the appropriate adapter."""
         try:
-            with get_db(row_factory=sqlite3.Row) as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT api_type, api_host, api_key FROM printers WHERE id = ?",
-                    (self.printer_id,)
-                )
-                row = cur.fetchone()
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT api_type, api_host, api_key FROM printers WHERE id = :pid"),
+                    {"pid": self.printer_id}
+                ).mappings().fetchone()
             if not row:
                 return
 
@@ -349,14 +349,12 @@ class PrinterVisionThread(threading.Thread):
                 from modules.printers.adapters.prusalink import PrusaLinkPrinter
                 adapter = PrusaLinkPrinter(api_host, api_key=api_key or '')
                 # PrusaLink pause requires job_id; try current running job
-                with get_db() as conn2:
-                    cur2 = conn2.cursor()
-                    cur2.execute(
-                        "SELECT job_id FROM print_jobs WHERE printer_id = ? AND status = 'running' "
-                        "ORDER BY id DESC LIMIT 1",
-                        (self.printer_id,)
-                    )
-                    jrow = cur2.fetchone()
+                with engine.connect() as conn2:
+                    jrow = conn2.execute(
+                        text("SELECT job_id FROM print_jobs WHERE printer_id = :pid AND status = 'running' "
+                        "ORDER BY id DESC LIMIT 1"),
+                        {"pid": self.printer_id}
+                    ).fetchone()
                 if jrow and jrow[0]:
                     success = adapter.pause_print(int(jrow[0]))
 
@@ -368,19 +366,18 @@ class PrinterVisionThread(threading.Thread):
             if success:
                 log.info(f"[{self.printer_name}] Auto-paused printer")
                 # Update gcode_state in DB
-                with get_db() as conn3:
+                with engine.begin() as conn3:
                     conn3.execute(
-                        "UPDATE printers SET gcode_state = 'PAUSED' WHERE id = ?",
-                        (self.printer_id,)
+                        text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :pid"),
+                        {"pid": self.printer_id}
                     )
                     # Update detection status
                     conn3.execute(
-                        """UPDATE vision_detections SET status = 'auto_paused'
-                        WHERE printer_id = ? AND status = 'pending'
-                        ORDER BY id DESC LIMIT 1""",
-                        (self.printer_id,)
+                        text("""UPDATE vision_detections SET status = 'auto_paused'
+                        WHERE printer_id = :pid AND status = 'pending'
+                        ORDER BY id DESC LIMIT 1"""),
+                        {"pid": self.printer_id}
                     )
-                    conn3.commit()
             else:
                 log.error(f"[{self.printer_name}] Auto-pause failed")
 

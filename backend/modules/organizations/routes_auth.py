@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role
 from core.auth_helpers import (
@@ -35,8 +36,8 @@ def _record_session(db, user_id, access_token, ip, user_agent):
         payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
         jti = payload.get("jti")
         if jti:
-            db.execute(text("""INSERT OR IGNORE INTO active_sessions (user_id, token_jti, ip_address, user_agent)
-                               VALUES (:uid, :jti, :ip, :ua)"""),
+            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)
+                               VALUES (:uid, :jti, :ip, :ua){sql.on_conflict_ignore('token_jti')}"""),
                        {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
             db.commit()
     except Exception:
@@ -115,7 +116,7 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
             exp = payload.get("exp")
             if jti and exp:
                 db.execute(
-                    text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+                    text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                     {"jti": jti, "exp": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()},
                 )
                 db.execute(text("DELETE FROM active_sessions WHERE token_jti = :jti"), {"jti": jti})
@@ -184,7 +185,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     mfa_jti = payload.get("jti")
     if mfa_jti:
         mfa_exp = payload.get("exp", 0)
-        db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                    {"jti": mfa_jti, "exp": datetime.fromtimestamp(mfa_exp, tz=timezone.utc).isoformat()})
         db.commit()
 
@@ -308,10 +309,14 @@ async def get_require_mfa(current_user: dict = Depends(require_role("admin")), d
     return {"require_mfa": row[0] == "true" if row else False}
 
 
+class RequireMFARequest(PydanticBaseModel):
+    require_mfa: bool = False
+
+
 @router.put("/config/require-mfa", tags=["Config"])
-async def set_require_mfa(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Set whether MFA is required for all users."""
-    require = bool(body.get("require_mfa", False))
+    require = body.require_mfa
     db.execute(text("INSERT INTO system_config (key, value) VALUES ('require_mfa', :val) ON CONFLICT(key) DO UPDATE SET value = :val"),
                {"val": "true" if require else "false"})
     db.commit()
@@ -338,8 +343,8 @@ async def get_theme(current_user: dict = Depends(get_current_user), db: Session 
         try:
             import json as _json
             return _json.loads(row[0])
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse theme JSON: {e}")
     return {"accent_color": "#6366f1", "sidebar_style": "dark", "background": "default"}
 
 
@@ -398,8 +403,8 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
         try:
             import core.crypto as crypto
             password = crypto.decrypt(password)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to decrypt SMTP password (using raw): {e}")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -491,7 +496,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
     sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
     expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     for s in sessions:
-        db.execute(text("INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (:jti, :exp)"),
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
                    {"jti": s[0], "exp": expiry})
     db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
     db.commit()

@@ -201,8 +201,8 @@ def _get_smtp_config(db):
             import core.crypto as crypto
             smtp = dict(smtp)  # copy to avoid mutating the cached ORM value
             smtp["password"] = crypto.decrypt(smtp["password"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to decrypt SMTP password (using raw): {e}")
     return smtp
 
 
@@ -318,8 +318,8 @@ def dispatch_alert(
             row = db.execute(text("SELECT org_id FROM printers WHERE id = :id"), {"id": printer_id}).fetchone()
             if row and row.org_id:
                 _printer_org_id = row.org_id
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to resolve printer org: {e}")
 
     # Quiet hours: save alert to DB but suppress external notifications
     _suppress_external = should_suppress_notification(org_id=_printer_org_id)

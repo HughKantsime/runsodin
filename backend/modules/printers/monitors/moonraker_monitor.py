@@ -20,15 +20,17 @@ Handles:
 
 import os
 import sys
-import sqlite3
 import time
 import logging
 import threading
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
+from sqlalchemy import text
+
 from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
-from core.db_utils import get_db
+from core.db import engine
+from core.db_compat import sql
 
 # WebSocket push (same as mqtt_monitor)
 try:
@@ -153,20 +155,18 @@ class MoonrakerMonitor:
                     # Recover job tracking state after reconnect
                     self._recover_after_reconnect()
                     return
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Reconnect attempt failed: {e}")
             log.warning(f"[{self.name}] Reconnect failed, retrying...")
     
     def _recover_after_reconnect(self):
         """Restore job tracking state after a reconnect."""
         try:
-            with get_db() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT id, job_name FROM print_jobs "
-                    "WHERE printer_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
-                    (self.printer_id,))
-                row = cur.fetchone()
+            with engine.connect() as conn:
+                row = conn.execute(
+                    text("SELECT id, job_name FROM print_jobs "
+                    "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 1"),
+                    {"pid": self.printer_id}).fetchone()
                 if row:
                     self._current_job_db_id = row[0]
                     self._last_filename = row[1] or ""
@@ -184,7 +184,7 @@ class MoonrakerMonitor:
         # Update telemetry + heartbeat (throttled to every 10 seconds)
         if now - getattr(self, '_last_heartbeat', 0) >= 10:
             try:
-              with get_db() as conn:
+              with engine.begin() as conn:
                 bed_t = bed_tt = noz_t = noz_tt = None
                 gstate = None
                 stage = 'Idle'
@@ -224,15 +224,15 @@ class MoonrakerMonitor:
                         remaining_min = 0
 
                 conn.execute(
-                    "UPDATE printers SET last_seen=datetime('now'),"
-                    " bed_temp=COALESCE(?,bed_temp),bed_target_temp=COALESCE(?,bed_target_temp),"
-                    " nozzle_temp=COALESCE(?,nozzle_temp),nozzle_target_temp=COALESCE(?,nozzle_target_temp),"
-                    " gcode_state=COALESCE(?,gcode_state),print_stage=COALESCE(?,print_stage),"
-                    " fan_speed=COALESCE(?,fan_speed),nozzle_diameter=COALESCE(?,nozzle_diameter)"
-                    " WHERE id=?",
-                    (bed_t, bed_tt, noz_t, noz_tt, gstate, stage,
-                     fan_speed_val, noz_dia, self.printer_id))
-                conn.commit()
+                    text(f"UPDATE printers SET last_seen={sql.now()},"
+                    " bed_temp=COALESCE(:bed_t,bed_temp),bed_target_temp=COALESCE(:bed_tt,bed_target_temp),"
+                    " nozzle_temp=COALESCE(:noz_t,nozzle_temp),nozzle_target_temp=COALESCE(:noz_tt,nozzle_target_temp),"
+                    " gcode_state=COALESCE(:gstate,gcode_state),print_stage=COALESCE(:stage,print_stage),"
+                    " fan_speed=COALESCE(:fan_speed,fan_speed),nozzle_diameter=COALESCE(:noz_dia,nozzle_diameter)"
+                    " WHERE id=:pid"),
+                    {"bed_t": bed_t, "bed_tt": bed_tt, "noz_t": noz_t, "noz_tt": noz_tt,
+                     "gstate": gstate, "stage": stage, "fan_speed": fan_speed_val,
+                     "noz_dia": noz_dia, "pid": self.printer_id})
 
                 # WebSocket push to frontend (same as Bambu monitor)
                 ws_push('printer_telemetry', {
@@ -262,18 +262,17 @@ class MoonrakerMonitor:
                             "total_layers": total_layers,
                             "fan_speed": fan_speed_val,
                         })
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Failed to push printer state event: {e}")
 
                 # ---- Timeseries telemetry (60s inserts during prints) ----
                 if gstate in ('RUNNING', 'PRINTING', 'PAUSE', 'PAUSED') and now - self._last_telemetry_insert >= TELEMETRY_INSERT_INTERVAL:
                     self._last_telemetry_insert = now
                     try:
                         conn.execute(
-                            "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
-                            (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val))
-                        conn.execute("DELETE FROM printer_telemetry WHERE recorded_at < datetime('now', '-90 days')")
-                        conn.commit()
+                            text("INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (:pid, :bed_t, :noz_t, :bed_tt, :noz_tt, :fan)"),
+                            {"pid": self.printer_id, "bed_t": bed_t, "noz_t": noz_t, "bed_tt": bed_tt, "noz_tt": noz_tt, "fan": fan_speed_val})
+                        conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
                     except Exception as e:
                         log.debug(f"[{self.name}] Telemetry insert: {e}")
 
@@ -283,10 +282,9 @@ class MoonrakerMonitor:
                     try:
                         for idx, (sensor_name, temp_val) in enumerate(status.environment_sensors.items()):
                             conn.execute(
-                                "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
-                                (self.printer_id, idx, None, temp_val))
-                        conn.execute("DELETE FROM ams_telemetry WHERE recorded_at < datetime('now', '-90 days')")
-                        conn.commit()
+                                text("INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (:pid, :unit, :hum, :temp)"),
+                                {"pid": self.printer_id, "unit": idx, "hum": None, "temp": temp_val})
+                        conn.execute(text(f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
                     except Exception as e:
                         log.debug(f"[{self.name}] Env telemetry insert: {e}")
 
@@ -369,39 +367,39 @@ class MoonrakerMonitor:
         nozzle_target = status.nozzle_target
 
         try:
-            with get_db() as conn:
-                cur = conn.cursor()
-
+            with engine.begin() as conn:
                 # Check for existing running job — resume it instead of creating duplicate
-                cur.execute(
-                    "SELECT id, job_name FROM print_jobs "
-                    "WHERE printer_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
-                    (self.printer_id,))
-                existing = cur.fetchone()
+                existing = conn.execute(
+                    text("SELECT id, job_name FROM print_jobs "
+                    "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 1"),
+                    {"pid": self.printer_id}).fetchone()
                 if existing:
                     self._current_job_db_id = existing[0]
                     self._last_filename = existing[1] or filename
                     log.info(f"[{self.name}] Resumed tracking existing job {existing[0]} ({existing[1]})")
                     return
 
-                cur.execute("""
-                    INSERT INTO print_jobs
-                    (printer_id, job_id, filename, job_name, started_at, status,
-                     total_layers, bed_temp_target, nozzle_temp_target)
-                    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
-                """, (
-                    self.printer_id,
-                    f"mk_{int(time.time())}",
-                    filename,
-                    filename,
-                    datetime.now(timezone.utc).isoformat(),
-                    total_layers,
-                    bed_target,
-                    nozzle_target,
-                ))
-                self._current_job_db_id = cur.lastrowid
+                insert_sql = (
+                    "INSERT INTO print_jobs"
+                    " (printer_id, job_id, filename, job_name, started_at, status,"
+                    "  total_layers, bed_temp_target, nozzle_temp_target)"
+                    " VALUES (:pid, :jid, :fname, :jname, :started, 'running', :layers, :bed, :noz)")
+                params = {
+                    "pid": self.printer_id,
+                    "jid": f"mk_{int(time.time())}",
+                    "fname": filename,
+                    "jname": filename,
+                    "started": datetime.now(timezone.utc).isoformat(),
+                    "layers": total_layers,
+                    "bed": bed_target,
+                    "noz": nozzle_target,
+                }
+                if sql.is_sqlite:
+                    conn.execute(text(insert_sql), params)
+                    self._current_job_db_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
+                else:
+                    self._current_job_db_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()
                 self._last_filename = filename
-                conn.commit()
             log.info(f"[{self.name}] Job started: {filename} (DB id: {self._current_job_db_id})")
 
             # Attempt auto-link to scheduled job (same logic as Bambu monitor)
@@ -418,22 +416,21 @@ class MoonrakerMonitor:
             return
         
         try:
-            with get_db() as conn:
-                cur = conn.cursor()
+            with engine.begin() as conn:
                 now_utc = datetime.now(timezone.utc).isoformat()
 
                 # Calculate duration
                 duration_seconds = None
-                pj_row = cur.execute(
-                    "SELECT started_at FROM print_jobs WHERE id = ?",
-                    (self._current_job_db_id,)).fetchone()
+                pj_row = conn.execute(
+                    text("SELECT started_at FROM print_jobs WHERE id = :jid"),
+                    {"jid": self._current_job_db_id}).fetchone()
                 if pj_row and pj_row[0]:
                     try:
                         started = datetime.fromisoformat(pj_row[0])
                         ended = datetime.fromisoformat(now_utc)
                         duration_seconds = int((ended - started).total_seconds())
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug(f"Failed to parse duration: {e}")
 
                 # Calculate filament used (Klipper reports mm extruded)
                 # Convert mm to grams: PLA ~1.24 g/cm³, 1.75mm filament ≈ 2.98g/m
@@ -441,43 +438,40 @@ class MoonrakerMonitor:
                 if status.filament_used_mm and status.filament_used_mm > 0:
                     filament_used_g = round(status.filament_used_mm / 1000.0 * 2.98, 2)
 
-                cur.execute("""
+                conn.execute(text("""
                     UPDATE print_jobs
-                    SET ended_at = ?, status = ?, print_duration_seconds = ?,
-                        filament_used_g = ?
-                    WHERE id = ?
-                """, (now_utc, end_status, duration_seconds,
-                      filament_used_g, self._current_job_db_id))
+                    SET ended_at = :ended, status = :status, print_duration_seconds = :dur,
+                        filament_used_g = :fil
+                    WHERE id = :jid
+                """), {"ended": now_utc, "status": end_status, "dur": duration_seconds,
+                       "fil": filament_used_g, "jid": self._current_job_db_id})
 
                 # If linked to a scheduled job, update it too
-                cur.execute("""
-                    SELECT scheduled_job_id FROM print_jobs WHERE id = ?
-                """, (self._current_job_db_id,))
-                row = cur.fetchone()
+                row = conn.execute(text("""
+                    SELECT scheduled_job_id FROM print_jobs WHERE id = :jid
+                """), {"jid": self._current_job_db_id}).fetchone()
                 if row and row[0]:
                     sched_status = "completed" if end_status == "completed" else "failed"
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
-                    cur.execute("""
-                        UPDATE jobs SET status = ?, actual_end = ?,
-                               duration_hours = COALESCE(?, duration_hours)
-                        WHERE id = ?
-                    """, (sched_status, now_utc, duration_hours, row[0]))
+                    conn.execute(text("""
+                        UPDATE jobs SET status = :status, actual_end = :ended,
+                               duration_hours = COALESCE(:dur, duration_hours)
+                        WHERE id = :jid
+                    """), {"status": sched_status, "ended": now_utc, "dur": duration_hours, "jid": row[0]})
                     log.info(f"[{self.name}] Scheduled job #{row[0]} marked {sched_status}")
 
                     # Auto-deduct filament if completed
                     if end_status == "completed":
-                        self._auto_deduct_filament(cur, row[0])
-
-                conn.commit()
+                        self._auto_deduct_filament(conn, row[0])
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
 
             # Increment care counters on successful completion
             if end_status == "completed":
                 try:
-                    with get_db() as conn2:
-                        cur2 = conn2.cursor()
-                        cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (self._current_job_db_id,))
-                        pj_row = cur2.fetchone()
+                    with engine.connect() as conn2:
+                        pj_row = conn2.execute(
+                            text("SELECT started_at, ended_at FROM print_jobs WHERE id = :jid"),
+                            {"jid": self._current_job_db_id}).fetchone()
                         if pj_row and pj_row[0] and pj_row[1]:
                             from datetime import datetime as dt
                             started = dt.fromisoformat(pj_row[0])
@@ -541,19 +535,17 @@ class MoonrakerMonitor:
         self._last_progress_write = now
         
         try:
-            with get_db() as conn:
-                cur = conn.cursor()
-                cur.execute("""
+            with engine.begin() as conn:
+                conn.execute(text("""
                     UPDATE print_jobs
-                    SET progress_percent = ?, current_layer = ?, remaining_minutes = ?
-                    WHERE id = ?
-                """, (
-                    status.progress_percent,
-                    status.current_layer,
-                    round(status.print_duration * (100.0 - status.progress_percent) / max(status.progress_percent, 0.1) / 60.0) if status.print_duration and status.progress_percent and status.progress_percent > 1 else None,
-                    self._current_job_db_id,
-                ))
-                conn.commit()
+                    SET progress_percent = :prog, current_layer = :layer, remaining_minutes = :rem
+                    WHERE id = :jid
+                """), {
+                    "prog": status.progress_percent,
+                    "layer": status.current_layer,
+                    "rem": round(status.print_duration * (100.0 - status.progress_percent) / max(status.progress_percent, 0.1) / 60.0) if status.print_duration and status.progress_percent and status.progress_percent > 1 else None,
+                    "jid": self._current_job_db_id,
+                })
         except Exception as e:
             log.warning(f"[{self.name}] Progress update failed: {e}")
     
@@ -571,9 +563,7 @@ class MoonrakerMonitor:
     def _sync_filament_slots(self, slots):
         """Sync MMU/ACE gate data to filament_slots DB table."""
         try:
-            with get_db() as conn:
-                cur = conn.cursor()
-
+            with engine.begin() as conn:
                 for slot in slots:
                     slot_num = slot.gate + 1  # DB uses 1-based slot numbers
                     material_key = (slot.material or "").upper()
@@ -582,28 +572,25 @@ class MoonrakerMonitor:
                     color_name = slot.name or slot.material or None
 
                     # Check if slot exists
-                    cur.execute(
-                        "SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=?",
-                        (self.printer_id, slot_num))
-                    existing = cur.fetchone()
+                    existing = conn.execute(
+                        text("SELECT id FROM filament_slots WHERE printer_id=:pid AND slot_number=:sn"),
+                        {"pid": self.printer_id, "sn": slot_num}).fetchone()
 
                     if existing:
-                        cur.execute(
-                            "UPDATE filament_slots SET filament_type=?, color=?, color_hex=?, loaded_at=datetime('now') WHERE id=?",
-                            (filament_type, color_name, color_hex, existing[0]))
+                        conn.execute(
+                            text(f"UPDATE filament_slots SET filament_type=:ft, color=:col, color_hex=:hex, loaded_at={sql.now()} WHERE id=:sid"),
+                            {"ft": filament_type, "col": color_name, "hex": color_hex, "sid": existing[0]})
                     else:
-                        cur.execute(
-                            "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-                            (self.printer_id, slot_num, filament_type, color_name, color_hex))
+                        conn.execute(
+                            text(f"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (:pid, :sn, :ft, :col, :hex, {sql.now()})"),
+                            {"pid": self.printer_id, "sn": slot_num, "ft": filament_type, "col": color_name, "hex": color_hex})
 
                 # Remove stale slots beyond current gate count
                 max_slot = len(slots)
                 if max_slot > 0:
-                    cur.execute(
-                        "DELETE FROM filament_slots WHERE printer_id=? AND slot_number>?",
-                        (self.printer_id, max_slot))
-
-                conn.commit()
+                    conn.execute(
+                        text("DELETE FROM filament_slots WHERE printer_id=:pid AND slot_number>:ms"),
+                        {"pid": self.printer_id, "ms": max_slot})
         except Exception as e:
             log.debug(f"[{self.name}] Filament slot sync: {e}")
 
@@ -617,21 +604,18 @@ class MoonrakerMonitor:
           2. Layer count fingerprint
         """
         try:
-            with get_db(row_factory=sqlite3.Row) as conn:
-                cur = conn.cursor()
-
+            with engine.begin() as conn:
                 # Get candidates: scheduled/pending jobs for this printer
-                cur.execute("""
+                candidates = conn.execute(text("""
                     SELECT j.id as job_id, j.status, pf.filename, pf.original_filename,
                            pf.layer_count, m.name as model_name
                     FROM jobs j
                     JOIN print_files pf ON j.print_file_id = pf.id
                     JOIN models m ON pf.model_id = m.id
-                    WHERE j.printer_id = ?
+                    WHERE j.printer_id = :pid
                       AND j.status IN ('scheduled', 'pending')
-                """, (self.printer_id,))
+                """), {"pid": self.printer_id}).mappings().fetchall()
 
-                candidates = cur.fetchall()
                 if not candidates:
                     return
 
@@ -644,8 +628,7 @@ class MoonrakerMonitor:
                         (c["model_name"] or "").lower(),
                     ]
                     if fname_lower and any(fname_lower in n or n in fname_lower for n in match_names if n):
-                        self._link_job(cur, c["job_id"])
-                        conn.commit()
+                        self._link_job(conn, c["job_id"])
                         log.info(f"[{self.name}] Auto-linked to job #{c['job_id']} (name match)")
                         return
 
@@ -659,8 +642,7 @@ class MoonrakerMonitor:
 
                     if len(layer_matches) == 1:
                         job_id = list(layer_matches.keys())[0]
-                        self._link_job(cur, job_id)
-                        conn.commit()
+                        self._link_job(conn, job_id)
                         log.info(f"[{self.name}] Auto-linked to job #{job_id} (layer count: {total_layers})")
                         return
                     elif len(layer_matches) > 1:
@@ -672,46 +654,45 @@ class MoonrakerMonitor:
         except Exception as e:
             log.warning(f"[{self.name}] Auto-link failed: {e}")
     
-    def _link_job(self, cur, scheduled_job_id: int):
+    def _link_job(self, conn, scheduled_job_id: int):
         """Link the current print_job to a scheduled job."""
         if self._current_job_db_id:
-            cur.execute("""
-                UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?
-            """, (scheduled_job_id, self._current_job_db_id))
-            cur.execute("""
-                UPDATE jobs SET status = 'printing' WHERE id = ?
-            """, (scheduled_job_id,))
+            conn.execute(text("""
+                UPDATE print_jobs SET scheduled_job_id = :sjid WHERE id = :jid
+            """), {"sjid": scheduled_job_id, "jid": self._current_job_db_id})
+            conn.execute(text("""
+                UPDATE jobs SET status = 'printing' WHERE id = :jid
+            """), {"jid": scheduled_job_id})
     
-    def _auto_deduct_filament(self, cur, scheduled_job_id: int):
+    def _auto_deduct_filament(self, conn, scheduled_job_id: int):
         """Auto-deduct filament weight when a linked job completes."""
         try:
-            cur.execute("""
+            row = conn.execute(text("""
                 SELECT j.spool_id, pf.filament_weight_grams
                 FROM jobs j
                 JOIN print_files pf ON j.print_file_id = pf.id
-                WHERE j.id = ?
-            """, (scheduled_job_id,))
-            row = cur.fetchone()
-            
+                WHERE j.id = :jid
+            """), {"jid": scheduled_job_id}).fetchone()
+
             if row and row[0] and row[1]:
                 spool_id = row[0]
                 grams_used = row[1]
-                
-                cur.execute("""
-                    UPDATE spools 
-                    SET remaining_weight = MAX(0, remaining_weight - ?)
-                    WHERE id = ?
-                """, (grams_used, spool_id))
-                
+
+                conn.execute(text("""
+                    UPDATE spools
+                    SET remaining_weight = MAX(0, remaining_weight - :grams)
+                    WHERE id = :sid
+                """), {"grams": grams_used, "sid": spool_id})
+
                 # Log to spool_usage
-                cur.execute("""
+                conn.execute(text("""
                     INSERT INTO spool_usage (spool_id, job_id, printer_id, grams_used, created_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (spool_id, scheduled_job_id, self.printer_id, grams_used,
-                      datetime.now(timezone.utc).isoformat()))
-                
+                    VALUES (:sid, :jid, :pid, :grams, :ts)
+                """), {"sid": spool_id, "jid": scheduled_job_id, "pid": self.printer_id,
+                       "grams": grams_used, "ts": datetime.now(timezone.utc).isoformat()})
+
                 log.info(f"[{self.name}] Deducted {grams_used}g from spool #{spool_id}")
-                
+
         except Exception as e:
             log.warning(f"[{self.name}] Filament deduction failed: {e}")
 
@@ -723,11 +704,11 @@ def start_moonraker_monitors():
     """Load Moonraker printers from DB and start monitors."""
     monitors = []
     try:
-        with get_db(row_factory=sqlite3.Row) as conn:
+        with engine.connect() as conn:
             rows = conn.execute(
-                "SELECT id, name, api_host, api_key FROM printers "
-                "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active=1"
-            ).fetchall()
+                text("SELECT id, name, api_host, api_key FROM printers "
+                "WHERE api_type='moonraker' AND api_host IS NOT NULL AND is_active=1")
+            ).mappings().fetchall()
 
         for row in rows:
             printer_id = row["id"]
@@ -741,7 +722,8 @@ def start_moonraker_monitors():
                 host = h.strip() or host
                 try:
                     port = int(prt)
-                except Exception:
+                except Exception as e:
+                    log.debug(f"Failed to parse port '{prt}': {e}")
                     port = 80
 
             api_key = ""
@@ -749,7 +731,8 @@ def start_moonraker_monitors():
                 try:
                     from core.crypto import decrypt
                     api_key = decrypt(api_key_raw)
-                except Exception:
+                except Exception as e:
+                    log.debug(f"Failed to decrypt API key (using raw): {e}")
                     api_key = api_key_raw
 
             m = MoonrakerMonitor(printer_id=printer_id, name=name, host=host, port=port, api_key=api_key)

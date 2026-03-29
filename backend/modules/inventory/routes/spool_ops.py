@@ -351,8 +351,8 @@ def generate_spool_label(
         try:
             rgb = tuple(int(hex_clean[i:i+2], 16) for i in (0, 2, 4))
             draw.rectangle([swatch_x, swatch_y, swatch_x + swatch_size, swatch_y + swatch_size], fill=rgb, outline="black")
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to parse color hex: {e}")
         text_start_x = swatch_x + swatch_size + 10
     else:
         text_start_x = text_x

@@ -1,14 +1,16 @@
 """
 O.D.I.N. — Core database layer.
 
+Supports both SQLite (default, self-hosted simplicity) and PostgreSQL (enterprise scale).
+Database type is auto-detected from the DATABASE_URL environment variable:
+  - sqlite:///./odin.db  → SQLite with WAL mode
+  - postgresql://user:pass@host/db → PostgreSQL with connection pooling
+
 Provides the SQLAlchemy engine, session factory, declarative base,
 and the FastAPI get_db dependency.
 
 Also provides the module migration runner used by docker/entrypoint.sh to
 apply per-module SQL migration files idempotently.
-
-Extracted from deps.py as part of the modular architecture refactor.
-Old import path (from deps import get_db) continues to work via re-exports in deps.py.
 """
 
 import sqlite3
@@ -16,33 +18,51 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 
 from core.config import settings
-from core.base import Base  # Single Base instance shared across all models
+from core.base import Base  # noqa: F401 — Single Base instance shared across all models
 
-engine = create_engine(
-    settings.database_url,
-    echo=settings.debug,
-    poolclass=NullPool,
-    connect_args={"check_same_thread": False},
-)
-with engine.connect() as conn:
-    conn.execute(text("PRAGMA journal_mode=WAL"))
-    conn.execute(text("PRAGMA busy_timeout=5000"))
-    conn.execute(text("PRAGMA foreign_keys=ON"))
+# Detect database type from URL
+IS_SQLITE = settings.database_url.startswith("sqlite")
+IS_POSTGRES = settings.database_url.startswith("postgresql")
 
+# Configure engine based on database type
+if IS_SQLITE:
+    engine = create_engine(
+        settings.database_url,
+        echo=settings.debug,
+        poolclass=NullPool,
+        connect_args={"check_same_thread": False},
+    )
+    # SQLite-specific pragmas for performance and safety
+    with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.execute(text("PRAGMA busy_timeout=5000"))
+        conn.execute(text("PRAGMA foreign_keys=ON"))
 
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragma(dbapi_connection, connection_record):
-    """Enable foreign key enforcement on every new SQLite connection.
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        """Enable foreign key enforcement on every new SQLite connection."""
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
-    SQLite disables FK checks by default. Without this, ON DELETE CASCADE
-    and other FK constraints are silently ignored — very bad for data integrity.
-    """
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+elif IS_POSTGRES:
+    engine = create_engine(
+        settings.database_url,
+        echo=settings.debug,
+        poolclass=QueuePool,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=30,
+        pool_recycle=1800,
+    )
+else:
+    raise ValueError(
+        f"Unsupported database URL: {settings.database_url}. "
+        "Use sqlite:/// for SQLite or postgresql:// for PostgreSQL."
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -56,26 +76,28 @@ def get_db():
         db.close()
 
 
+def get_db_type() -> str:
+    """Return 'sqlite' or 'postgresql' based on the configured database."""
+    if IS_SQLITE:
+        return "sqlite"
+    if IS_POSTGRES:
+        return "postgresql"
+    return "unknown"
+
+
 def _db_path_from_url(database_url: str) -> str:
     """Extract the filesystem path from a sqlite:/// URL."""
-    # Handles sqlite:////abs/path and sqlite:///rel/path
     if database_url.startswith("sqlite:////"):
         return database_url[len("sqlite:///"):]
     if database_url.startswith("sqlite:///"):
         return database_url[len("sqlite:///"):]
-    raise ValueError(f"Unsupported database URL for migration runner: {database_url}")
+    raise ValueError(f"Unsupported database URL for SQLite migration runner: {database_url}")
 
 
 def _run_sql_file(db_path: str, sql_file: Path) -> None:
-    """Execute a single SQL migration file against the SQLite database.
-
-    Uses executescript() which runs all statements in the file as a batch.
-    CREATE TABLE IF NOT EXISTS ensures idempotency — safe to re-run.
-    Skips files that contain only comments and whitespace.
-    """
+    """Execute a single SQL migration file against the SQLite database."""
     sql = sql_file.read_text(encoding="utf-8")
 
-    # Strip comment lines and check if there's any real SQL to execute
     non_comment_lines = [
         line for line in sql.splitlines()
         if line.strip() and not line.strip().startswith("--")
@@ -85,15 +107,11 @@ def _run_sql_file(db_path: str, sql_file: Path) -> None:
 
     conn = sqlite3.connect(db_path)
     try:
-        # If the file contains ALTER TABLE statements, execute each statement
-        # individually so that "duplicate column name" errors (from prior runs
-        # or create_all) are caught per-statement without aborting the rest.
         if "ALTER TABLE" in sql.upper():
             for stmt in sql.split(";"):
                 stmt = stmt.strip()
                 if not stmt or stmt.startswith("--"):
                     continue
-                # Skip pure-comment blocks
                 real_lines = [l for l in stmt.splitlines()
                               if l.strip() and not l.strip().startswith("--")]
                 if not real_lines:
@@ -102,7 +120,7 @@ def _run_sql_file(db_path: str, sql_file: Path) -> None:
                     conn.execute(stmt)
                 except sqlite3.OperationalError as exc:
                     if "duplicate column name" in str(exc):
-                        pass  # idempotent — column already exists
+                        pass
                     else:
                         raise
             conn.commit()
@@ -113,16 +131,52 @@ def _run_sql_file(db_path: str, sql_file: Path) -> None:
         conn.close()
 
 
-def run_core_migrations(database_url: str | None = None) -> None:
-    """Run core platform migration SQL files.
+def _run_pg_migration(sql_file: Path) -> None:
+    """Execute a SQL migration file against PostgreSQL.
 
-    Executes backend/core/migrations/*.sql in sorted filename order.
-    Called from docker/entrypoint.sh before module migrations, because
-    the users table (defined here) is a FK target for most modules.
+    Converts common SQLite syntax to PostgreSQL on the fly.
     """
+    sql = sql_file.read_text(encoding="utf-8")
+
+    non_comment_lines = [
+        line for line in sql.splitlines()
+        if line.strip() and not line.strip().startswith("--")
+    ]
+    if not non_comment_lines:
+        return
+
+    # SQLite → PostgreSQL syntax conversion
+    sql = sql.replace("AUTOINCREMENT", "")
+    sql = sql.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
+    sql = sql.replace("datetime('now')", "NOW()")
+    sql = sql.replace("datetime('now', 'localtime')", "NOW()")
+    sql = sql.replace("BOOLEAN DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+    sql = sql.replace("BOOLEAN DEFAULT 1", "BOOLEAN DEFAULT TRUE")
+    sql = sql.replace("TEXT NOT NULL DEFAULT ''", "TEXT NOT NULL DEFAULT ''")
+
+    with engine.begin() as conn:
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if not stmt or stmt.startswith("--"):
+                continue
+            real_lines = [l for l in stmt.splitlines()
+                          if l.strip() and not l.strip().startswith("--")]
+            if not real_lines:
+                continue
+            try:
+                conn.execute(text(stmt))
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if "already exists" in err_str or "duplicate" in err_str:
+                    pass
+                else:
+                    raise
+
+
+def run_core_migrations(database_url: str | None = None) -> None:
+    """Run core platform migration SQL files."""
     if database_url is None:
         database_url = settings.database_url
-    db_path = _db_path_from_url(database_url)
 
     core_migrations_dir = Path(__file__).parent / "migrations"
     if not core_migrations_dir.exists():
@@ -130,41 +184,32 @@ def run_core_migrations(database_url: str | None = None) -> None:
         return
 
     sql_files = sorted(core_migrations_dir.glob("*.sql"))
-    for sql_file in sql_files:
-        _run_sql_file(db_path, sql_file)
-        print(f"  ✓ Applied core migration: {sql_file.name}")
+
+    if IS_SQLITE:
+        db_path = _db_path_from_url(database_url)
+        for sql_file in sql_files:
+            _run_sql_file(db_path, sql_file)
+            print(f"  ✓ Applied core migration: {sql_file.name}")
+    elif IS_POSTGRES:
+        for sql_file in sql_files:
+            _run_pg_migration(sql_file)
+            print(f"  ✓ Applied core migration (pg): {sql_file.name}")
 
 
 def run_module_migrations(modules_dir: Path, database_url: str | None = None) -> None:
-    """Run all per-module migration SQL files.
-
-    Discovers modules by iterating modules_dir/*/migrations/*.sql
-    in sorted order (module name alphabetical, then filename).
-
-    Migration order for FK safety:
-      organizations depends on core (users)
-      printers, jobs, inventory, models_library, notifications,
-      archives, reporting, system, vision, orders depend on printers/core/groups.
-
-    The sorted alphabetical order works for this codebase because:
-      - core/ runs first via run_core_migrations()
-      - organizations/ runs before printers/ alphabetically (o < p)
-      - All other modules depend only on core/printers/organizations tables,
-        which are created before them alphabetically or by create_all()
-
-    Args:
-        modules_dir: Path to the backend/modules/ directory.
-        database_url: SQLite URL. Defaults to settings.database_url.
-    """
+    """Run all per-module migration SQL files."""
     if database_url is None:
         database_url = settings.database_url
-    db_path = _db_path_from_url(database_url)
 
     if not modules_dir.exists():
         print(f"  - Modules directory not found: {modules_dir}, skipping")
         return
 
-    # Iterate modules in sorted order for deterministic execution
+    if IS_SQLITE:
+        db_path = _db_path_from_url(database_url)
+    else:
+        db_path = None
+
     for module_dir in sorted(modules_dir.iterdir()):
         if not module_dir.is_dir():
             continue
@@ -173,5 +218,9 @@ def run_module_migrations(modules_dir: Path, database_url: str | None = None) ->
             continue
         sql_files = sorted(migrations_dir.glob("*.sql"))
         for sql_file in sql_files:
-            _run_sql_file(db_path, sql_file)
-            print(f"  ✓ Applied {module_dir.name} migration: {sql_file.name}")
+            if IS_SQLITE:
+                _run_sql_file(db_path, sql_file)
+                print(f"  ✓ Applied {module_dir.name} migration: {sql_file.name}")
+            elif IS_POSTGRES:
+                _run_pg_migration(sql_file)
+                print(f"  ✓ Applied {module_dir.name} migration (pg): {sql_file.name}")
