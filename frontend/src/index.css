@@ -269,6 +269,61 @@
 }
 
 /* ============================================
+   HIGH-CONTRAST DARK MODE
+   For shop floor monitors and TV dashboards.
+   Apply class="high-contrast" to <html> or a
+   container element.
+   ============================================ */
+
+.high-contrast {
+  --brand-text-primary: #FFFFFF;
+  --brand-text-secondary: #C0C8D8;
+  --brand-text-muted: #6B7A94;
+  --brand-card-border: #2E3448;
+  --brand-sidebar-border: #2E3448;
+  --brand-input-border: #2E3448;
+  --brand-card-bg: #0F1219;
+  --brand-content-bg: #080A0E;
+  --brand-surface: #1A1E28;
+  --brand-input-bg: #1A1E28;
+  --status-printing: #6BA6F7;
+  --status-completed: #4CC76E;
+  --status-failed: #F06060;
+  --status-warning: #F0A030;
+  --status-pending: #94A0B8;
+  --status-scheduled: #A08DF0;
+}
+
+.high-contrast * {
+  border-color: var(--brand-card-border);
+}
+
+/* Boost text contrast on cards */
+.high-contrast .text-xs,
+.high-contrast .text-sm {
+  font-weight: 500;
+}
+
+/* Stronger borders for visibility at distance */
+.high-contrast .border {
+  border-width: 2px;
+}
+
+/* Larger status dots for shop floor visibility */
+.high-contrast .status-dot {
+  @apply w-2.5 h-2.5;
+}
+
+/* Progress bars — taller for TV readability */
+.high-contrast .h-1 {
+  height: 0.375rem;
+}
+
+.high-contrast .h-3 {
+  height: 1rem;
+}
+
+/* ============================================
    LIGHT MODE
    ============================================
    Strategy: redefine CSS custom properties so
