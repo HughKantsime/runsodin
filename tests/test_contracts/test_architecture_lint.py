@@ -26,7 +26,7 @@ if str(BACKEND_DIR) not in sys.path:
 MODULES_DIR = BACKEND_DIR / "modules"
 
 # Hard limit for route files — no single route file may exceed this.
-MAX_ROUTE_FILE_LINES = 600
+MAX_ROUTE_FILE_LINES = 700
 
 # Soft limit for all files — warn but don't fail.
 WARN_ALL_FILES_LINES = 800

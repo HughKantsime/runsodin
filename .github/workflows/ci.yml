@@ -24,7 +24,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: pip install pytest
+        run: pip install pytest sqlalchemy
 
       - name: Run contract tests
         run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
