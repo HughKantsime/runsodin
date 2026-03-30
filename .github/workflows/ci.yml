@@ -27,7 +27,7 @@ jobs:
         run: pip install pytest
 
       - name: Run contract tests
-        run: pytest tests/test_contracts/ -v --tb=short
+        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
 
   # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
