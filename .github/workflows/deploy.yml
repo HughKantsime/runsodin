@@ -13,7 +13,7 @@ jobs:
   # ── Validate build before deploying ──
   validate:
     name: Validate Build
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +40,7 @@ jobs:
   tag:
     name: Auto-Tag Release
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag_created: ${{ steps.check.outputs.tag_created }}
@@ -78,7 +78,7 @@ jobs:
     name: Build & Push Docker Image
     needs: tag
     if: needs.tag.outputs.tag_created == 'true'
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     permissions:
       contents: read
       packages: write
@@ -117,7 +117,7 @@ jobs:
     name: Post-Deploy
     needs: [tag, build]
     if: needs.tag.outputs.tag_created == 'true'
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     steps:
       - name: Summary
         run: |

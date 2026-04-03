@@ -14,7 +14,7 @@ jobs:
   # ─────────────────────────────────────────────────────────
   contract-tests:
     name: Contract & Architecture Tests
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     steps:
       - uses: actions/checkout@v4
 
@@ -36,7 +36,7 @@ jobs:
   # ─────────────────────────────────────────────────────────
   secrets-scan:
     name: Secret Scanning
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     steps:
       - name: Checkout (full history for gitleaks)
         uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
   # ─────────────────────────────────────────────────────────
   python-security:
     name: Python Security Scan
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     steps:
       - uses: actions/checkout@v4
 
@@ -114,7 +114,7 @@ jobs:
   # ─────────────────────────────────────────────────────────
   frontend-security:
     name: Frontend Dependency Audit
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     steps:
       - uses: actions/checkout@v4
 
