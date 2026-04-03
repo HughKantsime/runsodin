@@ -1,0 +1,2065 @@
+{
+  "base_url": "http://192.168.71.200:8000",
+  "failures": [
+    "PUT /api/admin/quotas/1 accepted invalid payload (wrong-types) with 200",
+    "PUT /api/branding accepted invalid payload (wrong-types) with 200",
+    "PUT /api/config/ip-allowlist accepted invalid payload (wrong-types) with 200",
+    "PUT /api/config/require-job-approval accepted invalid payload (wrong-types) with 200",
+    "PUT /api/config/require-mfa accepted invalid payload (wrong-types) with 200",
+    "PUT /api/config/retention accepted invalid payload (wrong-types) with 200",
+    "POST /api/orders returned 500 for invalid payload (empty-object)",
+    "POST /api/orders returned 500 for invalid payload (partial-object)",
+    "PATCH /api/orders/1 returned 500 for invalid payload (empty-object)",
+    "PATCH /api/orders/1 returned 500 for invalid payload (partial-object)",
+    "PATCH /api/orders/1/items/1 returned 500 for invalid payload (empty-object)",
+    "PATCH /api/orders/1/items/1 returned 500 for invalid payload (partial-object)",
+    "PATCH /api/orders/1/ship returned 500 for invalid payload (empty-object)",
+    "POST /api/orgs/1/printers accepted invalid payload (wrong-types) with 200",
+    "PUT /api/permissions accepted invalid payload (wrong-types) with 200",
+    "POST /api/presets returned 500 for invalid payload (empty-object)",
+    "POST /api/presets returned 500 for invalid payload (wrong-types)",
+    "PUT /api/pricing-config accepted invalid payload (wrong-types) with 200",
+    "POST /api/printers/reorder accepted invalid payload (wrong-types) with 200",
+    "PUT /api/printers/1/ams/1/slots/1 accepted invalid payload (wrong-types) with 200",
+    "POST /api/scheduler/run accepted invalid payload (wrong-types) with 200",
+    "PATCH /api/spools/1 returned 500 for invalid payload (partial-object)",
+    "PATCH /api/users/1 accepted invalid payload (wrong-types) with 200"
+  ],
+  "results": [
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/admin/quotas/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/admin/quotas/1",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/alert-preferences",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/alert-preferences",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/alert-preferences",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/archives/11",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/archives/11",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/archives/11",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/archives/11/reprint",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/archives/11/reprint",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/archives/11/reprint",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/archives/11/tags",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/archives/11/tags",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/archives/11/tags",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/mfa/confirm",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/mfa/confirm",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/mfa/verify",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/mfa/verify",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/oidc/exchange",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/oidc/exchange",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/bambu/test-connection",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/bambu/test-connection",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/bambu/test-connection",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/branding",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/branding",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/ip-allowlist",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/ip-allowlist",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/require-job-approval",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/require-job-approval",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/require-mfa",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/require-mfa",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/retention",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/config/retention",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/consumables",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/consumables",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/consumables",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/consumables/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/consumables/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/consumables/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/consumables/1/adjust",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/consumables/1/adjust",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/consumables/1/adjust",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/filaments",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/filaments",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/filaments",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/filaments/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/filaments/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/filaments/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/groups",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/groups",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/groups/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/groups/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 404
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/batch",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/batch",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/batch",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/bulk",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/bulk-update",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/bulk-update",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/reorder",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/reorder",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/reorder",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/2",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/2",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/2",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/2/move",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/2/move",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/jobs/2/move",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/2/reject",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/2/reject",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/jobs/2/reject",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/maintenance/logs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/maintenance/logs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/maintenance/logs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/maintenance/tasks",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/maintenance/tasks",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/maintenance/tasks",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/maintenance/tasks/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/maintenance/tasks/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/maintenance/tasks/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/models",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/models",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/models",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/models/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/models/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/models/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orders",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orders",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orders",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orders/1/items",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orders/1/items",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orders/1/items",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1/items/1",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1/items/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1/items/1",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1/ship",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1/ship",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orders/1/ship",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orgs",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orgs",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orgs/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/orgs/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 404
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orgs/1/members",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orgs/1/members",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orgs/1/printers",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/orgs/1/printers",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/orgs/1/settings",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/orgs/1/settings",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 404
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/permissions",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/permissions",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/permissions",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/presets",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/presets",
+      "result": "server-error",
+      "should_reject": true,
+      "status_code": 500
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/pricing-config",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/pricing-config",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/bulk-update",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/bulk-update",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/reorder",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/reorder",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/test-connection",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/test-connection",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/test-connection",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/printers/1/ams/1/slots/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/printers/1/ams/1/slots/1",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/fan",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/fan",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/nozzle",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/nozzle",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/nozzle",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/skip-objects",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/skip-objects",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1/slots/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1/slots/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1/slots/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1/slots/1/manual-assign",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1/slots/1/manual-assign",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/printers/1/slots/1/manual-assign",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/speed",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/printers/1/speed",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/products/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/products/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/products/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products/1/components",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products/1/components",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products/1/components",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products/1/consumables",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products/1/consumables",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/products/1/consumables",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/projects",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/projects",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/projects",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/projects/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/projects/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/projects/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/projects/1/archives",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/projects/1/archives",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/projects/1/archives",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/push/subscribe",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/push/subscribe",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/push/subscribe",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/report-schedules",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/report-schedules",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/report-schedules/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 404
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/report-schedules/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 404
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/scheduler/run",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/scheduler/run",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/smtp-config",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/smtp-config",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PUT",
+      "path": "/api/smtp-config",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/bulk-update",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/bulk-update",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/scan-assign",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/scan-assign",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/scan-assign",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/spools/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/spools/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/spools/1",
+      "result": "server-error",
+      "should_reject": false,
+      "status_code": 500
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/load",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/load",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/load",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/use",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/use",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/use",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/weigh",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/weigh",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/spools/1/weigh",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/tags/rename",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/tags/rename",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/tags/rename",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/timelapses/1/speed",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/timelapses/1/speed",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/timelapses/1/trim",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/timelapses/1/trim",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/tokens",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 400
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/tokens",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 400
+    },
+    {
+      "case": "missing-required",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/users",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/users",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "partial-object",
+      "kind": "json",
+      "method": "POST",
+      "path": "/api/users",
+      "result": "rejected-or-tolerated",
+      "should_reject": true,
+      "status_code": 422
+    },
+    {
+      "case": "empty-object",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/users/1",
+      "result": "rejected-or-tolerated",
+      "should_reject": false,
+      "status_code": 200
+    },
+    {
+      "case": "wrong-types",
+      "kind": "json",
+      "method": "PATCH",
+      "path": "/api/users/1",
+      "result": "accepted-invalid",
+      "should_reject": true,
+      "status_code": 200
+    }
+  ],
+  "total_results": 226
+}

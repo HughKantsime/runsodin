@@ -1,0 +1,58 @@
+{
+  "base_url": "http://192.168.71.200:8000",
+  "failures": [],
+  "results": [
+    {
+      "cleanup_status": 204,
+      "created_id": 8,
+      "method": "POST",
+      "path": "/api/printers",
+      "request_body": {
+        "api_type": "bambu",
+        "is_active": true,
+        "model": "Bambu Lab X1C",
+        "name": "Audit Printer db5dd436",
+        "slot_count": 4
+      },
+      "result": "ok",
+      "status_code": 201
+    },
+    {
+      "cleanup_status": 204,
+      "created_id": 2,
+      "method": "POST",
+      "path": "/api/models",
+      "request_body": {
+        "build_time_hours": 1.5,
+        "name": "Audit Model db5dd436"
+      },
+      "result": "ok",
+      "status_code": 201
+    },
+    {
+      "cleanup_status": 204,
+      "created_id": 1,
+      "method": "POST",
+      "path": "/api/products",
+      "request_body": {
+        "name": "Audit Product db5dd436",
+        "price": 12.5
+      },
+      "result": "ok",
+      "status_code": 200
+    },
+    {
+      "cleanup_status": 204,
+      "created_id": 15,
+      "method": "POST",
+      "path": "/api/jobs",
+      "request_body": {
+        "item_name": "Audit Job db5dd436",
+        "priority": 3
+      },
+      "result": "ok",
+      "status_code": 201
+    }
+  ],
+  "total_results": 4
+}

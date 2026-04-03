@@ -1,0 +1,65 @@
+# ============================================================
+# O.D.I.N. — Orchestrated Dispatch & Inventory Network
+#
+# Usage:
+#   docker-compose up -d
+#
+# Then open http://localhost:8000 in your browser.
+# On first launch, the setup wizard will walk you through
+# creating an admin account and adding your first printer.
+#
+# Data is stored in ./odin-data/ (database, backups, uploads)
+# ============================================================
+
+services:
+  odin:
+    build: .
+    # For published image, comment out 'build' above and use:
+    # image: ghcr.io/hughkantsime/odin:v1.5.3
+    container_name: odin
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # Web UI + API
+      # Port 1984 (go2rtc HLS/API) intentionally not exposed — bound to 127.0.0.1 inside container
+      - "8555:8555"   # go2rtc WebRTC (must remain on 0.0.0.0 for ICE candidates)
+    volumes:
+      - ./odin-data:/data
+      - ./odin-data/go2rtc:/app/go2rtc
+      - ./tests/fixtures/odin_test.license:/data/odin.license:ro
+    environment:
+      # REQUIRED on first run — generate with:
+      #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      
+      # REQUIRED — random string for JWT signing. Generate with:
+      #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      
+      # OPTIONAL — API key for frontend-to-backend auth.
+      # If blank, API key auth is disabled (fine for single-user/trusted network).
+      - API_KEY=${API_KEY:-}
+      
+      # Database location (inside the container, mapped to volume)
+      - DATABASE_URL=sqlite:////data/odin.db
+      
+      # CORS — add your domain/IP if accessing remotely
+      - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+      
+      # Host IP for WebRTC ICE candidates (REQUIRED for camera streaming).
+      # Set to the LAN IP of the Docker host so browsers can reach go2rtc.
+      - ODIN_HOST_IP=${ODIN_HOST_IP:-}
+
+      # Timezone (for log timestamps and scheduler)
+      - TZ=${TZ:-America/New_York}
+    
+    # Network mode: host gives direct access to printer IPs on LAN.
+    # Use this if your printers are on the same network.
+    # Comment out 'ports' above if using network_mode: host.
+    # network_mode: host
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

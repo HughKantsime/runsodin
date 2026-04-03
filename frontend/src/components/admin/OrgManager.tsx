@@ -1,0 +1,353 @@
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus, Trash2, Users, UserPlus, Printer, Building2, X, Settings, Save } from 'lucide-react'
+import { orgs } from '../../api'
+import { canDo } from '../../permissions'
+import { Button, Input } from '../ui'
+
+const FILAMENT_TYPES = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'PA', 'PC']
+const WEBHOOK_TYPES = ['generic', 'discord', 'slack', 'ntfy', 'telegram']
+
+export default function OrgManager() {
+  const queryClient = useQueryClient()
+  const [showCreate, setShowCreate] = useState(false)
+  const [name, setName] = useState('')
+  const [addMemberId, setAddMemberId] = useState({})
+  const [addPrinterId, setAddPrinterId] = useState({})
+  const [expandedSettings, setExpandedSettings] = useState(null)
+
+  const { data: orgList, isLoading } = useQuery({
+    queryKey: ['orgs'],
+    queryFn: orgs.list,
+  })
+
+  const { data: userList } = useQuery({
+    queryKey: ['users-for-orgs'],
+    queryFn: async () => {
+      const res = await fetch('/api/users', { credentials: 'include' })
+      return res.ok ? res.json() : []
+    },
+  })
+
+  const { data: printerList } = useQuery({
+    queryKey: ['printers-for-orgs'],
+    queryFn: async () => {
+      const res = await fetch('/api/printers', { credentials: 'include' })
+      return res.ok ? res.json() : []
+    },
+  })
+
+  const createOrg = useMutation({
+    mutationFn: (data) => orgs.create(data),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orgs'] }); setShowCreate(false); setName('') },
+  })
+
+  const deleteOrg = useMutation({
+    mutationFn: (id) => orgs.delete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+  })
+
+  const addMember = useMutation({
+    mutationFn: ({ orgId, userId }) => orgs.addMember(orgId, userId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+  })
+
+  const assignPrinter = useMutation({
+    mutationFn: ({ orgId, printerId }) => orgs.assignPrinter(orgId, printerId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+  })
+
+  const updateSettings = useMutation({
+    mutationFn: ({ orgId, data }) => orgs.updateSettings(orgId, data),
+    onSuccess: (_, { orgId }) => {
+      queryClient.invalidateQueries({ queryKey: ['org-settings', orgId] })
+    },
+  })
+
+  if (!canDo('settings.edit')) return null
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Building2 size={18} className="text-[var(--brand-primary)]" />
+          <h2 className="text-lg font-display font-semibold">Organizations</h2>
+        </div>
+        <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowCreate(true)}>
+          New Org
+        </Button>
+      </div>
+
+      {showCreate && (
+        <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md border border-[var(--brand-card-border)]">
+          <div className="flex items-center gap-2">
+            <Input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Organization name"
+              className="flex-1 bg-[var(--brand-card-bg)]"
+            />
+            <Button
+              variant="primary"
+              size="md"
+              loading={createOrg.isPending}
+              disabled={!name.trim()}
+              onClick={() => createOrg.mutate({ name })}
+            >
+              Create
+            </Button>
+            <Button variant="ghost" size="icon" icon={X} onClick={() => setShowCreate(false)} />
+          </div>
+        </div>
+      )}
+
+      {isLoading && <div className="text-sm text-[var(--brand-text-muted)] py-4">Loading...</div>}
+
+      {!isLoading && (!orgList || orgList.length === 0) && (
+        <p className="text-sm text-[var(--brand-text-muted)] py-4">No organizations yet. Create one to group users and assign resources.</p>
+      )}
+
+      {orgList?.map(org => (
+        <OrgCard
+          key={org.id}
+          org={org}
+          userList={userList}
+          printerList={printerList}
+          addMemberId={addMemberId}
+          setAddMemberId={setAddMemberId}
+          addPrinterId={addPrinterId}
+          setAddPrinterId={setAddPrinterId}
+          deleteOrg={deleteOrg}
+          addMember={addMember}
+          assignPrinter={assignPrinter}
+          updateSettings={updateSettings}
+          expanded={expandedSettings === org.id}
+          onToggleSettings={() => setExpandedSettings(expandedSettings === org.id ? null : org.id)}
+        />
+      ))}
+    </div>
+  )
+}
+
+
+function OrgCard({ org, userList, printerList, addMemberId, setAddMemberId,
+  addPrinterId, setAddPrinterId, deleteOrg, addMember, assignPrinter,
+  updateSettings, expanded, onToggleSettings }) {
+
+  const { data: settings } = useQuery({
+    queryKey: ['org-settings', org.id],
+    queryFn: () => orgs.getSettings(org.id),
+    enabled: expanded,
+  })
+
+  const [draft, setDraft] = useState(null)
+
+  // Sync draft when settings load
+  const activeDraft = draft ?? settings ?? {}
+  const set = (key, val) => setDraft({ ...activeDraft, [key]: val })
+
+  const handleSave = () => {
+    updateSettings.mutate({ orgId: org.id, data: activeDraft }, {
+      onSuccess: () => setDraft(null),
+    })
+  }
+
+  const inputCls = "bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm w-full"
+  const labelCls = "text-xs text-[var(--brand-text-secondary)] mb-1"
+
+  return (
+    <div className="bg-[var(--brand-input-bg)] rounded-md p-4 mb-3 border border-[var(--brand-card-border)]">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Building2 size={16} className="text-[var(--brand-primary)]" />
+          <span className="font-medium">{org.name}</span>
+          {org.member_count != null && (
+            <span className="text-xs text-[var(--brand-text-muted)]">{org.member_count} members</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            icon={Settings}
+            onClick={onToggleSettings}
+            className={expanded ? 'text-[var(--brand-primary)] bg-[var(--brand-input-bg)]' : ''}
+            aria-label="Organization settings"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            icon={Trash2}
+            onClick={() => deleteOrg.mutate(org.id)}
+            className="text-[var(--brand-text-muted)] hover:text-red-400"
+            aria-label="Delete organization"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <UserPlus size={12} className="text-[var(--brand-text-secondary)]" />
+          <select
+            value={addMemberId[org.id] || ''}
+            onChange={(e) => setAddMemberId(p => ({ ...p, [org.id]: e.target.value }))}
+            className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"
+          >
+            <option value="">Add member...</option>
+            {userList?.map(u => (
+              <option key={u.id} value={u.id}>{u.username}</option>
+            ))}
+          </select>
+          {addMemberId[org.id] && (
+            <Button variant="primary" size="sm" onClick={() => { addMember.mutate({ orgId: org.id, userId: parseInt(addMemberId[org.id]) }); setAddMemberId(p => ({ ...p, [org.id]: '' })) }}>
+              Add
+            </Button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Printer size={12} className="text-[var(--brand-text-secondary)]" />
+          <select
+            value={addPrinterId[org.id] || ''}
+            onChange={(e) => setAddPrinterId(p => ({ ...p, [org.id]: e.target.value }))}
+            className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-xs"
+          >
+            <option value="">Assign printer...</option>
+            {printerList?.map(p => (
+              <option key={p.id} value={p.id}>{p.nickname || p.name}</option>
+            ))}
+          </select>
+          {addPrinterId[org.id] && (
+            <Button variant="primary" size="sm" onClick={() => { assignPrinter.mutate({ orgId: org.id, printerId: parseInt(addPrinterId[org.id]) }); setAddPrinterId(p => ({ ...p, [org.id]: '' })) }}>
+              Assign
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-4 pt-4 border-t border-[var(--brand-card-border)] space-y-4">
+          {/* Default Filament */}
+          <fieldset>
+            <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Default Filament</legend>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className={labelCls}>Type</div>
+                <select
+                  value={activeDraft.default_filament_type || ''}
+                  onChange={(e) => set('default_filament_type', e.target.value || null)}
+                  className={inputCls}
+                >
+                  <option value="">None</option>
+                  {FILAMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <div className={labelCls}>Color</div>
+                <input
+                  type="text"
+                  value={activeDraft.default_filament_color || ''}
+                  onChange={(e) => set('default_filament_color', e.target.value || null)}
+                  placeholder="e.g. Black"
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Notifications */}
+          <fieldset>
+            <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Notifications</legend>
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={activeDraft.quiet_hours_enabled || false}
+                  onChange={(e) => set('quiet_hours_enabled', e.target.checked)}
+                  className="rounded border-[var(--brand-card-border)]"
+                />
+                Quiet hours
+              </label>
+              {activeDraft.quiet_hours_enabled && (
+                <div className="grid grid-cols-2 gap-3 ml-6">
+                  <div>
+                    <div className={labelCls}>Start</div>
+                    <input
+                      type="time"
+                      value={activeDraft.quiet_hours_start || '22:00'}
+                      onChange={(e) => set('quiet_hours_start', e.target.value)}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <div className={labelCls}>End</div>
+                    <input
+                      type="time"
+                      value={activeDraft.quiet_hours_end || '07:00'}
+                      onChange={(e) => set('quiet_hours_end', e.target.value)}
+                      className={inputCls}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className={labelCls}>Webhook URL</div>
+                  <input
+                    type="url"
+                    value={activeDraft.webhook_url || ''}
+                    onChange={(e) => set('webhook_url', e.target.value || null)}
+                    placeholder="https://..."
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <div className={labelCls}>Webhook Type</div>
+                  <select
+                    value={activeDraft.webhook_type || 'generic'}
+                    onChange={(e) => set('webhook_type', e.target.value)}
+                    className={inputCls}
+                  >
+                    {WEBHOOK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Branding */}
+          <fieldset>
+            <legend className="text-sm font-medium text-[var(--brand-text-secondary)] mb-2">Branding</legend>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className={labelCls}>App Name</div>
+                <input
+                  type="text"
+                  value={activeDraft.branding_app_name || ''}
+                  onChange={(e) => set('branding_app_name', e.target.value || null)}
+                  placeholder="Override app name"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <div className={labelCls}>Logo URL</div>
+                <input
+                  type="url"
+                  value={activeDraft.branding_logo_url || ''}
+                  onChange={(e) => set('branding_logo_url', e.target.value || null)}
+                  placeholder="https://..."
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          </fieldset>
+
+          <Button variant="primary" size="sm" icon={Save} loading={updateSettings.isPending} onClick={handleSave}>
+            {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}

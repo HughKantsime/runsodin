@@ -1,0 +1,34 @@
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+
+function SortIcon({ field, sortField, sortDirection }: { field: string; sortField: string; sortDirection: string }) {
+  if (sortField !== field) return <ArrowUpDown size={12} className="opacity-30" />
+  return sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+}
+
+function SortTh({ label, field, sortField, sortDirection, onSort, className = '' }: { label: string; field: string; sortField: string; sortDirection: string; onSort: (field: string) => void; className?: string }) {
+  return (
+    <th scope="col" className={`px-3 md:px-4 py-3 text-left text-xs font-semibold text-[var(--brand-text-secondary)] tracking-wide cursor-pointer hover:text-[var(--brand-text-primary)] select-none ${className}`} onClick={() => onSort(field)}>
+      <div className="flex items-center gap-1">{label} <SortIcon field={field} sortField={sortField} sortDirection={sortDirection} /></div>
+    </th>
+  )
+}
+
+export default function JobTableHeader({ sortField, sortDirection, onSort, allSelected, onSelectAll }: { sortField: string; sortDirection: string; onSort: (field: string) => void; allSelected: boolean; onSelectAll: () => void }) {
+  return (
+    <thead className="bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)]">
+      <tr>
+        <th scope="col" className="px-2 py-3 w-10">
+          <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="rounded border-[var(--brand-text-muted)]" aria-label="Select all jobs" />
+        </th>
+        <SortTh label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+        <SortTh label="Item" field="item_name" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+        <SortTh label="Pri" field="priority" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+        <SortTh label="Printer" field="printer" sortField={sortField} sortDirection={sortDirection} onSort={onSort} />
+        <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-semibold text-[var(--brand-text-secondary)] tracking-wide hidden lg:table-cell">Colors</th>
+        <SortTh label="Duration" field="duration_hours" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden md:table-cell" />
+        <SortTh label="Scheduled" field="scheduled_start" sortField={sortField} sortDirection={sortDirection} onSort={onSort} className="hidden lg:table-cell" />
+        <th scope="col" className="px-3 md:px-4 py-3 text-left text-xs font-semibold text-[var(--brand-text-secondary)] tracking-wide">Actions</th>
+      </tr>
+    </thead>
+  )
+}

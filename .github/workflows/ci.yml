@@ -1,0 +1,144 @@
+name: Security & Code Quality
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # Job 0: Contract & Architecture Tests
+  # Module boundaries, import rules, architecture lint.
+  # These run without a container — pure static analysis of code structure.
+  # ─────────────────────────────────────────────────────────
+  contract-tests:
+    name: Contract & Architecture Tests
+    runs-on: mac-mini-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Run contract tests
+        run: pytest tests/test_contracts/ -v --tb=short
+
+  # ─────────────────────────────────────────────────────────
+  # Job 1: Secret Scanning
+  # Catches credentials/keys committed to the repo.
+  # Belt-and-suspenders over the pre-commit gitleaks hook.
+  # ─────────────────────────────────────────────────────────
+  secrets-scan:
+    name: Secret Scanning
+    runs-on: mac-mini-runner
+    steps:
+      - name: Checkout (full history for gitleaks)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────
+  # Job 2: Python Static Analysis + Dependency Audit
+  # Bandit catches common Python security mistakes.
+  # pip-audit flags CVEs in backend dependencies.
+  # ─────────────────────────────────────────────────────────
+  python-security:
+    name: Python Security Scan
+    runs-on: mac-mini-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scanning tools
+        run: pip install bandit pip-audit
+
+      - name: Bandit — static analysis
+        run: |
+          # Full report for visibility (medium+), saved as artifact
+          bandit -r backend/ \
+            -ll \
+            --exclude backend/vision_models_default/ \
+            -f txt \
+            -o bandit-report.txt || true
+          cat bandit-report.txt
+          # Hard fail only on HIGH severity findings (-lll = high+)
+          # Exit code 1 = findings, exit code 2 = bandit error — treat error as warning
+          bandit -r backend/ \
+            -lll \
+            --exclude backend/vision_models_default/ \
+            -q
+          EXIT=$?
+          if [ $EXIT -eq 2 ]; then
+            echo "::warning::Bandit encountered parse errors on some files (likely Python version skew). Review bandit-report.txt."
+            exit 0
+          fi
+          exit $EXIT
+
+      - name: pip-audit — dependency CVEs
+        run: |
+          # pip-audit 2.x does not support --severity filtering.
+          # Run full audit for visibility — findings are surfaced in the artifact.
+          # Treat all findings as warnings; block on explicit CRITICAL ignores only.
+          pip-audit \
+            -r backend/requirements.txt \
+            --progress-spinner off \
+            --desc on \
+            || true
+
+      - name: Upload bandit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.txt
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────
+  # Job 3: Frontend Dependency Audit
+  # npm audit catches CVEs in frontend dependencies.
+  # ─────────────────────────────────────────────────────────
+  frontend-security:
+    name: Frontend Dependency Audit
+    runs-on: mac-mini-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: npm audit (high and critical)
+        run: |
+          cd frontend
+          # Report everything for visibility
+          npm audit --json > npm-audit.json || true
+          npm audit || true
+          # Hard fail only on critical
+          npm audit --audit-level=critical
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: frontend/npm-audit.json
+          retention-days: 30

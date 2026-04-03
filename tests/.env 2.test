@@ -1,0 +1,4 @@
+BASE_URL=http://localhost:8000
+API_KEY=
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=OdinAdmin-2026x

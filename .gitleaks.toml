@@ -1,0 +1,18 @@
+title = "O.D.I.N. Gitleaks Config"
+
+[allowlist]
+  description = "Known false positives — test credentials and dev defaults"
+  paths = [
+    '''tests/conftest\.py''',
+    '''tests/test_features\.py''',
+    '''\.env\.example''',
+    '''\.env\.test''',
+  ]
+  regexes = [
+    '''odin-dev-secret-change-in-production''',
+    '''ViewerTestPass1''',
+    '''OperatorTestPass1''',
+    '''AdminTestPass1''',
+    '''test_(viewer|operator|admin)_rbac''',
+    '''OdinAdmin1''',
+  ]

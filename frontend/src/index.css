@@ -1,0 +1,604 @@
+/* O.D.I.N. — Industrial Control System Theme ("Forge") */
+
+/* Fonts — IBM Plex for that technical/industrial feel (self-hosted via @fontsource) */
+/* Branding font families — loaded on-demand by Branding page (see Branding.jsx) */
+
+:root {
+  /* Brand colors — Refined warm industrial */
+  --brand-primary: #C47A1A;
+  --brand-accent: #D4891F;
+  --brand-sidebar-bg: #0B0D11;
+  --brand-sidebar-border: #1F2330;
+  --brand-sidebar-text: #7A8396;
+  --brand-sidebar-active-bg: rgba(196, 122, 26, 0.08);
+  --brand-sidebar-active-text: #D4891F;
+  --brand-content-bg: #0B0D11;
+  --brand-card-bg: #12151B;
+  --brand-card-border: #1F2330;
+  --brand-text-primary: #E8ECF2;
+  --brand-text-secondary: #7A8396;
+  --brand-text-muted: #3D4559;
+  --brand-surface: #1A1D25;
+  --brand-input-bg: #1A1D25;
+  --brand-input-border: #1F2330;
+  --brand-input-text: #E8ECF2;
+  /* Chart theming */
+  --chart-card-bg: #12151B;
+  --chart-grid: #1A1D25;
+  --chart-axis: #3D4559;
+  --chart-axis-line: #1F2330;
+  --chart-tooltip-bg: #12151B;
+  --chart-tooltip-border: #1F2330;
+  --chart-tooltip-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  /* Brand fonts — IBM Plex (unchanged) */
+  --brand-font-display: 'IBM Plex Mono', ui-monospace, monospace;
+  --brand-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --brand-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* UI chrome */
+  --brand-focus-ring: #C47A1A;
+  --brand-selection-bg: rgba(196, 122, 26, 0.25);
+  --brand-selection-text: #D4891F;
+  --brand-card-shadow: none;
+  --brand-job-card-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  /* Farm palette — refined dark slate (R G B space-separated for Tailwind alpha) */
+  --farm-50: 232 236 242;
+  --farm-100: 212 218 228;
+  --farm-200: 184 194 208;
+  --farm-300: 139 149 168;
+  --farm-400: 122 131 150;
+  --farm-500: 74 85 104;
+  --farm-600: 61 69 89;
+  --farm-700: 26 29 37;
+  --farm-800: 18 21 27;
+  --farm-900: 11 13 17;
+  --farm-950: 11 13 17;
+  /* Status colors — muted for dark mode */
+  --status-printing: #5B93E8;
+  --status-completed: #3DAF5C;
+  --status-failed: #D84848;
+  --status-warning: #D4891F;
+  --status-pending: #7A8396;
+  --status-scheduled: #8B7BE8;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+@layer base {
+  body {
+    @apply antialiased;
+    font-family: var(--brand-font-body);
+    background: var(--brand-content-bg);
+    color: rgb(var(--farm-300));
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  h1 {
+    font-family: var(--brand-font-display);
+    letter-spacing: 0.01em;
+    font-weight: 600;
+    font-size: 20px;
+  }
+
+  h2, h3, h4, h5, h6 {
+    font-family: var(--brand-font-body);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+
+  code, pre, .mono {
+    font-family: var(--brand-font-mono);
+  }
+
+  input, select, textarea {
+    border-radius: 6px !important;
+    background-color: var(--brand-input-bg);
+    border-color: var(--brand-input-border);
+    color: var(--brand-input-text);
+  }
+
+  button {
+    border-radius: 6px;
+  }
+}
+
+/* Control room mode — hide sidebar and header */
+.control-room-mode aside[role="navigation"],
+.control-room-mode aside[role="navigation"] + div > [role="toolbar"] {
+  display: none !important;
+}
+
+/* Table row striping — subtle alternating rows */
+@layer components {
+  .table-industrial tbody tr:nth-child(even) {
+    background-color: rgba(var(--farm-800) / 0.4);
+  }
+  .table-industrial tbody tr {
+    @apply border-b;
+    border-color: var(--brand-card-border);
+    transition: border-color 0.1s ease;
+  }
+  .table-industrial tbody tr:hover {
+    border-left: 2px solid var(--brand-primary);
+  }
+  .table-industrial thead {
+    background: var(--brand-card-bg);
+    @apply border-b;
+    border-color: var(--brand-card-border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .table-industrial th {
+    @apply text-xs font-semibold tracking-normal;
+    color: var(--brand-text-secondary);
+    padding: 12px 16px;
+    text-transform: none;
+  }
+  .table-industrial td {
+    padding: 12px 16px;
+  }
+}
+
+/* Custom scrollbar — industrial thin */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--farm-700)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--farm-700));
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #b45309;
+  }
+}
+
+/* Global scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(var(--farm-950));
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--farm-700));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b45309;
+}
+
+/* Timeline grid */
+.timeline-grid {
+  display: grid;
+  grid-template-columns: 120px repeat(var(--slot-count, 48), minmax(40px, 1fr));
+  gap: 1px;
+  background: rgb(var(--farm-800));
+}
+
+.timeline-slot {
+  min-height: 48px;
+  transition: background-color 0.15s ease;
+}
+
+.timeline-slot:hover {
+  filter: brightness(1.1);
+}
+
+/* Job card animations */
+.job-card {
+  transition: background-color 0.15s ease;
+}
+
+.job-card:hover {
+  filter: brightness(1.15);
+}
+
+/* Status indicators */
+.status-dot {
+  @apply w-1.5 h-1.5 rounded-full;
+}
+
+.status-dot.pending { background: var(--status-pending); }
+.status-dot.scheduled { background: var(--status-scheduled); }
+.status-dot.printing {
+  background: var(--status-printing);
+  animation: statusPulse 2s ease-in-out infinite;
+}
+.status-dot.completed { background: var(--status-completed); }
+.status-dot.failed { background: var(--status-failed); }
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Color swatch */
+.color-swatch {
+  @apply w-4 h-4 rounded-sm border border-farm-700;
+}
+
+/* Loading skeleton */
+.skeleton {
+  @apply bg-farm-800 rounded;
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+/* Drag and drop feedback */
+.drop-target {
+  @apply ring-2 ring-print-500 ring-opacity-50;
+}
+
+.dragging {
+  @apply opacity-50 cursor-grabbing;
+}
+
+/* Focus rings — amber instead of blue */
+*:focus-visible {
+  outline: 2px solid var(--brand-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background: var(--brand-selection-bg);
+  color: var(--brand-selection-text);
+}
+
+/* ============================================
+   HIGH-CONTRAST DARK MODE
+   For shop floor monitors and TV dashboards.
+   Apply class="high-contrast" to <html> or a
+   container element.
+   ============================================ */
+
+.high-contrast {
+  --brand-text-primary: #FFFFFF;
+  --brand-text-secondary: #C0C8D8;
+  --brand-text-muted: #6B7A94;
+  --brand-card-border: #2E3448;
+  --brand-sidebar-border: #2E3448;
+  --brand-input-border: #2E3448;
+  --brand-card-bg: #0F1219;
+  --brand-content-bg: #080A0E;
+  --brand-surface: #1A1E28;
+  --brand-input-bg: #1A1E28;
+  --status-printing: #6BA6F7;
+  --status-completed: #4CC76E;
+  --status-failed: #F06060;
+  --status-warning: #F0A030;
+  --status-pending: #94A0B8;
+  --status-scheduled: #A08DF0;
+}
+
+.high-contrast * {
+  border-color: var(--brand-card-border);
+}
+
+/* Boost text contrast on cards */
+.high-contrast .text-xs,
+.high-contrast .text-sm {
+  font-weight: 500;
+}
+
+/* Stronger borders for visibility at distance */
+.high-contrast .border {
+  border-width: 2px;
+}
+
+/* Larger status dots for shop floor visibility */
+.high-contrast .status-dot {
+  @apply w-2.5 h-2.5;
+}
+
+/* Progress bars — taller for TV readability */
+.high-contrast .h-1 {
+  height: 0.375rem;
+}
+
+.high-contrast .h-3 {
+  height: 1rem;
+}
+
+/* ============================================
+   LIGHT MODE
+   ============================================
+   Strategy: redefine CSS custom properties so
+   all variable-driven styles (farm-*, brand-*,
+   chart-*) auto-adapt.  Only Tailwind built-in
+   color utilities (red-*, green-*, white, etc.)
+   and component-specific effects need explicit
+   class overrides below.
+   ============================================ */
+
+/* --- 1. Variable redefinitions (handles ~80% of theming) --- */
+html.light {
+  --brand-primary: #9A5E0D;
+  --brand-accent: #B46E14;
+  --brand-sidebar-bg: #F8FAFC;
+  --brand-sidebar-border: #E2E5EB;
+  --brand-sidebar-text: #1E293B;
+  --brand-sidebar-active-bg: rgba(154, 94, 13, 0.06);
+  --brand-sidebar-active-text: #9A5E0D;
+  --brand-content-bg: #F4F5F7;
+  --brand-card-bg: #FFFFFF;
+  --brand-card-border: #E2E5EB;
+  --brand-text-primary: #0F1219;
+  --brand-text-secondary: #5A6478;
+  --brand-text-muted: #9BA3B2;
+  --brand-surface: #F0F1F3;
+  --brand-input-bg: #F8FAFC;
+  --brand-input-border: #E2E5EB;
+  --brand-input-text: #1E293B;
+  --chart-card-bg: #FFFFFF;
+  --chart-grid: #E2E5EB;
+  --chart-axis: #5A6478;
+  --chart-axis-line: #E2E5EB;
+  --chart-tooltip-bg: #FFFFFF;
+  --chart-tooltip-border: #E2E5EB;
+  --chart-tooltip-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  --brand-font-display: inherit;
+  --brand-font-body: inherit;
+  --brand-font-mono: inherit;
+  --brand-focus-ring: #9A5E0D;
+  --brand-selection-bg: rgba(154, 94, 13, 0.15);
+  --brand-selection-text: #9A5E0D;
+  --brand-card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+  --brand-job-card-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --farm-50: 2 6 23;
+  --farm-100: 15 23 42;
+  --farm-200: 30 41 59;
+  --farm-300: 51 65 85;
+  --farm-400: 71 85 105;
+  --farm-500: 75 85 99;
+  --farm-600: 148 163 184;
+  --farm-700: 226 229 235;
+  --farm-800: 226 232 240;
+  --farm-900: 255 255 255;
+  --farm-950: 244 245 247;
+  --status-printing: #3B82F6;
+  --status-completed: #22C55E;
+  --status-failed: #EF4444;
+  --status-warning: #D97706;
+  --status-pending: #6B7280;
+  --status-scheduled: #8B5CF6;
+}
+
+/* --- 2. Card elevation — variable-driven shadow on white cards --- */
+/* [component-specific] bg-farm-900 maps to white in light mode; add subtle shadow */
+html.light .bg-farm-900 {
+  box-shadow: var(--brand-card-shadow);
+}
+
+/* --- 3. Semantic / status color remapping ---
+   [cannot be variable-driven] Tailwind built-in colors (red, green, blue,
+   amber, purple, yellow) use hardcoded hex values, not CSS variables.
+   Dark-mode shades (e.g. bg-red-900/30) need explicit light equivalents. */
+
+/* Red — errors, failures */
+html.light .bg-red-900\/30 { background-color: #fef2f2; }
+html.light .bg-red-900\/50 { background-color: #fee2e2; }
+html.light .text-red-400 { color: #dc2626; }
+html.light .text-red-300 { color: #ef4444; }
+html.light .text-red-500 { color: #b91c1c; }
+html.light .border-red-700\/30 { border-color: #fca5a5; }
+html.light .border-red-500\/30 { border-color: #fecaca; }
+html.light .border-red-800 { border-color: #fca5a5; }
+
+/* Green — success, online */
+html.light .bg-green-900\/30 { background-color: #f0fdf4; }
+html.light .bg-green-900\/50 { background-color: #dcfce7; }
+html.light .text-green-400 { color: #16a34a; }
+html.light .text-green-300 { color: #22c55e; }
+html.light .text-green-500 { color: #15803d; }
+html.light .border-green-700\/30 { border-color: #86efac; }
+html.light .border-green-500\/30 { border-color: #bbf7d0; }
+html.light .border-green-800 { border-color: #86efac; }
+
+/* Blue — info, active */
+html.light .bg-blue-900\/30 { background-color: #eff6ff; }
+html.light .bg-blue-900\/50 { background-color: #dbeafe; }
+html.light .text-blue-400 { color: #2563eb; }
+html.light .text-blue-300 { color: #3b82f6; }
+html.light .text-blue-500 { color: #1d4ed8; }
+html.light .border-blue-700\/30 { border-color: #93c5fd; }
+html.light .border-blue-500\/30 { border-color: #bfdbfe; }
+html.light .border-blue-800 { border-color: #93c5fd; }
+
+/* Amber — warnings */
+html.light .bg-amber-900\/30 { background-color: #fef3c7; }
+html.light .bg-amber-900\/50 { background-color: #fde68a; }
+html.light .text-amber-400 { color: #d97706; }
+html.light .text-amber-300 { color: #f59e0b; }
+html.light .text-amber-500 { color: #b45309; }
+html.light .border-amber-700\/30 { border-color: #fcd34d; }
+html.light .border-amber-500\/30 { border-color: #fde68a; }
+
+/* Purple — special states */
+html.light .bg-purple-900\/30 { background-color: #faf5ff; }
+html.light .bg-purple-900\/50 { background-color: #f3e8ff; }
+html.light .text-purple-400 { color: #9333ea; }
+html.light .text-purple-300 { color: #a855f7; }
+html.light .border-purple-700\/30 { border-color: #d8b4fe; }
+
+/* Yellow */
+html.light .bg-yellow-900\/30 { background-color: #fefce8; }
+html.light .bg-yellow-900\/50 { background-color: #fef9c3; }
+html.light .text-yellow-400 { color: #ca8a04; }
+html.light .text-yellow-300 { color: #eab308; }
+
+/* Print accent (brand amber) */
+html.light .text-print-400 { color: #b45309; }
+html.light .text-print-500 { color: #92400e; }
+html.light .bg-print-900\/30 { background-color: #fffbeb; }
+html.light .bg-print-900\/50 { background-color: #fef3c7; }
+html.light .border-print-700\/30 { border-color: #fcd34d; }
+html.light .border-print-500 { border-color: #f59e0b; }
+
+/* --- 4. text-white remapping ---
+   [cannot be variable-driven] Tailwind's `white` is hardcoded #fff,
+   not a CSS variable. Remap to dark text for light backgrounds,
+   then restore white on colored/saturated backgrounds via exceptions. */
+
+html.light .text-white { color: rgb(var(--farm-100)); }
+html.light .text-white\/90 { color: rgb(var(--farm-100) / 0.9); }
+html.light .text-white\/80 { color: rgb(var(--farm-100) / 0.8); }
+html.light .text-white\/70 { color: rgb(var(--farm-100) / 0.7); }
+html.light .text-white\/60 { color: rgb(var(--farm-100) / 0.6); }
+html.light .text-white\/50 { color: rgb(var(--farm-100) / 0.5); }
+html.light .text-white\/40 { color: rgb(var(--farm-100) / 0.4); }
+html.light .text-white\/30 { color: rgb(var(--farm-100) / 0.3); }
+
+/* Exceptions: keep white text on colored/saturated backgrounds */
+html.light .bg-print-500 .text-white,
+html.light .bg-print-600 .text-white,
+html.light .bg-print-700 .text-white,
+html.light .bg-print-500.text-white,
+html.light .bg-print-600.text-white,
+html.light .bg-print-700.text-white { color: #fff !important; }
+
+html.light .bg-red-500 .text-white,
+html.light .bg-red-600 .text-white,
+html.light .bg-red-700 .text-white,
+html.light .bg-red-500.text-white,
+html.light .bg-red-600.text-white,
+html.light .bg-red-700.text-white { color: #fff !important; }
+
+html.light .bg-green-500 .text-white,
+html.light .bg-green-600 .text-white,
+html.light .bg-green-700 .text-white,
+html.light .bg-green-500.text-white,
+html.light .bg-green-600.text-white,
+html.light .bg-green-700.text-white { color: #fff !important; }
+
+html.light .bg-blue-500 .text-white,
+html.light .bg-blue-600 .text-white,
+html.light .bg-blue-700 .text-white,
+html.light .bg-blue-500.text-white,
+html.light .bg-blue-600.text-white,
+html.light .bg-blue-700.text-white { color: #fff !important; }
+
+html.light .bg-amber-500 .text-white,
+html.light .bg-amber-600 .text-white,
+html.light .bg-amber-700 .text-white,
+html.light .bg-amber-500.text-white,
+html.light .bg-amber-600.text-white,
+html.light .bg-amber-700.text-white { color: #fff !important; }
+
+html.light .bg-purple-500 .text-white,
+html.light .bg-purple-600 .text-white,
+html.light .bg-purple-700 .text-white,
+html.light .bg-purple-500.text-white,
+html.light .bg-purple-600.text-white,
+html.light .bg-purple-700.text-white { color: #fff !important; }
+
+html.light .bg-status-printing .text-white,
+html.light .bg-status-completed .text-white,
+html.light .bg-status-failed .text-white,
+html.light .bg-status-pending .text-white,
+html.light .bg-status-scheduled .text-white,
+html.light .bg-status-printing.text-white,
+html.light .bg-status-completed.text-white,
+html.light .bg-status-failed.text-white,
+html.light .bg-status-pending.text-white,
+html.light .bg-status-scheduled.text-white { color: #fff !important; }
+
+html.light .bg-gradient-to-t .text-white,
+html.light .bg-gradient-to-b .text-white,
+html.light .bg-gradient-to-r .text-white,
+html.light .bg-gradient-to-l .text-white,
+html.light .bg-gradient-to-t.text-white,
+html.light .bg-gradient-to-b.text-white,
+html.light .bg-gradient-to-r.text-white,
+html.light .bg-gradient-to-l.text-white { color: #fff !important; }
+
+html.light .relative > .absolute .text-white,
+html.light .relative > .absolute.text-white { color: #fff !important; }
+
+html.light .bg-black .text-white,
+html.light .bg-black.text-white { color: #fff !important; }
+
+html.light [style*="backgroundColor"] .text-white,
+html.light [style*="background-color"] .text-white { color: #fff !important; }
+
+/* --- 5. bg-white / border-white opacity remapping ---
+   [cannot be variable-driven] white is hardcoded in Tailwind;
+   on light backgrounds white tints are invisible. */
+
+html.light .bg-white\/5 { background-color: rgb(var(--farm-500) / 0.05); }
+html.light .bg-white\/10 { background-color: rgb(var(--farm-500) / 0.1); }
+html.light .bg-white\/20 { background-color: rgb(var(--farm-500) / 0.2); }
+
+html.light .border-white\/10 { border-color: rgb(var(--farm-500) / 0.1); }
+html.light .border-white\/20 { border-color: rgb(var(--farm-500) / 0.2); }
+
+/* --- 6. Component-specific overrides ---
+   [cannot be variable-driven] These target specific component
+   patterns that need special handling in light mode. */
+
+/* Toggle switch handles — bg-white knobs disappear on white cards */
+html.light .rounded-full.bg-white {
+  box-shadow: 0 0 0 1px rgb(var(--farm-600) / 0.3), 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Placeholder text — white placeholders invisible on light inputs */
+html.light .placeholder-white\/30::placeholder { color: rgb(var(--farm-500) / 0.5); }
+html.light .placeholder-white\/50::placeholder { color: rgb(var(--farm-500) / 0.5); }
+
+/* --- 7. Setup wizard — force dark palette ---
+   [scoped variable override] The wizard uses farm colors and text-white
+   directly; restoring dark-mode variable values prevents inversion. */
+
+html.light .setup-wizard {
+  --farm-50: 244 246 249;
+  --farm-100: 232 236 242;
+  --farm-200: 212 218 228;
+  --farm-300: 184 194 208;
+  --farm-400: 139 149 168;
+  --farm-500: 74 85 104;
+  --farm-600: 54 65 85;
+  --farm-700: 37 45 61;
+  --farm-800: 26 32 48;
+  --farm-900: 15 18 24;
+  --farm-950: 10 12 16;
+}
+html.light .setup-wizard .text-white { color: #fff !important; }
+html.light .setup-wizard .text-white\/90 { color: rgba(255,255,255,0.9) !important; }
+html.light .setup-wizard .text-white\/80 { color: rgba(255,255,255,0.8) !important; }
+html.light .setup-wizard .text-white\/70 { color: rgba(255,255,255,0.7) !important; }
+html.light .setup-wizard .text-white\/30 { color: rgba(255,255,255,0.3) !important; }
+html.light .setup-wizard .text-white\/20 { color: rgba(255,255,255,0.2) !important; }
+html.light .setup-wizard .bg-white\/5 { background-color: rgba(255,255,255,0.05) !important; }
+html.light .setup-wizard .bg-white\/10 { background-color: rgba(255,255,255,0.1) !important; }
+html.light .setup-wizard .border-white\/10 { border-color: rgba(255,255,255,0.1) !important; }
+html.light .setup-wizard .placeholder-white\/30::placeholder { color: rgba(255,255,255,0.3) !important; }
+html.light .setup-wizard input,
+html.light .setup-wizard select,
+html.light .setup-wizard textarea {
+  background-color: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+  color: #fff;
+}

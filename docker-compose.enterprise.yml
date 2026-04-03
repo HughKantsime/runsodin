@@ -1,0 +1,156 @@
+# ============================================================
+# O.D.I.N. Enterprise — Decomposed Docker Compose
+#
+# Splits the monolith into separate services for:
+# - PostgreSQL database (scalable, proper backups)
+# - Backend API (FastAPI, horizontally scalable)
+# - Printer monitors (background workers, crash-independent)
+# - Vision AI (GPU-optional, resource-intensive)
+# - go2rtc (camera streaming, WebRTC relay)
+#
+# Usage:
+#   cp .env.example .env  # configure DATABASE_URL, JWT_SECRET_KEY, etc.
+#   docker compose -f docker-compose.enterprise.yml up -d
+#
+# For simple self-hosted installs, use docker-compose.yml instead (single container).
+# ============================================================
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: odin-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: odin
+      POSTGRES_USER: odin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-odin_secure_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"  # Remove in production — only for direct DB access
+
+  # ── Backend API ─────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: odin-api
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      API_KEY: ${API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000}
+      ODIN_HOST_IP: ${ODIN_HOST_IP:-}
+      TZ: ${TZ:-America/New_York}
+      # Tell monitors to skip — API-only mode
+      ODIN_ROLE: api
+    ports:
+      - "8000:8000"
+    volumes:
+      - odin-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Printer Monitors ────────────────────────────────────────
+  # Runs: mqtt_monitor, moonraker_monitor, prusalink_monitor, elegoo_monitor
+  monitors:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: odin-monitors
+    restart: unless-stopped
+    command: ["supervisord", "-c", "/etc/supervisor/conf.d/monitors.conf"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TZ: ${TZ:-America/New_York}
+      ODIN_ROLE: monitors
+    volumes:
+      - odin-data:/data
+    # Monitors need LAN access for printer discovery
+    # network_mode: host  # Uncomment if printers are on the same network
+
+  # ── Vision AI ───────────────────────────────────────────────
+  # Runs: vision_monitor, inference_engine, detection_thread
+  vision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: odin-vision
+    restart: unless-stopped
+    command: ["supervisord", "-c", "/etc/supervisor/conf.d/vision.conf"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TZ: ${TZ:-America/New_York}
+      ODIN_ROLE: vision
+    volumes:
+      - odin-data:/data
+    # Uncomment for GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ── go2rtc (Camera Streaming) ───────────────────────────────
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: odin-go2rtc
+    restart: unless-stopped
+    ports:
+      - "8555:8555"  # WebRTC
+      - "1984:1984"  # HLS/API (expose if needed)
+    volumes:
+      - ./odin-data/go2rtc:/config
+    environment:
+      TZ: ${TZ:-America/New_York}
+
+  # ── Report Runner ───────────────────────────────────────────
+  reports:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: odin-reports
+    restart: unless-stopped
+    command: ["python", "backend/modules/reporting/report_runner.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      TZ: ${TZ:-America/New_York}
+      ODIN_ROLE: reports
+    volumes:
+      - odin-data:/data
+
+volumes:
+  postgres-data:
+  odin-data:
