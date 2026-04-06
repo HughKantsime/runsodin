@@ -12,6 +12,7 @@ ROUTES = [
     "system.routes_settings",
     "system.routes_maintenance",
     "system.routes_admin",
+    "system.diagnostics",
 ]
 
 TABLES = [

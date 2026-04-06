@@ -25,6 +25,7 @@ from modules.system import (  # noqa: E402
     routes_settings,
     routes_maintenance,
     routes_admin,
+    diagnostics,
 )
 
 router.include_router(routes_health.router)
@@ -34,6 +35,7 @@ router.include_router(routes_backup.router)
 router.include_router(routes_settings.router)
 router.include_router(routes_maintenance.router)
 router.include_router(routes_admin.router)
+router.include_router(diagnostics.router)
 
 # Re-export health_check so core/app.py can call system.health_check()
 # (core/app.py registers a root /health handler that delegates here)
