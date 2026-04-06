@@ -187,8 +187,9 @@ jobs:
 
           gh api repos/HughKantsime/odin-site/dispatches \
             --method POST \
-            --field event_type=odin-release \
-            -f "client_payload={\"version\":\"$VER\",\"tag\":\"$TAG\",\"source_repo\":\"HughKantsime/runsodin\",\"source_sha\":\"$SHA\"}"
+            --input - <<EOF
+          {"event_type":"odin-release","client_payload":{"version":"$VER","tag":"$TAG","source_repo":"HughKantsime/runsodin","source_sha":"$SHA"}}
+          EOF
 
       - name: Poll for odin-site workflow completion
         id: poll
@@ -238,17 +239,10 @@ jobs:
           VER="${VER#v}"
           for i in $(seq 1 20); do
             sleep 30
-            RESPONSE=$(curl -sf https://odin.subsystem.app/api/v1/version 2>/dev/null || echo "FETCH_FAILED")
+            RESPONSE=$(curl -sf https://odin.subsystem.app/health 2>/dev/null || echo "FETCH_FAILED")
             if echo "$RESPONSE" | grep -q "\"version\":\"$VER\""; then
-              echo "Prod is running v$VER"
-              # Verify health endpoint
-              HEALTH=$(curl -sf -o /dev/null -w "%{http_code}" https://odin.subsystem.app/health 2>/dev/null || echo "000")
-              if [ "$HEALTH" = "200" ]; then
-                echo "Health check passed"
-                exit 0
-              else
-                echo "::warning::Version matches but health check returned $HEALTH"
-              fi
+              echo "Prod is running v$VER — health check passed"
+              exit 0
             fi
             echo "Poll $i/20: waiting for v$VER on prod..."
           done
