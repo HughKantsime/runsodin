@@ -18,16 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
 
       - name: Install test dependencies
-        run: pip install pytest && pip install -r backend/requirements.txt
+        run: pip3.11 install pytest && pip3.11 install -r backend/requirements.txt
 
       - name: Run contract tests
-        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
+        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3.11 -m pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
 
   # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
@@ -59,13 +57,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
 
       - name: Install scanning tools
-        run: pip install bandit pip-audit
+        run: pip3.11 install bandit pip-audit
 
       - name: Bandit — static analysis
         run: |
