@@ -112,16 +112,182 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Post-deploy notification ──
-  notify:
-    name: Post-Deploy
+  # ── Phase 3: Create GitHub Release ──
+  release:
+    name: Create GitHub Release
     needs: [tag, build]
     if: needs.tag.outputs.tag_created == 'true'
     runs-on: mac-mini-runner
+    continue-on-error: true
+    permissions:
+      contents: write
+    outputs:
+      release_ok: ${{ steps.create.outcome == 'success' }}
     steps:
-      - name: Summary
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog body
+        id: changelog
         run: |
+          VER="${{ needs.tag.outputs.version }}"
+          VER="${VER#v}"
+          python3 -c "
+          import sys, re
+          content = open('CHANGELOG.md').read()
+          ver = '$VER'
+          m = re.search(r'## \[' + re.escape(ver) + r'\][^\n]*\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
+          if not m:
+              print(f'ERROR: no changelog section for {ver}', file=sys.stderr); sys.exit(1)
+          body = m.group(1).strip()
+          if not body:
+              print(f'ERROR: empty changelog section for {ver}', file=sys.stderr); sys.exit(1)
+          print(body)
+          " > /tmp/changelog_body.txt
+          if [ ! -s /tmp/changelog_body.txt ]; then
+            echo "ERROR: changelog body is empty for v$VER"
+            exit 1
+          fi
+          echo "Extracted $(wc -l < /tmp/changelog_body.txt) lines for v$VER"
+
+      - name: Create GitHub Release
+        id: create
+        run: |
+          VER="${{ needs.tag.outputs.version }}"
+          gh release create "$VER" \
+            --title "O.D.I.N. $VER" \
+            --notes-file /tmp/changelog_body.txt \
+            install/install.sh
+
+  # ── Phase 4: Sync odin-site ──
+  sync-site:
+    name: Sync odin-site
+    needs: [release, tag]
+    if: needs.tag.outputs.tag_created == 'true'
+    runs-on: mac-mini-runner
+    continue-on-error: true
+    outputs:
+      sync_ok: ${{ steps.poll.outcome == 'success' }}
+    steps:
+      - name: Dispatch odin-release event
+        id: dispatch
+        run: |
+          VER="${{ needs.tag.outputs.version }}"
+          VER="${VER#v}"
+          TAG="${{ needs.tag.outputs.version }}"
+          SHA="${{ github.sha }}"
+          DISPATCH_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "dispatch_time=$DISPATCH_TIME" >> $GITHUB_OUTPUT
+
+          gh api repos/HughKantsime/odin-site/dispatches \
+            --method POST \
+            --field event_type=odin-release \
+            -f "client_payload={\"version\":\"$VER\",\"tag\":\"$TAG\",\"source_repo\":\"HughKantsime/runsodin\",\"source_sha\":\"$SHA\"}"
+
+      - name: Poll for odin-site workflow completion
+        id: poll
+        run: |
+          DISPATCH_TIME="${{ steps.dispatch.outputs.dispatch_time }}"
+          for i in $(seq 1 20); do
+            sleep 15
+            RESULT=$(gh run list --repo HughKantsime/odin-site --event repository_dispatch --limit 5 --json status,conclusion,createdAt,databaseId 2>/dev/null)
+            CONCLUSION=$(echo "$RESULT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          dispatch_time = '$DISPATCH_TIME'
+          for run in data:
+              if run.get('createdAt', '') >= dispatch_time:
+                  print(run.get('conclusion') or 'pending')
+                  break
+          else:
+              print('not_found')
+          ")
+            echo "Poll $i/20: $CONCLUSION"
+            if [ "$CONCLUSION" = "success" ]; then exit 0; fi
+            if [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::odin-site sync workflow failed with: $CONCLUSION"
+              exit 1
+            fi
+          done
+          echo "::error::odin-site sync workflow timed out after 5 minutes"
+          exit 1
+
+  # ── Phase 5: Verify prod deployment ──
+  verify-prod:
+    name: Verify Prod
+    needs: [build, tag]
+    if: needs.tag.outputs.tag_created == 'true'
+    runs-on: mac-mini-runner
+    continue-on-error: true
+    outputs:
+      prod_ok: ${{ steps.verify.outcome == 'success' }}
+    steps:
+      - name: Poll prod version endpoint
+        id: verify
+        run: |
+          VER="${{ needs.tag.outputs.version }}"
+          VER="${VER#v}"
+          for i in $(seq 1 20); do
+            sleep 30
+            RESPONSE=$(curl -sf https://odin.subsystem.app/api/v1/version 2>/dev/null || echo "FETCH_FAILED")
+            if echo "$RESPONSE" | grep -q "\"version\":\"$VER\""; then
+              echo "Prod is running v$VER"
+              # Verify health endpoint
+              HEALTH=$(curl -sf -o /dev/null -w "%{http_code}" https://odin.subsystem.app/health 2>/dev/null || echo "000")
+              if [ "$HEALTH" = "200" ]; then
+                echo "Health check passed"
+                exit 0
+              else
+                echo "::warning::Version matches but health check returned $HEALTH"
+              fi
+            fi
+            echo "Poll $i/20: waiting for v$VER on prod..."
+          done
+          echo "::error::Prod did not update to v$VER within 10 minutes"
+          exit 1
+
+  # ── Phase 6: Notification ──
+  notify:
+    name: Deploy Notification
+    needs: [tag, build, release, sync-site, verify-prod]
+    if: always() && needs.tag.outputs.tag_created == 'true'
+    runs-on: mac-mini-runner
+    steps:
+      - name: Build status and notify
+        run: |
+          VER="${{ needs.tag.outputs.version }}"
+
+          # Collect phase results
+          BUILD="${{ needs.build.result }}"
+          RELEASE="${{ needs.release.result }}"
+          SYNC="${{ needs.sync-site.result }}"
+          PROD="${{ needs.verify-prod.result }}"
+
+          icon() { [ "$1" = "success" ] && echo "✓" || echo "✗"; }
+
+          STATUS="GHCR $(icon $BUILD) | Release $(icon $RELEASE) | Site $(icon $SYNC) | Prod $(icon $PROD)"
+
           echo "## Deploy Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version:** ${{ needs.tag.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.tag.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Watchtower** will auto-pull within 5 minutes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** $VER" >> $GITHUB_STEP_SUMMARY
+          echo "- **GHCR:** $BUILD" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release:** $RELEASE" >> $GITHUB_STEP_SUMMARY
+          echo "- **Site sync:** $SYNC" >> $GITHUB_STEP_SUMMARY
+          echo "- **Prod verify:** $PROD" >> $GITHUB_STEP_SUMMARY
+
+          # Determine priority
+          if [ "$BUILD" = "success" ] && [ "$RELEASE" = "success" ] && [ "$SYNC" = "success" ] && [ "$PROD" = "success" ]; then
+            PRIORITY="default"
+            TITLE="O.D.I.N. $VER deployed"
+          elif [ "$BUILD" != "success" ]; then
+            PRIORITY="high"
+            TITLE="O.D.I.N. $VER — build FAILED"
+          else
+            PRIORITY="high"
+            TITLE="O.D.I.N. $VER — partial failure"
+          fi
+
+          curl -sf \
+            -H "Title: $TITLE" \
+            -H "Priority: $PRIORITY" \
+            -H "Tags: rocket" \
+            -d "$STATUS" \
+            "${{ secrets.NTFY_URL }}" || echo "::warning::ntfy notification failed"
