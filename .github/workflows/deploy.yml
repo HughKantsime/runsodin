@@ -56,9 +56,17 @@ jobs:
       - name: Check if tag exists
         id: check
         run: |
-          if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "Tag ${{ steps.version.outputs.version }} already exists, skipping"
-            echo "tag_created=false" >> $GITHUB_OUTPUT
+          TAG="${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-parse "$TAG")
+            HEAD_SHA=$(git rev-parse HEAD)
+            if [ "$TAG_SHA" = "$HEAD_SHA" ]; then
+              echo "Tag $TAG exists and points to HEAD — proceeding (make release pushed it)"
+              echo "tag_created=true" >> $GITHUB_OUTPUT
+            else
+              echo "Tag $TAG exists but points to $TAG_SHA (HEAD is $HEAD_SHA) — skipping"
+              echo "tag_created=false" >> $GITHUB_OUTPUT
+            fi
           else
             echo "tag_created=true" >> $GITHUB_OUTPUT
           fi
@@ -66,10 +74,15 @@ jobs:
       - name: Create tag
         if: steps.check.outputs.tag_created == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.version }}
-          git push origin ${{ steps.version.outputs.version }}
+          TAG="${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping creation"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
 
   # ── Build and push Docker image ──
   build:
