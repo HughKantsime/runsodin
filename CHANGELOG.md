@@ -2,6 +2,42 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.7.2] - 2026-04-06
+
+### Fixed
+- **Job list 500 error** — relaxed `item_name` min_length validation on JobResponse schema; jobs with empty names (e.g. MQTT auto-created) no longer crash `/api/jobs`
+- **CI contract tests** — added missing SQLAlchemy dependency, bumped route file limit, skipped integration conftest
+
+## [1.7.1] - 2026-03-30
+
+### Added
+- **Unified deploy pipeline** — auto-tag from VERSION file, validate frontend+backend, build multi-arch Docker, push to GHCR, Watchtower auto-pulls on prod
+
+## [1.7.0] - 2026-03-29
+
+### Added
+- **TypeScript frontend migration** — 158 files migrated, 9 type modules, full type coverage across API layer and components
+- **PostgreSQL dual-engine support** — enterprise Docker Compose with PostgreSQL option alongside SQLite
+- **UX improvements** — onboarding wizard, contextual help tooltips, mobile-responsive layout, dark mode polish
+
+### Fixed
+- **Docker build** — added TypeScript and @types/react to devDependencies, updated entry point from main.jsx to main.tsx
+
+## [1.6.2] - 2026-03-24
+
+### Fixed
+- **Camera control room stability** — eliminated go2rtc restart storm that caused cascading WebRTC disconnections in multi-camera views
+
+## [1.6.1] - 2026-03-20
+
+### Fixed
+- **Version endpoint** — corrected file path resolution for VERSION in health and admin endpoints
+
+## [1.6.0] - 2026-03-18
+
+### Fixed
+- **Security hardening** — comprehensive auth, tenant isolation, and superadmin access control improvements
+
 ## [1.5.10] - 2026-03-17
 
 ### Fixed
