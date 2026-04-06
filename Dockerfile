@@ -36,6 +36,7 @@ WORKDIR /build/frontend
 COPY frontend/package*.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
+COPY design/ /build/design/
 COPY VERSION /build/VERSION
 RUN npm run build
 
