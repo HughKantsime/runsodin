@@ -69,6 +69,10 @@ class JobUpdate(BaseModel):
 class JobResponse(JobBase):
     model_config = ConfigDict(from_attributes=True)
 
+    # Override: relax min_length for response — DB may contain empty strings from
+    # MQTT auto-created jobs or legacy data. Input validation stays on JobBase.
+    item_name: str = Field(..., max_length=200)
+
     @field_validator('priority', mode='before')
     @classmethod
     def normalize_priority(cls, v):
