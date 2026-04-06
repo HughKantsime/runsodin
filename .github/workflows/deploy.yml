@@ -125,6 +125,9 @@ jobs:
     outputs:
       release_ok: ${{ steps.create.outcome == 'success' }}
     steps:
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
       - uses: actions/checkout@v4
 
       - name: Extract changelog body
@@ -169,6 +172,9 @@ jobs:
     outputs:
       sync_ok: ${{ steps.poll.outcome == 'success' }}
     steps:
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
       - name: Dispatch odin-release event
         id: dispatch
         run: |
@@ -222,6 +228,9 @@ jobs:
     outputs:
       prod_ok: ${{ steps.verify.outcome == 'success' }}
     steps:
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
       - name: Poll prod version endpoint
         id: verify
         run: |
@@ -253,6 +262,9 @@ jobs:
     if: always() && needs.tag.outputs.tag_created == 'true'
     runs-on: mac-mini-runner
     steps:
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
       - name: Build status and notify
         run: |
           VER="${{ needs.tag.outputs.version }}"
