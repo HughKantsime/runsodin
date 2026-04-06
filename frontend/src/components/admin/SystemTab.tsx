@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileText, Shield, Wifi, Save, Smartphone } from 'lucide-react'
-import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob, adminBundle } from '../../api'
+import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob, adminBundle, diagnostics } from '../../api'
 import BackupRestore from './BackupRestore'
 import DataRetentionSettings from './DataRetentionSettings'
 import ReportScheduleManager from './ReportScheduleManager'
@@ -334,6 +334,27 @@ export default function SystemTab() {
             onClick={async () => {
               try { await adminBundle.download(); toast.success('Bundle downloaded') }
               catch { toast.error('Failed to generate bundle') }
+            }}
+          >
+            Download
+          </Button>
+        </div>
+      </Card>
+
+      {/* Diagnostics Report */}
+      <Card padding="lg" className="mb-4 md:mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Diagnostics Report</h3>
+            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Download a JSON diagnostic report for troubleshooting</p>
+          </div>
+          <Button
+            variant="primary"
+            size="md"
+            icon={Download}
+            onClick={async () => {
+              try { await diagnostics.download(); toast.success('Diagnostics downloaded') }
+              catch { toast.error('Failed to download diagnostics') }
             }}
           >
             Download
