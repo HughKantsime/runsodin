@@ -17,8 +17,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+
+from core.error_buffer import error_buffer
 
 log = logging.getLogger("odin.api")
 
@@ -509,6 +512,13 @@ def create_app() -> FastAPI:
         docs_url="/api/v1/docs",
         redoc_url="/api/v1/redoc",
     )
+
+    # Global exception handler — capture unhandled exceptions into ring buffer
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request: Request, exc: Exception):
+        error_buffer.capture(exc, request)
+        log.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     # Middleware (order matters: added in reverse call order for ASGI stack)
     _setup_middleware(app)
