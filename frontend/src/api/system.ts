@@ -134,3 +134,22 @@ export const setEducationMode = (enabled: boolean): Promise<EducationModeConfig>
 // ---- Language / i18n ----
 export const getLanguage = (): Promise<LanguageConfig> => fetchAPI('/settings/language')
 export const setLanguage = (lang: string): Promise<LanguageConfig> => fetchAPI('/settings/language', { method: 'PUT', body: JSON.stringify({ language: lang }) })
+
+// ---- Diagnostics ----
+export const diagnostics = {
+  fetch: (): Promise<Record<string, unknown>> => fetchAPI('/v1/system/diagnostics'),
+  download: async (): Promise<void> => {
+    const data = await fetchAPI<Record<string, unknown>>('/v1/system/diagnostics')
+    const version = (data.odin_version as string) || 'unknown'
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-')
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `odin-diagnostics-${version}-${timestamp}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+}
