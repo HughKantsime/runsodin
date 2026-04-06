@@ -2,6 +2,20 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.0] - 2026-04-06
+
+### Added
+- **Diagnostic export** — `GET /api/v1/system/diagnostics` returns sanitized system info, logs, error traces, printer counts, DB stats, module status (admin-only)
+- **Error ring buffer** — captures last 50 unhandled exceptions in memory for diagnostics
+- **React ErrorBoundary** — catches render crashes with static fallback UI, download diagnostics, reload, and report issue buttons
+- **Settings diagnostics** — "Download Diagnostics" button in admin Settings for on-demand system reports
+- **Shared design tokens** — `design/tokens.json` as single source of truth for brand colors, typography, and spacing across all ODIN projects
+- **Automated release pipeline** — 6-phase CI: validate, build, GitHub Release, odin-site sync, prod verification, ntfy notification
+
+### Fixed
+- **CI runner compatibility** — replaced `actions/setup-python` with Homebrew Python 3.11 for self-hosted runners
+- **Release pipeline** — fixed `repository_dispatch` payload format, version check endpoint (`/health`), Homebrew PATH in all jobs
+
 ## [1.7.2] - 2026-04-06
 
 ### Fixed
