@@ -1,3 +1,5 @@
+import tokens from '../design/tokens.json' with { type: 'json' };
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -7,6 +9,7 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Farm colors use CSS variables — BrandingContext overrides these per-org
         'farm': {
           50:  'rgb(var(--farm-50) / <alpha-value>)',
           100: 'rgb(var(--farm-100) / <alpha-value>)',
@@ -20,24 +23,26 @@ export default {
           900: 'rgb(var(--farm-900) / <alpha-value>)',
           950: 'rgb(var(--farm-950) / <alpha-value>)',
         },
+        // Print colors sourced from design/tokens.json
         'print': {
-          50:  '#FFF9EB',
-          100: '#FFF0CC',
-          200: '#FFDFA3',
-          300: '#D4891F',
-          400: '#C47A1A',
-          500: 'var(--brand-primary, #C47A1A)',
-          600: 'var(--brand-primary, #9A5E0D)',
-          700: '#7A4B0A',
-          800: '#5A3707',
-          900: '#3A2404',
+          50:  tokens.print['50'],
+          100: tokens.print['100'],
+          200: tokens.print['200'],
+          300: tokens.print['300'],
+          400: tokens.print['400'],
+          500: 'var(--brand-primary, ' + tokens.print['500'] + ')',
+          600: 'var(--brand-primary, ' + tokens.print['600'] + ')',
+          700: tokens.print['700'],
+          800: tokens.print['800'],
+          900: tokens.print['900'],
         },
+        // Status colors use CSS variables — BrandingContext overrides these per-org
         'status': {
-          pending:   'var(--status-pending, #7A8396)',
-          scheduled: 'var(--status-scheduled, #8B7BE8)',
-          printing:  'var(--status-printing, #5B93E8)',
-          completed: 'var(--status-completed, #3DAF5C)',
-          failed:    'var(--status-failed, #D84848)',
+          pending:   'var(--status-pending, ' + tokens.status.pending + ')',
+          scheduled: 'var(--status-scheduled, ' + tokens.status.scheduled + ')',
+          printing:  'var(--status-printing, ' + tokens.status.printing + ')',
+          completed: 'var(--status-completed, ' + tokens.status.completed + ')',
+          failed:    'var(--status-failed, ' + tokens.status.failed + ')',
         }
       },
       fontFamily: {
@@ -46,19 +51,19 @@ export default {
         'body':    ['var(--brand-font-body)', '"IBM Plex Sans"', 'system-ui', 'sans-serif'],
       },
       borderRadius: {
-        'DEFAULT': '6px',
-        'sm': '4px',
-        'md': '6px',
-        'lg': '8px',
-        'xl': '10px',
-        '2xl': '12px',
+        'DEFAULT': tokens.radius.default,
+        'sm': tokens.radius.sm,
+        'md': tokens.radius.md,
+        'lg': tokens.radius.lg,
+        'xl': tokens.radius.xl,
+        '2xl': tokens.radius['2xl'],
       },
       fontSize: {
-        'xs': ['11px', { lineHeight: '1.5' }],
-        'sm': ['13px', { lineHeight: '1.5' }],
-        'base': ['14px', { lineHeight: '1.6' }],
-        'lg': ['16px', { lineHeight: '1.5' }],
-        'xl': ['20px', { lineHeight: '1.3' }],
+        'xs': [tokens.typography.fontSize.xs, { lineHeight: '1.5' }],
+        'sm': [tokens.typography.fontSize.sm, { lineHeight: '1.5' }],
+        'base': [tokens.typography.fontSize.base, { lineHeight: '1.6' }],
+        'lg': [tokens.typography.fontSize.lg, { lineHeight: '1.5' }],
+        'xl': [tokens.typography.fontSize.xl, { lineHeight: '1.3' }],
       },
     },
   },

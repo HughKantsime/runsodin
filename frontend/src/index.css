@@ -4,6 +4,7 @@
 /* Branding font families — loaded on-demand by Branding page (see Branding.jsx) */
 
 :root {
+  /* Values sourced from design/tokens.json — run 'npm run tokens' to regenerate */
   /* Brand colors — Refined warm industrial */
   --brand-primary: #C47A1A;
   --brand-accent: #D4891F;
