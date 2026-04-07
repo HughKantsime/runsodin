@@ -176,11 +176,8 @@ function buildModeBlock(modeName) {
 
 // ─── Generate CSS ────────────────────────────────────────────────────────────
 
-const ts = new Date().toISOString()
-
 const css = `/* Auto-generated from design/tokens.json — do not edit manually */
-/* Generator: design/generate.mjs | Source: design/tokens.json */
-/* Generated: ${ts} */
+/* Generator: design/generate.mjs | Run 'make tokens' to regenerate */
 
 /* ── Dark mode defaults ──────────────────────────────────────────────────── */
 :root {
@@ -231,7 +228,7 @@ if (!LOCAL_ONLY && existsSync(nativeDir)) {
 
   const swift = `// ODINTheme.swift — ODIN Design System tokens for SwiftUI
 // Auto-generated from odin/design/tokens.json — do not edit manually
-// Generator: odin/design/generate.mjs | Generated: ${ts}
+// Generator: odin/design/generate.mjs | Run 'make tokens' to regenerate
 
 import SwiftUI
 
@@ -307,4 +304,4 @@ ${Object.entries(c).map(([name, hex]) => {
   console.log('  skipped odin-native (not found)')
 }
 
-console.log(`\nDone. Generated from tokens.json at ${ts}`)
+console.log('\nDone. Generated from tokens.json')
