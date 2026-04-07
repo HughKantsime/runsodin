@@ -67,10 +67,10 @@ step "Pre-flight checks"
 
 cd "$REPO_ROOT"
 
-# Must be on main/master
+# Must be on main
 BRANCH=$(git branch --show-current)
-if [[ "$BRANCH" != "main" && "$BRANCH" != "master" ]]; then
-    die "Must be on main or master branch (currently on: ${BRANCH})"
+if [[ "$BRANCH" != "main" ]]; then
+    die "Must be on main branch (currently on: ${BRANCH})"
 fi
 
 # Working tree must be clean
@@ -125,10 +125,20 @@ sedi "s/const CACHE_NAME = 'odin-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'/const C
     "$REPO_ROOT/frontend/public/sw.js"
 ok "frontend/public/sw.js → odin-v$VERSION"
 
+# --- Step 1b: Regenerate design tokens ---
+step "Regenerating design tokens"
+
+if command -v node &>/dev/null && [ -f "$REPO_ROOT/design/generate.mjs" ]; then
+    node "$REPO_ROOT/design/generate.mjs"
+    ok "Design tokens regenerated"
+else
+    echo "  ⚠ node not found or generate.mjs missing — skipping token generation"
+fi
+
 # --- Step 2: Commit ---
 step "Creating version bump commit"
 
-git add VERSION frontend/package.json backend/main.py docker-compose.yml install/install.sh frontend/public/sw.js
+git add VERSION frontend/package.json backend/main.py docker-compose.yml install/install.sh frontend/public/sw.js frontend/src/design-tokens.css design/
 git commit -m "release: bump version to $VERSION"
 ok "Committed: release: bump version to $VERSION"
 

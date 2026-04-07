@@ -1,0 +1,129 @@
+/* Auto-generated from odin/design/tokens.json — do not edit manually */
+/* Source: odin/design/tokens.json  |  Generator: odin/design/generate.mjs */
+/* Generated: 2026-04-07T12:04:17.094Z */
+
+/* ── Dark mode defaults (always active) ──────────────────────────────────── */
+:root {
+  --brand-primary: #C47A1A;
+  --brand-accent: #D4891F;
+  --brand-sidebar-bg: #0B0D11;
+  --brand-sidebar-border: #1F2330;
+  --brand-sidebar-text: #7A8396;
+  --brand-sidebar-active-bg: rgba(196, 122, 26, 0.08);
+  --brand-sidebar-active-text: #D4891F;
+  --brand-content-bg: #0B0D11;
+  --brand-card-bg: #12151B;
+  --brand-card-border: #1F2330;
+  --brand-text-primary: #E8ECF2;
+  --brand-text-secondary: #7A8396;
+  --brand-text-muted: #3D4559;
+  --brand-surface: #1A1D25;
+  --brand-input-bg: #1A1D25;
+  --brand-input-border: #1F2330;
+  --brand-input-text: #E8ECF2;
+  --brand-focus-ring: #C47A1A;
+  --brand-selection-bg: rgba(196, 122, 26, 0.25);
+  --brand-selection-text: #D4891F;
+  --brand-card-shadow: none;
+  --brand-job-card-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --brand-font-display: 'IBM Plex Mono', ui-monospace, monospace;
+  --brand-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --brand-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --chart-card-bg: #12151B;
+  --chart-grid: #1A1D25;
+  --chart-axis: #3D4559;
+  --chart-axis-line: #1F2330;
+  --chart-tooltip-bg: #12151B;
+  --chart-tooltip-border: #1F2330;
+  --chart-tooltip-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  --farm-50: 232 236 242;
+  --farm-100: 212 218 228;
+  --farm-200: 184 194 208;
+  --farm-300: 139 149 168;
+  --farm-400: 122 131 150;
+  --farm-500: 74 85 104;
+  --farm-600: 61 69 89;
+  --farm-700: 26 29 37;
+  --farm-800: 18 21 27;
+  --farm-900: 11 13 17;
+  --farm-950: 11 13 17;
+  --status-printing: #5B93E8;
+  --status-completed: #3DAF5C;
+  --status-failed: #D84848;
+  --status-warning: #D4891F;
+  --status-pending: #7A8396;
+  --status-scheduled: #8B7BE8;
+}
+
+/* ── Light mode overrides ────────────────────────────────────────────────── */
+html.light {
+  --brand-primary: #9A5E0D;
+  --brand-accent: #B46E14;
+  --brand-sidebar-bg: #F8FAFC;
+  --brand-sidebar-border: #E2E5EB;
+  --brand-sidebar-text: #1E293B;
+  --brand-sidebar-active-bg: rgba(154, 94, 13, 0.06);
+  --brand-sidebar-active-text: #9A5E0D;
+  --brand-content-bg: #F4F5F7;
+  --brand-card-bg: #FFFFFF;
+  --brand-card-border: #E2E5EB;
+  --brand-text-primary: #0F1219;
+  --brand-text-secondary: #5A6478;
+  --brand-text-muted: #9BA3B2;
+  --brand-surface: #F0F1F3;
+  --brand-input-bg: #F8FAFC;
+  --brand-input-border: #E2E5EB;
+  --brand-input-text: #1E293B;
+  --brand-focus-ring: #9A5E0D;
+  --brand-selection-bg: rgba(154, 94, 13, 0.15);
+  --brand-selection-text: #9A5E0D;
+  --brand-card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+  --brand-job-card-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --brand-font-display: inherit;
+  --brand-font-body: inherit;
+  --brand-font-mono: inherit;
+  --chart-card-bg: #FFFFFF;
+  --chart-grid: #E2E5EB;
+  --chart-axis: #5A6478;
+  --chart-axis-line: #E2E5EB;
+  --chart-tooltip-bg: #FFFFFF;
+  --chart-tooltip-border: #E2E5EB;
+  --chart-tooltip-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  --farm-50: 2 6 23;
+  --farm-100: 15 23 42;
+  --farm-200: 30 41 59;
+  --farm-300: 51 65 85;
+  --farm-400: 71 85 105;
+  --farm-500: 75 85 99;
+  --farm-600: 148 163 184;
+  --farm-700: 226 229 235;
+  --farm-800: 226 232 240;
+  --farm-900: 255 255 255;
+  --farm-950: 244 245 247;
+  --status-printing: #3B82F6;
+  --status-completed: #22C55E;
+  --status-failed: #EF4444;
+  --status-warning: #D97706;
+  --status-pending: #6B7280;
+  --status-scheduled: #8B5CF6;
+}
+
+/* ── High-contrast overrides ─────────────────────────────────────────────── */
+.high-contrast {
+  --brand-text-primary: #FFFFFF;
+  --brand-text-secondary: #C0C8D8;
+  --brand-text-muted: #6B7A94;
+  --brand-card-border: #2E3448;
+  --brand-sidebar-border: #2E3448;
+  --brand-input-border: #2E3448;
+  --brand-card-bg: #0F1219;
+  --brand-content-bg: #080A0E;
+  --brand-surface: #1A1E28;
+  --brand-input-bg: #1A1E28;
+  --status-printing: #6BA6F7;
+  --status-completed: #4CC76E;
+  --status-failed: #F06060;
+  --status-warning: #F0A030;
+  --status-pending: #94A0B8;
+  --status-scheduled: #A08DF0;
+}
