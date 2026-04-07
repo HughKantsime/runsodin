@@ -41,10 +41,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
+      - name: Install gitleaks
+        run: brew install gitleaks 2>/dev/null || true
+
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gitleaks detect --source . --config .gitleaks.toml -v
 
   # ─────────────────────────────────────────────────────────
   # Job 2: Python Static Analysis + Dependency Audit

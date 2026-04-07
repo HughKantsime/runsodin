@@ -1,4 +1,7 @@
-.PHONY: build test test-contracts test-security test-e2e test-coverage scan verify bump release logs shell help
+.PHONY: build test test-contracts test-security test-e2e test-coverage scan verify bump release logs shell tokens help
+
+tokens: ## Regenerate design tokens (CSS + Swift) from design/tokens.json
+	node design/generate.mjs
 
 build: ## Build and start the container
 	docker compose up -d --build

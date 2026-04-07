@@ -25,6 +25,15 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Validate design tokens are committed
+        run: |
+          node design/generate.mjs --local-only
+          if ! git diff --exit-code frontend/src/design-tokens.css; then
+            echo "::error::design-tokens.css is out of sync with tokens.json"
+            echo "Run 'make tokens' and commit the result before releasing"
+            exit 1
+          fi
+
       - name: Validate frontend build
         run: |
           cd frontend
