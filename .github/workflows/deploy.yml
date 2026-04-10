@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Set up Node 20
         uses: actions/setup-node@v4
@@ -104,7 +104,7 @@ jobs:
       packages: write
     steps:
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - uses: actions/checkout@v4
         with:
@@ -148,7 +148,7 @@ jobs:
       release_ok: ${{ steps.create.outcome == 'success' }}
     steps:
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - uses: actions/checkout@v4
 
@@ -195,7 +195,7 @@ jobs:
       sync_ok: ${{ steps.poll.outcome == 'success' }}
     steps:
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Dispatch odin-release event
         id: dispatch
@@ -252,7 +252,7 @@ jobs:
       prod_ok: ${{ steps.verify.outcome == 'success' }}
     steps:
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Poll prod version endpoint
         id: verify
@@ -279,7 +279,7 @@ jobs:
     runs-on: mac-mini-runner
     steps:
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Build status and notify
         run: |
