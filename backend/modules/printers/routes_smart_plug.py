@@ -146,7 +146,7 @@ async def set_energy_rate(request: Request, current_user: dict = Depends(require
     """Set energy cost per kWh."""
     data = await request.json()
     rate = data.get("energy_cost_per_kwh", 0.12)
-    db.execute(text(
+    db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         f"{sql.upsert_prefix()} system_config (key, value) VALUES ('energy_cost_per_kwh', :rate)"
         f"{sql.on_conflict_suffix('key', ['value'])}"
     ), {"rate": str(rate)})

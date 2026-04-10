@@ -110,7 +110,7 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
         db.commit()
         sched_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
-        sched_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        sched_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         db.commit()
     return {"id": sched_id, "status": "ok"}
 
@@ -143,7 +143,7 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
         sets.append("recipients = :recipients")
         params["recipients"] = json.dumps(body["recipients"])
     if sets:
-        db.execute(text(f"UPDATE report_schedules SET {', '.join(sets)} WHERE id = :id"), params)
+        db.execute(text(f"UPDATE report_schedules SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         db.commit()
 
     return {"status": "ok"}

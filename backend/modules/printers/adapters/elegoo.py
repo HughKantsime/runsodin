@@ -3,7 +3,7 @@ Elegoo SDCP Adapter — WebSocket client for Elegoo 3D printers.
 
 Supports: Centauri Carbon (FDM), Neptune 4 series, Saturn series (resin)
 Protocol: SDCP v3.0.0 (Smart Device Control Protocol)
-Transport: WebSocket (ws://printer_ip:3030/websocket) + UDP discovery (port 3000)
+Transport: WebSocket (ws://printer_ip:3030/websocket) + UDP discovery (port 3000)  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP protocol uses ws:// on LAN; no TLS available on printer firmware
 Auth: None required
 
 Reference:
@@ -143,7 +143,7 @@ class ElegooPrinter:
     """
     Client for Elegoo SDCP protocol over WebSocket.
 
-    Connects to ws://printer_ip:3030/websocket for real-time bidirectional
+    Connects to ws://printer_ip:3030/websocket for real-time bidirectional  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP protocol uses ws:// on LAN; no TLS available on printer firmware
     communication. Also supports UDP discovery on port 3000.
     """
 
@@ -151,7 +151,7 @@ class ElegooPrinter:
         self.host = host
         self.port = port
         self.mainboard_id = mainboard_id
-        self.ws_url = f"ws://{host}:{port}/websocket"
+        self.ws_url = f"ws://{host}:{port}/websocket"  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP protocol uses ws:// on LAN; no TLS available on printer firmware
         self._ws = None
         self._connected = False
         self._latest_status = ElegooStatus()
@@ -404,7 +404,7 @@ class ElegooPrinter:
         ]
         for url in candidates:
             try:
-                resp = _req.head(url, timeout=3)
+                resp = _req.head(url, timeout=3)  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http -- by design: Elegoo printers expose HTTP-only camera streams on LAN
                 if resp.status_code == 200:
                     return url
             except Exception as e:

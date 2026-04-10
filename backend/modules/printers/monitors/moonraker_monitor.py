@@ -224,7 +224,7 @@ class MoonrakerMonitor:
                         remaining_min = 0
 
                 conn.execute(
-                    text(f"UPDATE printers SET last_seen={sql.now()},"
+                    text(f"UPDATE printers SET last_seen={sql.now()},"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                     " bed_temp=COALESCE(:bed_t,bed_temp),bed_target_temp=COALESCE(:bed_tt,bed_target_temp),"
                     " nozzle_temp=COALESCE(:noz_t,nozzle_temp),nozzle_target_temp=COALESCE(:noz_tt,nozzle_target_temp),"
                     " gcode_state=COALESCE(:gstate,gcode_state),print_stage=COALESCE(:stage,print_stage),"
@@ -272,7 +272,7 @@ class MoonrakerMonitor:
                         conn.execute(
                             text("INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (:pid, :bed_t, :noz_t, :bed_tt, :noz_tt, :fan)"),
                             {"pid": self.printer_id, "bed_t": bed_t, "noz_t": noz_t, "bed_tt": bed_tt, "noz_tt": noz_tt, "fan": fan_speed_val})
-                        conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
+                        conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                     except Exception as e:
                         log.debug(f"[{self.name}] Telemetry insert: {e}")
 
@@ -284,7 +284,7 @@ class MoonrakerMonitor:
                             conn.execute(
                                 text("INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (:pid, :unit, :hum, :temp)"),
                                 {"pid": self.printer_id, "unit": idx, "hum": None, "temp": temp_val})
-                        conn.execute(text(f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
+                        conn.execute(text(f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                     except Exception as e:
                         log.debug(f"[{self.name}] Env telemetry insert: {e}")
 
@@ -398,7 +398,7 @@ class MoonrakerMonitor:
                     conn.execute(text(insert_sql), params)
                     self._current_job_db_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
                 else:
-                    self._current_job_db_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()
+                    self._current_job_db_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                 self._last_filename = filename
             log.info(f"[{self.name}] Job started: {filename} (DB id: {self._current_job_db_id})")
 
@@ -578,11 +578,11 @@ class MoonrakerMonitor:
 
                     if existing:
                         conn.execute(
-                            text(f"UPDATE filament_slots SET filament_type=:ft, color=:col, color_hex=:hex, loaded_at={sql.now()} WHERE id=:sid"),
+                            text(f"UPDATE filament_slots SET filament_type=:ft, color=:col, color_hex=:hex, loaded_at={sql.now()} WHERE id=:sid"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                             {"ft": filament_type, "col": color_name, "hex": color_hex, "sid": existing[0]})
                     else:
                         conn.execute(
-                            text(f"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (:pid, :sn, :ft, :col, :hex, {sql.now()})"),
+                            text(f"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, loaded_at) VALUES (:pid, :sn, :ft, :col, :hex, {sql.now()})"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                             {"pid": self.printer_id, "sn": slot_num, "ft": filament_type, "col": color_name, "hex": color_hex})
 
                 # Remove stale slots beyond current gate count

@@ -555,7 +555,7 @@ class MoonrakerPrinter:
             req = Request(url)
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=timeout) as resp:
+            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- by design: connects to admin-configured printer/spoolman URLs on LAN
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")
@@ -576,7 +576,7 @@ class MoonrakerPrinter:
             req.add_header("Content-Type", "application/json")
             if self.api_key:
                 req.add_header("X-Api-Key", self.api_key)
-            with urlopen(req, timeout=timeout) as resp:
+            with urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- by design: connects to admin-configured printer/spoolman URLs on LAN
                 return json.loads(resp.read().decode())
         except HTTPError as e:
             log.warning(f"HTTP {e.code} from {url}")

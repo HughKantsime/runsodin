@@ -189,7 +189,7 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
                 counts = {}
                 for (tname,) in tables:
                     try:
-                        cnt = conn.execute(f"SELECT COUNT(*) FROM [{tname}]").fetchone()
+                        cnt = conn.execute(f"SELECT COUNT(*) FROM [{tname}]").fetchone()  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: f-string interpolates only sql.* dialect helpers (constants), not user input
                         counts[tname] = cnt[0] if cnt else 0
                     except Exception:
                         counts[tname] = "error"

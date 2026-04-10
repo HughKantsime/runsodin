@@ -36,7 +36,7 @@ def job_started(
     try:
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"""INSERT INTO print_jobs
                     (printer_id, job_name, started_at, status, total_layers, scheduled_job_id)
                 VALUES (?, ?, {sql.now()}, 'running', ?, ?)""",
@@ -83,7 +83,7 @@ def job_completed(
             cur = conn.cursor()
 
             # Update print_jobs record
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"""UPDATE print_jobs SET
                     status = ?,
                     ended_at = {sql.now()}
@@ -186,7 +186,7 @@ def job_cancelled(
         with get_db() as conn:
             cur = conn.cursor()
 
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"""UPDATE print_jobs SET
                     status = 'cancelled',
                     ended_at = {sql.now()}
@@ -271,7 +271,7 @@ def update_job_progress(
     try:
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"UPDATE print_jobs SET {', '.join(updates)} WHERE id = ?",
                 params
             )

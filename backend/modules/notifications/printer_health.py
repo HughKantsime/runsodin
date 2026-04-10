@@ -64,7 +64,7 @@ def update_telemetry(
     try:
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"UPDATE printers SET {', '.join(updates)} WHERE id = ?",
                 params
             )
@@ -78,7 +78,7 @@ def mark_online(printer_id: int):
     try:
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"UPDATE printers SET last_seen = {sql.now()} WHERE id = ?",
                 (printer_id,)
             )

@@ -430,12 +430,12 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
     elif api_type == "moonraker":
         import httpx as httpx_client
         try:
-            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)
+            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
             if r.status_code == 200:
                 info = r.json().get("result", {})
                 detected_model = None
                 try:
-                    cfg_r = httpx_client.get(f"http://{request.api_host}/server/config", timeout=3)
+                    cfg_r = httpx_client.get(f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
                     if cfg_r.status_code == 200:
                         kinematics = (
                             cfg_r.json().get("result", {}).get("config", {}).get("printer", {}).get("kinematics", "") or ""
@@ -466,7 +466,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
     elif api_type == "prusalink":
         import httpx as httpx_client
         try:
-            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)
+            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
             if r.status_code == 200:
                 info = r.json()
                 detected_model = None
@@ -494,7 +494,7 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         import json as _json
         reachable = False
         try:
-            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)
+            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
             reachable = True
         except Exception as e:
             log.debug(f"Failed to reach Elegoo printer: {e}")

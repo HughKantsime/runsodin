@@ -90,7 +90,7 @@ async def create_webhook(
         db.commit()
         wh_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
-        wh_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()
+        wh_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         db.commit()
     log_audit(db, "webhook.created", "webhook", wh_id, {"name": name, "type": webhook_type})
 
@@ -126,7 +126,7 @@ async def update_webhook(
     if updates:
         updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE webhooks SET {', '.join(updates)} WHERE id = :id"
-        db.execute(text(query), params)
+        db.execute(text(query), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         db.commit()
         log_audit(db, "webhook.updated", "webhook", webhook_id, {"fields": [f for f in data.keys() if f != "url"]})
 

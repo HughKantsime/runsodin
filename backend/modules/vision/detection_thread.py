@@ -305,10 +305,10 @@ class PrinterVisionThread(threading.Thread):
                     "bbox": json.dumps(bbox),
                 }
                 if sql.is_sqlite:
-                    conn.execute(text(insert_sql), params)
+                    conn.execute(text(insert_sql), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                     detection_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
                 else:
-                    detection_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()
+                    detection_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                 return detection_id
         except Exception as e:
             log.error(f"Failed to insert detection: {e}")

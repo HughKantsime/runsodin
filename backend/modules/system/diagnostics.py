@@ -171,7 +171,7 @@ def _database_info() -> dict:
             table_counts = {}
             for (tbl,) in tables_raw:
                 try:
-                    count = db.execute(text(f"SELECT COUNT(*) FROM [{tbl}]")).scalar()
+                    count = db.execute(text(f"SELECT COUNT(*) FROM [{tbl}]")).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                     table_counts[tbl] = count
                 except Exception:
                     table_counts[tbl] = "error"

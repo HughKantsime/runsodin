@@ -194,6 +194,6 @@ async def set_language(request: Request, current_user: dict = Depends(require_su
     supported = ["en", "de", "ja", "es"]
     if lang not in supported:
         raise HTTPException(400, f"Unsupported language. Choose from: {', '.join(supported)}")
-    db.execute(text(f"{sql.upsert_prefix()} system_config (key, value) VALUES ('language', :lang){sql.on_conflict_suffix('key', ['value'])}"), {"lang": lang})
+    db.execute(text(f"{sql.upsert_prefix()} system_config (key, value) VALUES ('language', :lang){sql.on_conflict_suffix('key', ['value'])}"), {"lang": lang})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
     db.commit()
     return {"language": lang}

@@ -212,7 +212,7 @@ def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
     data = json.dumps({"use_weight": grams_used}).encode()
     req = urllib.request.Request(url, data=data, method="PUT",
                                 headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=10)
+    urllib.request.urlopen(req, timeout=10)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- by design: connects to admin-configured printer/spoolman URLs on LAN
 
 
 # ---------------------------------------------------------------------------

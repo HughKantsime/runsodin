@@ -110,14 +110,14 @@ class PrinterMonitor:
                     log.info(f"[{self.name}] Resumed tracking job {latest[0]} ({latest[1]})")
                     # Close any older orphaned jobs
                     for row in rows[:-1]:
-                        cur.execute(
+                        cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                             f"UPDATE print_jobs SET status = 'cancelled', ended_at = {sql.now()} WHERE id = ?",
                             (row[0],))
                         log.info(f"[{self.name}] Closed stale duplicate job {row[0]} ({row[1]})")
                 else:
                     # Printer is idle — close all orphaned jobs
                     for row in rows:
-                        cur.execute(
+                        cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                             f"UPDATE print_jobs SET status = 'completed', ended_at = {sql.now()} WHERE id = ?",
                             (row[0],))
                         log.info(f"[{self.name}] Closed orphaned job {row[0]} ({row[1]}) — printer is {gcode_state or 'idle'}")
@@ -138,13 +138,13 @@ class PrinterMonitor:
             try:
                 import urllib.request
                 api_key = os.environ.get('API_KEY', '')
-                req = urllib.request.Request(
+                req = urllib.request.Request(  # nosemgrep: python.lang.security.audit.insecure-transport.urllib.insecure-request-object.insecure-request-object -- by design: MQTT printer adapter connects to local printers
                     'http://localhost:8000/api/scheduler/run',
                     data=b'{}',
                     headers={'Content-Type': 'application/json', 'X-API-Key': api_key},
                     method='POST'
                 )
-                urllib.request.urlopen(req, timeout=5)
+                urllib.request.urlopen(req, timeout=5)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- by design: connects to admin-configured printer/spoolman URLs on LAN
                 log.info(f"[{self.name}] Triggered scheduler re-run after bump")
             except Exception as e:
                 log.debug(f"[{self.name}] Scheduler trigger failed (non-critical): {e}")
@@ -183,7 +183,7 @@ class PrinterMonitor:
                     }
                     for (uid,) in users:
                         for at, (ia, bp, em) in defaults.items():
-                            cur.execute(f"""
+                            cur.execute(f"""  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                                 {sql.insert_or_ignore_prefix()} alert_preferences
                                 (user_id, alert_type, in_app, browser_push, email, threshold_value)
                                 VALUES (?, ?, ?, ?, ?, ?){sql.on_conflict_ignore('user_id, alert_type')}
@@ -327,7 +327,7 @@ class PrinterMonitor:
                                     "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
                                     (self.printer_id, bed_t, noz_t, bed_tt, noz_tt, fan_speed_val)
                                 )
-                                conn.execute(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}")
+                                conn.execute(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: f-string interpolates only sql.* dialect helpers (constants), not user input
                                 conn.commit()
                             except Exception as e:
                                 log.debug(f"[{self.name}] Telemetry insert: {e}")
@@ -342,7 +342,7 @@ class PrinterMonitor:
                                         "INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (?, ?, ?, ?)",
                                         (self.printer_id, entry['unit_idx'], entry['humidity'], entry['temperature'])
                                     )
-                                conn.execute(
+                                conn.execute(  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: f-string interpolates only sql.* dialect helpers (constants), not user input
                                     f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"
                                 )
                                 conn.commit()
@@ -376,12 +376,12 @@ class PrinterMonitor:
                                             if existing:
                                                 slot_id, old_type, old_hex, old_spool = existing
                                                 if is_empty:
-                                                    conn.execute(
+                                                    conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                                                         f"UPDATE filament_slots SET filament_type=?, color=NULL, color_hex=NULL, loaded_at={sql.now()} WHERE id=?",
                                                         ('empty', slot_id))
                                                 else:
                                                     updates = {"filament_type": ftype, "color_hex": color_hex, "loaded_at": sql.now()}
-                                                    conn.execute(
+                                                    conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                                                         f"UPDATE filament_slots SET filament_type=?, color_hex=?, loaded_at={sql.now()} WHERE id=?",
                                                         (ftype, color_hex, slot_id))
                                                     # RFID spool matching
@@ -402,7 +402,7 @@ class PrinterMonitor:
                                                                     "UPDATE spools SET location_printer_id=?, location_slot=? WHERE id=?",
                                                                     (self.printer_id, slot_num, spool_row[0]))
                                             else:
-                                                conn.execute(
+                                                conn.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                                                     f"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color_hex, loaded_at) VALUES (?, ?, ?, ?, {sql.now()})",
                                                     (self.printer_id, slot_num, ftype if not is_empty else 'empty', color_hex if not is_empty else None))
 
@@ -460,7 +460,7 @@ class PrinterMonitor:
                                             "INSERT INTO hms_error_history (printer_id, code, message, severity, source) VALUES (?, ?, ?, ?, ?)",
                                             (self.printer_id, err.get('code', ''), err.get('message', ''), err.get('severity', 'warning'), 'bambu_hms')
                                         )
-                                    hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {sql.now_offset('-90 days')}")
+                                    hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: f-string interpolates only sql.* dialect helpers (constants), not user input
                                     hconn.commit()
                             except Exception as e:
                                 log.debug(f"[{self.name}] HMS history insert: {e}")

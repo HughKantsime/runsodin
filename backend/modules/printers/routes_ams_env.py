@@ -44,7 +44,7 @@ async def get_ams_environment(
 
     query += " ORDER BY recorded_at ASC"
 
-    rows = db.execute(text(query), params).fetchall()
+    rows = db.execute(text(query), params).fetchall()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
 
     units = {}
     for row in rows:

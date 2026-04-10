@@ -3,7 +3,7 @@ Elegoo SDCP Monitor — WebSocket daemon for Elegoo 3D printers.
 
 Supports: Centauri Carbon (FDM), Neptune 4 series, Saturn series (resin)
 Protocol: SDCP v3.0.0 over WebSocket
-Transport: ws://printer_ip:3030/websocket (no auth)
+Transport: ws://printer_ip:3030/websocket (no auth)  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- by design: Elegoo SDCP protocol uses ws:// on LAN; no TLS available on printer firmware
 
 Architecture:
   - One thread per Elegoo printer
@@ -238,7 +238,7 @@ class ElegooMonitorThread(threading.Thread):
                         stage = "Idle"
 
                     conn.execute(
-                        text(f"UPDATE printers SET last_seen={sql.now()},"
+                        text(f"UPDATE printers SET last_seen={sql.now()},"  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                         " bed_temp=COALESCE(:bed_t,bed_temp),bed_target_temp=COALESCE(:bed_tt,bed_target_temp),"
                         " nozzle_temp=COALESCE(:noz_t,nozzle_temp),nozzle_target_temp=COALESCE(:noz_tt,nozzle_target_temp),"
                         " gcode_state=COALESCE(:gstate,gcode_state),print_stage=COALESCE(:stage,print_stage),"
@@ -287,7 +287,7 @@ class ElegooMonitorThread(threading.Thread):
                                 text("INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (:pid, :bed_t, :noz_t, :bed_tt, :noz_tt, :fan)"),
                                 {"pid": self.printer_id, "bed_t": bed_t, "noz_t": noz_t, "bed_tt": bed_tt, "noz_tt": noz_tt, "fan": fan_speed_val}
                             )
-                            conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
+                            conn.execute(text(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                         except Exception as e:
                             log.debug(f"[{self.name}] Telemetry insert: {e}")
 
@@ -302,7 +302,7 @@ class ElegooMonitorThread(threading.Thread):
                                     text("INSERT INTO ams_telemetry (printer_id, ams_unit, humidity, temperature) VALUES (:pid, :unit, :hum, :temp)"),
                                     {"pid": self.printer_id, "unit": 0, "hum": None, "temp": box_temp}
                                 )
-                                conn.execute(text(f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))
+                                conn.execute(text(f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
                         except Exception as e:
                             log.debug(f"[{self.name}] Enclosure env capture: {e}")
 

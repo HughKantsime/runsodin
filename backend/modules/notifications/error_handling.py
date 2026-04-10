@@ -57,7 +57,7 @@ def record_error(
             cur = conn.cursor()
 
             # Update printer's last error
-            cur.execute(
+            cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 f"""UPDATE printers SET
                     last_error_code = ?,
                     last_error_message = ?,
@@ -170,7 +170,7 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
             print_job_id, scheduled_job_id, job_name, started_at = row
 
             # Mark print_jobs as failed (WHERE status='running' guards against races)
-            cur.execute(f"""
+            cur.execute(f"""  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                 UPDATE print_jobs
                 SET status = 'failed', ended_at = {sql.now()}, error_code = ?
                 WHERE id = ? AND status = 'running'
@@ -181,7 +181,7 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
 
             # Mark linked scheduled job as failed
             if scheduled_job_id:
-                cur.execute(
+                cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                     f"UPDATE jobs SET status = 'failed', actual_end = {sql.now()} WHERE id = ?",
                     (scheduled_job_id,))
 

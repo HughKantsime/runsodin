@@ -63,7 +63,7 @@ def record_job_started(
                 cur.execute("BEGIN IMMEDIATE")
 
                 # ---- Stale schedule cleanup ----
-                cur.execute(f"""
+                cur.execute(f"""  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                     SELECT id, item_name FROM jobs
                     WHERE printer_id = ? AND status = 'scheduled'
                       AND scheduled_start < {sql.now_offset('-2 hours', local=True)}
@@ -72,7 +72,7 @@ def record_job_started(
                 if stale_rows:
                     stale_ids = [r[0] for r in stale_rows]
                     stale_names = [r[1] or f"job #{r[0]}" for r in stale_rows]
-                    cur.execute(
+                    cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                         "UPDATE jobs SET status = 'pending', printer_id = NULL,"
                         " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
                         " WHERE id IN ({})".format(','.join('?' * len(stale_ids))),
@@ -166,7 +166,7 @@ def record_job_started(
                     if displaced:
                         displaced_ids = [r[0] for r in displaced]
                         displaced_names = [r[1] or f"job #{r[0]}" for r in displaced]
-                        cur.execute(
+                        cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- safe: cur.execute uses ? placeholders for user values; only sql.* dialect helpers interpolated
                             "UPDATE jobs SET status = 'pending', printer_id = NULL,"
                             " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
                             " WHERE id IN ({})".format(','.join('?' * len(displaced_ids))),

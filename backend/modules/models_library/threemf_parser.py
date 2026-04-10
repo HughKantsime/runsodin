@@ -8,11 +8,9 @@ import json
 import base64
 from pathlib import Path
 
-# Use defusedxml to prevent XXE and billion-laughs attacks when parsing 3MF XML
-try:
-    from defusedxml import ElementTree as ET
-except ImportError:
-    import xml.etree.ElementTree as ET  # fallback — defusedxml strongly preferred
+# Use defusedxml to prevent XXE and billion-laughs attacks when parsing 3MF XML.
+# defusedxml is a hard requirement (in requirements.txt) — no fallback to stdlib.
+from defusedxml import ElementTree as ET
 
 def _friendly_printer_name(model_id: str) -> str:
     """Convert Bambu internal codes to friendly names."""

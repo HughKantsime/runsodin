@@ -99,7 +99,7 @@ def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
                           current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get timeseries telemetry data for a printer (recorded during prints)."""
     cutoff_expr = sql.now_offset(f"-{hours} hours")
-    rows = db.execute(text(
+    rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         f"SELECT recorded_at, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed "
         f"FROM printer_telemetry WHERE printer_id = :pid AND recorded_at > {cutoff_expr} "
         f"ORDER BY recorded_at ASC"
@@ -117,7 +117,7 @@ def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
                           current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get HMS error history with occurrence timestamps."""
     cutoff_expr = sql.now_offset(f"-{days} days")
-    rows = db.execute(text(
+    rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
         f"SELECT id, printer_id, code, message, severity, source, occurred_at "
         f"FROM hms_error_history WHERE printer_id = :pid AND occurred_at > {cutoff_expr} "
         f"ORDER BY occurred_at DESC"
