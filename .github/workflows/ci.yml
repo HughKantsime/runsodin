@@ -91,7 +91,7 @@ jobs:
 
       - name: pip-audit — dependency CVEs
         run: |
-          pip-audit \
+          python3.11 -m pip_audit \
             -r backend/requirements.txt \
             --progress-spinner off \
             --desc on
