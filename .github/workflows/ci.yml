@@ -91,14 +91,18 @@ jobs:
 
       - name: pip-audit — dependency CVEs
         run: |
-          # pip-audit 2.x does not support --severity filtering.
-          # Run full audit for visibility — findings are surfaced in the artifact.
-          # Treat all findings as warnings; block on explicit CRITICAL ignores only.
           pip-audit \
             -r backend/requirements.txt \
             --progress-spinner off \
-            --desc on \
-            || true
+            --desc on
+
+      - name: Semgrep — SAST
+        run: |
+          pip3.11 install semgrep
+          semgrep --config auto --error \
+            --exclude='tests/*' \
+            --exclude='*.min.js' \
+            backend/
 
       - name: Upload bandit report
         if: always()
@@ -132,8 +136,8 @@ jobs:
           # Report everything for visibility
           npm audit --json > npm-audit.json || true
           npm audit || true
-          # Hard fail only on critical
-          npm audit --audit-level=critical
+          # Hard fail on high and critical
+          npm audit --audit-level=high
 
       - name: Upload npm audit report
         if: always()
@@ -142,3 +146,22 @@ jobs:
           name: npm-audit-report
           path: frontend/npm-audit.json
           retention-days: 30
+
+  # ─────────────────────────────────────────────────────────
+  # Job 4: Dockerfile Lint
+  # Hadolint catches Dockerfile security and best-practice issues.
+  # ─────────────────────────────────────────────────────────
+  dockerfile-lint:
+    name: Dockerfile Lint
+    runs-on: mac-mini-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Homebrew to PATH
+        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
+      - name: Install hadolint
+        run: brew install hadolint 2>/dev/null || true
+
+      - name: Lint Dockerfile
+        run: hadolint Dockerfile

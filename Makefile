@@ -1,4 +1,4 @@
-.PHONY: build test test-contracts test-security test-e2e test-coverage scan verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-security test-e2e test-coverage scan security security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
 
 tokens: ## Regenerate design tokens (CSS + Swift) from design/tokens.json
 	node design/generate.mjs
@@ -23,15 +23,23 @@ test-security: ## Run Layer 3 security tests
 test-coverage: ## RBAC route coverage gate — fails if new routes not in RBAC matrix
 	pytest tests/test_route_coverage.py -v --tb=short
 
-scan: ## Static security scan (bandit + pip-audit + npm audit) — mirrors CI
-	@echo "=== Bandit (Python static analysis) ==="
-	bandit -r backend/ -ll --exclude backend/vision_models_default/ -f txt || true
-	@echo ""
-	@echo "=== pip-audit (Python CVEs) ==="
-	pip-audit -r backend/requirements.txt --progress-spinner off --desc on || true
-	@echo ""
-	@echo "=== npm audit (frontend CVEs) ==="
-	cd frontend && npm audit || true
+security: security-secrets security-audit security-sast security-docker ## Run all security checks (hard fail)
+
+security-audit: ## Dependency audit (pip-audit + npm audit)
+	pip-audit -r backend/requirements.txt --progress-spinner off --desc on
+	cd frontend && npm audit --audit-level=high
+
+security-secrets: ## Secret scanning (gitleaks)
+	gitleaks detect --source . --config .gitleaks.toml -v
+
+security-sast: ## Static analysis (bandit + semgrep)
+	bandit -r backend/ -lll --exclude backend/vision_models_default/ -q
+	semgrep --config auto --error --exclude='tests/*' --exclude='*.min.js' backend/
+
+security-docker: ## Dockerfile lint (hadolint)
+	hadolint Dockerfile
+
+scan: security ## Alias for backward compatibility
 
 test-e2e: ## Run E2E Playwright tests
 	pytest tests/test_e2e/ -v --tb=short
