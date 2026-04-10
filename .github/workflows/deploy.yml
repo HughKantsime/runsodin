@@ -41,7 +41,7 @@ jobs:
           npx vite build
 
       - name: Validate backend deps
-        run: pip3 install -r backend/requirements.txt
+        run: pip3 install --break-system-packages -r backend/requirements.txt
 
   # ── Auto-tag from VERSION file ──
   tag:
