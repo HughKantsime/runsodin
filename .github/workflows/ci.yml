@@ -19,13 +19,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Install test dependencies
-        run: pip3.11 install pytest && pip3.11 install -r backend/requirements.txt
+        run: pip3 install pytest && pip3 install -r backend/requirements.txt
 
       - name: Run contract tests
-        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3.11 -m pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
+        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3 -m pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
 
   # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
@@ -42,7 +42,7 @@ jobs:
           fetch-depth: 0
 
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Install gitleaks
         run: brew install gitleaks 2>/dev/null || true
@@ -62,10 +62,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Install scanning tools
-        run: pip3.11 install bandit pip-audit
+        run: pip3 install bandit pip-audit
 
       - name: Bandit — static analysis
         run: |
@@ -98,7 +98,7 @@ jobs:
 
       - name: Semgrep — SAST
         run: |
-          pip3.11 install semgrep
+          pip3 install semgrep
           semgrep --config auto --error \
             --exclude='tests/*' \
             --exclude='*.min.js' \
@@ -158,7 +158,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Add Homebrew to PATH
-        run: echo "/opt/homebrew/bin" >> $GITHUB_PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Install hadolint
         run: brew install hadolint 2>/dev/null || true
