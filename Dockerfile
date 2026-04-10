@@ -8,7 +8,10 @@
 
 FROM python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf AS backend-base
 
-# System deps
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# System deps — versions intentionally unpinned to track Debian security updates
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     curl \

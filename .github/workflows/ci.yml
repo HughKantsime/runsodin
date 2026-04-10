@@ -22,10 +22,10 @@ jobs:
         run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Install test dependencies
-        run: pip3 install --break-system-packages pytest && pip3 install --break-system-packages -r backend/requirements.txt
+        run: pip3.11 install --break-system-packages pytest && pip3.11 install --break-system-packages -r backend/requirements.txt
 
       - name: Run contract tests
-        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3 -m pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
+        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3.11 -m pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
 
   # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
@@ -65,7 +65,7 @@ jobs:
         run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
       - name: Install scanning tools
-        run: pip3 install --break-system-packages bandit pip-audit
+        run: pip3.11 install --break-system-packages bandit pip-audit
 
       - name: Bandit — static analysis
         run: |
@@ -98,7 +98,7 @@ jobs:
 
       - name: Semgrep — SAST
         run: |
-          pip3 install --break-system-packages semgrep
+          pip3.11 install --break-system-packages semgrep
           semgrep --config auto --error \
             --exclude='tests/*' \
             --exclude='*.min.js' \
