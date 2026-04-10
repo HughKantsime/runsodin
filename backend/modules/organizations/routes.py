@@ -104,7 +104,7 @@ async def create_org(body: dict, current_user: dict = Depends(require_superadmin
         db.commit()
         org_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
-        org_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        org_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
 
     log_audit(db, "org_created", "org", org_id, f"Organization '{name}' created")
@@ -127,7 +127,7 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
             sets.append(f"{field} = :{field}")
             params[field] = body[field]
     if sets:
-        db.execute(text(f"UPDATE groups SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"UPDATE groups SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
 
     return {"status": "ok"}
@@ -145,7 +145,7 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     # Unlink resources (table names from constant allowlist, not user input)
     _ORG_RESOURCE_TABLES = ("printers", "models", "spools")
     for tbl in _ORG_RESOURCE_TABLES:
-        db.execute(text(f"UPDATE {tbl} SET org_id = NULL WHERE org_id = :id"), {"id": org_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"UPDATE {tbl} SET org_id = NULL WHERE org_id = :id"), {"id": org_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": org_id})
     db.commit()
 

@@ -97,7 +97,7 @@ def list_projects(
     where = " AND ".join(conditions) if conditions else "1=1"
 
     rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             f"SELECT p.*, "
             f"(SELECT COUNT(*) FROM print_archives a WHERE a.project_id = p.id) AS archive_count "
             f"FROM projects p WHERE {where} ORDER BY p.updated_at DESC"
@@ -186,7 +186,7 @@ def update_project(
     updates.append("updated_at = CURRENT_TIMESTAMP")
 
     if updates:
-        db.execute(text(f"UPDATE projects SET {', '.join(updates)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"UPDATE projects SET {', '.join(updates)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
     return {"status": "updated"}
 
@@ -237,7 +237,7 @@ def assign_archives(
     # Validate all archive IDs exist
     placeholders = ",".join(str(int(aid)) for aid in body.archive_ids)
     found = db.execute(
-        text(f"SELECT id FROM print_archives WHERE id IN ({placeholders})")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(f"SELECT id FROM print_archives WHERE id IN ({placeholders})")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     ).fetchall()
     found_ids = {r[0] for r in found}
     missing = set(body.archive_ids) - found_ids
@@ -245,7 +245,7 @@ def assign_archives(
         raise HTTPException(status_code=400, detail=f"Archive IDs not found: {sorted(missing)}")
 
     db.execute(
-        text(f"UPDATE print_archives SET project_id = :pid WHERE id IN ({placeholders})"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(f"UPDATE print_archives SET project_id = :pid WHERE id IN ({placeholders})"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         {"pid": project_id},
     )
     db.commit()

@@ -234,7 +234,7 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     if updates:
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates['id'] = user_id
-        db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
     if role_changed:
         log_audit(db, "user.role_changed", "user", user_id,
@@ -245,7 +245,7 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
         expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
         for session in sessions:
-            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                        {"jti": session.token_jti, "exp": expiry})
         db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
         db.commit()
@@ -463,7 +463,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates["id"] = group_id
-        db.execute(text(f"UPDATE groups SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"UPDATE groups SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
     return {"status": "updated"}
 

@@ -39,7 +39,7 @@ def _http_request(url: str, method: str = "GET", headers: dict = None,
         req.data = data.encode("utf-8")
     
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- by design: connects to admin-configured printer/spoolman URLs on LAN
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
             body = resp.read().decode("utf-8")
             return resp.status, body
     except urllib.error.HTTPError as e:

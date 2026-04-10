@@ -55,7 +55,7 @@ def _discover_modules() -> list[str]:
             continue
         pkg_name = f"modules.{entry.name}"
         try:
-            mod = importlib.import_module(pkg_name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- safe: plugin discovery via os.scandir, not user input
+            mod = importlib.import_module(pkg_name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- verified safe — plugin discovery via os.scandir, not user input
             if hasattr(mod, "MODULE_ID"):
                 found.append(pkg_name)
         except Exception as exc:
@@ -76,7 +76,7 @@ def _resolve_load_order(pkg_names: list[str]) -> list[str]:
     # Load manifest metadata
     mods: dict[str, dict] = {}
     for pkg in pkg_names:
-        m = importlib.import_module(pkg)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- safe: plugin discovery via os.scandir, not user input
+        m = importlib.import_module(pkg)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- verified safe — plugin discovery via os.scandir, not user input
         mods[pkg] = {
             "implements": getattr(m, "IMPLEMENTS", []),
             "requires": getattr(m, "REQUIRES", []),
@@ -222,7 +222,7 @@ def _check_schema_drift(engine, Base):
                     continue
                 sa_cols = {c.name for c in sa_table.columns}
                 rows = conn.execute(
-                    text(f"PRAGMA table_info({table_name})")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+                    text(f"PRAGMA table_info({table_name})")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 ).fetchall()
                 if not rows:
                     continue
@@ -588,7 +588,7 @@ def create_app() -> FastAPI:
     # Module registration — MUST happen before SPA catch-all
     # -----------------------------------------------------------------------
     for pkg in ordered_pkgs:
-        mod = importlib.import_module(pkg)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- safe: plugin discovery via os.scandir, not user input
+        mod = importlib.import_module(pkg)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- verified safe — plugin discovery via os.scandir, not user input
         # Record REQUIRES for dependency validation (done at startup)
         registry.record_requires(
             getattr(mod, "MODULE_ID", pkg),

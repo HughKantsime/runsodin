@@ -83,7 +83,7 @@ def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
             # Find old detections with frame paths
             _cutoff_sql = sql.now_offset(f"-{retention_days} days")
             old_rows = conn.execute(
-                text(f"""SELECT id, frame_path FROM vision_detections  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+                text(f"""SELECT id, frame_path FROM vision_detections  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 WHERE created_at < {_cutoff_sql}
                   AND frame_path IS NOT NULL""")
             ).mappings().fetchall()
@@ -99,7 +99,7 @@ def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
             if old_rows:
                 ids = [str(r['id']) for r in old_rows]
                 conn.execute(
-                    text(f"UPDATE vision_detections SET frame_path = NULL "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+                    text(f"UPDATE vision_detections SET frame_path = NULL "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                     f"WHERE id IN ({','.join(ids)})")
                 )
 

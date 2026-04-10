@@ -158,11 +158,11 @@ def list_archives(
     # Count query needs the printer JOIN for org scoping
     count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if org is not None else ""
     total = db.execute(
-        text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     ).scalar() or 0
 
     rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             f"SELECT a.*, p.name AS printer_name, p.nickname AS printer_nickname "
             f"FROM print_archives a "
             f"LEFT JOIN printers p ON p.id = a.printer_id "
@@ -260,11 +260,11 @@ def archive_log(
 
     count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if org is not None else ""
     total = db.execute(
-        text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     ).scalar() or 0
 
     rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             f"SELECT a.id, a.print_name, a.printer_id, a.user_id, a.status, "
             f"a.started_at, a.completed_at, a.actual_duration_seconds, "
             f"a.filament_used_grams, a.cost_estimate, a.tags, "
@@ -320,7 +320,7 @@ def export_archive_log(
     where = " AND ".join(conditions) if conditions else "1=1"
 
     rows = db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             f"SELECT a.print_name, a.status, a.started_at, a.completed_at, "
             f"a.actual_duration_seconds, a.filament_used_grams, a.cost_estimate, "
             f"a.tags, p.name AS printer_name, u.username AS user_name "

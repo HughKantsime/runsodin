@@ -72,7 +72,7 @@ def get_or_create_timelapse(session, printer_id: int, job_id: int) -> int:
     # Create new timelapse
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"printer_{printer_id}/{ts}.mp4"
-    session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+    session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         INSERT INTO timelapses (printer_id, print_job_id, filename, frame_count, status, created_at)
         VALUES (:pid, :jid, :fname, 0, 'capturing', {sql.now()})
     """), {"pid": printer_id, "jid": job_id, "fname": filename})
@@ -124,7 +124,7 @@ def encode_timelapse(timelapse_id: int) -> bool:
         frames = sorted(frame_dir.glob("*.jpg"))
         if len(frames) < 2:
             # Not enough frames, mark as failed
-            session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
                 WHERE id = :tid
             """), {"tid": timelapse_id})
@@ -157,7 +157,7 @@ def encode_timelapse(timelapse_id: int) -> bool:
         result = subprocess.run(cmd, capture_output=True, timeout=300)
         if result.returncode != 0:
             log.error(f"ffmpeg failed for timelapse {timelapse_id}: {result.stderr.decode()[-500:]}")
-            session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
                 WHERE id = :tid
             """), {"tid": timelapse_id})
@@ -167,7 +167,7 @@ def encode_timelapse(timelapse_id: int) -> bool:
         # Update record
         file_size = output_path.stat().st_size / (1024 * 1024)
         duration = len(frames) / FFMPEG_FPS
-        session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             UPDATE timelapses
             SET status = 'ready',
                 frame_count = :fc,
@@ -185,7 +185,7 @@ def encode_timelapse(timelapse_id: int) -> bool:
 
     except Exception as e:
         log.error(f"Encode error for timelapse {timelapse_id}: {e}")
-        session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             UPDATE timelapses SET status = 'failed', completed_at = {sql.now()}
             WHERE id = :tid
         """), {"tid": timelapse_id})

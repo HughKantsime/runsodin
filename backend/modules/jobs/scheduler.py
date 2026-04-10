@@ -297,7 +297,7 @@ class Scheduler:
         model_ids = [j.model_id for j in pending_jobs if j.model_id]
         if model_ids:
             placeholders = ",".join(str(m) for m in set(model_ids))
-            rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 f"SELECT model_id, printer_model FROM print_files "
                 f"WHERE model_id IN ({placeholders}) "
                 f"AND printer_model IS NOT NULL AND printer_model != '' "

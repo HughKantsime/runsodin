@@ -73,7 +73,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     except Exception:
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
-    db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+    db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                {"jti": row.token_jti, "exp": expires_at})
     db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
     db.commit()
@@ -107,7 +107,7 @@ async def revoke_all_sessions(request: Request, current_user: dict = Depends(req
             expires_at = created + timedelta(hours=24)
         except Exception:
             expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                    {"jti": r.token_jti, "exp": expires_at})
         count += 1
 
@@ -159,7 +159,7 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
     except Exception:
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
-    db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+    db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                {"jti": row.token_jti, "exp": expires_at})
     db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
     db.commit()
@@ -218,7 +218,7 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
         db.commit()
         token_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
-        token_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        token_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
     log_audit(db, "api_token_created", "api_token", token_id, f"Token '{name}' created")
 
@@ -329,7 +329,7 @@ async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: 
             params[field] = body_data[field]
 
     if sets:
-        db.execute(text(f"UPDATE users SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"UPDATE users SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
 
     log_audit(db, "quota_updated", "user", user_id, f"Quotas updated: {body_data}")

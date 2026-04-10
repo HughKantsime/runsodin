@@ -157,12 +157,12 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
     elif request.api_type.lower() == "moonraker":
         import httpx as httpx_client
         try:
-            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
+            r = httpx_client.get(f"http://{request.api_host}/printer/info", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
                 info = r.json().get("result", {})
                 detected_model = None
                 try:
-                    cfg_r = httpx_client.get(f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
+                    cfg_r = httpx_client.get(f"http://{request.api_host}/server/config", timeout=3)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
                     if cfg_r.status_code == 200:
                         kinematics = (cfg_r.json().get("result", {}).get("config", {}).get("printer", {}).get("kinematics", "") or "")
                         if kinematics.lower() == "corexy":
@@ -187,7 +187,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
     elif request.api_type.lower() == "prusalink":
         import httpx as httpx_client
         try:
-            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
+            r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
                 info = r.json()
                 detected_model = None
@@ -212,7 +212,7 @@ def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(g
         import httpx as httpx_client
         reachable = False
         try:
-            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- by design: connects to admin-configured printer IPs on LAN; auth-gated by require_role
+            httpx_client.get(f"http://{request.api_host}:3030", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             reachable = True
         except Exception as e:
             log.debug(f"Failed to reach Elegoo printer: {e}")

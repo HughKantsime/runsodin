@@ -90,10 +90,10 @@ def list_profiles(
         params["search"] = f"%{search}%"
 
     where = " AND ".join(clauses)
-    total = db.execute(text(f"SELECT COUNT(*) FROM printer_profiles WHERE {where}"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+    total = db.execute(text(f"SELECT COUNT(*) FROM printer_profiles WHERE {where}"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     offset = (page - 1) * per_page
     rows = db.execute(
-        text(f"SELECT * FROM printer_profiles WHERE {where} ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        text(f"SELECT * FROM printer_profiles WHERE {where} ORDER BY updated_at DESC LIMIT :limit OFFSET :offset"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         {**params, "limit": per_page, "offset": offset},
     ).fetchall()
     return {
@@ -147,7 +147,7 @@ async def create_profile(
         db.commit()
         pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
-        pid = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        pid = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         db.commit()
     log_audit(db, "create", "profile", pid, {"name": name, "slicer": slicer})
     return {"id": pid, "name": name}
@@ -262,7 +262,7 @@ async def import_profile(
             db.commit()
             pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
         else:
-            pid = db.execute(text(import_insert_sql + " RETURNING id"), import_params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            pid = db.execute(text(import_insert_sql + " RETURNING id"), import_params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             db.commit()
         ids.append(pid)
         log_audit(db, "create", "profile", pid, {"name": p["name"], "slicer": p["slicer"], "source": "import"})
@@ -312,7 +312,7 @@ async def update_profile(
         raise HTTPException(status_code=400, detail="No valid fields")
     sets = ", ".join(f"{k} = :{k}" for k in updates)
     updates["id"] = profile_id
-    db.execute(text(f"UPDATE printer_profiles SET {sets}, updated_at = {sql.now()} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+    db.execute(text(f"UPDATE printer_profiles SET {sets}, updated_at = {sql.now()} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     db.commit()
     log_audit(db, "update", "profile", profile_id, updates)
     return {"updated": True}
@@ -452,7 +452,7 @@ async def apply_profile(
             failures.append(gcode)
 
     # Update last_applied
-    db.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+    db.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         UPDATE printer_profiles
         SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
         WHERE id = :id

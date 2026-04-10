@@ -37,7 +37,7 @@ def _state_db_store(state: str, expires: datetime):
         from sqlalchemy import text
         db = SessionLocal()
         try:
-            db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 f"{sql.upsert_prefix()} oidc_pending_states (state, expires_at) VALUES (:s, :e)"
                 f"{sql.on_conflict_suffix('state', ['expires_at'])}"
             ), {"s": state, "e": expires.isoformat()})

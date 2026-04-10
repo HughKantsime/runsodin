@@ -64,7 +64,7 @@ def dispatch_alert(
                 in_app_users = [row['id'] for row in all_users]
 
             # Check for duplicate (same type, printer, title in last 5 minutes)
-            dup = conn.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            dup = conn.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                 SELECT id FROM alerts
                 WHERE alert_type = :atype
                   AND printer_id IS :pid
@@ -80,7 +80,7 @@ def dispatch_alert(
             metadata_json = json.dumps(metadata) if metadata else None
 
             for user_id in in_app_users:
-                conn.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+                conn.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                     INSERT INTO alerts (user_id, alert_type, severity, title, message,
                                         printer_id, job_id, spool_id, metadata_json,
                                         is_read, is_dismissed, created_at)

@@ -36,7 +36,7 @@ def _record_session(db, user_id, access_token, ip, user_agent):
         payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
         jti = payload.get("jti")
         if jti:
-            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                                VALUES (:uid, :jti, :ip, :ua){sql.on_conflict_ignore('token_jti')}"""),
                        {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
             db.commit()
@@ -116,7 +116,7 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
             exp = payload.get("exp")
             if jti and exp:
                 db.execute(
-                    text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+                    text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                     {"jti": jti, "exp": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()},
                 )
                 db.execute(text("DELETE FROM active_sessions WHERE token_jti = :jti"), {"jti": jti})
@@ -185,7 +185,7 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
     mfa_jti = payload.get("jti")
     if mfa_jti:
         mfa_exp = payload.get("exp", 0)
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                    {"jti": mfa_jti, "exp": datetime.fromtimestamp(mfa_exp, tz=timezone.utc).isoformat()})
         db.commit()
 
@@ -496,7 +496,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
     sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
     expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     for s in sessions:
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- safe: text() uses :param bindings; only sql.* helpers (constants) interpolated via f-string
+        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                    {"jti": s[0], "exp": expiry})
     db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
     db.commit()
