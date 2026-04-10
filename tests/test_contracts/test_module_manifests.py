@@ -29,6 +29,7 @@ EXPECTED_MODULES = [
     "orders",
     "organizations",
     "printers",
+    "push",
     "reporting",
     "system",
     "vision",

@@ -285,6 +285,8 @@ class TestSQLMigrationTablesExist:
         "print_archives", "projects",
         # models_library
         "model_revisions",
+        # push
+        "push_devices", "biometric_tokens",
     }
 
     @pytest.mark.parametrize("table_name", sorted(EXPECTED_SQL_TABLES))
