@@ -2,6 +2,13 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.1] - 2026-04-12
+
+### Fixed
+- **Alerts endpoint 500** — `/api/v1/alerts` was hitting lazy-loaded `printer`, `job`, `spool` relationships after the SQLAlchemy session closed, causing `DetachedInstanceError`. Added `selectinload` for printer, job, and nested `spool.filament`.
+- **Orders endpoint 500** — same lazy-loading issue on `Order.items` in `list_orders`, `get_order`, `update_order`, `schedule_order`, and `ship_order`. Added `selectinload(Order.items)` to each.
+- **WebSocket bad response** — native clients connect to `wss://host/api/v1/ws` but the backend only registered `/ws`. Added a `/api/v1/ws` route alias and middleware bypass for the versioned path.
+
 ## [1.8.0] - 2026-04-06
 
 ### Added
