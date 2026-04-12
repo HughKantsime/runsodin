@@ -117,3 +117,10 @@ plan.md
 docs/plans/audit-baseline.md
 docs/plans/2026-03-03-beta-readiness-audit.md
 *.sync-conflict-*
+
+# Codex scratch
+.codex-tmp/
+
+# Stray marketing assets (belong in odin-site, not backend)
+ios-app-icon*.png
+docker/ios-app-icon*.png
