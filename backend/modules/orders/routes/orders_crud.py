@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import Response as FastAPIResponse
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from typing import List, Optional
 from datetime import datetime, timezone
 import logging
@@ -95,7 +95,7 @@ def list_orders(
     if platform:
         query = query.filter(Order.platform == platform)
 
-    orders = query.order_by(Order.created_at.desc()).all()
+    orders = query.options(selectinload(Order.items)).order_by(Order.created_at.desc()).all()
 
     result = []
     for o in orders:
@@ -159,7 +159,7 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
 @router.get("/{order_id}", response_model=OrderResponse)
 def get_order(order_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get an order with items and P&L calculation."""
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
@@ -171,7 +171,7 @@ def get_order(order_id: int, current_user: dict = Depends(require_role("viewer")
 @router.patch("/{order_id}", response_model=OrderResponse)
 def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Update an order."""
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
@@ -288,7 +288,7 @@ def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(
 @router.post("/{order_id}/schedule")
 def schedule_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Generate jobs for an order based on BOM."""
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
@@ -413,7 +413,7 @@ def get_order_invoice(
 @router.patch("/{order_id}/ship", response_model=OrderResponse)
 def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark an order as shipped."""
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):

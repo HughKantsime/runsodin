@@ -1,7 +1,7 @@
 """O.D.I.N. — Alerts, Alert Preferences, and SMTP Configuration."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import text
 from typing import List, Optional
 import logging
@@ -13,6 +13,7 @@ from core.rbac import require_role
 from core.base import AlertType
 from core.models import SystemConfig
 from modules.notifications.models import Alert, AlertPreference
+from modules.inventory.models import Spool
 from modules.notifications.schemas import (
     AlertResponse, AlertSummary,
     AlertPreferenceResponse, AlertPreferencesUpdate,
@@ -40,7 +41,11 @@ async def list_alerts(
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    query = db.query(Alert).filter(Alert.user_id == current_user["id"])
+    query = db.query(Alert).options(
+        selectinload(Alert.printer),
+        selectinload(Alert.job),
+        selectinload(Alert.spool).selectinload(Spool.filament),
+    ).filter(Alert.user_id == current_user["id"])
 
     if severity:
         query = query.filter(Alert.severity == severity)
