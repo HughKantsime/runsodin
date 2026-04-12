@@ -327,7 +327,7 @@ def _register_http_middleware(app: FastAPI) -> None:
             _api_path = path[4:]
 
         if (
-            path in ("/health", "/ws")
+            path in ("/health", "/ws", "/api/v1/ws")
             or path.endswith("/label")
             or path.endswith("/labels/batch")
             or _api_path.startswith("/auth")
@@ -583,6 +583,11 @@ def create_app() -> FastAPI:
             pass
         finally:
             ws_manager.disconnect(ws)
+
+    @app.websocket("/api/v1/ws")
+    async def websocket_endpoint_v1(ws: WebSocket, token: str = Query(default=None)):
+        """Alias for /ws — native clients connect via /api/v1/ws."""
+        await websocket_endpoint(ws, token=token)
 
     # -----------------------------------------------------------------------
     # Module registration — MUST happen before SPA catch-all
