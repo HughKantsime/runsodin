@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from core.base import AlertType, AlertSeverity
 from core.models import SystemConfig
+from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 from modules.notifications.models import Alert, AlertPreference, PushSubscription
 
 logger = logging.getLogger("alert_dispatcher")
@@ -395,9 +396,12 @@ def dispatch_alert(
 
 def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
                       title: str, message: str, severity: str):
-    """Send alert to an org's configured webhook URL in a background thread."""
-    import httpx
+    """Send alert to an org's configured webhook URL in a background thread.
 
+    R8 (2026-04-12): routes through safe_post() so DNS resolution and
+    private-address checks happen at dispatch time, defeating DNS rebinding
+    and split-horizon DNS on user-configured org webhooks.
+    """
     severity_colors = {"critical": 0xef4444, "warning": 0xf59e0b, "info": 0x3b82f6}
     severity_emoji = {"critical": "\U0001f534", "warning": "\U0001f7e1", "info": "\U0001f535"}
     emoji = severity_emoji.get(severity, "\U0001f535")
@@ -406,12 +410,12 @@ def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
     def _send():
         try:
             if wtype == "discord":
-                httpx.post(url, json={
+                safe_post(url, json={
                     "embeds": [{"title": f"{emoji} {title}", "description": message or "",
                                 "color": color, "footer": {"text": "O.D.I.N."}}]
                 }, timeout=10)
             elif wtype == "slack":
-                httpx.post(url, json={
+                safe_post(url, json={
                     "blocks": [
                         {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
                         {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
@@ -419,10 +423,11 @@ def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
                 }, timeout=10)
             elif wtype == "ntfy":
                 priority_map = {"critical": "urgent", "warning": "high", "info": "default"}
-                httpx.post(url, content=message or title, headers={
+                safe_post(url, content=message or title, headers={
                     "Title": title, "Priority": priority_map.get(severity, "default"), "Tags": "printer",
                 }, timeout=10)
             elif wtype == "telegram":
+                # Hardcoded Telegram bot API — trusted_post for HTTP_PROXY.
                 if "|" in url:
                     bot_token, chat_id = url.split("|", 1)
                     api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
@@ -430,15 +435,17 @@ def _send_org_webhook(url: str, wtype: str, alert_type_value: str,
                     api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
                     chat_id = ""
                 if chat_id:
-                    httpx.post(api_url, json={
+                    trusted_post(api_url, json={
                         "chat_id": chat_id.strip(), "text": f"{emoji} *{title}*\n{message or ''}",
                         "parse_mode": "Markdown"
                     }, timeout=10)
             else:
-                httpx.post(url, json={
+                safe_post(url, json={
                     "event": alert_type_value, "title": title,
                     "message": message or "", "severity": severity
                 }, timeout=10)
+        except WebhookSSRFError as e:
+            logger.warning(f"Org webhook SSRF-blocked ({wtype}): {e}")
         except Exception as e:
             logger.error(f"Org webhook dispatch failed ({wtype}): {e}")
 

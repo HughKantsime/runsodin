@@ -15,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 
 import core.crypto as crypto
 from core.db_utils import get_db
+from core.webhook_utils import safe_post, trusted_post, WebhookSSRFError
 
 log = logging.getLogger("printer_events")
 
@@ -136,7 +137,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                 import httpx
 
                 if wtype == "discord":
-                    httpx.post(url, json={
+                    safe_post(url, json={
                         "embeds": [{
                             "title": f"{emoji} {title}",
                             "description": message or "",
@@ -146,7 +147,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                     }, timeout=10)
 
                 elif wtype == "slack":
-                    httpx.post(url, json={
+                    safe_post(url, json={
                         "blocks": [
                             {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
                             {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
@@ -155,13 +156,16 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
 
                 elif wtype == "ntfy":
                     priority_map = {"critical": "urgent", "error": "high", "warning": "high", "info": "default"}
-                    httpx.post(url, content=message or title, headers={
+                    safe_post(url, content=message or title, headers={
                         "Title": title,
                         "Priority": priority_map.get(severity, "default"),
                         "Tags": "printer",
                     }, timeout=10)
 
                 elif wtype == "telegram":
+                    # Hardcoded Telegram bot API endpoint — use trusted_post
+                    # so HTTP_PROXY env var still works for egress-proxy
+                    # deployments. (Codex pass 3, 2026-04-13.)
                     if "|" in url:
                         bot_token, chat_id = url.split("|", 1)
                         api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
@@ -169,16 +173,18 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                         api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
                         chat_id = ""
                     if chat_id:
-                        httpx.post(api_url, json={
+                        trusted_post(api_url, json={
                             "chat_id": chat_id.strip(),
                             "text": f"{emoji} *{title}*\n{message or ''}",
                             "parse_mode": "Markdown"
                         }, timeout=10)
 
                 elif wtype == "pushover":
+                    # Hardcoded Pushover API — trusted_post to allow
+                    # HTTP_PROXY egress.
                     if "|" in url:
                         user_key, api_token = url.split("|", 1)
-                        httpx.post("https://api.pushover.net/1/messages.json", data={
+                        trusted_post("https://api.pushover.net/1/messages.json", data={
                             "token": api_token.strip(),
                             "user": user_key.strip(),
                             "title": title,
@@ -187,10 +193,12 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                         }, timeout=10)
 
                 elif wtype == "whatsapp":
+                    # Hardcoded Meta Graph API — trusted_post to allow
+                    # HTTP_PROXY egress.
                     parts = url.split("|")
                     if len(parts) >= 3:
                         phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
-                        httpx.post(
+                        trusted_post(
                             f"https://graph.facebook.com/v18.0/{phone_id}/messages",
                             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                             json={
@@ -203,7 +211,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
                         )
 
                 else:  # generic
-                    httpx.post(url, json={
+                    safe_post(url, json={
                         "event": alert_type,
                         "title": title,
                         "message": message or "",

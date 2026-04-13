@@ -12,7 +12,7 @@ from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role
-from core.webhook_utils import _validate_webhook_url, resolve_and_check_webhook_url, WebhookSSRFError
+from core.webhook_utils import _validate_webhook_url, resolve_and_check_webhook_url, safe_post, trusted_post, WebhookSSRFError
 
 log = logging.getLogger("odin.api")
 
@@ -181,7 +181,7 @@ async def test_webhook(
                     "footer": {"text": "O.D.I.N."}
                 }]
             }
-            resp = httpx.post(target_url, json=payload, timeout=10)
+            resp = safe_post(target_url, json=payload, timeout=10)
 
         elif wtype == "slack":
             try:
@@ -194,7 +194,7 @@ async def test_webhook(
                     {"type": "section", "text": {"type": "mrkdwn", "text": "Webhook connection successful!"}}
                 ]
             }
-            resp = httpx.post(target_url, json=payload, timeout=10)
+            resp = safe_post(target_url, json=payload, timeout=10)
 
         elif wtype == "ntfy":
             # ntfy: URL is the topic endpoint (e.g., https://ntfy.sh/my-printfarm)
@@ -202,7 +202,7 @@ async def test_webhook(
                 target_url = resolve_and_check_webhook_url(webhook["url"])
             except WebhookSSRFError as e:
                 return {"success": False, "message": f"Webhook refused: {e}"}
-            resp = httpx.post(
+            resp = safe_post(
                 target_url,
                 content="Webhook connection successful!",
                 headers={
@@ -229,7 +229,9 @@ async def test_webhook(
                 api_url = f"https://api.telegram.org/bot{url.strip()}/sendMessage"
                 chat_id = webhook.get("name", "").split("|")[-1] if "|" in webhook.get("name", "") else ""
 
-            resp = httpx.post(
+            # Hardcoded Telegram bot API — trusted_post lets HTTP_PROXY
+            # work for egress-only deployments. (Codex pass 3, 2026-04-13.)
+            resp = trusted_post(
                 api_url,
                 json={
                     "chat_id": chat_id.strip(),
@@ -244,7 +246,8 @@ async def test_webhook(
             if "|" not in webhook["url"]:
                 return {"success": False, "message": "Invalid Pushover config. Format: user_key|api_token"}
             user_key, api_token = webhook["url"].split("|", 1)
-            resp = httpx.post("https://api.pushover.net/1/messages.json", data={
+            # Hardcoded Pushover API — trusted_post for HTTP_PROXY support.
+            resp = trusted_post("https://api.pushover.net/1/messages.json", data={
                 "token": api_token.strip(),
                 "user": user_key.strip(),
                 "title": "O.D.I.N. Test",
@@ -257,7 +260,8 @@ async def test_webhook(
             if len(parts) < 3:
                 return {"success": False, "message": "Invalid WhatsApp config. Format: phone_id|recipient|token"}
             phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
-            resp = httpx.post(
+            # Hardcoded Meta Graph API — trusted_post for HTTP_PROXY support.
+            resp = trusted_post(
                 f"https://graph.facebook.com/v18.0/{phone_id}/messages",
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json={
@@ -276,7 +280,7 @@ async def test_webhook(
                 "source": "odin",
                 "message": "Webhook connection successful!"
             }
-            resp = httpx.post(webhook["url"], json=payload, timeout=10)
+            resp = safe_post(webhook["url"], json=payload, timeout=10)
 
         if resp.status_code in (200, 204):
             return {"success": True, "message": "Test message sent"}
@@ -320,7 +324,7 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
         def _send(wtype=wtype, url=url):
             try:
                 if wtype == "discord":
-                    httpx.post(url, json={
+                    safe_post(url, json={
                         "embeds": [{
                             "title": f"{emoji} {title}",
                             "description": message or "",
@@ -330,7 +334,7 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
                     }, timeout=10)
 
                 elif wtype == "slack":
-                    httpx.post(url, json={
+                    safe_post(url, json={
                         "blocks": [
                             {"type": "header", "text": {"type": "plain_text", "text": f"{emoji} {title}"}},
                             {"type": "section", "text": {"type": "mrkdwn", "text": message or ""}}
@@ -339,13 +343,14 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
 
                 elif wtype == "ntfy":
                     priority_map = {"critical": "urgent", "warning": "high", "info": "default"}
-                    httpx.post(url, content=message or title, headers={
+                    safe_post(url, content=message or title, headers={
                         "Title": title,
                         "Priority": priority_map.get(severity, "default"),
                         "Tags": "printer",
                     }, timeout=10)
 
                 elif wtype == "telegram":
+                    # Hardcoded Telegram bot API — trusted_post for HTTP_PROXY.
                     if "|" in url:
                         bot_token, chat_id = url.split("|", 1)
                         api_url = f"https://api.telegram.org/bot{bot_token.strip()}/sendMessage"
@@ -354,17 +359,17 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
                         chat_id = ""
 
                     if chat_id:
-                        httpx.post(api_url, json={
+                        trusted_post(api_url, json={
                             "chat_id": chat_id.strip(),
                             "text": f"{emoji} *{title}*\n{message or ''}",
                             "parse_mode": "Markdown"
                         }, timeout=10)
 
                 elif wtype == "pushover":
-                    # url format: "user_key|api_token"
+                    # Hardcoded Pushover API — trusted_post for HTTP_PROXY.
                     if "|" in url:
                         user_key, api_token = url.split("|", 1)
-                        httpx.post("https://api.pushover.net/1/messages.json", data={
+                        trusted_post("https://api.pushover.net/1/messages.json", data={
                             "token": api_token.strip(),
                             "user": user_key.strip(),
                             "title": title,
@@ -373,11 +378,11 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
                         }, timeout=10)
 
                 elif wtype == "whatsapp":
-                    # url format: "phone_number_id|recipient_phone|bearer_token"
+                    # Hardcoded Meta Graph API — trusted_post for HTTP_PROXY.
                     parts = url.split("|")
                     if len(parts) >= 3:
                         phone_id, recipient, token = parts[0].strip(), parts[1].strip(), parts[2].strip()
-                        httpx.post(
+                        trusted_post(
                             f"https://graph.facebook.com/v18.0/{phone_id}/messages",
                             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                             json={
@@ -390,7 +395,7 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
                         )
 
                 else:
-                    httpx.post(url, json={
+                    safe_post(url, json={
                         "event": alert_type_value,
                         "title": title,
                         "message": message or "",

@@ -101,6 +101,61 @@ class TestNoCachingContract:
         )
 
 
+class TestSafePostHardening:
+    """Codex pass 3 (2026-04-13) closures — must not regress."""
+
+    def test_safe_post_disables_environment_proxies(self):
+        """trust_env=False prevents HTTP_PROXY/HTTPS_PROXY hijack.
+
+        With trust_env left default, an outbound proxy in the environment
+        would route the connection through itself and re-resolve the
+        hostname — bypassing the DNS-pin defense entirely.
+        """
+        import core.webhook_utils as mod
+        import inspect
+        src = inspect.getsource(mod.safe_post)
+        assert "trust_env=False" in src, (
+            "safe_post() must construct the httpx Client with "
+            "trust_env=False. Without it, HTTP_PROXY/HTTPS_PROXY env "
+            "vars route the request through a proxy that does its own "
+            "DNS resolution, defeating the SSRF pin."
+        )
+
+    def test_safe_post_uses_dns_pin(self):
+        """The implementation must call _pin_dns around the httpx call."""
+        import core.webhook_utils as mod
+        import inspect
+        src = inspect.getsource(mod.safe_post)
+        assert "_pin_dns(" in src, (
+            "safe_post() must wrap the httpx call in _pin_dns(...) so "
+            "the actual TCP connect can only land on the pre-validated "
+            "IP. Without it, httpx re-resolves the hostname and the "
+            "DNS-rebinding window remains open."
+        )
+
+    def test_dns_pin_is_thread_local_not_global_lock(self):
+        """_pin_dns must use thread-local state, not a process-wide lock.
+
+        Codex pass 3: the previous lock serialised every webhook
+        dispatch behind one slow endpoint. Thread-local lets concurrent
+        dispatches each carry their own pin without contention.
+        """
+        import core.webhook_utils as mod
+        import inspect
+        src = inspect.getsource(mod)
+        assert "threading.local" in src, (
+            "DNS pin state must be threading.local() so concurrent "
+            "webhook dispatches don't serialise behind a global lock."
+        )
+        # Also: there must NOT be a module-level Lock held around the
+        # entire request — that's the regression we're guarding against.
+        # We allow Lock for other uses, but flag a suspicious pattern.
+        assert "_DNS_PIN_LOCK" not in src, (
+            "Old global _DNS_PIN_LOCK is back. Use thread-local pinning "
+            "instead so concurrent webhooks don't block each other."
+        )
+
+
 class TestBackwardCompatibility:
     """The original _validate_webhook_url config-time gate still works."""
 
