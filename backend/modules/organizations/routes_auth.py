@@ -50,22 +50,22 @@ def _record_session(db, user_id, access_token, ip, user_agent):
 @limiter.limit("10/minute")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
-    if _check_rate_limit(client_ip):
+    if _check_rate_limit(db, client_ip):
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again in 5 minutes.")
-    if _is_locked_out(form_data.username):
+    if _is_locked_out(db, form_data.username):
         raise HTTPException(status_code=423, detail="Account temporarily locked due to repeated failed attempts. Try again in 15 minutes.")
 
     user = db.execute(text("SELECT * FROM users WHERE username = :username"),
                       {"username": form_data.username}).fetchone()
     if not user or not verify_password(form_data.password, user.password_hash):
-        _record_login_attempt(client_ip, form_data.username, False, db)
+        _record_login_attempt(db, client_ip, form_data.username, False)
         log_audit(db, "auth.login_failed", "user", details={"username": form_data.username}, ip=client_ip)
         db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account disabled")
 
-    _record_login_attempt(client_ip, form_data.username, True, db)
+    _record_login_attempt(db, client_ip, form_data.username, True)
     db.execute(text("UPDATE users SET last_login = :now WHERE id = :id"),
                {"now": datetime.now(timezone.utc), "id": user.id})
     db.commit()

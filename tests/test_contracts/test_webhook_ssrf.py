@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.core.webhook_utils import (
+from core.webhook_utils import (
     WebhookSSRFError,
     resolve_and_check_webhook_url,
     _validate_webhook_url,
@@ -55,7 +55,7 @@ class TestHostnameResolution:
         fake_infos = [
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("10.0.0.1", 0)),
         ]
-        with patch("backend.core.webhook_utils.socket.getaddrinfo", return_value=fake_infos):
+        with patch("core.webhook_utils.socket.getaddrinfo", return_value=fake_infos):
             with pytest.raises(WebhookSSRFError, match="private|reserved"):
                 resolve_and_check_webhook_url("https://evil-rebind.example.com/hook")
 
@@ -65,7 +65,7 @@ class TestHostnameResolution:
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0)),  # public
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("10.0.0.1", 0)),       # private
         ]
-        with patch("backend.core.webhook_utils.socket.getaddrinfo", return_value=fake_infos):
+        with patch("core.webhook_utils.socket.getaddrinfo", return_value=fake_infos):
             with pytest.raises(WebhookSSRFError, match="private|reserved"):
                 resolve_and_check_webhook_url("https://mixed.example.com/hook")
 
@@ -74,13 +74,13 @@ class TestHostnameResolution:
         fake_infos = [
             (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0)),
         ]
-        with patch("backend.core.webhook_utils.socket.getaddrinfo", return_value=fake_infos):
+        with patch("core.webhook_utils.socket.getaddrinfo", return_value=fake_infos):
             result = resolve_and_check_webhook_url("https://example.com/hook")
             assert result == "https://example.com/hook"
 
     def test_unresolvable_hostname_is_rejected(self):
         """gaierror → WebhookSSRFError, not a silent pass."""
-        with patch("backend.core.webhook_utils.socket.getaddrinfo",
+        with patch("core.webhook_utils.socket.getaddrinfo",
                    side_effect=socket.gaierror("Name or service not known")):
             with pytest.raises(WebhookSSRFError, match="could not be resolved"):
                 resolve_and_check_webhook_url("https://does-not-exist.invalid/hook")
@@ -90,7 +90,7 @@ class TestNoCachingContract:
     """Verify the source does NOT cache resolution results."""
 
     def test_no_lru_cache_on_resolver(self):
-        import backend.core.webhook_utils as mod
+        import core.webhook_utils as mod
         fn = mod.resolve_and_check_webhook_url
         # functools.lru_cache wraps would set __wrapped__ and cache_info
         assert not hasattr(fn, "cache_info"), (

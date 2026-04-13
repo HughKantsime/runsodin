@@ -156,9 +156,30 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
 
 @router.post("/orgs/{org_id}/members", tags=["Organizations"])
 async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Add a user to an organization. Org-scoped admins can only add to their own org."""
-    if current_user.get("group_id") and current_user["group_id"] != org_id:
-        raise HTTPException(status_code=403, detail="Cannot manage other organizations")
+    """Add a user to an organization.
+
+    Authorization rules (R2 from 2026-04-12 adversarial review):
+      * Superadmin (admin, group_id IS NULL) can assign any user to any org.
+      * Org-scoped admins can only assign users to their OWN org, AND can
+        only assign users who are currently unassigned (group_id IS NULL
+        AND role != 'admin') OR already in their own org.
+      * Superadmin accounts (admin with group_id IS NULL) can NEVER be
+        reassigned by an org-scoped admin — that would let them demote
+        the platform owner into their tenant and seize system-wide
+        privileges.
+
+    The old version only checked that caller.group_id == org_id, which
+    let a malicious org admin pull users from other orgs into theirs
+    and strip superadmin of system-wide privilege.
+    """
+    caller_org = current_user.get("group_id")
+    is_superadmin = (current_user.get("role") == "admin" and caller_org is None)
+
+    if not is_superadmin:
+        # Org-scoped admin — enforce "own org only" on the destination
+        if caller_org != org_id:
+            raise HTTPException(status_code=403, detail="Cannot manage other organizations")
+
     user_id = body.get("user_id")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
@@ -167,7 +188,28 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
+    # Load the target user to gate reassignment BEFORE mutating.
+    target = db.execute(
+        text("SELECT id, role, group_id FROM users WHERE id = :uid"),
+        {"uid": user_id},
+    ).fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not is_superadmin:
+        # Superadmin (admin with no group_id) must never be reassigned by
+        # an org-scoped admin — that would be a full platform takeover.
+        if target.role == "admin" and target.group_id is None:
+            raise HTTPException(status_code=403, detail="Cannot reassign a superadmin")
+
+        # Target must be either unassigned, or already in the caller's own
+        # org (the latter is effectively a no-op but is allowed).
+        if target.group_id is not None and target.group_id != caller_org:
+            raise HTTPException(status_code=403, detail="Cannot move users from other organizations")
+
     db.execute(text("UPDATE users SET group_id = :org_id WHERE id = :uid"), {"org_id": org_id, "uid": user_id})
+    log_audit(db, "org_member_added", "user", user_id,
+              {"org_id": org_id, "previous_org_id": target.group_id, "actor_id": current_user.get("id")})
     db.commit()
     return {"status": "ok"}
 

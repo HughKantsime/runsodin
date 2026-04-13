@@ -12,7 +12,7 @@ from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import log_audit
 from core.rbac import require_role
-from core.webhook_utils import _validate_webhook_url
+from core.webhook_utils import _validate_webhook_url, resolve_and_check_webhook_url, WebhookSSRFError
 
 log = logging.getLogger("odin.api")
 
@@ -167,6 +167,12 @@ async def test_webhook(
         wtype = webhook["webhook_type"]
 
         if wtype == "discord":
+            # R8: DNS-resolve and reject private targets at dispatch time.
+            # Admin-configured URL may have changed DNS between config and now.
+            try:
+                target_url = resolve_and_check_webhook_url(webhook["url"])
+            except WebhookSSRFError as e:
+                return {"success": False, "message": f"Webhook refused: {e}"}
             payload = {
                 "embeds": [{
                     "title": "\U0001f5a8\ufe0f O.D.I.N. Test",
@@ -175,21 +181,29 @@ async def test_webhook(
                     "footer": {"text": "O.D.I.N."}
                 }]
             }
-            resp = httpx.post(webhook["url"], json=payload, timeout=10)
+            resp = httpx.post(target_url, json=payload, timeout=10)
 
         elif wtype == "slack":
+            try:
+                target_url = resolve_and_check_webhook_url(webhook["url"])
+            except WebhookSSRFError as e:
+                return {"success": False, "message": f"Webhook refused: {e}"}
             payload = {
                 "blocks": [
                     {"type": "header", "text": {"type": "plain_text", "text": "\U0001f5a8\ufe0f O.D.I.N. Test"}},
                     {"type": "section", "text": {"type": "mrkdwn", "text": "Webhook connection successful!"}}
                 ]
             }
-            resp = httpx.post(webhook["url"], json=payload, timeout=10)
+            resp = httpx.post(target_url, json=payload, timeout=10)
 
         elif wtype == "ntfy":
             # ntfy: URL is the topic endpoint (e.g., https://ntfy.sh/my-printfarm)
+            try:
+                target_url = resolve_and_check_webhook_url(webhook["url"])
+            except WebhookSSRFError as e:
+                return {"success": False, "message": f"Webhook refused: {e}"}
             resp = httpx.post(
-                webhook["url"],
+                target_url,
                 content="Webhook connection successful!",
                 headers={
                     "Title": "O.D.I.N. Test",

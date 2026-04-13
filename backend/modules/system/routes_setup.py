@@ -119,10 +119,47 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
 
 
 @router.post("/setup/test-printer", tags=["Setup"])
-def setup_test_printer(request: SetupTestPrinterRequest, db: Session = Depends(get_db)):
-    """Test printer connection during setup. Wraps existing test logic."""
+def setup_test_printer(
+    request: SetupTestPrinterRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+):
+    """Test printer connection during setup. Wraps existing test logic.
+
+    Access control (R4 from 2026-04-12 adversarial review):
+    This endpoint performs outbound HTTP and UDP probes to user-supplied
+    hosts, and the setup flow explicitly allows RFC1918 LAN targets.
+    Before this fix, the endpoint was reachable anonymously from any
+    client that could hit the /setup prefix — turning a freshly installed
+    O.D.I.N. instance exposed to the internet into an open internal-
+    network scanner for whoever found it first.
+
+    Now: in addition to the setup-locked check, we require that the
+    request come from loopback (127.0.0.1 / ::1). The legitimate setup
+    flow is run via the localhost-served web UI, so loopback is the
+    correct trust boundary here. If you need to reach setup remotely,
+    tunnel (ssh -L, tailscale, etc.) rather than exposing the bare HTTP
+    port.
+    """
     if _setup_is_locked(db):
         raise HTTPException(status_code=403, detail="Setup already completed")
+
+    # R4: enforce loopback-only access for the printer probe.
+    client_host = (http_request.client.host if http_request.client else "") or ""
+    # Note: X-Forwarded-For is intentionally NOT consulted — the risk here
+    # is an unproxied instance exposed directly to the internet. If a
+    # legitimate reverse proxy is in front, it should terminate at
+    # 127.0.0.1, which we already accept.
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Setup printer probe is restricted to loopback access. "
+                "Open the setup UI at http://localhost:8000 on the ODIN "
+                "host, or tunnel to it (ssh -L, tailscale)."
+            ),
+        )
+
     from modules.printers.route_utils import _check_ssrf_blocklist
     _check_ssrf_blocklist(request.api_host)
 
