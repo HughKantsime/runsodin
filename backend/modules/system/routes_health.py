@@ -18,7 +18,10 @@ from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 from modules.system.schemas import HealthCheck
 from core.config import settings
-from license_manager import get_license, save_license_file, get_installation_id
+from license_manager import (
+    get_license, save_license_file, get_installation_id,
+    get_device_keypair, sign_license_challenge,
+)
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -127,6 +130,30 @@ class LicenseActivateRequest(PydanticBaseModel):
     key: str
 
 
+async def _fetch_license_challenge(license_server_url: str, installation_id: str) -> str:
+    """Fetch a single-use challenge nonce from the license server.
+
+    S1 from 2026-04-12 review: unactivate / reactivate require proof-of-
+    possession, which means signing a server-issued nonce. This helper
+    encapsulates the GET so the three license routes share the flow.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"{license_server_url}/api/v1/challenge",
+                params={"installation_id": installation_id},
+            )
+    except Exception as e:
+        log.error("License challenge fetch failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not reach license server.")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Could not get license challenge.")
+    nonce = resp.json().get("nonce")
+    if not nonce:
+        raise HTTPException(status_code=502, detail="License server returned no nonce.")
+    return nonce
+
+
 @router.post("/license/activate", tags=["License"])
 async def activate_license(
     request: LicenseActivateRequest,
@@ -138,11 +165,22 @@ async def activate_license(
         license_server_url = "https://" + license_server_url[7:]
     installation_id = get_installation_id()
 
+    # S1: bind this device's Ed25519 public key to the activation. On
+    # first install this generates a fresh keypair; subsequent activate
+    # calls reuse it. Without the bound pubkey, later unactivate /
+    # reactivate calls from anyone else who learns the (key, install_id)
+    # pair can't succeed — they don't hold the private key.
+    _priv, device_pubkey = get_device_keypair()
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{license_server_url}/api/v1/activate",
-                json={"key": request.key, "installation_id": installation_id},
+                json={
+                    "key": request.key,
+                    "installation_id": installation_id,
+                    "device_pubkey": device_pubkey,
+                },
             )
     except Exception as e:
         log.error("License activation failed — could not reach license server: %s", e)
@@ -174,17 +212,50 @@ async def activate_license(
     }
 
 
-@router.get("/license/activation-request", tags=["License"])
-def get_activation_request(current_user: dict = Depends(require_superadmin())):
-    """Generate a downloadable activation request file for offline binding. Admin only."""
+class OfflineActivationRequestBody(PydanticBaseModel):
+    key: str
+    nonce: str  # issued by GET /api/v1/challenge on the licensing server
+
+
+@router.post("/license/activation-request", tags=["License"])
+def build_activation_request(
+    body: OfflineActivationRequestBody,
+    current_user: dict = Depends(require_superadmin()),
+):
+    """Generate a downloadable activation request for offline binding. Admin only.
+
+    S1 from 2026-04-12 review: offline activation now requires the admin
+    to (1) fetch a challenge nonce from the license server on a separate
+    internet-connected machine, (2) POST it here along with the license
+    key, (3) this handler returns a signed bundle (the device's public
+    key + a bootstrap signature over the canonical message), (4) admin
+    uploads that bundle to /api/v1/offline on the licensing server.
+
+    Without the bootstrap signature, an attacker who obtained the
+    (key, installation_id) pair could mint an offline license on a
+    different machine they control. The signature proves the request
+    originated from the machine that holds this device's private key.
+    """
     import socket
     from starlette.responses import Response as _Response
 
+    installation_id = get_installation_id()
+    _priv, device_pubkey = get_device_keypair()
+    bootstrap_signature = sign_license_challenge(
+        "activate-bootstrap", body.key, installation_id, body.nonce,
+    )
+
     payload = {
-        "installation_id": get_installation_id(),
-        "hostname": socket.gethostname(),
-        "odin_version": __version__,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "key": body.key,
+        "activation_request": {
+            "installation_id": installation_id,
+            "hostname": socket.gethostname(),
+            "odin_version": __version__,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "device_pubkey": device_pubkey,
+            "nonce": body.nonce,
+            "bootstrap_signature": bootstrap_signature,
+        },
     }
     content = json.dumps(payload, indent=2)
     return _Response(
@@ -214,11 +285,20 @@ async def unactivate_license(
 
     installation_id = get_installation_id()
 
+    # S1: fetch challenge, sign with device key, present both to server.
+    nonce = await _fetch_license_challenge(license_server_url, installation_id)
+    signature = sign_license_challenge("unactivate", license_key, installation_id, nonce)
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{license_server_url}/api/v1/unactivate",
-                json={"key": license_key, "installation_id": installation_id},
+                json={
+                    "key": license_key,
+                    "installation_id": installation_id,
+                    "nonce": nonce,
+                    "signature": signature,
+                },
             )
     except Exception as e:
         log.error("License unactivation failed — could not reach license server: %s", e)
@@ -258,11 +338,20 @@ async def reactivate_license(
 
     installation_id = get_installation_id()
 
+    # S1: fetch challenge, sign with device key.
+    nonce = await _fetch_license_challenge(license_server_url, installation_id)
+    signature = sign_license_challenge("reactivate", current_license.key, installation_id, nonce)
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{license_server_url}/api/v1/reactivate",
-                json={"key": current_license.key, "installation_id": installation_id},
+                json={
+                    "key": current_license.key,
+                    "installation_id": installation_id,
+                    "nonce": nonce,
+                    "signature": signature,
+                },
             )
     except Exception as e:
         log.error("License reactivation failed — could not reach license server: %s", e)

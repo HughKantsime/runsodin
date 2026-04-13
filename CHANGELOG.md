@@ -2,6 +2,33 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.3] - 2026-04-13
+
+### Security
+
+- **S1 (Critical) — Proof-of-possession for license operations.** Closes the
+  final finding from the 2026-04-12 adversarial review. Previously anyone
+  who learned a customer's license key + installation_id from logs,
+  screenshots, or support transcripts could revoke the victim's active
+  grant or mint an offline license for a different machine.
+
+  Fix: each ODIN install now generates an Ed25519 device keypair at
+  first activation (`{LICENSE_DIR}/.odin-device.key`, mode 0600). The
+  public key is bound to the activation row on the license server.
+  Unactivation, reactivation, and offline activation all require the
+  client to fetch a single-use nonce from the license server and sign
+  it with the device's private key before any revocation-class
+  operation is accepted.
+
+  Legacy activations (predating the S1 rollout) are upgraded
+  automatically on the next `/license/activate` call. Offline
+  activation requests now also carry a bootstrap signature.
+
+  Files: `license_manager.py` (device keypair + signing),
+  `modules/system/routes_health.py` (updated activate/unactivate/
+  reactivate clients, new POST /license/activation-request). Test
+  coverage: `tests/test_contracts/test_license_pop.py` (9 tests).
+
 ## [1.8.2] - 2026-04-12
 
 ### Security
