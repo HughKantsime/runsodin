@@ -177,6 +177,8 @@ jobs:
 
       - name: Create GitHub Release
         id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER="${{ needs.tag.outputs.version }}"
           gh release create "$VER" \
@@ -199,6 +201,10 @@ jobs:
 
       - name: Dispatch odin-release event
         id: dispatch
+        env:
+          # Cross-repo dispatch requires a PAT with repo scope — GITHUB_TOKEN
+          # cannot trigger workflows in other repositories.
+          GH_TOKEN: ${{ secrets.ODIN_SITE_PAT }}
         run: |
           VER="${{ needs.tag.outputs.version }}"
           VER="${VER#v}"
@@ -215,6 +221,8 @@ jobs:
 
       - name: Poll for odin-site workflow completion
         id: poll
+        env:
+          GH_TOKEN: ${{ secrets.ODIN_SITE_PAT }}
         run: |
           DISPATCH_TIME="${{ steps.dispatch.outputs.dispatch_time }}"
           for i in $(seq 1 20); do
