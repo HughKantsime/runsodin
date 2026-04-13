@@ -1,5 +1,5 @@
 """
-Contract test — complete_job must be idempotent.
+Contract test — complete_job must be race-safe idempotent.
 
 Guards R5 from the 2026-04-12 Codex adversarial review:
     jobs_lifecycle.py:79-173 had no state guard on complete_job(). A client
@@ -7,13 +7,23 @@ Guards R5 from the 2026-04-12 Codex adversarial review:
     near-simultaneously, would run spool deductions TWICE and append
     duplicate SpoolUsage rows — permanent inventory corruption.
 
-Source-level gate so the idempotency check cannot be silently removed.
-The actual runtime behavior is covered by tests/test_e2e/ (DB integration).
+Verification round (2026-04-12): the first revision used a Python-level
+`if job.status == COMPLETED: return` check. That handles serial retries
+but is broken under concurrency — two threads can both observe
+status!=COMPLETED, both pass the guard, both deduct. This contract now
+requires the atomic UPDATE pattern:
 
+    UPDATE jobs SET status='completed', ... WHERE id=:id AND status!='completed'
+    if rowcount == 0: return existing job
+
+The DB enforces single-winner semantics, not Python.
+
+Source-level gate so the race-safe pattern cannot be regressed.
 Run without container: pytest tests/test_contracts/test_job_complete_idempotency.py -v
 """
 
 import ast
+import re
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
@@ -28,53 +38,61 @@ def _get_function_source(source: str, name: str) -> str:
     return ""
 
 
-class TestCompleteJobIdempotency:
-    """complete_job() must short-circuit when the job is already completed."""
+class TestCompleteJobAtomicTransition:
+    """complete_job() must use an atomic UPDATE for the state transition."""
 
-    def test_complete_job_has_idempotency_guard(self):
+    def test_complete_job_uses_atomic_conditional_update(self):
         source = JOBS_LIFECYCLE.read_text()
         fn_src = _get_function_source(source, "complete_job")
         assert fn_src, "complete_job function is missing from jobs_lifecycle.py"
 
-        # The guard must check job.status == COMPLETED and return early.
-        assert "JobStatus.COMPLETED" in fn_src, (
-            "complete_job must reference JobStatus.COMPLETED somewhere — "
-            "it needs to check the current status before running mutations."
+        # Must reference JobStatus.COMPLETED.
+        assert "JobStatus.COMPLETED" in fn_src
+
+        # Look for `update(Job).where(... status != JobStatus.COMPLETED ...)`
+        # The exact whitespace can vary, so use a structural regex.
+        patterns_required = [
+            re.compile(r"update\(\s*Job\s*\)", re.MULTILINE),
+            re.compile(r"\.where\([^)]*Job\.status\s*!=\s*JobStatus\.COMPLETED",
+                       re.MULTILINE | re.DOTALL),
+            re.compile(r"\.values\(", re.MULTILINE),
+            re.compile(r"result\.rowcount\s*==\s*0", re.MULTILINE),
+        ]
+        missing = [p.pattern for p in patterns_required if not p.search(fn_src)]
+        assert not missing, (
+            "complete_job no longer uses the race-safe atomic-UPDATE pattern. "
+            "R5 verification requires:\n"
+            "  result = db.execute(update(Job).where(Job.id == :id, "
+            "Job.status != JobStatus.COMPLETED).values(...))\n"
+            "  if result.rowcount == 0: return job  # already completed\n\n"
+            f"Missing pattern(s): {missing}\n\n"
+            "Why: the previous Python-level `if job.status == COMPLETED: "
+            "return` check is broken under concurrency — two threads can "
+            "both pass the guard before either commits."
         )
 
-        # More specifically: the status check must appear BEFORE the
-        # mutation section. We check this structurally by finding the
-        # index of the guard and comparing it to the first mutation.
-        early_check_idx = fn_src.find("if job.status == JobStatus.COMPLETED")
-        first_mutation_idx = fn_src.find("job.status = JobStatus.COMPLETED")
+    def test_no_python_level_status_guard_only(self):
+        """A bare `if status == COMPLETED: return` is NOT enough on its own.
 
-        assert early_check_idx > 0, (
-            "complete_job does not guard against re-completion. "
-            "R5 requires: `if job.status == JobStatus.COMPLETED: return job` "
-            "as one of the first statements after loading the job."
-        )
-        assert early_check_idx < first_mutation_idx, (
-            "complete_job's idempotency guard must come BEFORE the status "
-            "mutation; otherwise it can never fire. Current order is reversed."
-        )
-
-    def test_guard_returns_without_side_effects(self):
+        We accept it as a fast path, but it must be paired with the atomic
+        UPDATE — which the previous test guarantees.
+        """
         source = JOBS_LIFECYCLE.read_text()
         fn_src = _get_function_source(source, "complete_job")
 
-        # Extract just the guard block. It should be a simple `if .../ return job`
-        # without any db.add, db.commit, SpoolUsage, etc.
-        guard_start = fn_src.find("if job.status == JobStatus.COMPLETED")
-        guard_end = fn_src.find("\n\n", guard_start)
-        if guard_end == -1:
-            guard_end = guard_start + 200
-        guard_block = fn_src[guard_start:guard_end]
-
-        # No mutations should appear inside the guard block
-        forbidden = ["db.add(", "db.commit(", "SpoolUsage(", "log_audit(", "slot.color ="]
-        violations = [f for f in forbidden if f in guard_block]
-        assert not violations, (
-            f"complete_job's idempotency guard contains side effects "
-            f"({violations}). The guard block must be a pure early-return "
-            f"— any mutation here re-enables the double-deduction bug."
+        # The atomic UPDATE itself is the guarantee. Just make sure the
+        # function isn't doing direct attribute mutation followed by the
+        # deduction loop without the conditional UPDATE protecting it.
+        # (Direct `job.status = JobStatus.COMPLETED` outside of update()
+        #  values() would defeat the race-safety.)
+        bad_pattern = re.compile(
+            r"^\s*job\.status\s*=\s*JobStatus\.COMPLETED",
+            re.MULTILINE,
+        )
+        bad_matches = bad_pattern.findall(fn_src)
+        assert not bad_matches, (
+            "complete_job mutates job.status directly. The transition must "
+            "go through the atomic UPDATE (its .values() block sets status). "
+            "Direct attribute assignment is NOT race-safe and re-introduces "
+            "the double-deduction bug."
         )

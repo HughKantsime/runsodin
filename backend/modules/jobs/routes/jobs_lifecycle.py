@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, update, or_
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel as PydanticBaseModel
@@ -80,12 +80,25 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
 def complete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Mark a job as completed and auto-deduct filament from loaded spools.
 
-    Idempotent (R5 from 2026-04-12 adversarial review): if the job is
-    already in the COMPLETED state, return the existing job without running
-    the spool-deduction flow a second time. Without this guard, a client
-    retry after a network timeout, or two operators pressing "complete"
-    near-simultaneously, would deduct filament twice and append duplicate
-    SpoolUsage rows — permanent inventory corruption.
+    Race-safe idempotency (R5 from 2026-04-12 adversarial review,
+    verification round):
+
+    The first revision of this fix used a `if job.status == COMPLETED:
+    return` check. That's correct for serial retries but broken under
+    concurrency — two threads can both read status!=COMPLETED, both pass
+    the guard, both run deductions, both commit, and the spool is
+    deducted twice.
+
+    This revision replaces the Python-level check with an atomic
+    conditional UPDATE: set status=COMPLETED WHERE id=:id AND
+    status!=COMPLETED. The DB decides which caller wins. rowcount==0
+    means the job was already completed (or didn't match) — return the
+    current row unchanged. rowcount==1 means this call owns the
+    transition and is safe to run the deduction path.
+
+    Safe on both SQLite (single writer) and Postgres (atomic UPDATE).
+    No reliance on with_for_update() or SQLite's BEGIN IMMEDIATE, both
+    of which have been race-windows in practice.
     """
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -93,16 +106,38 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # R5: idempotency guard — completion is a one-way state transition.
-    # On a second complete call, return the current job with no side effects
-    # instead of re-running deductions. The client sees a successful response
-    # either way, which is what it wants.
-    if job.status == JobStatus.COMPLETED:
+    # R5: atomic state transition. The DB — not Python — enforces
+    # single-winner semantics. The UPDATE's WHERE clause is the lock.
+    #
+    # Codex pass 2: include `Job.status IS NULL` in the predicate. Job.status
+    # is not declared NOT NULL, so legacy/hand-written rows can have NULL
+    # status. SQL three-valued logic means `NULL != 'completed'` is NULL
+    # (not TRUE), so a bare `status != COMPLETED` would silently skip
+    # those rows and `/complete` would return them un-completed — a
+    # regression vs the previous behavior. or_(... IS NULL) covers them.
+    now = datetime.now(timezone.utc)
+    result = db.execute(
+        update(Job)
+        .where(
+            Job.id == job_id,
+            or_(Job.status != JobStatus.COMPLETED, Job.status.is_(None)),
+        )
+        .values(
+            status=JobStatus.COMPLETED,
+            actual_end=now,
+            is_locked=True,
+        )
+    )
+
+    if result.rowcount == 0:
+        # Already completed by another request (retry, concurrent operator,
+        # or whatever). Return the job as-is with no side effects.
+        db.commit()
+        db.refresh(job)
         return job
 
-    job.status = JobStatus.COMPLETED
-    job.actual_end = datetime.now(timezone.utc)
-    job.is_locked = True
+    # We won the transition. Refresh so downstream sees the new state.
+    db.refresh(job)
 
     # Update printer's loaded colors based on this job
     if job.printer_id and job.colors_list:
