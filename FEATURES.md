@@ -351,8 +351,8 @@
 
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
-- Bidirectional sync: pull spools from Spoolman, push consumption back on print completion
-- **Auto-deduction** — filament consumption auto-deducted from assigned spool on print completion; consumption_json stored in archive; syncs to Spoolman if linked
+- Pull-only sync: import spools from an external Spoolman instance; ODIN tracks consumption locally (push-back to Spoolman on roadmap, not yet shipped)
+- **Auto-deduction** — filament consumption auto-deducted from assigned spool on print completion; consumption_json stored in archive (push-back to Spoolman is on the roadmap, not yet shipped)
 - **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament prints distribute weight across all assigned spools (v1.5.10)
 
 ### 6.7 Filament Drying Log (v1.2.0)
@@ -467,7 +467,7 @@
 - Report schedule management UI in Settings → System tab
 - Report runner daemon (`report_runner.py`) — executes scheduled reports and delivers via SMTP with HTML body (v1.3.19)
 - "Run Now" button for on-demand report generation with immediate email delivery (v1.3.47)
-- Quiet hours digest — suppressed alerts batched and delivered after quiet window ends
+- Quiet hours suppression — configurable time window (per-org) during which external notifications (push, email, webhooks) are suppressed; in-app alerts are still recorded so nothing is lost
 
 ---
 
@@ -585,10 +585,10 @@
 - **Pushover** — Native Pushover API with priority mapping (critical → priority 1, others → priority 0)
 
 ### 13.2 Quiet Hours
-- Configurable time window for notification suppression
-- External notifications (email, push, webhooks) suppressed during quiet hours
-- Alerts still saved to database during suppression
-- Digest formatting functions exist for batching suppressed alerts (delivery mechanism not yet automated)
+- Configurable time window for notification suppression (per-org setting)
+- External notifications (email, push, webhooks) suppressed during the window
+- In-app alerts still saved to the database so nothing is lost
+- Suppression is shipped; automated digest delivery of suppressed alerts is on the roadmap, not yet shipped
 
 ### 13.3 In-App Alerts
 - Alert bell icon with unread count in header
@@ -622,7 +622,7 @@
 
 ### 14.5 Spoolman
 - Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
-- Foundation for bidirectional sync: pull spool inventory, push filament consumption
+- Pull inventory from Spoolman; consumption tracking stays local to ODIN (roadmap: push consumption back)
 
 ---
 
@@ -824,6 +824,45 @@
 - Idempotent column additions via `entrypoint.sh`
 - Tables: api_tokens, active_sessions, token_blacklist, quota_usage, model_revisions, report_schedules, timelapses (v1.2.0–v1.3.0)
 - Columns: MFA fields on users, quota fields on users, chargeback columns on jobs, org columns on groups/printers/models/spools, timelapse_enabled on printers
+
+---
+
+## 23. Native Companion Apps
+
+### 23.1 Platforms
+- iOS (iPhone) — SwiftUI, requires iOS 17+
+- iPadOS (iPad) — split-view layout with sidebar navigation
+- macOS — native Mac target, separate entitlements, menu-bar presence
+
+### 23.2 What the native apps do
+- Multi-instance support — connect to multiple ODIN servers and switch between them from the app
+- Fleet view — live printer status, progress, temperatures, filters (Printing / Idle / Error / Offline)
+- Printer detail — AMS slots, pause/resume, lights, speed/fan control, cancel job, HMS errors
+- Queue — Active / Pending / Scheduled / Completed tabs; approve, reject, cancel, reprint
+- Spools — list with color swatches, assign to printer, mark empty
+- Cameras — live feed grid via WKWebView, fullscreen, pause/resume
+- Alerts — severity grouping (Critical / Warning / Info), dismiss, mark read
+- Biometric unlock — Face ID / Touch ID gating refresh-token reads
+- Offline cache — SwiftData keeps the last fetched fleet state visible on network drop
+- WebSocket live updates — printer state pushed to the UI without polling; HTTP polling fallback on connection failure
+
+### 23.3 Widgets
+- Small fleet widget — printing count, alert indicator, ETA
+- Medium fleet widget — top 2 printers with progress bars
+- Large fleet widget — grid of up to 6 printers
+- Lock-screen inline & rectangular widgets — compact status + ETA
+- StandBy widget (extra-large) — iPhone StandBy mode display
+
+### 23.4 Live Activities
+- iOS 16.2+ Live Activities with Dynamic Island support
+- Tracks: progress, time remaining, bed/nozzle temps, layer count
+- State-aware Dynamic Island glyphs (printing / paused / completed / failed)
+- Push-token rotation with explicit failure surfacing (no silent drops)
+
+### 23.5 Scope — web vs native
+- The native apps are companions for fleet monitoring and on-the-go control; the web dashboard at your ODIN host is still the source of truth for everything else
+- Web-only (not on native): Vigil vision detection management UI, timelapse playback, print-file upload, Microsoft Entra ID SSO login, TOTP MFA
+- visionOS is not currently shipped
 
 ---
 
