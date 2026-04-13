@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access
 import core.crypto as crypto
 from modules.printers.models import Printer
 from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
@@ -27,6 +27,8 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
 
     action = "cancel_print" if printer.api_type == "moonraker" else "stop_print"
     if _send_printer_command(printer, action):
@@ -42,6 +44,8 @@ async def pause_printer(printer_id: int, current_user: dict = Depends(require_ro
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
 
     if _send_printer_command(printer, "pause_print"):
         db.execute(text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"), {"id": printer_id})
@@ -55,6 +59,8 @@ async def resume_printer(printer_id: int, current_user: dict = Depends(require_r
     """Resume paused print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     if _send_printer_command(printer, "resume_print"):
@@ -74,6 +80,8 @@ async def clear_printer_errors(printer_id: int, current_user: dict = Depends(req
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Clear errors is only supported on Bambu printers")
     if _bambu_command_direct(printer, "clear_print_errors"):
@@ -91,6 +99,8 @@ async def skip_printer_objects(
     """Skip objects during an active Bambu print. Body: {"object_ids": [0, 1]}"""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Skip objects is only supported on Bambu printers")
@@ -112,6 +122,8 @@ async def set_printer_speed(
     """Set print speed on a Bambu printer. Body: {"speed": 2} (1=Silent, 2=Standard, 3=Sport, 4=Ludicrous)"""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Speed control is only supported on Bambu printers")
@@ -142,6 +154,8 @@ async def set_fan_speed(
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Fan control is only supported on Bambu printers")
     fan = body.get("fan")
@@ -165,6 +179,8 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
     from datetime import datetime, timezone
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     if not printer.api_type or printer.api_type.lower() != "bambu":
@@ -232,6 +248,8 @@ async def plate_cleared(
     """Confirm plate is cleared, allowing the next queued job to dispatch."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
     waiting = db.execute(

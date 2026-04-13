@@ -257,8 +257,8 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ro
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
-    db.commit()
     log_audit(db, f"bulk_{action}", "spools", details=f"{count} spools")
+    db.commit()
     return {"status": "ok", "affected": count}
 
 

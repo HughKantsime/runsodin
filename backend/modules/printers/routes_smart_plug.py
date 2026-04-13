@@ -8,12 +8,33 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access
 import core.crypto as crypto
 import modules.printers.smart_plug as smart_plug
+from modules.printers.models import Printer
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+def _require_printer_org_access(printer_id: int, current_user: dict, db: Session) -> Printer:
+    """Load a printer by id and enforce the caller's org scope.
+
+    Raises HTTPException(404) if the printer doesn't exist OR if the caller
+    is in a different org. 404 (not 403) by convention — don't leak whether
+    a printer exists in another tenant.
+
+    Added for R1 from the 2026-04-12 adversarial review: the smart-plug
+    routes used to load printers by id with no tenancy check, letting any
+    operator in any org reconfigure smart-plug integration or power-cycle
+    another tenant's printer.
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer
 
 
 @router.get("/printers/{printer_id}/plug", tags=["Smart Plug"])
@@ -44,6 +65,7 @@ async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
 @router.put("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Update smart plug configuration for a printer."""
+    _require_printer_org_access(printer_id, current_user, db)
     data = await request.json()
 
     plug_type = data.get("type")
@@ -78,6 +100,7 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
 @router.delete("/printers/{printer_id}/plug", tags=["Smart Plug"])
 async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Remove smart plug configuration from a printer."""
+    _require_printer_org_access(printer_id, current_user, db)
     db.execute(text("""
         UPDATE printers SET
             plug_type = NULL, plug_host = NULL, plug_entity_id = NULL,
@@ -90,8 +113,9 @@ async def remove_plug_config(printer_id: int, current_user: dict = Depends(requi
 
 
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
-async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator"))):
+async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
+    _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_on(printer_id)
     if result is None:
         raise HTTPException(400, "No smart plug configured or plug unreachable")
@@ -99,8 +123,9 @@ async def plug_power_on(printer_id: int, current_user: dict = Depends(require_ro
 
 
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
-async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator"))):
+async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Turn off a printer's smart plug."""
+    _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_off(printer_id)
     if result is None:
         raise HTTPException(400, "No smart plug configured or plug unreachable")
@@ -108,8 +133,9 @@ async def plug_power_off(printer_id: int, current_user: dict = Depends(require_r
 
 
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
-async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator"))):
+async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Toggle a printer's smart plug."""
+    _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_toggle(printer_id)
     if result is None:
         raise HTTPException(400, "No smart plug configured or plug unreachable")

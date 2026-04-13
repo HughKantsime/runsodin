@@ -342,9 +342,9 @@ async def create_model_revision(
                        VALUES (:mid, :rev, :fp, :cl, :uid)"""),
                {"mid": model_id, "rev": next_rev, "fp": file_path,
                 "cl": changelog, "uid": current_user["id"]})
-    db.commit()
 
     log_audit(db, "model_revision_created", "model", model_id, f"Revision v{next_rev}")
+    db.commit()
     return {"revision_number": next_rev, "file_path": file_path}
 
 
@@ -389,9 +389,9 @@ async def revert_model_revision(
                        VALUES (:mid, :rev, :fp, :cl, :uid)"""),
                {"mid": model_id, "rev": next_rev, "fp": new_file_path,
                 "cl": f"Reverted to v{rev_number}", "uid": current_user["id"]})
-    db.commit()
 
     log_audit(db, "model_revision_reverted", "model", model_id, f"Reverted to v{rev_number} as v{next_rev}")
+    db.commit()
     return {"revision_number": next_rev, "reverted_from": rev_number}
 
 

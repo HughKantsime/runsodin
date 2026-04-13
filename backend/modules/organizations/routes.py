@@ -101,13 +101,14 @@ async def create_org(body: dict, current_user: dict = Depends(require_superadmin
     params = {"name": name, "desc": body.get("description", ""), "owner": current_user["id"]}
     if sql.is_sqlite:
         db.execute(text(insert_sql), params)
-        db.commit()
+        db.flush()
         org_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
         org_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+        db.flush()
 
     log_audit(db, "org_created", "org", org_id, f"Organization '{name}' created")
+    db.commit()
     return {"id": org_id, "name": name, "status": "ok"}
 
 
@@ -147,9 +148,9 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     for tbl in _ORG_RESOURCE_TABLES:
         db.execute(text(f"UPDATE {tbl} SET org_id = NULL WHERE org_id = :id"), {"id": org_id})  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": org_id})
-    db.commit()
 
     log_audit(db, "org_deleted", "org", org_id, f"Organization '{org.name}' deleted")
+    db.commit()
     return {"status": "ok"}
 
 
@@ -223,7 +224,7 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
 
     db.execute(text("UPDATE groups SET settings_json = :s, updated_at = CURRENT_TIMESTAMP WHERE id = :id"),
                {"s": json.dumps(current), "id": org_id})
-    db.commit()
 
     log_audit(db, "org_settings_updated", "org", org_id, f"Settings updated for org '{org.name}'")
+    db.commit()
     return {**DEFAULT_ORG_SETTINGS, **current}

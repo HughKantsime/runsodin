@@ -94,6 +94,7 @@ async def upload_license(
         raise HTTPException(status_code=400, detail=license_info.error)
 
     log_audit(db, "license.uploaded", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
+    db.commit()
     return {
         "status": "activated", "tier": license_info.tier,
         "licensee": license_info.licensee, "expires_at": license_info.expires_at,
@@ -112,6 +113,7 @@ def remove_license(current_user: dict = Depends(require_superadmin()), db: Sessi
     license_manager._cached_license = None
     license_manager._cached_mtime = 0
     log_audit(db, "license.removed", "system", details="License removed, reverted to community tier")
+    db.commit()
     return {"status": "removed", "tier": "community"}
 
 
@@ -238,6 +240,7 @@ async def unactivate_license(
     license_manager._cached_mtime = 0
 
     log_audit(db, "license.unactivated", "system", details={"key": license_key[:4] + "..."})
+    db.commit()
     return {"status": "unactivated", "tier": "community"}
 
 
@@ -285,6 +288,7 @@ async def reactivate_license(
         raise HTTPException(status_code=400, detail=license_info.error)
 
     log_audit(db, "license.reactivated", "system", details={"tier": license_info.tier, "licensee": license_info.licensee})
+    db.commit()
     return {
         "status": "reactivated",
         "tier": license_info.tier,
@@ -400,6 +404,7 @@ def update_config(config: ConfigUpdate, current_user: dict = Depends(require_sup
         raise
 
     log_audit(db, "config.updated", "system", details={"keys": [k for k in ["spoolman_url", "blackout_start", "blackout_end"] if getattr(config, k) is not None]})
+    db.commit()
     return {"success": True, "message": "Config updated. Restart backend to apply changes."}
 
 

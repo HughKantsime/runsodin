@@ -128,7 +128,7 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
             VALUES (:username, :email, :password_hash, :role, :group_id)
         """), {"username": user.username, "email": user.email, "password_hash": password_hash,
                "role": user.role, "group_id": user.group_id})
-        db.commit()
+        db.flush()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Username or email already exists")
 
@@ -150,6 +150,7 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
     new_user = db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": user.username}).fetchone()
     if new_user:
         log_audit(db, "user.created", "user", new_user.id, {"username": user.username, "role": user.role})
+    db.commit()
     return {"status": "created"}
 
 
@@ -191,6 +192,7 @@ async def reset_password_email(user_id: int, current_user: dict = Depends(requir
 
     log_audit(db, "user.password_reset_email", "user", user_id,
               {"actor_user_id": current_user["id"], "target_user_id": user_id})
+    db.commit()
     return {"status": "password_reset_email_sent"}
 
 
@@ -235,7 +237,7 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
         set_clause = ", ".join(f"{k} = :{k}" for k in updates.keys())
         updates['id'] = user_id
         db.execute(text(f"UPDATE users SET {set_clause} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+        db.flush()
     if role_changed:
         log_audit(db, "user.role_changed", "user", user_id,
                   {"new_role": updates.get("role"), "actor_user_id": current_user["id"]})
@@ -248,7 +250,7 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
             db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                        {"jti": session.token_jti, "exp": expiry})
         db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
-        db.commit()
+    db.commit()
     return {"status": "updated"}
 
 
@@ -270,10 +272,10 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     username = target.role  # we need to fetch username for audit
     target_row = db.execute(text("SELECT username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
-    db.commit()
     log_audit(db, "user.deleted", "user", user_id,
               {"deleted_username": target_row.username if target_row else str(user_id),
                "actor_user_id": current_user["id"]})
+    db.commit()
     return {"status": "deleted"}
 
 
@@ -367,6 +369,7 @@ async def import_users_csv(
             skipped += 1
 
     log_audit(db, "users_imported", "user", details=f"CSV import: {created} created, {skipped} skipped, {len(errors)} errors")
+    db.commit()
     return {"created": created, "skipped": skipped, "errors": errors}
 
 

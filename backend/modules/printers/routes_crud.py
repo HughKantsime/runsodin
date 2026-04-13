@@ -125,10 +125,11 @@ def create_printer(
         )
         db.add(slot)
 
-    db.commit()
+    db.flush()
     db.refresh(db_printer)
     log_audit(db, "printer.created", "printer", db_printer.id,
               {"name": db_printer.name, "api_type": db_printer.api_type})
+    db.commit()
     return db_printer
 
 
@@ -231,10 +232,10 @@ def update_printer(
     for field, value in update_data.items():
         setattr(printer, field, value)
 
-    db.commit()
-    db.refresh(printer)
     log_audit(db, "printer.updated", "printer", printer_id,
               {"fields": list(update_data.keys())})
+    db.commit()
+    db.refresh(printer)
 
     if 'camera_url' in update_data:
         try:
@@ -257,8 +258,8 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
 
     printer_name = printer.name
     db.delete(printer)
-    db.commit()
     log_audit(db, "printer.deleted", "printer", printer_id, {"name": printer_name})
+    db.commit()
 
 
 # ====================================================================

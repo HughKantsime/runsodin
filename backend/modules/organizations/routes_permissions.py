@@ -129,8 +129,8 @@ def update_permissions(data: RBACUpdateRequest, current_user: dict = Depends(req
     else:
         row = SystemConfig(key="rbac_permissions", value=value)
         db.add(row)
-    db.commit()
     log_audit(db, "permissions_updated", "system", details={"page_keys": list(data.page_access.keys()), "action_keys": list(data.action_access.keys())})
+    db.commit()
     return {"message": "Permissions updated", **value}
 
 
@@ -140,8 +140,8 @@ def reset_permissions(current_user: dict = Depends(require_superadmin()), db: Se
     row = db.query(SystemConfig).filter(SystemConfig.key == "rbac_permissions").first()
     if row:
         db.delete(row)
-        db.commit()
     log_audit(db, "permissions_reset", "system", details="Permissions reset to defaults")
+    db.commit()
     return {
         "message": "Reset to defaults",
         "page_access": RBAC_DEFAULT_PAGE_ACCESS,

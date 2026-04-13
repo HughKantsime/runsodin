@@ -258,6 +258,6 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
         updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE oidc_config SET {', '.join(updates)} WHERE id = 1"
         db.execute(text(query), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
         log_audit(db, "oidc_config_updated", "system", details={"fields": list(params.keys())})
+        db.commit()
     return {"success": True}

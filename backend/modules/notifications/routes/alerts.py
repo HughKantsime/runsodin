@@ -276,8 +276,8 @@ async def update_smtp_config(
     else:
         db.add(SystemConfig(key="smtp_config", value=smtp_data))
 
-    db.commit()
     log_audit(db, "smtp_config_updated", "system", details={"enabled": smtp_data.get("enabled"), "host": smtp_data.get("host")})
+    db.commit()
     return {"status": "ok", "message": "SMTP configuration updated"}
 
 

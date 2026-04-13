@@ -155,8 +155,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
             FilamentSlot.printer_id == printer_id,
             FilamentSlot.slot_number > max_slot,
         ).delete()
-        db.commit()
         log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "source": "moonraker_mmu"})
+        db.commit()
         return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                 "slots_synced": len(updated_slots), "slots": updated_slots, "mismatches": []}
 
@@ -469,8 +469,8 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
                         "reasons": mismatch_reason,
                     })
 
-    db.commit()
     log_audit(db, "sync", "printer", printer_id, {"slots_synced": len(updated_slots), "mismatches": len(mismatches)})
+    db.commit()
     return {
         "success": True, "printer_id": printer_id, "printer_name": printer.name,
         "slots_synced": len(updated_slots), "slots": updated_slots, "mismatches": mismatches,

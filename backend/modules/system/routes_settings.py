@@ -172,8 +172,8 @@ async def set_education_mode(request: Request, current_user: dict = Depends(requ
         db.execute(text("UPDATE system_config SET value = :v WHERE key = 'education_mode'"), {"v": str_val})
     else:
         db.execute(text("INSERT INTO system_config (key, value) VALUES ('education_mode', :v)"), {"v": str_val})
-    db.commit()
     log_audit(db, "education_mode_toggled", details=f"Education mode {'enabled' if enabled else 'disabled'}")
+    db.commit()
     return {"enabled": enabled}
 
 

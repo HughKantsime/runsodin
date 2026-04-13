@@ -22,9 +22,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.auth import decode_token
 from core.db import get_db
-from core.dependencies import get_current_user, log_audit
+from core.dependencies import get_current_user, log_audit, validate_access_token
 from core.rbac import require_role, check_org_access
 from modules.printers.models import Printer
 from modules.archives.models import Timelapse
@@ -120,14 +119,11 @@ def get_timelapse(
 @router.get("/timelapses/{timelapse_id}/video", tags=["Timelapses"])
 def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Serve the timelapse MP4 file. Accepts ?token= query param for <video> src auth."""
-    # <video> elements can't send Bearer headers, so accept token as query param
+    # <video> elements can't send Bearer headers, so accept token as query param.
+    # Goes through the SAME validation as get_current_user: blacklist check,
+    # rejects ws/mfa_pending/mfa_setup_required tokens.
     if not current_user and token:
-        token_data = decode_token(token)
-        if token_data:
-            user = db.execute(text("SELECT * FROM users WHERE username = :username"),
-                              {"username": token_data.username}).fetchone()
-            if user:
-                current_user = dict(user._mapping)
+        current_user = validate_access_token(token, db)
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
@@ -162,8 +158,8 @@ def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_u
     if frame_dir.exists():
         shutil.rmtree(str(frame_dir), ignore_errors=True)
     db.delete(t)
-    db.commit()
     log_audit(db, "delete", "timelapse", t.id, {"printer_id": t.printer_id})
+    db.commit()
 
 
 def _check_ffmpeg() -> bool:
@@ -193,13 +189,9 @@ def stream_timelapse(
     current_user: dict = Depends(get_current_user),
 ):
     """Stream timelapse video for in-browser playback (no Content-Disposition)."""
+    # Same query-param token flow as /video — use full validator.
     if not current_user and token:
-        token_data = decode_token(token)
-        if token_data:
-            user = db.execute(text("SELECT * FROM users WHERE username = :username"),
-                              {"username": token_data.username}).fetchone()
-            if user:
-                current_user = dict(user._mapping)
+        current_user = validate_access_token(token, db)
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
@@ -283,8 +275,8 @@ def trim_timelapse(
     t.duration_seconds = new_duration
     file_stat = video_path.stat()
     t.file_size_mb = round(file_stat.st_size / (1024 * 1024), 2)
-    db.commit()
     log_audit(db, "update", "timelapse", t.id, {"action": "trim", "start": start_seconds, "end": end_seconds})
+    db.commit()
 
     return {
         "id": t.id, "duration_seconds": t.duration_seconds,
@@ -348,9 +340,10 @@ def speed_timelapse(
         completed_at=datetime.utcnow(),
     )
     db.add(new_tl)
-    db.commit()
+    db.flush()
     db.refresh(new_tl)
     log_audit(db, "create", "timelapse", new_tl.id, {"action": "speed", "multiplier": multiplier, "source_id": t.id})
+    db.commit()
 
     return {
         "id": new_tl.id, "duration_seconds": new_tl.duration_seconds,

@@ -77,6 +77,7 @@ async def restore_backup(file: UploadFile = File(...), current_user: dict = Depe
     os.unlink(tmp_path)
 
     log_audit(db, "backup_restored", "system", details={"filename": file.filename, "pre_restore_backup": pre_restore_name})
+    db.commit()
 
     return {
         "status": "ok",
@@ -115,6 +116,7 @@ def create_backup(current_user: dict = Depends(require_superadmin()), db: Sessio
 
     size = os.path.getsize(backup_path)
     log_audit(db, "backup_created", "system", details={"filename": backup_name, "size_bytes": size})
+    db.commit()
 
     return {
         "filename": backup_name,
@@ -174,3 +176,4 @@ def delete_backup(filename: str, current_user: dict = Depends(require_superadmin
 
     os.unlink(backup_path)
     log_audit(db, "backup_deleted", "system", details={"filename": filename})
+    db.commit()

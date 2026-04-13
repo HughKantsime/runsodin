@@ -286,9 +286,26 @@ async def serve_vision_frame(
     printer_id: int,
     filename: str,
     current_user: dict = Depends(require_role("viewer")),
+    db: Session = Depends(get_db),
 ):
-    """Serve a captured vision frame (path-traversal safe)."""
+    """Serve a captured vision frame (path-traversal + tenancy safe).
+
+    R10 from 2026-04-12 adversarial review: the prior version checked path
+    traversal but not tenancy. Any authenticated viewer who could guess a
+    frame filename could fetch another org's defect images. Now the printer
+    must belong to an org the caller can access, or we return 404 (matches
+    the "resource not found" convention used by CRUD routes to avoid
+    disclosing existence across org boundaries).
+    """
     import re as _re
+
+    # Tenancy gate: load the printer and confirm the caller can access it.
+    # 404 (not 403) so we don't leak that the printer exists in another org.
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer:
+        raise HTTPException(status_code=404, detail="Frame not found")
+    if not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Frame not found")
 
     # Sanitize filename to prevent path traversal
     if not _re.match(r'^[\w\-\.]+$', filename):

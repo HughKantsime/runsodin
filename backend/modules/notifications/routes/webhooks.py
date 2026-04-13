@@ -87,12 +87,13 @@ async def create_webhook(
     params = {"name": name, "url": url, "type": webhook_type, "alerts": alert_types}
     if sql.is_sqlite:
         db.execute(text(insert_sql), params)
-        db.commit()
+        db.flush()
         wh_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
         wh_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+        db.flush()
     log_audit(db, "webhook.created", "webhook", wh_id, {"name": name, "type": webhook_type})
+    db.commit()
 
     return {"success": True, "message": "Webhook created"}
 
@@ -127,8 +128,8 @@ async def update_webhook(
         updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE webhooks SET {', '.join(updates)} WHERE id = :id"
         db.execute(text(query), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
         log_audit(db, "webhook.updated", "webhook", webhook_id, {"fields": [f for f in data.keys() if f != "url"]})
+        db.commit()
 
     return {"success": True}
 
@@ -141,8 +142,8 @@ async def delete_webhook(
 ):
     """Delete a webhook."""
     db.execute(text("DELETE FROM webhooks WHERE id = :id"), {"id": webhook_id})
-    db.commit()
     log_audit(db, "webhook.deleted", "webhook", webhook_id)
+    db.commit()
     return {"success": True}
 
 

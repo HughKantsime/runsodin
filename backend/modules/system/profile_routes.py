@@ -144,12 +144,13 @@ async def create_profile(
     }
     if sql.is_sqlite:
         db.execute(text(insert_sql), params)
-        db.commit()
+        db.flush()
         pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
         pid = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+        db.flush()
     log_audit(db, "create", "profile", pid, {"name": name, "slicer": slicer})
+    db.commit()
     return {"id": pid, "name": name}
 
 
@@ -259,13 +260,14 @@ async def import_profile(
         }
         if sql.is_sqlite:
             db.execute(text(import_insert_sql), import_params)
-            db.commit()
+            db.flush()
             pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
         else:
             pid = db.execute(text(import_insert_sql + " RETURNING id"), import_params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            db.commit()
+            db.flush()
         ids.append(pid)
         log_audit(db, "create", "profile", pid, {"name": p["name"], "slicer": p["slicer"], "source": "import"})
+        db.commit()
 
     return {"imported": len(ids), "ids": ids}
 
@@ -313,8 +315,8 @@ async def update_profile(
     sets = ", ".join(f"{k} = :{k}" for k in updates)
     updates["id"] = profile_id
     db.execute(text(f"UPDATE printer_profiles SET {sets}, updated_at = {sql.now()} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-    db.commit()
     log_audit(db, "update", "profile", profile_id, updates)
+    db.commit()
     return {"updated": True}
 
 
@@ -333,8 +335,8 @@ def delete_profile(
     if current_user.get("role") != "admin" and row.created_by != current_user.get("id"):
         raise HTTPException(status_code=403, detail="Can only delete your own profiles")
     db.execute(text("DELETE FROM printer_profiles WHERE id = :id"), {"id": profile_id})
-    db.commit()
     log_audit(db, "delete", "profile", profile_id, {"name": row.name})
+    db.commit()
 
 
 @router.get("/profiles/{profile_id}/export", tags=["Profiles"])
@@ -457,11 +459,11 @@ async def apply_profile(
         SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
         WHERE id = :id
     """), {"pid": target_printer_id, "id": profile_id})
-    db.commit()
     log_audit(db, "apply", "profile", profile_id, {
         "printer_id": target_printer_id, "printer_name": printer.name,
         "commands_sent": len(gcodes), "failures": len(failures),
     })
+    db.commit()
 
     if failures:
         return {"applied": True, "warnings": f"{len(failures)} command(s) failed", "failed_commands": failures}

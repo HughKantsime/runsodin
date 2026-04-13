@@ -63,9 +63,9 @@ async def set_ip_allowlist(request: Request, body: IPAllowlistRequest, current_u
     db.execute(text("""INSERT INTO system_config (key, value) VALUES ('ip_allowlist', :val)
                        ON CONFLICT(key) DO UPDATE SET value = :val"""),
                {"val": json.dumps(config)})
-    db.commit()
 
     log_audit(db, "ip_allowlist_updated", details=f"Enabled={enabled}, {len(cidrs)} CIDRs")
+    db.commit()
     return config
 
 
@@ -111,9 +111,9 @@ async def set_retention_config(body: RetentionConfigRequest, current_user: dict 
     db.execute(text("""INSERT INTO system_config (key, value) VALUES ('data_retention', :val)
                        ON CONFLICT(key) DO UPDATE SET value = :val"""),
                {"val": json.dumps(config)})
-    db.commit()
 
     log_audit(db, "retention_updated", details=f"Retention config: {config}")
+    db.commit()
     return {**RETENTION_DEFAULTS, **config}
 
 

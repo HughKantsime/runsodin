@@ -70,20 +70,35 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
     job.actual_start = datetime.now(timezone.utc)
     job.is_locked = True
 
+    log_audit(db, "job.started", "job", job.id, {"printer_id": job.printer_id})
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.started", "job", job.id, {"printer_id": job.printer_id})
     return job
 
 
 @router.post("/{job_id}/complete", response_model=JobResponse, tags=["Jobs"])
 def complete_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Mark a job as completed and auto-deduct filament from loaded spools."""
+    """Mark a job as completed and auto-deduct filament from loaded spools.
+
+    Idempotent (R5 from 2026-04-12 adversarial review): if the job is
+    already in the COMPLETED state, return the existing job without running
+    the spool-deduction flow a second time. Without this guard, a client
+    retry after a network timeout, or two operators pressing "complete"
+    near-simultaneously, would deduct filament twice and append duplicate
+    SpoolUsage rows — permanent inventory corruption.
+    """
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # R5: idempotency guard — completion is a one-way state transition.
+    # On a second complete call, return the current job with no side effects
+    # instead of re-running deductions. The client sees a successful response
+    # either way, which is what it wants.
+    if job.status == JobStatus.COMPLETED:
+        return job
 
     job.status = JobStatus.COMPLETED
     job.actual_end = datetime.now(timezone.utc)
@@ -167,9 +182,9 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         )
         job.notes = f"{job.notes or ''}\nFilament deducted: {deduct_summary}".strip()
 
+    log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions)})
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions)})
     return job
 
 
@@ -188,9 +203,9 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     if notes:
         job.notes = f"{job.notes or ''}\nFailed: {notes}".strip()
 
+    log_audit(db, "job.failed", "job", job.id, {"printer_id": job.printer_id, "notes": notes})
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.failed", "job", job.id, {"printer_id": job.printer_id, "notes": notes})
     return job
 
 
@@ -206,9 +221,9 @@ def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator"
         raise HTTPException(status_code=400, detail="Can only cancel pending or scheduled jobs")
     job.status = JobStatus.CANCELLED
     job.is_locked = True
+    log_audit(db, "job.cancelled", "job", job.id)
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.cancelled", "job", job.id)
     return job
 
 
@@ -230,9 +245,9 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
     job.match_score = None
     job.is_locked = False
 
+    log_audit(db, "job.reset", "job", job.id)
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.reset", "job", job.id)
     return job
 
 
@@ -267,6 +282,7 @@ def dispatch_job_to_printer(
 
     db.refresh(job)
     log_audit(db, "job.dispatched", "job", job.id, {"printer_id": job.printer_id})
+    db.commit()
     return {"success": True, "message": message, "job_id": job_id, "status": job.status.value}
 
 
@@ -287,9 +303,9 @@ def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict =
     job.status = JobStatus.PENDING
     job.approved_by = current_user["id"]
     job.approved_at = datetime.now(timezone.utc)
+    log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
 
     # Notify the student who submitted
     if job.submitted_by:
@@ -330,9 +346,9 @@ def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_d
     job.status = "rejected"
     job.approved_by = current_user["id"]
     job.rejected_reason = body.reason.strip()
+    log_audit(db, "job.rejected", "job", job.id, {"rejected_by": current_user["id"], "reason": body.reason.strip()})
     db.commit()
     db.refresh(job)
-    log_audit(db, "job.rejected", "job", job.id, {"rejected_by": current_user["id"], "reason": body.reason.strip()})
 
     # Notify the student who submitted
     if job.submitted_by:

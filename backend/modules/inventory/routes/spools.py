@@ -140,10 +140,11 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
         org_id=current_user.get("group_id") if current_user else None,
     )
     db.add(db_spool)
-    db.commit()
+    db.flush()
     db.refresh(db_spool)
 
     log_audit(db, "create", "spool", db_spool.id, {"filament_id": spool.filament_id, "qr_code": db_spool.qr_code})
+    db.commit()
     return {
         "id": db_spool.id,
         "qr_code": db_spool.qr_code,
@@ -344,9 +345,8 @@ def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depe
         notes=request.notes,
     )
     db.add(usage)
-    db.commit()
-
     log_audit(db, "use", "spool", spool_id, {"weight_used_g": request.weight_used_g, "remaining": spool.remaining_weight_g})
+    db.commit()
     return {
         "success": True,
         "remaining_weight_g": spool.remaining_weight_g,
@@ -422,10 +422,11 @@ def log_drying_session(
         notes=notes,
     )
     db.add(drying_log)
-    db.commit()
+    db.flush()
     db.refresh(drying_log)
 
     log_audit(db, "create", "drying_log", drying_log.id, {"spool_id": spool_id, "duration_hours": duration_hours, "method": method})
+    db.commit()
 
     return {
         "id": drying_log.id,

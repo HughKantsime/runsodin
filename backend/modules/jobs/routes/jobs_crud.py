@@ -259,8 +259,8 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
-    db.commit()
     log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
+    db.commit()
     return {"status": "ok", "affected": count}
 
 
@@ -371,9 +371,10 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         target_filter=job.target_filter,
     )
     db.add(db_job)
-    db.commit()
+    db.flush()
     db.refresh(db_job)
     log_audit(db, "job.created", "job", db_job.id, {"item_name": db_job.item_name, "status": str(initial_status)})
+    db.commit()
 
     # Increment quota usage
     if current_user and current_user.get("quota_jobs"):

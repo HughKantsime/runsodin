@@ -162,8 +162,8 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
     db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                {"jti": row.token_jti, "exp": expires_at})
     db.execute(text("DELETE FROM active_sessions WHERE id = :id"), {"id": session_id})
-    db.commit()
     log_audit(db, "session_revoked_admin", "session", session_id, f"Admin revoked session for user_id={row.user_id}")
+    db.commit()
     return {"status": "ok"}
 
 
@@ -215,12 +215,13 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
               "prefix": token_prefix, "scopes": json.dumps(scopes), "expires_at": expires_at}
     if sql.is_sqlite:
         db.execute(text(insert_sql), params)
-        db.commit()
+        db.flush()
         token_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
     else:
         token_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+        db.flush()
     log_audit(db, "api_token_created", "api_token", token_id, f"Token '{name}' created")
+    db.commit()
 
     return {
         "id": token_id, "name": name, "token": raw_token, "prefix": token_prefix,
@@ -255,8 +256,8 @@ async def revoke_api_token(token_id: int, current_user: dict = Depends(require_r
             raise HTTPException(status_code=404, detail="Token not found")
 
     db.execute(text("DELETE FROM api_tokens WHERE id = :id"), {"id": token_id})
-    db.commit()
     log_audit(db, "api_token_revoked", "api_token", token_id, f"Token '{row.name}' revoked")
+    db.commit()
     return {"status": "ok"}
 
 
@@ -330,9 +331,10 @@ async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: 
 
     if sets:
         db.execute(text(f"UPDATE users SET {', '.join(sets)} WHERE id = :id"), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+        db.flush()
 
     log_audit(db, "quota_updated", "user", user_id, f"Quotas updated: {body_data}")
+    db.commit()
     return {"status": "ok"}
 
 
@@ -384,6 +386,7 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     }
 
     log_audit(db, "gdpr_export", "user", user_id, f"Data exported for user {user.username}")
+    db.commit()
     return export
 
 
@@ -413,7 +416,7 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("DELETE FROM api_tokens WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
-    db.commit()
 
     log_audit(db, "gdpr_erasure", "user", user_id, f"User data erased (was: {user.username})")
+    db.commit()
     return {"status": "ok", "message": f"User {user.username} data erased"}

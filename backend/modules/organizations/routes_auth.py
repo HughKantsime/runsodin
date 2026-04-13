@@ -60,6 +60,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     if not user or not verify_password(form_data.password, user.password_hash):
         _record_login_attempt(client_ip, form_data.username, False, db)
         log_audit(db, "auth.login_failed", "user", details={"username": form_data.username}, ip=client_ip)
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Account disabled")
@@ -90,6 +91,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     _record_session(db, user.id, access_token, client_ip, request.headers.get("user-agent", ""))
     log_audit(db, "auth.login", "user", user.id, details={"username": user.username}, ip=client_ip)
+    db.commit()
 
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"access_token": access_token, "token_type": "bearer"})
@@ -133,10 +135,10 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
         if bearer_token != session_token:
             _blacklist_token(bearer_token)
 
-    db.commit()
     if current_user:
         log_audit(db, "auth.logout", "user", current_user.get("id"),
                   details={"username": current_user.get("username")})
+    db.commit()
     response.delete_cookie(key="session", path="/")
     return {"detail": "Logged out"}
 
@@ -251,8 +253,8 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
         raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
 
     db.execute(text("UPDATE users SET mfa_enabled = 1 WHERE id = :id"), {"id": current_user["id"]})
-    db.commit()
     log_audit(db, "mfa_enabled", "user", current_user["id"], "MFA enabled")
+    db.commit()
     return {"status": "ok", "message": "MFA enabled successfully"}
 
 
@@ -276,8 +278,8 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
         raise HTTPException(status_code=400, detail="TOTP code is required to disable MFA")
 
     db.execute(text("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = :id"), {"id": current_user["id"]})
-    db.commit()
     log_audit(db, "mfa_disabled", "user", current_user["id"], "MFA disabled")
+    db.commit()
     return {"status": "ok", "message": "MFA disabled"}
 
 
@@ -291,8 +293,8 @@ async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_r
         raise HTTPException(status_code=400, detail="MFA is not enabled for this user")
 
     db.execute(text("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = :id"), {"id": user_id})
-    db.commit()
     log_audit(db, "mfa_disabled_admin", "user", user_id, f"Admin force-disabled MFA for user {user.username}")
+    db.commit()
     return {"status": "ok", "message": f"MFA disabled for {user.username}"}
 
 

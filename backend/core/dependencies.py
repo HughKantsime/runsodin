@@ -30,6 +30,55 @@ log = logging.getLogger("odin.api")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
+def validate_access_token(token: str, db: Session) -> Optional[dict]:
+    """Validate a JWT as a full access token and return the user dict.
+
+    Rejects:
+      - Malformed / expired / bad-signature tokens
+      - Blacklisted tokens (revoked on logout)
+      - Special-purpose tokens: ws-only, mfa_pending, mfa_setup_required
+
+    Returns the user dict (from users table) on success, None otherwise.
+
+    This helper exists so non-standard auth carriers (e.g. query-string tokens
+    used by <video> / <img> tags that can't send Authorization headers) can
+    still enforce the full access-token semantics rather than shortcut-loading
+    a user straight from `sub`. Use this instead of calling `decode_token()`
+    directly anywhere you are authenticating a request.
+    """
+    if not token:
+        return None
+    token_data = decode_token(token)
+    if not token_data:
+        return None
+    import jwt as _jwt
+    try:
+        payload = _jwt.decode(
+            token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM]
+        )
+    except Exception:
+        return None
+    # Reject special-purpose tokens (ws, mfa_pending, mfa_setup_required)
+    if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
+        return None
+    # Reject blacklisted tokens (revoked sessions)
+    jti = payload.get("jti")
+    if jti:
+        blacklisted = db.execute(
+            text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
+            {"jti": jti},
+        ).fetchone()
+        if blacklisted:
+            return None
+    user = db.execute(
+        text("SELECT * FROM users WHERE username = :username"),
+        {"username": token_data.username},
+    ).fetchone()
+    if not user:
+        return None
+    return dict(user._mapping)
+
+
 async def get_current_user(
     request: Request,
     token: str = Depends(oauth2_scheme),
@@ -179,7 +228,20 @@ def log_audit(
     details: dict = None,
     ip: str = None,
 ):
-    """Log an action to the audit log."""
+    """Stage an audit log entry on the session. Caller MUST commit.
+
+    The entry is attached to ``db`` but not committed here. This is
+    intentional: the audit row must be committed in the SAME transaction
+    as the business mutation it describes. If callers were to commit the
+    business change first and then call this, an audit insert failure
+    would leave an un-audited business mutation behind — wrong error
+    model, produces duplicate operations on client retry.
+
+    Required call pattern:
+        # stage business changes on db
+        log_audit(db, "action", ...)
+        db.commit()
+    """
     entry = AuditLog(
         action=action,
         entity_type=entity_type,
@@ -188,4 +250,3 @@ def log_audit(
         ip_address=ip,
     )
     db.add(entry)
-    db.commit()
