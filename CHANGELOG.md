@@ -2,6 +2,68 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.2] - 2026-04-12
+
+### Security
+
+Remediates 10 findings from the 2026-04-12 Codex adversarial review.
+Track: `conductor/tracks/codex-adversarial-remediation_20260412/`.
+
+- **R1 (Critical)** — Printer control + smart-plug routes now enforce org
+  scoping. Operators in Org A can no longer stop, pause, resume, power-cycle,
+  or reconfigure printers belonging to Org B. `routes_controls.py` (9
+  handlers) and `routes_smart_plug.py` (5 handlers) now call
+  `check_org_access` before acting. Cross-org returns 404 to avoid leaking
+  resource existence.
+- **R2 (Critical)** — `POST /api/v1/orgs/{id}/members` now loads the target
+  user before mutating and refuses to reassign (a) superadmin accounts
+  (role=admin, group_id IS NULL) and (b) users already in a different org.
+  Previously a malicious org admin could strip the platform superadmin of
+  system-wide privileges in one UPDATE, or pull users from other orgs
+  into theirs.
+- **R3 (High)** — Camera timelapse endpoints (`/video`, `/stream`) no
+  longer shortcut JWT validation for the `?token=` query-param flow. Added
+  `validate_access_token()` helper that enforces blacklist checks and
+  rejects ws-only / mfa_pending / mfa_setup_required tokens.
+- **R4 (High)** — `/setup/test-printer` is now loopback-only. The
+  endpoint intentionally allows RFC1918 LAN probes for initial setup, so
+  exposing it to the internet turned fresh O.D.I.N. instances into open
+  internal-network scanners. Setup UI runs from localhost; for remote
+  setup, tunnel to the host.
+- **R5 (High)** — `complete_job()` is now idempotent. A retry after
+  timeout or a concurrent double-complete returns the existing job
+  without re-running spool deductions. Prior behavior corrupted
+  inventory on retry.
+- **R6 (High)** — `last_seen_at` updates are now batched (in-process
+  cache, 5-minute minimum interval per session jti). Dashboard polling
+  no longer turns every authenticated request into a SQLite writer.
+  Staleness tradeoff documented in decision log.
+- **R7 (Medium)** — Audit logging now commits in the same transaction
+  as the business mutation. `log_audit()` no longer does its own commit.
+  Refactored 49 call sites across 16 modules. An audit insert failure
+  now rolls back the business change too — no more orphan mutations
+  without an audit trail on retry.
+- **R8 (Medium)** — Webhook dispatch now DNS-resolves the target
+  hostname at send time and rejects if any resolved address is private,
+  loopback, link-local, or reserved. Defeats DNS rebinding and
+  split-horizon DNS SSRF. Not cached — every dispatch re-resolves.
+  Applied to Discord, Slack, and ntfy dispatch paths.
+- **R9 (Medium)** — Login rate-limit and lockout state now uses the
+  app's main SQLAlchemy session instead of a separate `DATABASE_PATH`
+  sqlite3 connection. Postgres and non-default sqlite deployments now
+  share the same state as the rest of the app. Fail-closed semantics
+  preserved on DB error.
+- **R10 (Medium)** — `/vision/frames/{printer_id}/{filename}` now checks
+  `check_org_access` against the printer's `org_id` before serving the
+  file. Cross-org viewers previously could fetch defect images by
+  guessing filenames.
+
+### Added
+
+- 44 new contract tests in `tests/test_contracts/` guarding each
+  finding at the source level so a future refactor cannot silently
+  remove a tenancy, auth, or idempotency check.
+
 ## [1.8.1] - 2026-04-12
 
 ### Fixed
