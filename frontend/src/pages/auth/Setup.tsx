@@ -77,6 +77,12 @@ export default function Setup() {
   const [detectedIp, setDetectedIp] = useState('')
   const [networkSaved, setNetworkSaved] = useState(false)
 
+  // R4 (codex pass 2): one-time setup token. Operator copies from
+  // `docker logs odin` (printed at WARN on first /setup/status call) or
+  // /data/.setup_token on the host. Required when ODIN runs behind a
+  // reverse proxy; ignored on direct loopback access.
+  const [setupToken, setSetupToken] = useState('')
+
   // Auto-set slot count when model changes
   useEffect(() => {
     const models = PRINTER_MODELS[printerType] || []
@@ -166,9 +172,17 @@ export default function Setup() {
 
     setTestLoading(true)
     try {
+      // R4 (codex pass 2): include the one-time setup token if provided.
+      // Required when running behind a reverse proxy; ignored otherwise.
+      const baseOpts = apiOptions(token)
+      const headers: Record<string, string> = { ...(baseOpts.headers as Record<string, string> || {}) }
+      if (setupToken.trim()) {
+        headers['X-ODIN-Setup-Token'] = setupToken.trim()
+      }
       const resp = await fetch('/api/setup/test-printer', {
+        ...baseOpts,
         method: 'POST',
-        ...apiOptions(token),
+        headers,
         body: JSON.stringify({
           name: printerName.trim() || 'Printer',
           printer_type: printerType,
@@ -514,6 +528,29 @@ export default function Setup() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* R4 (codex pass 3): one-time setup token. REQUIRED for every
+              printer probe regardless of how the wizard is reached.
+              Operator pastes from `docker logs odin` or /data/.setup_token. */}
+          <div className="mt-6 p-3 rounded-lg bg-white/5 border border-white/10">
+            <label className="block text-xs uppercase tracking-wide text-white/60 mb-2">
+              Setup token <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={setupToken}
+              onChange={(e) => setSetupToken(e.target.value)}
+              placeholder="Paste the one-time setup token from docker logs odin"
+              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+            <p className="mt-2 text-xs text-white/40 leading-relaxed">
+              Required. Find it in <code className="text-white/60">docker logs odin</code> (logged at startup) or in{' '}
+              <code className="text-white/60">/data/.setup_token</code> on the ODIN host. Deleted automatically once setup completes.
+            </p>
           </div>
 
           <div className="flex items-center justify-between mt-8">
