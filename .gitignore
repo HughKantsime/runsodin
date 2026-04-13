@@ -124,3 +124,4 @@ docs/plans/2026-03-03-beta-readiness-audit.md
 # Stray marketing assets (belong in odin-site, not backend)
 ios-app-icon*.png
 docker/ios-app-icon*.png
+.message-bus/
