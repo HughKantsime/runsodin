@@ -64,6 +64,11 @@ ALLOWED_PATTERNS = [
     ".event_dispatcher",
     ".mqtt_republish",
     ".alert_dispatch",    # alert_dispatch.py and alert_dispatcher.py (notification layer)
+    ".channels import",   # notifications/channels.py — delivery primitives (send_push_notification,
+                          # send_webhook, send_email). Sibling of alert_dispatch in role;
+                          # both are the sanctioned notification-delivery surface.
+                          # Added v1.8.5 when report_runner's quiet-hours digest began
+                          # calling send_push_notification directly for per-user fan-out.
 
     # Data/utility files — pure functions with no route logic side effects.
     ".hms_codes",         # Bambu HMS error code lookup (data file)

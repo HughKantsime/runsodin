@@ -233,7 +233,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     # job.notes; no silent drops, no retry-queue coupling.
     if deductions:
         try:
-            from modules.inventory.routes.spoolman import push_consumption_to_spoolman
+            from modules.inventory.services import push_consumption_to_spoolman
             push_errors = push_consumption_to_spoolman(deductions)
             if push_errors:
                 for err in push_errors:

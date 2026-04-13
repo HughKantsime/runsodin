@@ -21,7 +21,10 @@ import re
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
-SPOOLMAN_PATH = BACKEND_DIR / "modules" / "inventory" / "routes" / "spoolman.py"
+# v1.8.5 refactor: helper moved from routes/spoolman.py to services.py so
+# it's reachable from other modules via the `.services import` allowlist
+# entry in test_no_cross_module_imports.py.
+SPOOLMAN_PATH = BACKEND_DIR / "modules" / "inventory" / "services.py"
 JOBS_LIFECYCLE = BACKEND_DIR / "modules" / "jobs" / "routes" / "jobs_lifecycle.py"
 
 
