@@ -2,6 +2,31 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.6] - 2026-04-13
+
+### Fixed
+
+- **Architecture lint: cross-module imports.** The v1.8.5 release
+  surfaced two cross-module route imports that violated the modular-
+  architecture invariant enforced by
+  `tests/test_contracts/test_no_cross_module_imports.py`:
+  - `jobs/routes/jobs_lifecycle.py` imported the Spoolman push helper
+    from `inventory/routes/spoolman.py` (routes-to-routes coupling).
+  - `reporting/report_runner.py` imported `send_push_notification`
+    from `notifications/channels.py`.
+
+  Fix: moved `push_consumption_to_spoolman()` into a new
+  `modules/inventory/services.py` so it's reachable from other modules
+  via the sanctioned `.services import` allowlist pattern. Added
+  `.channels import` to the contract test's allowlist with rationale
+  — `channels.py` is the delivery-primitive sibling of
+  `alert_dispatch.py` (already allowed) in role.
+
+  Runtime behavior unchanged from v1.8.5; this release ships the same
+  Spoolman push-back + quiet-hours digest delivery features against
+  the corrected module layering so future contributors aren't blocked
+  by a red contract test on main.
+
 ## [1.8.5] - 2026-04-13
 
 ### Added
