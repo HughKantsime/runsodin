@@ -207,7 +207,12 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
                     "spool_id": spool.id,
                     "slot": slot_num,
                     "deducted_g": round(grams, 1),
-                    "remaining_g": round(spool.remaining_weight_g, 1)
+                    "remaining_g": round(spool.remaining_weight_g, 1),
+                    # v1.8.5: carried through to Spoolman push-back below.
+                    # None for spools not linked to an external Spoolman row.
+                    "spoolman_spool_id": spool.spoolman_spool_id,
+                    "grams": float(grams),
+                    "job_id": job.id,
                 })
 
     if deductions:
@@ -220,6 +225,30 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     log_audit(db, "job.completed", "job", job.id, {"printer_id": job.printer_id, "deductions": len(deductions)})
     db.commit()
     db.refresh(job)
+
+    # v1.8.5: push consumption back to Spoolman for any deductions whose
+    # spool has a spoolman_spool_id. Fires AFTER the local commit so the
+    # authoritative spool state is persisted regardless of whether
+    # Spoolman is reachable. Errors are surfaced to the operator via
+    # job.notes; no silent drops, no retry-queue coupling.
+    if deductions:
+        try:
+            from modules.inventory.routes.spoolman import push_consumption_to_spoolman
+            push_errors = push_consumption_to_spoolman(deductions)
+            if push_errors:
+                for err in push_errors:
+                    log.error(f"Spoolman push error on job {job.id}: {err}")
+                appended = "\n".join(f"Spoolman push failed: {e}" for e in push_errors)
+                job.notes = f"{job.notes or ''}\n{appended}".strip()
+                db.commit()
+                db.refresh(job)
+        except Exception as e:
+            # Helper itself raised; don't let it take down the completion.
+            log.error(f"Spoolman push helper raised on job {job.id}: {e}")
+            job.notes = f"{job.notes or ''}\nSpoolman push helper error: {e}".strip()
+            db.commit()
+            db.refresh(job)
+
     return job
 
 

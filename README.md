@@ -29,7 +29,7 @@ The only platform that combines multi-protocol printer support, AI failure detec
 - **OBS Streaming Overlay** — Auth-free `/overlay/:printerId` page for live streaming with camera, progress, and temps
 - **Order-to-Ship Workflow** — Products, BOM, orders, invoicing, cost tracking, and shipping in one system
 - **WebRTC Camera Streaming** — Live feeds via go2rtc with control room mode, PiP, and timelapse capture
-- **Spool Inventory** — Filament tracking with QR labels, AMS integration, PA profiles, low-stock alerts, pull-only Spoolman sync, and CSV export
+- **Spool Inventory** — Filament tracking with QR labels, AMS integration, PA profiles, low-stock alerts, bidirectional Spoolman sync (pull inventory + push consumption), and CSV export
 - **Notifications** — Discord, Slack, Telegram, ntfy, WhatsApp, Pushover, email, and browser push
 - **Enterprise Security** — RBAC (admin/operator/viewer), TOTP MFA, Microsoft Entra ID SSO, IP allowlisting, audit logs
 - **Native Companion Apps** — iOS, iPadOS, and macOS apps with fleet view, widgets, and Live Activities ([odin-native](https://github.com/HughKantsime/odin-native))

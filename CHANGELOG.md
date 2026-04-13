@@ -2,6 +2,122 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.5] - 2026-04-13
+
+### Added
+
+- **Spoolman bidirectional sync.** Closes the last pull-only gap in the
+  Spoolman integration. When a job completes and its spools are linked
+  to a Spoolman row (`spool.spoolman_spool_id`), ODIN pushes the
+  consumption delta back to Spoolman via
+  `POST {spoolman_url}/api/v1/spool/{id}/use` with a `{use_weight: g}`
+  body. Dispatch goes through `safe_post()` (DNS-pinned, SSRF-safe),
+  so a rebinding on the configured Spoolman URL can't turn this into
+  an internal probe. Unreachable Spoolman is a loud failure — errors
+  are logged at ERROR and appended to `job.notes` with a
+  "Spoolman push failed: ..." prefix. No silent drops, no retry queue.
+
+- **Quiet-hours digest delivery.** The suppression framework shipped
+  earlier, but the digest was formatted-but-never-dispatched. Now
+  `process_quiet_hours_digest()` in `report_runner.py` iterates every
+  org with `quiet_hours_enabled` + `quiet_hours_digest_enabled`
+  (plus the system-level config), computes the most-recently-ended
+  window, fetches suppressed alerts scoped to that org, and fans out:
+  per-user email + browser push (respecting each user's
+  `alert_preferences`) and a per-org combined webhook via `safe_post`.
+  Idempotent via the new `quiet_hours_digest_sends(user_id,
+  window_ended_at)` UNIQUE — sibling workers race on INSERT and the
+  loser rolls back; a daemon restart mid-window never produces a
+  duplicate send.
+
+### Changed
+
+- **Native apps positioning split.** Marketing copy, `FEATURES.md`
+  section 23, and `odin-native/README.md` now describe iOS and macOS
+  as distinctively different by design:
+  - iOS + iPadOS — mobile companion (widgets, Live Activities, iPad
+    Always-On kiosk; scope-by-design: no file upload, no vision UI,
+    no timelapse playback, no SSO login)
+  - macOS — desktop client (3-column NavigationSplitView, menu-bar
+    presence, launch-at-login via SMAppService, `⌘R` / `⌘⇧P` / `⌘⇧E`
+    keyboard shortcuts, "Open Web UI" menu item)
+- **Conductor hygiene.** `codex-adversarial-remediation_20260412`
+  moved to Completed (shipped across v1.8.2–v1.8.4 with 33 contract
+  tests). `ws-token-mfa-hardening_20260221` retired as superseded —
+  WebSocket auth tokens shipped in v1.3.59; MFA pending-token
+  blacklisting shipped in v1.3.63; TOTP MFA verified present under
+  public-docs-alignment/T1.1.
+
+### Schema
+
+- New core migration `002_quiet_hours_digest_sends.sql`. Idempotent
+  (`CREATE TABLE IF NOT EXISTS`); safe on upgrade.
+
+### Tests
+
+- `tests/test_contracts/test_spoolman_push.py` — 10 tests covering
+  helper shape (exists / safe_post / no raw httpx / skips unlinked /
+  no-op when disabled) and `complete_job()` wiring (push after commit,
+  errors in notes, errors logged, deduction carries spoolman_id).
+- `tests/test_contracts/test_quiet_hours_digest.py` — 14 tests
+  covering migration file structure, all 5 new helper functions,
+  driver-uses-new-helpers, old-global-flag-removed, idempotency
+  table usage, `alert_preferences` consulted, org webhook via
+  safe_post, error handling.
+
+## [1.8.4] - 2026-04-13
+
+### Security
+
+- **R4 (High) — Setup printer probe is token-gated.** The
+  `/setup/test-printer` endpoint now requires a one-time
+  `X-ODIN-Setup-Token` header on every request. The token lives in
+  the `system_config` table (shared across multi-replica Postgres
+  deployments and multi-worker Uvicorn), is logged at startup so
+  operators find it in `docker logs odin`, and is deleted when
+  setup completes. Previous loopback-only + proxy-header-reject
+  heuristics were bypassable behind reverse proxies that strip
+  forwarding headers. Verified with 11 contract tests.
+
+- **R5 (High) — `complete_job()` is atomically idempotent.** Replaced
+  the Python-level `if status == COMPLETED: return` check (broken
+  under concurrency — two threads could both pass the guard before
+  either committed) with an atomic conditional UPDATE:
+  `UPDATE jobs SET status='completed' WHERE id = :id AND (status !=
+  'completed' OR status IS NULL)`. The DB enforces single-winner
+  semantics. `rowcount == 0` means another caller won; return the
+  job with no side effects. `IS NULL` clause covers legacy rows.
+
+- **R8 (Medium) — Webhook dispatch is DNS-pinned.** `safe_post()`
+  resolves and validates the target's IPs once, then pins the TCP
+  connect to one of those validated IPs via a thread-local
+  `getaddrinfo` override for the duration of the call. TLS SNI and
+  cert verification still target the original hostname. `trust_env=
+  False` prevents HTTP_PROXY / HTTPS_PROXY env vars from re-routing
+  the connection through a proxy that would do its own attacker-
+  controlled DNS lookup. Companion `trusted_post()` helper
+  (allowlisted Telegram / Pushover / WhatsApp Graph hostnames only)
+  preserves egress-proxy support for those hardcoded APIs. Contract
+  tests enforce the wrapper is the only sanctioned dispatch path.
+
+- **S4 (High, odin-site) — `odin-sync` workflow hardened.**
+  `persist-credentials: false` on `actions/checkout@v4` so GITHUB_TOKEN
+  doesn't sit in the runner's git config across npm / semgrep /
+  gitleaks steps. Token is re-embedded only at the push step, scoped
+  to a single `git push`. Start-of-run monotonicity gate rejects any
+  `client_payload.version` that is not strictly greater than the
+  version currently committed to `main`. Push-time recheck (TOCTOU
+  defense) refetches `origin/main` and re-runs the compare before
+  pushing. Workflow-level `concurrency: odin-sync /
+  cancel-in-progress: false` serializes dispatches that fire within
+  seconds of each other.
+
+### Tests
+
+- 22 contract tests across `test_webhook_ssrf.py`,
+  `test_webhook_dispatch_wiring.py`, `test_setup_probe_loopback.py`,
+  and `test_job_complete_idempotency.py` lock the above invariants.
+
 ## [1.8.3] - 2026-04-13
 
 ### Security

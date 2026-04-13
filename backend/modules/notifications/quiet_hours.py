@@ -237,3 +237,181 @@ def invalidate_cache():
     global _config_cache, _config_ts
     _config_cache = None
     _config_ts = 0
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# v1.8.5 digest delivery helpers
+#
+# The original digest framework formatted alerts but never actually
+# dispatched them per-user or per-org. These helpers let the refactored
+# report_runner driver scope alerts to a specific window (given an org's
+# own quiet-hours config) and group them by user or by org for per-channel
+# fan-out.
+#
+# Kept deliberately thin — they do DB reads and pure Python. The delivery
+# side-effects live in report_runner.py so failure modes have one owner.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def compute_last_window_end(config: Dict[str, Any], now: datetime = None) -> Optional[datetime]:
+    """Return the datetime of the most recently ENDED quiet-hours window.
+
+    Returns None if quiet hours are disabled, or if we're currently inside
+    the window (no ended window to digest yet).
+
+    Takes an explicit `config` dict so callers can pass an org-level config
+    instead of the system-level one. `now` defaults to UTC wall-clock and
+    is injectable for tests.
+    """
+    if not config.get("enabled", False):
+        return None
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    # If we're currently inside the window, it hasn't ended yet.
+    if _is_quiet_time_for_config(config):
+        return None
+
+    try:
+        end_h, end_m = map(int, config.get("end", "07:00").split(":"))
+    except Exception:
+        return None
+
+    # Most recent end: today's end-of-window if it's already passed, else
+    # yesterday's.
+    quiet_end = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+    if quiet_end > now:
+        quiet_end -= timedelta(days=1)
+    return quiet_end
+
+
+def compute_window_bounds(config: Dict[str, Any], window_end: datetime) -> Tuple[datetime, datetime]:
+    """Given a window-end datetime, compute the matching window-start."""
+    start_h, start_m = map(int, config.get("start", "22:00").split(":"))
+    start = window_end.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    if start >= window_end:
+        start -= timedelta(days=1)
+    return start, window_end
+
+
+def get_suppressed_alerts_for_window(
+    window_start: datetime,
+    window_end: datetime,
+    org_id: Optional[int] = None,
+) -> list:
+    """Fetch alerts saved during a specific window.
+
+    When org_id is provided, only alerts whose printer belongs to that
+    org are returned. Without org_id, system-wide alerts are returned
+    (used for the system-level quiet-hours digest).
+
+    Returns rows with: id, user_id, alert_type, severity, title, message,
+    printer_id, created_at.
+    """
+    try:
+        with engine.connect() as conn:
+            if org_id is not None:
+                # Scope by printer.org_id → alerts from printers in this org
+                # plus alerts whose printer is unknown but whose user is in
+                # this org (rare — keep the query simple and scope by
+                # printer org only).
+                q = text("""
+                    SELECT a.id, a.user_id, a.alert_type, a.severity, a.title,
+                           a.message, a.printer_id, a.created_at
+                    FROM alerts a
+                    LEFT JOIN printers p ON a.printer_id = p.id
+                    WHERE a.created_at BETWEEN :start AND :end
+                      AND p.org_id = :org_id
+                    ORDER BY a.created_at DESC
+                """)
+                params = {
+                    "start": window_start.isoformat(),
+                    "end": window_end.isoformat(),
+                    "org_id": org_id,
+                }
+            else:
+                q = text("""
+                    SELECT id, user_id, alert_type, severity, title, message,
+                           printer_id, created_at
+                    FROM alerts
+                    WHERE created_at BETWEEN :start AND :end
+                    ORDER BY created_at DESC
+                """)
+                params = {
+                    "start": window_start.isoformat(),
+                    "end": window_end.isoformat(),
+                }
+            result = conn.execute(q, params)
+            return [dict(r._mapping) for r in result.fetchall()]
+    except Exception as e:
+        log.error(f"get_suppressed_alerts_for_window failed: {e}")
+        return []
+
+
+def group_suppressed_by_user(alerts: list) -> Dict[int, list]:
+    """Map user_id → list[alerts]. Drops rows with NULL user_id."""
+    out: Dict[int, list] = {}
+    for a in alerts:
+        uid = a.get("user_id")
+        if uid is None:
+            continue
+        out.setdefault(int(uid), []).append(a)
+    return out
+
+
+def iter_orgs_with_digest_enabled() -> list:
+    """Yield orgs whose settings_json has quiet_hours_enabled=True AND
+    quiet_hours_digest_enabled != False.
+
+    Returns list of dicts: {id, name, settings_json (parsed), config (config dict)}.
+    Also appends a virtual 'system' entry with id=None, config derived
+    from the system-level _get_config(), so the digest driver iterates
+    uniformly over orgs + system-level.
+    """
+    out: list = []
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT id, name, settings_json FROM groups "
+                "WHERE settings_json IS NOT NULL"
+            )).mappings().fetchall()
+        for r in rows:
+            raw = r.get("settings_json")
+            if not raw:
+                continue
+            try:
+                s = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                continue
+            if not s.get("quiet_hours_enabled"):
+                continue
+            if s.get("quiet_hours_digest_enabled") is False:
+                continue  # explicit opt-out
+            config = {
+                "enabled": True,
+                "start": s.get("quiet_hours_start", "22:00"),
+                "end": s.get("quiet_hours_end", "07:00"),
+                "digest_enabled": s.get("quiet_hours_digest_enabled", True),
+                "webhook_url": s.get("webhook_url"),
+                "webhook_type": s.get("webhook_type", "generic"),
+            }
+            out.append({
+                "id": r["id"],
+                "name": r["name"],
+                "settings_json": s,
+                "config": config,
+            })
+    except Exception as e:
+        log.error(f"iter_orgs_with_digest_enabled failed: {e}")
+
+    # Add system-level row (org_id=None) if the top-level config says so.
+    sys_config = _get_config()
+    if sys_config.get("enabled") and sys_config.get("digest_enabled"):
+        out.append({
+            "id": None,
+            "name": "system",
+            "settings_json": {},
+            "config": dict(sys_config),
+        })
+
+    return out

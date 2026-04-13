@@ -351,8 +351,8 @@
 
 ### 6.6 Spoolman Integration
 - `spoolman_spool_id` field for linking O.D.I.N. spools to external Spoolman instance
-- Pull-only sync: import spools from an external Spoolman instance; ODIN tracks consumption locally (push-back to Spoolman on roadmap, not yet shipped)
-- **Auto-deduction** — filament consumption auto-deducted from assigned spool on print completion; consumption_json stored in archive (push-back to Spoolman is on the roadmap, not yet shipped)
+- Bidirectional sync: pull spool inventory from an external Spoolman instance; push consumption back on job completion via `POST /api/v1/spool/{id}/use`
+- **Auto-deduction** — filament consumption auto-deducted from the assigned spool on print completion; consumption_json stored in the archive; pushed back to Spoolman when the spool is linked (fails loud via job.notes if Spoolman is unreachable, no silent drops)
 - **Filament usage tracking** — Bambu: AMS remain percentage delta × initial_weight_g; Moonraker: Klipper `print_stats.filament_used` (mm→grams conversion); multi-filament prints distribute weight across all assigned spools (v1.5.10)
 
 ### 6.7 Filament Drying Log (v1.2.0)
@@ -467,7 +467,7 @@
 - Report schedule management UI in Settings → System tab
 - Report runner daemon (`report_runner.py`) — executes scheduled reports and delivers via SMTP with HTML body (v1.3.19)
 - "Run Now" button for on-demand report generation with immediate email delivery (v1.3.47)
-- Quiet hours suppression — configurable time window (per-org) during which external notifications (push, email, webhooks) are suppressed; in-app alerts are still recorded so nothing is lost
+- Quiet hours suppression + digest — configurable per-org time window suppresses external notifications (push, email, webhooks); in-app alerts are still recorded; when the window ends, a digest is delivered per-user (email + push) and per-org (webhook) covering everything that was suppressed (v1.8.5)
 
 ---
 
@@ -588,7 +588,8 @@
 - Configurable time window for notification suppression (per-org setting)
 - External notifications (email, push, webhooks) suppressed during the window
 - In-app alerts still saved to the database so nothing is lost
-- Suppression is shipped; automated digest delivery of suppressed alerts is on the roadmap, not yet shipped
+- When the window ends, an automated digest is delivered: per-user via email + browser push (respecting each user's alert_preferences), per-org via a combined webhook dispatch
+- Idempotent via `quiet_hours_digest_sends(user_id, window_ended_at)` UNIQUE — sibling workers and daemon restarts can't produce duplicate sends (v1.8.5)
 
 ### 13.3 In-App Alerts
 - Alert bell icon with unread count in header
@@ -622,7 +623,9 @@
 
 ### 14.5 Spoolman
 - Link O.D.I.N. spools to external Spoolman instance via `spoolman_spool_id`
-- Pull inventory from Spoolman; consumption tracking stays local to ODIN (roadmap: push consumption back)
+- Bidirectional sync (v1.8.5): pull inventory from Spoolman on demand; push consumption back on job completion via `POST /api/v1/spool/{id}/use`
+- SSRF-safe dispatch via `safe_post()` (user-configured Spoolman URL gets DNS-pin validation)
+- Unreachable Spoolman instance is a loud failure — logged + appended to `job.notes` — never a silent drop
 
 ---
 
@@ -827,42 +830,53 @@
 
 ---
 
-## 23. Native Companion Apps
+## 23. Native Apps
 
-### 23.1 Platforms
-- iOS (iPhone) — SwiftUI, requires iOS 17+
-- iPadOS (iPad) — split-view layout with sidebar navigation
-- macOS — native Mac target, separate entitlements, menu-bar presence
+iOS and macOS are distinctively different by design, not two flavors of
+the same "companion" app. iOS + iPadOS is a mobile-first companion for
+fleet monitoring and on-the-go control. macOS is a desktop client that
+mirrors the web dashboard's layout and adds menu-bar / keyboard-shortcut
+conveniences a browser tab can't provide.
 
-### 23.2 What the native apps do
-- Multi-instance support — connect to multiple ODIN servers and switch between them from the app
+### 23.1 iOS / iPadOS — Mobile companion
+- Platform — iPhone + iPad, SwiftUI, requires iOS 17+
+- Widgets — 5 families: small / medium / large fleet, lock-screen inline, StandBy (extra-large)
+- Live Activities — iOS 16.2+ with Dynamic Island; tracks progress, ETA, bed/nozzle temps, layer count; state-aware glyphs (printing / paused / completed / failed); explicit push-token failure surfacing
+- iPadOS — split-view layout with sidebar navigation
+- Kiosk / Always-On mode (iPad) — multi-camera full-screen grid, brightness dimming, inactivity auto-dim, idle-timer disable
+- Scope by design: no file upload, no vision-detection review, no timelapse playback, no login-as-SSO-user — those live on the web dashboard where they belong
+
+### 23.2 macOS — Desktop client
+- Platform — native Mac target (separate bundle ID), requires macOS 14+
+- 3-column NavigationSplitView — sidebar + content + detail, mirrors the web dashboard layout
+- Menu-bar presence — fleet-status glyph + popover with printer list and quick actions without opening the main window
+- Launch at login — SMAppService registration
+- App menu shortcuts — ⌘R refresh fleet, ⌘⇧P pause all printers, ⌘⇧E emergency stop
+- "Open Web UI" menu item — one-click jump to the web dashboard for vision-detection review, timelapse playback, and file upload
+- Settings window — native macOS ⌘, keyboard shortcut + dedicated Settings scene
+- Toggle between Dock app and menu-bar-only mode via `appMode` preference
+
+### 23.3 Shared by both native platforms
+- Multi-instance — connect to multiple ODIN servers and switch between them
 - Fleet view — live printer status, progress, temperatures, filters (Printing / Idle / Error / Offline)
 - Printer detail — AMS slots, pause/resume, lights, speed/fan control, cancel job, HMS errors
 - Queue — Active / Pending / Scheduled / Completed tabs; approve, reject, cancel, reprint
 - Spools — list with color swatches, assign to printer, mark empty
-- Cameras — live feed grid via WKWebView, fullscreen, pause/resume
+- Cameras — live feed (inline WKWebView on iOS / iPadOS, "Open Camera Feed" link on macOS)
 - Alerts — severity grouping (Critical / Warning / Info), dismiss, mark read
-- Biometric unlock — Face ID / Touch ID gating refresh-token reads
+- Biometric unlock — Face ID / Touch ID gating refresh-token reads (macOS uses LAContext equivalently)
 - Offline cache — SwiftData keeps the last fetched fleet state visible on network drop
 - WebSocket live updates — printer state pushed to the UI without polling; HTTP polling fallback on connection failure
 
-### 23.3 Widgets
-- Small fleet widget — printing count, alert indicator, ETA
-- Medium fleet widget — top 2 printers with progress bars
-- Large fleet widget — grid of up to 6 printers
-- Lock-screen inline & rectangular widgets — compact status + ETA
-- StandBy widget (extra-large) — iPhone StandBy mode display
+### 23.4 Web dashboard is home base for
+- Vigil vision-detection review and training feedback
+- Timelapse playback and editing
+- Print-file upload
+- Microsoft Entra ID SSO login
+- TOTP MFA enrollment
 
-### 23.4 Live Activities
-- iOS 16.2+ Live Activities with Dynamic Island support
-- Tracks: progress, time remaining, bed/nozzle temps, layer count
-- State-aware Dynamic Island glyphs (printing / paused / completed / failed)
-- Push-token rotation with explicit failure surfacing (no silent drops)
-
-### 23.5 Scope — web vs native
-- The native apps are companions for fleet monitoring and on-the-go control; the web dashboard at your ODIN host is still the source of truth for everything else
-- Web-only (not on native): Vigil vision detection management UI, timelapse playback, print-file upload, Microsoft Entra ID SSO login, TOTP MFA
-- visionOS is not currently shipped
+The macOS app exposes an "Open Web UI" menu item for these; the iOS
+apps link out when relevant. visionOS is not currently shipped.
 
 ---
 

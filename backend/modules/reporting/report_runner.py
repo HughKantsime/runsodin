@@ -380,74 +380,219 @@ def process_due_reports(session):
 # Quiet hours digest
 # =============================================================================
 
-def process_quiet_hours_digest(session):
-    """Send digest email when quiet hours end."""
+def _already_sent_digest(session, user_id: int, window_ended_at) -> bool:
+    """Idempotency check: has (user_id, window_ended_at) already been sent?"""
+    row = session.execute(text(
+        "SELECT 1 FROM quiet_hours_digest_sends "
+        "WHERE user_id = :uid AND window_ended_at = :wend"
+    ), {"uid": user_id, "wend": window_ended_at.isoformat()}).fetchone()
+    return row is not None
+
+
+def _record_digest_sent(session, user_id: int, org_id, window_ended_at):
+    """Atomic single-winner insert for idempotency. Loser rolls back; next
+    poll sees the row and no-ops."""
     try:
-        from modules.notifications.quiet_hours import is_quiet_time, get_queued_alerts_for_digest, format_digest_html, _get_config
-    except ImportError:
-        return
+        session.execute(text(
+            "INSERT INTO quiet_hours_digest_sends (user_id, org_id, window_ended_at) "
+            "VALUES (:uid, :oid, :wend)"
+        ), {"uid": user_id, "oid": org_id, "wend": window_ended_at.isoformat()})
+        session.commit()
+    except Exception as e:
+        # IntegrityError from UNIQUE(user_id, window_ended_at) — sibling
+        # worker won. Roll back and carry on; we did no harm.
+        log.debug(f"Digest send row race lost for user={user_id}: {e}")
+        session.rollback()
 
-    config = _get_config()
-    if not config["enabled"] or not config.get("digest_enabled", True):
-        return
 
-    # Only act when we're just past the end of quiet hours
-    if is_quiet_time():
-        return
+def _deliver_digest_email(session, smtp_config, user_id, alerts, window_end):
+    """Send a digest email to one user via the existing SMTP plumbing."""
+    user_row = session.execute(text(
+        "SELECT email FROM users WHERE id = :id"
+    ), {"id": user_id}).fetchone()
+    if not user_row or not user_row[0]:
+        return False
 
-    now = datetime.now(timezone.utc)
-    end_h, end_m = map(int, config["end"].split(":"))
-
-    # Check if we're within POLL_INTERVAL of quiet hours ending
-    quiet_end_today = now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
-    minutes_since_end = (now - quiet_end_today).total_seconds() / 60
-    if minutes_since_end < 0 or minutes_since_end > (POLL_INTERVAL / 60 + 1):
-        return
-
-    # Check if we already sent digest today
-    last_sent = session.execute(text(
-        "SELECT value FROM system_config WHERE key = 'last_digest_sent'"
-    )).fetchone()
-    if last_sent:
-        try:
-            val = json.loads(last_sent[0]) if isinstance(last_sent[0], str) else last_sent[0]
-            last_date = str(val)[:10]
-            if last_date == now.strftime("%Y-%m-%d"):
-                return  # Already sent today
-        except Exception as e:
-            log.debug(f"Failed to parse last digest date: {e}")
-
-    alerts = get_queued_alerts_for_digest()
-    if not alerts:
-        return
-
-    smtp_config = get_smtp_config(session)
-    if not smtp_config:
-        return
+    from modules.notifications.quiet_hours import format_digest_html
 
     html = format_digest_html(alerts)
-    subject = f"O.D.I.N. Quiet Hours Digest — {len(alerts)} alerts"
+    subject = (
+        f"O.D.I.N. Quiet Hours Digest — {len(alerts)} alert"
+        f"{'s' if len(alerts) != 1 else ''} "
+        f"(window ended {window_end.strftime('%Y-%m-%d %H:%M UTC')})"
+    )
+    return send_report_email(smtp_config, user_row[0], subject, html)
 
-    # Send to all users with email alerts enabled
-    users = session.execute(text("""
-        SELECT DISTINCT u.email FROM users u
-        JOIN alert_preferences ap ON u.id = ap.user_id
-        WHERE ap.email = 1 AND u.email IS NOT NULL AND u.email != ''
-    """)).fetchall()
 
-    sent = 0
-    for user_row in users:
-        if send_report_email(smtp_config, user_row[0], subject, html):
-            sent += 1
+def _deliver_digest_push(session, user_id, alerts, window_end):
+    """Fire a single push notification summarizing the digest to a user's
+    subscribed devices. Reuses the existing `send_push_notification` path
+    so VAPID / subscription bookkeeping stays centralized."""
+    try:
+        from modules.notifications.channels import send_push_notification
+    except Exception as e:
+        log.error(f"Cannot import send_push_notification: {e}")
+        return False
+    try:
+        send_push_notification(
+            user_id=user_id,
+            alert_type="quiet_hours_digest",
+            title=f"{len(alerts)} alert{'s' if len(alerts) != 1 else ''} during quiet hours",
+            message=(
+                f"Window ended {window_end.strftime('%H:%M UTC')} — "
+                "tap to review in ODIN."
+            ),
+        )
+        return True
+    except Exception as e:
+        log.error(f"Digest push failed for user {user_id}: {e}")
+        return False
 
-    log.info(f"Quiet hours digest: {len(alerts)} alerts sent to {sent} users")
 
-    # Track that we sent digest today
-    session.execute(text("""
-        INSERT INTO system_config (key, value) VALUES ('last_digest_sent', :val)
-        ON CONFLICT(key) DO UPDATE SET value = :val
-    """), {"val": json.dumps(now.isoformat())})
-    session.commit()
+def _deliver_digest_webhook(url: str, wtype: str, alerts: list, org_name: str, window_end):
+    """POST an aggregated digest payload to an org's configured webhook.
+
+    Always via safe_post — org webhook URLs are user-supplied, so the R8
+    DNS-pin SSRF defense applies.
+    """
+    try:
+        from core.webhook_utils import safe_post, WebhookSSRFError
+    except Exception as e:
+        log.error(f"Cannot import safe_post: {e}")
+        return False
+
+    summary = {
+        "event": "quiet_hours_digest",
+        "org": org_name,
+        "window_ended_at": window_end.isoformat(),
+        "alert_count": len(alerts),
+        "alerts": [
+            {
+                "alert_type": a.get("alert_type"),
+                "severity": a.get("severity"),
+                "title": a.get("title"),
+                "created_at": a.get("created_at"),
+            }
+            for a in alerts[:50]  # cap payload size
+        ],
+        "truncated": len(alerts) > 50,
+    }
+
+    try:
+        # Generic webhook shape for now. Discord/Slack-specific formatting
+        # can be added later; most integrations accept a generic JSON body.
+        safe_post(url, json=summary, timeout=10)
+        return True
+    except WebhookSSRFError as e:
+        log.error(f"Org digest webhook SSRF-blocked: {e}")
+        return False
+    except Exception as e:
+        log.error(f"Org digest webhook failed ({wtype}): {e}")
+        return False
+
+
+def process_quiet_hours_digest(session):
+    """Deliver quiet-hours digests to every configured channel.
+
+    v1.8.5 refactor: previously this only sent email, broadcast to every
+    email-enabled user, and used a global "last_digest_sent" flag that
+    failed under multi-worker / multi-org deployments. Now:
+
+    - Iterates every org with digest enabled + the system-level config
+      (via iter_orgs_with_digest_enabled())
+    - Per-user fan-out: respect alert_preferences.email and
+      alert_preferences.browser_push; deliver via whichever channels the
+      user enabled.
+    - Per-org webhook: if the org has a webhook_url configured,
+      dispatch a single aggregated digest webhook via safe_post().
+    - Idempotency: (user_id, window_ended_at) UNIQUE on
+      quiet_hours_digest_sends. A second poll within the same window is
+      a no-op per user. Sibling workers race on INSERT; loser rolls back.
+    - Failures log ERROR and continue to the next user/org. One bad
+      SMTP endpoint can't block the whole digest run.
+    """
+    try:
+        from modules.notifications.quiet_hours import (
+            iter_orgs_with_digest_enabled,
+            compute_last_window_end,
+            compute_window_bounds,
+            get_suppressed_alerts_for_window,
+            group_suppressed_by_user,
+        )
+    except ImportError as e:
+        log.error(f"Cannot import quiet_hours helpers: {e}")
+        return
+
+    targets = iter_orgs_with_digest_enabled()
+    if not targets:
+        return
+
+    smtp_config = get_smtp_config(session)  # may be None — email is best-effort
+
+    for target in targets:
+        org_id = target["id"]
+        org_name = target["name"]
+        config = target["config"]
+
+        window_end = compute_last_window_end(config)
+        if window_end is None:
+            # Still inside the window (or config disabled) — try again next poll.
+            continue
+
+        window_start, _ = compute_window_bounds(config, window_end)
+        alerts = get_suppressed_alerts_for_window(window_start, window_end, org_id=org_id)
+        if not alerts:
+            continue
+
+        # Per-user fan-out (email + push)
+        by_user = group_suppressed_by_user(alerts)
+        for user_id, user_alerts in by_user.items():
+            if _already_sent_digest(session, user_id, window_end):
+                continue
+
+            prefs = session.execute(text(
+                "SELECT "
+                "  MAX(CASE WHEN email = 1 THEN 1 ELSE 0 END) AS email_enabled, "
+                "  MAX(CASE WHEN browser_push = 1 THEN 1 ELSE 0 END) AS push_enabled "
+                "FROM alert_preferences WHERE user_id = :uid"
+            ), {"uid": user_id}).fetchone()
+
+            email_on = bool(prefs.email_enabled) if prefs else False
+            push_on = bool(prefs.push_enabled) if prefs else False
+
+            delivered = False
+            if email_on and smtp_config:
+                try:
+                    if _deliver_digest_email(session, smtp_config, user_id, user_alerts, window_end):
+                        delivered = True
+                except Exception as e:
+                    log.error(f"Digest email failed for user {user_id}: {e}")
+            if push_on:
+                try:
+                    if _deliver_digest_push(session, user_id, user_alerts, window_end):
+                        delivered = True
+                except Exception as e:
+                    log.error(f"Digest push failed for user {user_id}: {e}")
+
+            if delivered:
+                _record_digest_sent(session, user_id, org_id, window_end)
+
+        # Per-org webhook (one combined digest per org)
+        webhook_url = config.get("webhook_url")
+        if webhook_url:
+            _deliver_digest_webhook(
+                webhook_url,
+                config.get("webhook_type", "generic"),
+                alerts,
+                org_name,
+                window_end,
+            )
+
+        log.info(
+            f"Quiet hours digest delivered: org={org_name} "
+            f"users={len(by_user)} alerts={len(alerts)} "
+            f"window_ended={window_end.isoformat()}"
+        )
 
 
 # =============================================================================
