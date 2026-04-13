@@ -94,18 +94,18 @@ jobs:
           fi
 
   # ── Build and push Docker image ──
-  # Runs on GitHub-hosted ubuntu-latest: Docker and git-lfs are preinstalled.
-  # Self-hosted mac-mini-runner does not have Docker installed and building
-  # multi-arch linux images on Darwin would require QEMU emulation anyway.
   build:
     name: Build & Push Docker Image
     needs: tag
     if: needs.tag.outputs.tag_created == 'true'
-    runs-on: ubuntu-latest
+    runs-on: mac-mini-runner
     permissions:
       contents: read
       packages: write
     steps:
+      - name: Add Homebrew to PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
+
       - uses: actions/checkout@v4
         with:
           lfs: true
