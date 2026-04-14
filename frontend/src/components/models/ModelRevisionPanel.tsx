@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { History, Upload, X, RotateCcw } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { modelRevisions } from '../../api'
 import { canDo } from '../../permissions'
 
@@ -24,11 +25,13 @@ export default function ModelRevisionPanel({ modelId, modelName, onClose }: { mo
       setChangelog('')
       setFile(null)
     },
+    onError: (err: any) => toast.error('Upload revision failed: ' + (err?.message || 'Unknown error')),
   })
 
   const revertRevision = useMutation({
     mutationFn: (revNumber) => modelRevisions.revert(modelId, revNumber),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['model-revisions', modelId] }),
+    onError: (err: any) => toast.error('Revert revision failed: ' + (err?.message || 'Unknown error')),
   })
 
   return (

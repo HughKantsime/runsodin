@@ -30,24 +30,31 @@ export default function Consumables() {
     queryFn: () => consumables.list(statusFilter || undefined),
   })
 
+  const mutErr = (label: string) => (err: any) =>
+    toast.error(`${label}: ${err?.message || 'Unknown error'}`)
+
   const createMutation = useMutation({
     mutationFn: (data) => consumables.create(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); handleCloseModal() },
+    onError: mutErr('Create consumable failed'),
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => consumables.update(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); handleCloseModal() },
+    onError: mutErr('Update consumable failed'),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id) => consumables.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['consumables'] }),
+    onError: mutErr('Delete consumable failed'),
   })
 
   const adjustMutation = useMutation({
     mutationFn: ({ id, data }) => consumables.adjust(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); setShowAdjustModal(null) },
+    onError: mutErr('Adjust stock failed'),
   })
 
   const handleCloseModal = () => {

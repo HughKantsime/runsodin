@@ -59,6 +59,67 @@ async def health_check():
     )
 
 
+# v1.8.8: cached license-server reachability probe. We hit
+# `${license_server_url}/api/v1/health` (or root if 404) and cache the
+# outcome for 10 minutes. Surfaced via /system/health and the SystemTab
+# UI so operators see "license server unreachable, locally-cached
+# activation still active" instead of guessing.
+_LICENSE_PROBE_TTL_SECONDS = 600
+_license_probe_cache = {"checked_at": 0.0, "reachable": None, "detail": ""}
+
+
+async def _probe_license_server() -> dict:
+    """Hit the configured license server and cache the result."""
+    import time
+    now = time.time()
+    cached = _license_probe_cache
+    if cached["reachable"] is not None and (now - cached["checked_at"]) < _LICENSE_PROBE_TTL_SECONDS:
+        return {
+            "reachable": cached["reachable"],
+            "detail": cached["detail"],
+            "checked_at": cached["checked_at"],
+            "cached": True,
+        }
+
+    base = (settings.license_server_url or "").rstrip("/")
+    if not base:
+        cached.update({"reachable": False, "detail": "license_server_url not configured", "checked_at": now})
+        return {**cached, "cached": False}
+
+    reachable = False
+    detail = ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            for path in ("/api/v1/health", "/health", "/"):
+                try:
+                    resp = await client.get(f"{base}{path}")
+                    if resp.status_code < 500:
+                        reachable = True
+                        detail = f"HTTP {resp.status_code} on {path}"
+                        break
+                except Exception:
+                    continue
+            if not reachable:
+                detail = "all probe paths failed"
+    except Exception as e:
+        detail = f"{type(e).__name__}: {e}"
+
+    cached.update({"reachable": reachable, "detail": detail, "checked_at": now})
+    return {**cached, "cached": False}
+
+
+@router.get("/system/license-server-status", tags=["System"])
+async def license_server_status():
+    """Cached probe of the configured license server.
+
+    Returns reachability + a short detail string + when the probe was
+    last run. Polled every 10 minutes by the System Health UI; locally-
+    signed licenses keep working regardless, but operators want to know
+    when the upstream is down so an outage doesn't get blamed on ODIN.
+    """
+    return await _probe_license_server()
+
+
 @router.get("/health/ready", tags=["System"])
 def readiness_check(db: Session = Depends(get_db)):
     """Kubernetes-style readiness probe. Returns 200 when ODIN is ready

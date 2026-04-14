@@ -27,6 +27,77 @@ router = APIRouter(tags=["Alerts"])
 
 # ============== Alerts ==============
 
+@router.get("/alerts/digest-status", tags=["Alerts"])
+def get_digest_status(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the most recent quiet-hours digest delivery outcome for the
+    current user (per-user) and their org (org-level webhook).
+
+    v1.8.8: surfaces the `delivery_status` column added in migration 004
+    so operators can see at a glance whether last night's digest actually
+    landed instead of having to scrape report_runner logs.
+
+    Response shape:
+      {
+        "user_digest": {
+          "window_ended_at": "2026-04-14T07:00:00",
+          "status": "sent" | "failed:email:SMTPError,..." | "pending" | null,
+          "claimed": true | false
+        } | null,
+        "org_digest": { same shape, keyed on the user's org } | null
+      }
+    """
+    user_id = current_user.get("id")
+    org_id = current_user.get("group_id")
+
+    # Most recent per-user row (might be None if no digest in recent history).
+    user_row = None
+    try:
+        user_row = db.execute(text(
+            "SELECT window_ended_at, delivery_status, sent_at "
+            "FROM quiet_hours_digest_sends "
+            "WHERE user_id = :uid "
+            "ORDER BY window_ended_at DESC LIMIT 1"
+        ), {"uid": user_id}).fetchone()
+    except Exception as e:
+        # Table doesn't exist yet (migration 002/004 hasn't applied).
+        # Treat as "no digest data yet" rather than 500.
+        log.debug(f"digest-status user query failed: {e}")
+
+    user_digest = None
+    if user_row:
+        user_digest = {
+            "window_ended_at": user_row[0],
+            "status": user_row[1] or "pending",
+            "sent_at": user_row[2],
+            "claimed": True,
+        }
+
+    # Most recent org-level row.
+    org_digest = None
+    if org_id is not None:
+        try:
+            org_row = db.execute(text(
+                "SELECT window_ended_at, delivery_status, sent_at "
+                "FROM quiet_hours_org_digest_sends "
+                "WHERE org_id = :oid "
+                "ORDER BY window_ended_at DESC LIMIT 1"
+            ), {"oid": org_id}).fetchone()
+            if org_row:
+                org_digest = {
+                    "window_ended_at": org_row[0],
+                    "status": org_row[1] or "pending",
+                    "sent_at": org_row[2],
+                    "claimed": True,
+                }
+        except Exception as e:
+            log.debug(f"digest-status org query failed: {e}")
+
+    return {"user_digest": user_digest, "org_digest": org_digest}
+
+
 @router.get("/alerts", response_model=List[AlertResponse])
 async def list_alerts(
     severity: Optional[str] = None,

@@ -187,6 +187,58 @@ if ($portFail) {
 }
 Write-Ok "Ports 8000, 1984, 8555 free"
 
+# v1.8.8 — public-exposure check (PowerShell parity with install.sh).
+# Same logic: fetch public IP, attempt a TCP connect back to that IP
+# on 8000, refuse if reachable unless $env:FORCE_PUBLIC = '1'.
+if ($env:ODIN_SKIP_PUBLIC_CHECK -ne '1') {
+    $publicIp = $null
+    foreach ($svc in @('https://api.ipify.org', 'https://ifconfig.me/ip')) {
+        try {
+            $resp = Invoke-WebRequest -Uri $svc -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
+            $publicIp = $resp.Content.Trim()
+            if ($publicIp) { break }
+        } catch { continue }
+    }
+    if ($publicIp) {
+        $hostIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                   Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.PrefixOrigin -ne 'WellKnown' } |
+                   Select-Object -First 1 -ExpandProperty IPAddress)
+        if ($publicIp -ne $hostIp) {
+            $reachable = $false
+            try {
+                $reachable = Test-NetConnection -ComputerName $publicIp -Port 8000 `
+                                -InformationLevel Quiet -WarningAction SilentlyContinue
+            } catch { }
+            if ($reachable -and $env:FORCE_PUBLIC -ne '1') {
+                Write-Host ""
+                Write-Host "  ============================================================" -ForegroundColor Red
+                Write-Host "    PUBLIC EXPOSURE DETECTED" -ForegroundColor Red
+                Write-Host "  ============================================================" -ForegroundColor Red
+                Write-Host ""
+                Write-Host "  This host appears reachable from the public internet on"
+                Write-Host "  port 8000 (public IP: $publicIp)."
+                Write-Host ""
+                Write-Host "  ODIN uses a first-user-wins setup flow (same model as"
+                Write-Host "  WordPress / Ghost / Immich). Until you create an admin"
+                Write-Host "  account, anyone on the internet can reach the setup"
+                Write-Host "  wizard and race you to claim admin."
+                Write-Host ""
+                Write-Host "  Recommended:" -ForegroundColor Green
+                Write-Host "    * Bind ODIN to your LAN only via the docker-compose"
+                Write-Host "      port mapping (e.g. 192.168.x.y:8000:8000)."
+                Write-Host "    * Or put ODIN behind a private reverse proxy"
+                Write-Host "      (Tailscale, Cloudflare Tunnel, Wireguard)."
+                Write-Host ""
+                Write-Host "  To proceed anyway: `$env:FORCE_PUBLIC = '1'; <re-run>"
+                Write-Host "  To skip this check entirely:"
+                Write-Host "    `$env:ODIN_SKIP_PUBLIC_CHECK = '1'; <re-run>"
+                Write-Host ""
+                exit 1
+            }
+        }
+    }
+}
+
 # Existing install check
 $InstallDir = if (Test-IsAdmin) { "C:\odin" } else { Join-Path $env:USERPROFILE "odin" }
 $composePath = Join-Path $InstallDir "docker-compose.yml"

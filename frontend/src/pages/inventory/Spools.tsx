@@ -135,6 +135,7 @@ export default function Spools() {
   const bulkSpoolAction = useMutation({
     mutationFn: ({ action }) => bulkOps.spools([...selectedSpools], action),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['spools'] }); setSelectedSpools(new Set()) },
+    onError: (err: any) => toast.error('Bulk spool action failed: ' + (err?.message || 'Unknown error')),
   })
 
   const [confirmAction, setConfirmAction] = useState(null)

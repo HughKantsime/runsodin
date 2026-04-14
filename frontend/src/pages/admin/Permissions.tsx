@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Shield, RotateCcw, Save, Check, Eye, UserCog, Crown, Lock } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { refreshPermissions } from '../../permissions'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, Button, Card } from '../../components/ui'
@@ -189,6 +190,7 @@ export default function Permissions() {
       setDirty(false)
       setTimeout(() => setSaveMsg(''), 2000)
     },
+    onError: (err: any) => toast.error('Save permissions failed: ' + (err?.message || 'Unknown error')),
   })
 
   const resetMutation = useMutation({
@@ -202,6 +204,7 @@ export default function Permissions() {
       setDirty(false)
       setTimeout(() => setSaveMsg(''), 2000)
     },
+    onError: (err: any) => toast.error('Reset permissions failed: ' + (err?.message || 'Unknown error')),
   })
 
   const handleToggle = (type, item, role, enabled) => {

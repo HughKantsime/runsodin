@@ -1,10 +1,49 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bell, Check, X, ExternalLink, CheckCircle, XCircle, AlertOctagon, AlertTriangle, Info } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Bell, Check, X, ExternalLink, CheckCircle, XCircle, AlertOctagon, AlertTriangle, Info, Mail } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { alerts as alertsApi, approveJob, rejectJob } from '../../api'
+import { alerts as alertsApi, approveJob, rejectJob, fetchAPI, printers as printersApi } from '../../api'
 import { formatDate } from '../../utils/shared'
 import { PageHeader, Button, EmptyState } from '../../components/ui'
+
+interface DigestStatusEntry {
+  window_ended_at: string
+  status: string
+  sent_at: string
+  claimed: boolean
+}
+
+function DigestStatusStrip() {
+  // v1.8.8: surface the last quiet-hours digest delivery outcome so
+  // operators see at-a-glance whether last night's digest landed.
+  const { data } = useQuery<{ user_digest: DigestStatusEntry | null; org_digest: DigestStatusEntry | null }>({
+    queryKey: ['digest-status'],
+    queryFn: () => fetchAPI('/alerts/digest-status'),
+    refetchInterval: 5 * 60 * 1000,
+  })
+  if (!data) return null
+  const u = data.user_digest
+  if (!u) return null
+  const isFailed = (u.status || '').startsWith('failed')
+  const isSent = u.status === 'sent'
+  const tone = isFailed
+    ? 'border-red-500/40 bg-red-500/10 text-red-200'
+    : isSent
+    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+    : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+  const label = isFailed
+    ? `Last digest (${formatDate(u.window_ended_at)}) FAILED — ${u.status.replace('failed:', '')}`
+    : isSent
+    ? `Last digest (${formatDate(u.window_ended_at)}) delivered`
+    : `Last digest (${formatDate(u.window_ended_at)}) ${u.status}`
+  return (
+    <div className={`mb-4 flex items-start gap-2 px-3 py-2 rounded-md border text-sm ${tone}`}>
+      <Mail size={14} className="mt-0.5 shrink-0" />
+      <span>{label}</span>
+    </div>
+  )
+}
 
 const SEVERITY_ICONS = {
   critical: AlertOctagon,
@@ -113,6 +152,29 @@ export default function Alerts() {
     }
   }
 
+  // v1.8.8: one-click "false alarm — resume print" on a vision auto-
+  // pause alert. Hits the printer resume endpoint AND marks the alert
+  // read in one click. Surfaced when the alert_type is a vision
+  // detection class and the alert references a printer.
+  const handleResumeFromAlert = async (alert) => {
+    if (!alert.printer_id) return
+    setActionLoading(alert.id)
+    try {
+      await fetchAPI(`/printers/${alert.printer_id}/resume`, { method: 'POST' })
+      try { await alertsApi.markRead(alert.id) } catch { /* read failure is non-blocking */ }
+      setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, is_read: true } : a))
+      toast.success('Print resumed')
+    } catch (err: any) {
+      toast.error('Resume failed: ' + (err?.message || 'Unknown error'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const VISION_ALERT_TYPES = new Set([
+    'spaghetti_detected', 'first_layer_issue', 'detachment_detected',
+  ])
+
   const handleMarkAllRead = async () => {
     try {
       await alertsApi.markAllRead()
@@ -175,6 +237,8 @@ export default function Alerts() {
           </Button>
         )}
       </PageHeader>
+
+      <DigestStatusStrip />
 
       <div className="flex gap-1 mb-6 p-1 rounded-md" style={{ backgroundColor: 'var(--brand-sidebar-bg)' }}>
         {TABS.map(tab => (
@@ -273,6 +337,18 @@ export default function Alerts() {
                         >
                           <ExternalLink size={14} />
                         </a>
+                      )}
+                      {/* v1.8.8: one-click "false alarm — resume" on
+                          vision auto-pause alerts. */}
+                      {VISION_ALERT_TYPES.has(alert.alert_type) && !alert.is_read && alert.printer_id && (
+                        <button
+                          onClick={() => handleResumeFromAlert(alert)}
+                          disabled={actionLoading === alert.id}
+                          className="p-1.5 rounded-md transition-colors hover:bg-green-900/40 text-green-400"
+                          title="False alarm — resume print"
+                        >
+                          <CheckCircle size={14} />
+                        </button>
                       )}
                       {!alert.is_read && (
                         <button

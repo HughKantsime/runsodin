@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, Palette } from 'lucide-react'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 import { filaments as filamentApi } from '../../api'
 import { canDo } from '../../permissions'
 import { EditFilamentModal } from './SpoolEditModals'
@@ -18,12 +19,15 @@ export default function FilamentLibraryView() {
     queryFn: filamentApi.list
   })
 
+  const mutErr = (label) => (err) => toast.error(`${label}: ${err?.message || 'Unknown error'}`)
+
   const createMutation = useMutation({
     mutationFn: filamentApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['filaments'] })
       setShowAddModal(false)
-    }
+    },
+    onError: mutErr('Create filament failed'),
   })
 
   const updateMutation = useMutation({
@@ -31,7 +35,8 @@ export default function FilamentLibraryView() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['filaments'] })
       setEditingFilament(null)
-    }
+    },
+    onError: mutErr('Update filament failed'),
   })
 
   const deleteMutation = useMutation({
@@ -39,7 +44,8 @@ export default function FilamentLibraryView() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['filaments'] })
       setDeleteConfirm(null)
-    }
+    },
+    onError: mutErr('Delete filament failed'),
   })
 
   // Get unique materials for filter

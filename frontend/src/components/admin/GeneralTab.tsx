@@ -18,6 +18,7 @@ function ApprovalToggle() {
   const toggleMutation = useMutation({
     mutationFn: (enabled) => setApprovalSetting(enabled),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approval-setting"] }),
+    onError: (err: any) => toast.error('Toggle approval failed: ' + (err?.message || 'Unknown error')),
   })
 
   const enabled = setting?.require_job_approval || false
@@ -56,6 +57,7 @@ function EducationModeToggle() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["education-mode"] })
     },
+    onError: (err: any) => toast.error('Toggle education mode failed: ' + (err?.message || 'Unknown error')),
   })
 
   const enabled = data?.enabled || false
@@ -214,7 +216,10 @@ export default function GeneralTab() {
     onError: (err: any) => toast.error('Save failed: ' + (err?.message || 'Unknown error')),
   })
 
-  const testSpoolman = useMutation({ mutationFn: () => configApi.testSpoolman() })
+  const testSpoolman = useMutation({
+    mutationFn: () => configApi.testSpoolman(),
+    onError: (err: any) => toast.error('Spoolman test failed: ' + (err?.message || 'Unknown error')),
+  })
 
   const handleSave = () => saveSettings.mutate(settings)
 

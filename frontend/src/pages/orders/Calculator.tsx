@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { models, pricingConfig } from '../../api'
 import {
   Calculator,
@@ -118,7 +119,8 @@ export default function CalculatorPage() {
     mutationFn: pricingConfig.update,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pricingConfig'] })
-    }
+    },
+    onError: (err: any) => toast.error('Save pricing config failed: ' + (err?.message || 'Unknown error')),
   })
 
   const [selectedModel, setSelectedModel] = useState('')

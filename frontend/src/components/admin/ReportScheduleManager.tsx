@@ -20,16 +20,19 @@ export default function ReportScheduleManager() {
   const createSchedule = useMutation({
     mutationFn: (data) => reportSchedules.create(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['report-schedules'] }); setShowCreate(false); setForm({ name: '', report_type: 'fleet_utilization', frequency: 'weekly', recipients: '' }) },
+    onError: (err) => toast.error('Create schedule failed: ' + (err?.message || 'Unknown error')),
   })
 
   const deleteSchedule = useMutation({
     mutationFn: (id) => reportSchedules.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-schedules'] }),
+    onError: (err) => toast.error('Delete schedule failed: ' + (err?.message || 'Unknown error')),
   })
 
   const toggleSchedule = useMutation({
     mutationFn: ({ id, is_active }) => reportSchedules.update(id, { is_active }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['report-schedules'] }),
+    onError: (err) => toast.error('Toggle schedule failed: ' + (err?.message || 'Unknown error')),
   })
 
   const runNow = useMutation({

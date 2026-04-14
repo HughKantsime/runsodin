@@ -383,19 +383,25 @@ export default function Dashboard() {
   const runningMqttJobs = allPrintJobs?.filter(j => j.status === 'running') || []
   const completedMqttJobs = allPrintJobs?.filter(j => j.status !== 'running') || []
 
+  const jobMutErr = (label: string) => (err: any) =>
+    toast.error(`${label}: ${err?.message || 'Unknown error'}`)
+
   const startJob = useMutation({
     mutationFn: jobs.start,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }) },
+    onError: jobMutErr('Start job failed'),
   })
 
   const completeJob = useMutation({
     mutationFn: jobs.complete,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }) },
+    onError: jobMutErr('Complete job failed'),
   })
 
   const cancelJob = useMutation({
     mutationFn: jobs.cancel,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); queryClient.invalidateQueries({ queryKey: ['stats'] }) },
+    onError: jobMutErr('Cancel job failed'),
   })
 
   // Calculate currently printing count (scheduled jobs + MQTT running)

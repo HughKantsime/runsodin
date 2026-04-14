@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { useLicense } from '../../LicenseContext'
 import { groups, users as usersApi } from '../../api'
 import { Plus, Edit2, Trash2, Users, X, FolderOpen, RefreshCw } from 'lucide-react'
@@ -69,19 +70,24 @@ export default function GroupManager() {
 
   const operatorAdmins = usersList?.filter(u => u.role === 'operator' || u.role === 'admin') || []
 
+  const mutErr = (label) => (err) => toast.error(`${label}: ${err?.message || 'Unknown error'}`)
+
   const createGroup = useMutation({
     mutationFn: (data) => groups.create(data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['groups'] }); setShowModal(false) }
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['groups'] }); setShowModal(false) },
+    onError: mutErr('Create group failed'),
   })
 
   const updateGroup = useMutation({
     mutationFn: ({ id, ...data }) => groups.update(id, data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['groups'] }); setShowModal(false); setEditingGroup(null) }
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['groups'] }); setShowModal(false); setEditingGroup(null) },
+    onError: mutErr('Update group failed'),
   })
 
   const deleteGroup = useMutation({
     mutationFn: (id) => groups.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['groups'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['groups'] }),
+    onError: mutErr('Delete group failed'),
   })
 
   const handleSave = (formData) => {

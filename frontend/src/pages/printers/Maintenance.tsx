@@ -5,6 +5,7 @@ import {
   Edit2, ChevronDown, ChevronRight, History, Settings, Activity,
   AlertCircle, Calendar
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { maintenance } from '../../api'
 import ConfirmModal from '../../components/shared/ConfirmModal'
 import { PageHeader, Button, EmptyState, ProgressBar as SharedProgressBar, TabBar } from '../../components/ui'
@@ -300,35 +301,43 @@ export default function Maintenance() {
 
   // ---- Mutations ----
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['maintenance'] })
+  const mutErr = (label: string) => (err: any) =>
+    toast.error(`${label}: ${err?.message || 'Unknown error'}`)
 
   const logMutation = useMutation({
     mutationFn: data => maintenance.createLog(data),
     onSuccess: () => { invalidate(); setLogModal(null) },
+    onError: mutErr('Log maintenance failed'),
   })
 
   const createTaskMutation = useMutation({
     mutationFn: data => maintenance.createTask(data),
     onSuccess: () => { invalidate(); setShowTaskForm(false) },
+    onError: mutErr('Create task failed'),
   })
 
   const updateTaskMutation = useMutation({
     mutationFn: ({ id, data }) => maintenance.updateTask(id, data),
     onSuccess: () => { invalidate(); setEditingTask(null) },
+    onError: mutErr('Update task failed'),
   })
 
   const deleteTaskMutation = useMutation({
     mutationFn: id => maintenance.deleteTask(id),
     onSuccess: invalidate,
+    onError: mutErr('Delete task failed'),
   })
 
   const deleteLogMutation = useMutation({
     mutationFn: id => maintenance.deleteLog(id),
     onSuccess: invalidate,
+    onError: mutErr('Delete log failed'),
   })
 
   const seedMutation = useMutation({
     mutationFn: () => maintenance.seedDefaults(),
     onSuccess: invalidate,
+    onError: mutErr('Seed defaults failed'),
   })
 
   // ---- Stats ----

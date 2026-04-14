@@ -228,6 +228,7 @@ export default function Timelapses() {
       queryClient.invalidateQueries({ queryKey: ['timelapses'] })
       setPlayingTimelapse(null)
     },
+    onError: (err: any) => toast.error('Delete timelapse failed: ' + (err?.message || 'Unknown error')),
   })
 
   const handleBulkDelete = async () => {

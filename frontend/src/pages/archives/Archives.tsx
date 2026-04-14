@@ -417,6 +417,7 @@ export default function ArchivesPage() {
       queryClient.invalidateQueries({ queryKey: ['archives'] })
       toast.success('Archive deleted')
     },
+    onError: (err: any) => toast.error('Delete archive failed: ' + (err?.message || 'Unknown error')),
   })
 
   const toggleCompare = (id) => {

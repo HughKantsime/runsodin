@@ -56,29 +56,46 @@ with no actionable detail. Produce a catalog. Fix the top 5.
 | `hooks/useDashboardLayout.ts` | 46, 56 | localStorage R/W | Fine |
 | `hooks/useWebSocket.ts` | 48 | WS close | Fine |
 
-## Top 5 inline fixes landed with this audit
+## All fixes landed with this audit
 
-1. **`pages/admin/Admin.tsx`** — 3 user-CRUD mutations now surface
-   `toast.error(...)` on failure with the real message.
-2. **`components/admin/OrgManager.tsx`** — 5 mutations all get
-   `onError: (err) => toast.error(\`...: \${err.message}\`)`.
-3. **`components/notifications/NotificationPreferences.tsx`** — save
-   mutation no longer claims success on a network error.
-4. **`components/admin/SystemTab.tsx`** — backup create + remove fail
-   loud with the error body.
-5. **`components/admin/GeneralTab.tsx`** — config update mutation
-   surfaces server-side validation errors instead of silently
-   reverting to the old state.
+Per the user's "we don't save fixes for later" directive, every
+mutation across the codebase missing an `onError` handler was patched.
+Final state: **0 mutations missing onError.**
 
-## Deferred / filed separately
+Files patched in this audit (in addition to the original top 5):
 
-- GroupManager, ReportScheduleManager, Permissions, ModelRevisionPanel,
-  FilamentLibraryView, Archives, Timelapses — same pattern, 15+
-  mutations to patch. Mechanical change; follow-up track.
-- `HmsHistoryPanel.tsx:78` clear-errors catch — needs toast wiring.
-- Sprawling consistency (`alert('...')` vs `toast.error(...)` vs
-  inline banners) — design-system question, not a bug; filed
-  separately.
+- `pages/admin/Admin.tsx` (deleteUser)
+- `components/admin/OrgManager.tsx` (5 mutations via shared helper)
+- `components/admin/SystemTab.tsx` (backup create + remove)
+- `components/admin/GeneralTab.tsx` (config update + 2 toggles + spoolman test)
+- `components/admin/GroupManager.tsx` (3 mutations via shared helper)
+- `components/admin/ReportScheduleManager.tsx` (3 mutations)
+- `components/notifications/NotificationPreferences.tsx` (already had onError)
+- `components/inventory/FilamentLibraryView.tsx` (3 mutations via shared helper)
+- `components/models/ModelRevisionPanel.tsx` (createRevision + revertRevision)
+- `pages/admin/Permissions.tsx` (saveMutation + resetMutation)
+- `pages/archives/Archives.tsx` (deleteMutation)
+- `pages/archives/Timelapses.tsx` (deleteMutation)
+- `pages/dashboard/Dashboard.tsx` (3 job mutations via shared helper)
+- `pages/inventory/Consumables.tsx` (4 mutations via shared helper)
+- `pages/inventory/Spools.tsx` (bulkSpoolAction)
+- `pages/orders/Calculator.tsx` (saveConfigMutation)
+- `pages/printers/Maintenance.tsx` (6 mutations via shared helper)
+- `pages/printers/Printers.tsx` (5 mutations + bulk action via shared helper)
+
+## Bare-catch fixes landed
+
+- `components/printers/HmsHistoryPanel.tsx:78` — clear-errors catch
+  now toasts the server message instead of silently swallowing.
+
+## Verified clean
+
+```
+$ python3 scan-for-missing-onError.py
+Mutations missing onError: 0
+```
+
+Re-run that scan in any future PR to verify no regressions.
 
 ## Method
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { printers, printerTelemetry } from '../../api'
 
 interface HmsEntry {
@@ -75,7 +76,7 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
             <button
               onClick={async () => {
                 setClearing(true)
-                try { await printers.clearErrors(printerId); loadData() } catch {}
+                try { await printers.clearErrors(printerId); loadData() } catch (err: any) { toast.error('Clear errors failed: ' + (err?.message || 'Unknown error')) }
                 setClearing(false)
               }}
               disabled={clearing}
