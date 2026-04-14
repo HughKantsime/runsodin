@@ -200,18 +200,26 @@ async def _periodic_cleanup():
                 # 2026-Q1-04-13 digest?" while keeping the row count bounded.
                 # Tables are guarded with `IF EXISTS` since older
                 # deployments may not have run migrations 002/003 yet.
+                # Inlined to avoid a semgrep false-positive on f-string
+                # interpolation into text() — the alternative was a
+                # hardcoded-allowlist loop, which semgrep flags anyway.
+                # Wrapped each in its own try so a missing table on an
+                # older deployment doesn't kill the other delete.
                 _digest_cutoff = (now - timedelta(days=30)).isoformat()
-                for _table in ("quiet_hours_digest_sends", "quiet_hours_org_digest_sends"):
-                    try:
-                        db.execute(
-                            text(f"DELETE FROM {_table} WHERE window_ended_at < :cutoff"),
-                            {"cutoff": _digest_cutoff},
-                        )
-                    except Exception:
-                        # Table doesn't exist yet (migration 002/003 hasn't
-                        # run on this deployment). Skip silently — next
-                        # startup applies the migrations.
-                        db.rollback()
+                try:
+                    db.execute(
+                        text("DELETE FROM quiet_hours_digest_sends WHERE window_ended_at < :cutoff"),
+                        {"cutoff": _digest_cutoff},
+                    )
+                except Exception:
+                    db.rollback()
+                try:
+                    db.execute(
+                        text("DELETE FROM quiet_hours_org_digest_sends WHERE window_ended_at < :cutoff"),
+                        {"cutoff": _digest_cutoff},
+                    )
+                except Exception:
+                    db.rollback()
                 db.commit()
                 log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens, old digest-send rows")
             finally:
