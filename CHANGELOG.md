@@ -2,6 +2,79 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.7] - 2026-04-14
+
+### Security
+
+- **CRITICAL — Per-user digest race fixed (codex pass-4 finding 1).**
+  The v1.8.5 quiet-hours digest used a SELECT-then-deliver-then-INSERT
+  flow. Two report-runner workers polling within the same window could
+  both pass the SELECT, both deliver email/push, and only then race on
+  the UNIQUE INSERT — duplicate notifications already shipped before
+  the race resolved. Replaced with `_claim_digest_send()`: an atomic
+  INSERT that runs BEFORE any delivery code. Loser of the INSERT race
+  exits before email/push fires. Trade-off documented inline: claim-
+  succeeded-but-delivery-later-failed is at-most-once by design — the
+  alternative re-opens the duplicate-send window.
+
+- **HIGH — Org webhook idempotency fixed (codex pass-4 finding 2).**
+  v1.8.5 wrapped per-user delivery in idempotency but the per-org
+  webhook had none. Every 60-second daemon poll re-fired the same org
+  digest webhook for the duration of the next quiet period. New table
+  `quiet_hours_org_digest_sends(org_id, window_ended_at)` UNIQUE +
+  `_claim_org_webhook_send()` helper that follows the same atomic-
+  claim pattern as the per-user fix.
+
+- **MEDIUM — Spoolman push errors no longer leak URLs / IPs (codex
+  pass-4 finding 3).** v1.8.5 copied raw exception text into
+  `job.notes` on Spoolman push failure. Exception strings from
+  `WebhookSSRFError` include the configured Spoolman URL and any
+  resolved private IPs. `job.notes` is returned in JobResponse and
+  visible to anyone with job access. Now the customer-visible note is
+  a static "[v1.8.6] Spoolman push failed for N spool(s); see server
+  logs." marker; raw exception text stays in `log.error` only.
+
+- **MEDIUM — Spoolman push moved to background thread (codex pass-4
+  finding 4).** v1.8.5 fired the push synchronously inside
+  `complete_job()`. With a 5-second timeout per linked spool, a slow
+  or unreachable Spoolman could hold a request worker for tens of
+  seconds per completion — a worker-exhaustion DoS surface against
+  the entire farm. Push now fires on a daemon thread (same pattern
+  as `send_webhook` in `channels.py`) with its own `SessionLocal`
+  for the background notes write.
+
+### Schema
+
+- New core migration `003_quiet_hours_org_digest_sends.sql`. Idempotent
+  `IF NOT EXISTS` + `IF NOT EXISTS` index. Safe on upgrade.
+
+### Operational
+
+- Periodic cleanup loop in `core/app.py` now deletes digest-send rows
+  older than 30 days from both `quiet_hours_digest_sends` (added in
+  v1.8.5) and `quiet_hours_org_digest_sends` (added in this release).
+  Without retention, both tables would grow monotonically over time.
+
+### CI/CD
+
+- `odin-site/.github/workflows/odin-sync.yml` now auto-promotes the
+  Vercel deployment to the `runsodin.com` production alias after every
+  release sync. Closes the last manual step in the release pipeline.
+  Polls Vercel's deployments API for the matching SHA, waits for READY
+  (10-minute timeout), verifies the built bundle's `version.json`
+  matches the incoming release version, then aliases via the same REST
+  endpoint the manual `vercel-promote.yml` workflow uses.
+- `vercel-promote.yml` is now documented as emergency-only / rollback
+  use; the happy path is automatic.
+
+### Tests
+
+- 4 new contract tests across `test_spoolman_push.py` and
+  `test_quiet_hours_digest.py` lock the claim-before-deliver pattern,
+  the org webhook idempotency, the sanitized job-notes marker, and the
+  background-thread spawn for Spoolman push.
+- 67 contract tests across the affected suites pass.
+
 ## [1.8.6] - 2026-04-13
 
 ### Fixed
