@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { User, Lock, Mail, Server, Wifi, CheckCircle2, ChevronRight, ChevronLeft, Loader2, AlertCircle, Printer, Tag, Hash, KeyRound, MonitorSmartphone, ArrowRight, Sparkles } from 'lucide-react'
+import { User, Lock, Mail, Server, Wifi, CheckCircle2, ChevronRight, ChevronLeft, Loader2, AlertCircle, Printer, Tag, Hash, KeyRound, MonitorSmartphone, ArrowRight, Sparkles, Gift, FileKey, UploadCloud } from 'lucide-react'
 import { refreshPermissions } from '../../permissions'
 
 const STEPS = [
   { id: 'welcome', title: 'Welcome' },
   { id: 'admin', title: 'Create Admin' },
+  { id: 'tier', title: 'Pick a Tier' },
   { id: 'printer', title: 'Add Printer' },
   { id: 'network', title: 'Network' },
   { id: 'done', title: 'Ready' },
@@ -77,11 +78,16 @@ export default function Setup() {
   const [detectedIp, setDetectedIp] = useState('')
   const [networkSaved, setNetworkSaved] = useState(false)
 
-  // R4 (codex pass 2): one-time setup token. Operator copies from
-  // `docker logs odin` (printed at WARN on first /setup/status call) or
-  // /data/.setup_token on the host. Required when ODIN runs behind a
-  // reverse proxy; ignored on direct loopback access.
-  const [setupToken, setSetupToken] = useState('')
+  // v1.8.8: setup-token state removed. The wizard is gated first-user-wins
+  // on the backend; no token field needed.
+
+  // v1.8.8: tier step. Community (free) / key / offline.
+  const [tierChoice, setTierChoice] = useState<'' | 'community' | 'key' | 'offline'>('')
+  const [licenseKey, setLicenseKey] = useState('')
+  const [offlineFile, setOfflineFile] = useState<File | null>(null)
+  const [tierLoading, setTierLoading] = useState(false)
+  const [tierError, setTierError] = useState('')
+  const [tierResult, setTierResult] = useState<{ tier?: string; licensee?: string } | null>(null)
 
   // Auto-set slot count when model changes
   useEffect(() => {
@@ -154,7 +160,7 @@ export default function Setup() {
         // Also keep token for setup steps that pass it explicitly
         setToken(loginData.access_token || data.access_token)
       }
-      setStep(2) // Go to printer step
+      setStep(2) // Go to tier step (v1.8.8)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -172,17 +178,9 @@ export default function Setup() {
 
     setTestLoading(true)
     try {
-      // R4 (codex pass 2): include the one-time setup token if provided.
-      // Required when running behind a reverse proxy; ignored otherwise.
-      const baseOpts = apiOptions(token)
-      const headers: Record<string, string> = { ...(baseOpts.headers as Record<string, string> || {}) }
-      if (setupToken.trim()) {
-        headers['X-ODIN-Setup-Token'] = setupToken.trim()
-      }
       const resp = await fetch('/api/setup/test-printer', {
-        ...baseOpts,
         method: 'POST',
-        headers,
+        ...apiOptions(token),
         body: JSON.stringify({
           name: printerName.trim() || 'Printer',
           printer_type: printerType,
@@ -383,6 +381,184 @@ export default function Setup() {
     </div>
   )
 
+  // v1.8.8: license / tier step. Community is free and permanent; Pro
+  // requires either an online license key activation or an offline
+  // signed-JSON upload. No trial tier — free or paid, nothing in between.
+  const handleChooseCommunity = () => {
+    // Community is the default state; no activation call needed.
+    setTierResult({ tier: 'community' })
+    setStep(3)
+  }
+
+  const handleActivateKey = async () => {
+    if (!licenseKey.trim()) { setTierError('License key is required'); return }
+    setTierError(''); setTierLoading(true)
+    try {
+      const resp = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ key: licenseKey.trim() }),
+      })
+      const data = await resp.json()
+      if (!resp.ok) {
+        setTierError(data.detail || 'Activation failed. Check the key and try again.')
+        return
+      }
+      setTierResult({ tier: data.tier, licensee: data.licensee })
+      setStep(3)
+    } catch (err: any) {
+      setTierError(err.message || 'Network error reaching the license server.')
+    } finally {
+      setTierLoading(false)
+    }
+  }
+
+  const handleActivateOffline = async () => {
+    if (!offlineFile) { setTierError('Pick a signed-license JSON file'); return }
+    setTierError(''); setTierLoading(true)
+    try {
+      const body = await offlineFile.text()
+      const resp = await fetch('/api/license/activate/offline', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body,
+      })
+      const data = await resp.json()
+      if (!resp.ok) {
+        setTierError(data.detail || 'Offline activation failed. Check the file signature.')
+        return
+      }
+      setTierResult({ tier: data.tier, licensee: data.licensee })
+      setStep(3)
+    } catch (err: any) {
+      setTierError(err.message || 'Could not read the offline license file.')
+    } finally {
+      setTierLoading(false)
+    }
+  }
+
+  const renderTier = () => (
+    <div>
+      <h2 className="text-xl font-bold text-white mb-1">Pick a Tier</h2>
+      <p className="text-white/50 text-sm mb-6">
+        Community is free forever (5 printers, 1 user). Pro unlocks
+        unlimited printers, Vigil AI detection, orders, RBAC, and
+        Microsoft Entra ID SSO. You can upgrade later from Settings.
+      </p>
+
+      {tierError && (
+        <div className="mb-4 p-3 rounded-md bg-red-500/10 border border-red-500/30 text-red-200 text-sm flex items-start gap-2">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{tierError}</span>
+        </div>
+      )}
+
+      {tierChoice === '' && (
+        <div className="grid grid-cols-1 gap-3">
+          <button
+            onClick={() => setTierChoice('community')}
+            className="p-4 rounded-lg border border-white/10 bg-white/[0.02] hover:border-amber-500/40 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <Gift size={18} className="text-amber-500" />
+              <span className="text-white font-semibold">Community (free)</span>
+            </div>
+            <p className="text-white/50 text-sm">5 printers, 1 user. No activation, no license server, no phone-home.</p>
+          </button>
+
+          <button
+            onClick={() => setTierChoice('key')}
+            className="p-4 rounded-lg border border-white/10 bg-white/[0.02] hover:border-amber-500/40 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <FileKey size={18} className="text-amber-500" />
+              <span className="text-white font-semibold">I have a license key</span>
+            </div>
+            <p className="text-white/50 text-sm">Paste your Pro / Education / Enterprise key. Activates against runsodin.com.</p>
+          </button>
+
+          <button
+            onClick={() => setTierChoice('offline')}
+            className="p-4 rounded-lg border border-white/10 bg-white/[0.02] hover:border-amber-500/40 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <UploadCloud size={18} className="text-amber-500" />
+              <span className="text-white font-semibold">Offline activation</span>
+            </div>
+            <p className="text-white/50 text-sm">Upload a signed-license JSON for air-gapped / ITAR deployments.</p>
+          </button>
+        </div>
+      )}
+
+      {tierChoice === 'community' && (
+        <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <p className="text-white/80 text-sm mb-4">
+            You&apos;ll be on the Community tier: 5 printers, 1 user, full
+            monitoring, scheduling, cameras, and filament tracking. No
+            activation. You can upgrade any time from Settings.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setTierChoice('')} className={btnSecondary}>
+              <ChevronLeft size={16} /> Back
+            </button>
+            <button onClick={handleChooseCommunity} className={btnPrimary}>
+              Start with Community <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tierChoice === 'key' && (
+        <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <label className={labelClass}>License key</label>
+          <input
+            type="text"
+            value={licenseKey}
+            onChange={(e) => setLicenseKey(e.target.value)}
+            placeholder="ODIN-XXXX-XXXX-XXXX-XXXX"
+            className={inputClass + ' mb-4'}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <div className="flex gap-2">
+            <button onClick={() => setTierChoice('')} className={btnSecondary} disabled={tierLoading}>
+              <ChevronLeft size={16} /> Back
+            </button>
+            <button onClick={handleActivateKey} className={btnPrimary} disabled={tierLoading || !licenseKey.trim()}>
+              {tierLoading ? <><Loader2 size={16} className="animate-spin" /> Activating...</> : <>Activate <ChevronRight size={16} /></>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tierChoice === 'offline' && (
+        <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <label className={labelClass}>Signed license file (.json)</label>
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={(e) => setOfflineFile(e.target.files?.[0] || null)}
+            className="block text-sm text-white/70 mb-4 file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:bg-amber-500/20 file:text-amber-200 hover:file:bg-amber-500/30"
+          />
+          <div className="flex gap-2">
+            <button onClick={() => setTierChoice('')} className={btnSecondary} disabled={tierLoading}>
+              <ChevronLeft size={16} /> Back
+            </button>
+            <button onClick={handleActivateOffline} className={btnPrimary} disabled={tierLoading || !offlineFile}>
+              {tierLoading ? <><Loader2 size={16} className="animate-spin" /> Activating...</> : <>Activate <ChevronRight size={16} /></>}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   const renderPrinter = () => (
     <div>
       <h2 className="text-xl font-bold text-white mb-1">Add a Printer</h2>
@@ -404,7 +580,7 @@ export default function Setup() {
             <button onClick={handleAddAnother} className={btnSecondary}>
               <Printer size={16} /> Add Another
             </button>
-            <button onClick={() => setStep(3)} className={btnPrimary}>
+            <button onClick={() => setStep(4)} className={btnPrimary}>
               Finish Setup <ChevronRight size={16} />
             </button>
           </div>
@@ -530,31 +706,8 @@ export default function Setup() {
             )}
           </div>
 
-          {/* R4 (codex pass 3): one-time setup token. REQUIRED for every
-              printer probe regardless of how the wizard is reached.
-              Operator pastes from `docker logs odin` or /data/.setup_token. */}
-          <div className="mt-6 p-3 rounded-lg bg-white/5 border border-white/10">
-            <label className="block text-xs uppercase tracking-wide text-white/60 mb-2">
-              Setup token <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={setupToken}
-              onChange={(e) => setSetupToken(e.target.value)}
-              placeholder="Paste the one-time setup token from docker logs odin"
-              className="w-full bg-black/40 border border-white/10 rounded-md px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
-              autoComplete="off"
-              spellCheck={false}
-              required
-            />
-            <p className="mt-2 text-xs text-white/40 leading-relaxed">
-              Required. Find it in <code className="text-white/60">docker logs odin</code> (logged at startup) or in{' '}
-              <code className="text-white/60">/data/.setup_token</code> on the ODIN host. Deleted automatically once setup completes.
-            </p>
-          </div>
-
           <div className="flex items-center justify-between mt-8">
-            <button onClick={() => setStep(1)} className={btnSecondary}>
+            <button onClick={() => setStep(2)} className={btnSecondary}>
               <ChevronLeft size={16} /> Back
             </button>
             <div className="flex gap-2">
@@ -567,7 +720,7 @@ export default function Setup() {
             </div>
           </div>
 
-          <button onClick={() => setStep(3)} className="w-full mt-3 text-center text-white/30 hover:text-white/50 text-sm transition-colors">
+          <button onClick={() => setStep(4)} className="w-full mt-3 text-center text-white/30 hover:text-white/50 text-sm transition-colors">
             Skip \u2014 I'll add printers later
           </button>
         </>
@@ -597,8 +750,9 @@ export default function Setup() {
   }
 
   // Auto-detect network IP when reaching the network step
+  // (step index 4 in v1.8.8 — tier step at 2 shifted network from 3 to 4)
   useEffect(() => {
-    if (step === 3 && !detectedIp) {
+    if (step === 4 && !detectedIp) {
       fetch('/api/setup/network')
         .then(r => { if (!r.ok) throw new Error('Failed'); return r.json() })
         .then(data => {
@@ -671,7 +825,7 @@ export default function Setup() {
     </div>
   )
 
-  const stepViews = [renderWelcome, renderAdmin, renderPrinter, renderNetwork, renderDone]
+  const stepViews = [renderWelcome, renderAdmin, renderTier, renderPrinter, renderNetwork, renderDone]
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--brand-content-bg)] setup-wizard">

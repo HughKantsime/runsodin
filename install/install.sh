@@ -299,6 +299,77 @@ if [ "$port_fail" = "1" ]; then
     die "Required ports are in use" \
         "Free the ports above and re-run the installer."
 fi
+
+# v1.8.8 — public-exposure check.
+#
+# ODIN's first-user-wins onboarding (same invariant as WordPress /
+# Ghost / Immich / Jellyfin / Portainer) opens setup routes until an
+# admin is claimed. That's fine on a LAN, where racing the admin would
+# require a hostile device on the same network. It's NOT fine on the
+# public internet, where anyone can race the install.
+#
+# We probe: fetch the host's public IP, then attempt a TCP connect
+# from this host back to that public IP on port 8000. If it succeeds
+# the box is reachable from the internet — warn loudly and refuse
+# unless FORCE_PUBLIC=1 is explicitly set.
+#
+# NAT'd boxes, air-gapped boxes, or hosts without curl/nc fall
+# through silently (proceed normally). This is best-effort belt-and-
+# suspenders, not a hard gate.
+if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
+    PUBLIC_IP=""
+    for svc in "https://api.ipify.org" "https://ifconfig.me/ip"; do
+        PUBLIC_IP=$(curl -fsS --max-time 3 "$svc" 2>/dev/null | tr -d '[:space:]' || true)
+        if [ -n "$PUBLIC_IP" ]; then break; fi
+    done
+
+    # Only probe if we got a public IP AND it differs from the LAN IP
+    # (NAT case — same IP on both sides means we ARE the public host,
+    # different IPs mean we're behind NAT).
+    HOST_IP_FOR_CHECK="${HOST_IP:-}"
+    if [ -z "$HOST_IP_FOR_CHECK" ] && command -v hostname &>/dev/null; then
+        HOST_IP_FOR_CHECK=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+
+    if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$HOST_IP_FOR_CHECK" ]; then
+        # Attempt a TCP connect back to the public IP on 8000. If it
+        # succeeds the box is publicly reachable on that port.
+        if timeout 3 bash -c "</dev/tcp/$PUBLIC_IP/8000" 2>/dev/null; then
+            if [ "${FORCE_PUBLIC:-0}" != "1" ]; then
+                printf "\n"
+                printf "  ${RED}${BOLD}============================================================${RESET}\n"
+                printf "  ${RED}${BOLD}  PUBLIC EXPOSURE DETECTED${RESET}\n"
+                printf "  ${RED}${BOLD}============================================================${RESET}\n"
+                printf "\n"
+                printf "  This host appears to be reachable from the public internet\n"
+                printf "  on port 8000 (public IP: ${BOLD}%s${RESET}).\n" "$PUBLIC_IP"
+                printf "\n"
+                printf "  ODIN uses a first-user-wins setup flow (same model as\n"
+                printf "  WordPress, Ghost, Immich). Until you create an admin\n"
+                printf "  account, anyone on the internet can reach the setup\n"
+                printf "  wizard and race you to claim admin.\n"
+                printf "\n"
+                printf "  ${GREEN}Recommended:${RESET}\n"
+                printf "    * Bind ODIN to your LAN only by editing the port map\n"
+                printf "      in docker-compose.yml:\n"
+                printf "          ports:\n"
+                printf "            - \"${BOLD}192.168.x.y${RESET}:8000:8000\"\n"
+                printf "    * Or put ODIN behind a reverse proxy on a private\n"
+                printf "      interface (Tailscale, Cloudflare Tunnel, Wireguard).\n"
+                printf "\n"
+                printf "  To proceed anyway, re-run with FORCE_PUBLIC=1:\n"
+                printf "    FORCE_PUBLIC=1 %s\n" "$0"
+                printf "\n"
+                printf "  To skip this check entirely (CI / air-gap):\n"
+                printf "    ODIN_SKIP_PUBLIC_CHECK=1 %s\n" "$0"
+                printf "\n"
+                exit 1
+            else
+                printf "  ${YELLOW}! FORCE_PUBLIC=1 set — proceeding despite public exposure${RESET}\n"
+            fi
+        fi
+    fi
+fi
 ok "Ports 8000, 1984, 8555 free"
 
 # Architecture

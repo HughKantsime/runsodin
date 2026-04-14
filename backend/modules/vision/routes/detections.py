@@ -169,6 +169,83 @@ async def review_vision_detection(
     return {"id": detection_id, "status": new_status}
 
 
+@router.post("/vision/detections/{detection_id}/dismiss-and-resume", tags=["Vigil AI"])
+async def dismiss_and_resume(
+    detection_id: int,
+    current_user: dict = Depends(require_role("operator")),
+    db: Session = Depends(get_db),
+):
+    """v1.8.8: one-click "false alarm, resume print" from a vision alert.
+
+    Previously an operator had to click into the detection, mark it
+    dismissed, then navigate to the printer detail page and click
+    Resume. Two screens for a thing that's actually one decision
+    ("this detection was wrong, get back to printing"). This endpoint
+    does both in one call.
+
+    Idempotent both ways:
+      - If the detection is already dismissed, treat that as "fine,
+        just resume the printer".
+      - If the printer is already running (not paused), treat that as
+        "fine, detection dismissed, no resume needed".
+    """
+    det = db.query(VisionDetection).filter(VisionDetection.id == detection_id).first()
+    if not det:
+        raise HTTPException(status_code=404, detail="Detection not found")
+
+    printer = None
+    if det.printer_id:
+        printer = db.query(Printer).filter(Printer.id == det.printer_id).first()
+        if printer and not check_org_access(current_user, printer.org_id):
+            raise HTTPException(status_code=404, detail="Detection not found")
+
+    actions: list[str] = []
+
+    # 1. Dismiss the detection (idempotent).
+    if det.status != "dismissed":
+        det.status = "dismissed"
+        det.reviewed_by = current_user["id"]
+        det.reviewed_at = sa_func.now()
+        db.commit()
+        actions.append("dismissed")
+    else:
+        actions.append("already_dismissed")
+
+    # 2. Resume the printer if one is linked and it looks paused.
+    resume_outcome = "no_printer"
+    if printer is not None:
+        from modules.printers.route_utils import _send_printer_command
+        current_state = (printer.gcode_state or "").upper()
+        if current_state == "RUNNING":
+            resume_outcome = "already_running"
+        else:
+            try:
+                ok = _send_printer_command(printer, "resume_print")
+            except Exception as e:
+                log.error(f"Resume from dismiss-and-resume failed for printer {printer.id}: {e}")
+                ok = False
+            if ok:
+                db.execute(
+                    text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
+                    {"id": printer.id},
+                )
+                db.commit()
+                resume_outcome = "resumed"
+            else:
+                resume_outcome = "resume_failed"
+    actions.append(f"printer:{resume_outcome}")
+
+    return {
+        "detection_id": detection_id,
+        "status": "dismissed",
+        "actions": actions,
+        # Return a 200 even on resume_failed — the dismiss DID happen,
+        # and the operator's next action would be to retry manually.
+        # Surfacing the resume_outcome lets the frontend toast
+        # accordingly.
+    }
+
+
 # ============== Vigil AI: Per-Printer Vision Settings ==============
 
 @router.get("/printers/{printer_id}/vision", tags=["Vigil AI"])

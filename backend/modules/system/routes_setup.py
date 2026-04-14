@@ -3,7 +3,6 @@
 import logging
 import os
 import re
-import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,154 +25,50 @@ log = logging.getLogger("odin.api")
 router = APIRouter()
 
 
-# ============== R4: Setup token (proxy-aware access control) ==============
+# ============== v1.8.8: first-user-wins setup gate ==============
 #
-# R4 (codex pass 3, 2026-04-13): the token now lives in the system_config
-# table (one row, key='setup_token'). Previous revisions stored it on the
-# container's local filesystem, which broke two documented deployment
-# topologies:
-#   - Multi-replica Postgres: each replica had its own .setup_token file,
-#     so /setup/status on replica A would log a token that /setup/test-
-#     printer on replica B would never accept. Permanent 403.
-#   - Multi-worker Uvicorn: two workers racing the file existence check
-#     could each generate and log a different token; the last writer
-#     wins, so half of the tokens shown in logs were dead-on-arrival.
+# Industry-standard onboarding. WordPress / Ghost / Immich / Jellyfin /
+# Portainer all use the same invariant: setup routes are open until an
+# admin claims the install, then they close.
 #
-# DB storage gives us shared visibility (all replicas read the same row)
-# AND atomicity (INSERT-then-recover-on-IntegrityError is a single-winner
-# transition).
-#
-# The token is logged at WARN exactly once — by whichever worker actually
-# inserted the row. Operators read it from `docker logs odin` (canonical)
-# or `SELECT value FROM system_config WHERE key='setup_token'` if logs
-# are unavailable.
+# Why this replaces the v1.8.6 setup-token gate:
+#   * The token gate was correct but required copying a 43-char string
+#     from `docker logs odin` into a web form. Industry peers don't do
+#     that; enterprise secrets-manager friction is wrong for the SMB
+#     self-hosted class ODIN lives in.
+#   * The "internet-exposed ODIN is a LAN scanner" threat the token
+#     protected against is now mitigated at install time: the install
+#     script probes public reachability and refuses without an explicit
+#     --force-public override.
+#   * If a customer ignores that warning AND an attacker races them to
+#     first-admin, the attacker "wins" a fresh install with no data.
+#     The legitimate operator notices immediately on the next page load
+#     ("account already exists") and can wipe /data and redo the install.
+#     Same loss profile as every other self-hosted tool in this class.
 
-_SETUP_TOKEN_HEADER = "x-odin-setup-token"
-_SETUP_TOKEN_DB_KEY = "setup_token"
 
+def _validate_setup_phase(db: Session) -> None:
+    """First-user-wins gate for /setup/* routes.
 
-def _read_setup_token(db: Session) -> Optional[str]:
-    """Return the current setup token from system_config, or None.
+    Allows the call only when no admin has claimed the install yet AND
+    setup hasn't been explicitly marked complete. Once either is true,
+    setup routes close and raise 403.
 
-    Goes through the SystemConfig ORM model so the JSON column is decoded
-    consistently across SQLite (text-backed) and Postgres (jsonb).
+    Deliberately does NOT consider the network origin of the call:
+    operational hygiene (don't expose the unclaimed-admin state to the
+    internet) is enforced at install time, not at every request.
     """
-    try:
-        row = db.query(SystemConfig).filter(
-            SystemConfig.key == _SETUP_TOKEN_DB_KEY
-        ).first()
-    except Exception as e:
-        log.warning(f"Could not read setup token from DB: {e}")
-        return None
-    if not row or row.value is None:
-        return None
-    val = str(row.value).strip()
-    return val or None
-
-
-def _ensure_setup_token(db: Session) -> Optional[str]:
-    """Return the setup token, generating one atomically on first call.
-
-    Race-safe: if two workers call this simultaneously and both see an
-    empty row, the INSERT conflict (PRIMARY KEY on `key`) is caught and
-    the loser re-reads the winner's value. Operators always see exactly
-    one token in the logs that matches what the gate checks against.
-
-    Codex pass 3 round 2 (2026-04-13) closure:
-      * Per-replica filesystem token (multi-replica Postgres broken).
-      * Check-then-write race (multi-worker Uvicorn broken).
-
-    Codex pass 3 round 3 (2026-04-13) closure:
-      * raw text(...) INSERT bypassed SQLAlchemy JSON coercion and
-        crashed on the Postgres JSON column ('invalid input syntax for
-        type json'). Going through the SystemConfig ORM model lets the
-        type system encode the value correctly on both SQLite (TEXT)
-        and Postgres (jsonb).
-    """
-    existing = _read_setup_token(db)
-    if existing:
-        return existing
-
-    token = secrets.token_urlsafe(32)
-    try:
-        db.add(SystemConfig(key=_SETUP_TOKEN_DB_KEY, value=token))
-        db.commit()
-    except Exception as e:
-        # IntegrityError on PK conflict — a sibling worker won the race.
-        db.rollback()
-        log.debug(
-            f"Setup token insert lost the race ({type(e).__name__}); re-reading"
+    if _setup_is_complete(db):
+        raise HTTPException(
+            status_code=403,
+            detail="Setup already completed.",
         )
-        return _read_setup_token(db)
-
-    # We were the one that wrote it — log loud. Other workers will not
-    # double-log because their insert raises.
-    log.warning(
-        "=" * 64 + "\n"
-        "  O.D.I.N. SETUP TOKEN (one-time, for /setup/test-printer):\n"
-        f"    {token}\n"
-        "  Stored in system_config (key=setup_token).\n"
-        "  Pass it as the `X-ODIN-Setup-Token` header when running\n"
-        "  setup behind a reverse proxy. Cleared automatically once\n"
-        "  setup completes.\n"
-        + "=" * 64
-    )
-    return token
-
-
-def _consume_setup_token(db: Session) -> None:
-    """Delete the setup token row. Called when setup completes."""
-    try:
-        db.query(SystemConfig).filter(
-            SystemConfig.key == _SETUP_TOKEN_DB_KEY
-        ).delete(synchronize_session=False)
-        db.commit()
-        log.info("Setup token consumed and removed from system_config.")
-    except Exception as e:
-        log.warning(f"Could not delete setup token from DB: {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-
-
-def _validate_setup_access(http_request: Request, db: Session) -> None:
-    """R4 gate: REQUIRES a valid X-ODIN-Setup-Token header. Always.
-
-    Codex pass 3 (2026-04-13): the previous "loopback-no-proxy = no token
-    needed" exemption was unsound. A reverse proxy that does NOT set any
-    of the X-Forwarded-* / Forwarded headers (some lightweight proxies
-    strip them; operators can mis-configure them) leaves client.host as
-    127.0.0.1 with no proxy header in sight — and the gate would accept
-    every external caller as if they were the operator on loopback.
-
-    The token requirement is universal. This is a one-time setup
-    credential printed at WARN at startup; pasting it into the wizard
-    once is acceptable friction in exchange for an absolute guarantee
-    that no unauthenticated caller can drive `/setup/test-printer` as
-    an internal-network scanner.
-
-    Raises HTTPException 403 on mismatch. Returns silently on accept.
-    """
-    presented = (http_request.headers.get(_SETUP_TOKEN_HEADER) or "").strip()
-    expected = _ensure_setup_token(db) or ""
-    if not presented or not expected:
+    if _setup_users_exist(db):
         raise HTTPException(
             status_code=403,
             detail=(
-                f"Setup printer probe rejected: missing or empty "
-                f"{_SETUP_TOKEN_HEADER!r} header. Read the setup token "
-                "from `docker logs odin` (printed at startup) and paste "
-                "it into the setup wizard."
-            ),
-        )
-    if not secrets.compare_digest(presented, expected):
-        # Constant-time compare; never reveal whether the prefix matched.
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"Setup printer probe rejected: {_SETUP_TOKEN_HEADER!r} "
-                "does not match. Re-read the token from the ODIN logs."
+                "Setup already claimed — an admin account exists. "
+                "Log in to continue."
             ),
         )
 
@@ -240,15 +135,11 @@ def _get_lan_ip():
 def setup_status(db: Session = Depends(get_db)):
     """Check if initial setup is needed. No auth required.
 
-    R4: when the system is unlocked, ensure the setup token file exists.
-    First-call generates it and logs the value at WARN level (visible in
-    `docker logs odin` or systemd journal) so the operator can read it
-    without filesystem access.
+    v1.8.8: no side effects. Previous revision minted a setup token on
+    first call; the token gate is gone, so this is a pure read now.
     """
     has_users = _setup_users_exist(db)
     is_complete = _setup_is_complete(db)
-    if not has_users and not is_complete:
-        _ensure_setup_token(db)
     return {"needs_setup": not has_users and not is_complete, "has_users": has_users, "is_complete": is_complete}
 
 
@@ -285,35 +176,21 @@ def setup_test_printer(
     http_request: Request,
     db: Session = Depends(get_db),
 ):
-    """Test printer connection during setup. Wraps existing test logic.
+    """Test printer connection during setup.
 
-    Access control (R4 — 2026-04-12 adversarial review, codex pass 2):
+    Access control (v1.8.8 onboarding refactor):
 
-    This endpoint performs outbound HTTP and UDP probes to user-supplied
-    hosts, and the setup flow explicitly allows RFC1918 LAN targets.
-    Before any fix, it was an open internal-network scanner for freshly
-    installed internet-reachable instances.
+    Gated on first-user-wins via _validate_setup_phase(db). The endpoint
+    accepts calls ONLY while no admin has claimed the install and setup
+    hasn't been marked complete. Once either is true the endpoint
+    refuses with 403 and the caller has to authenticate normally.
 
-    Pass 1 (loopback-only) closed the open-scanner risk but broke the
-    documented reverse-proxy deployment (nginx/Caddy/Traefik in front of
-    Uvicorn — they always set X-Forwarded-* headers and connect over
-    127.0.0.1, so a loopback+no-proxy-header gate would 403 every
-    legitimate setup flow behind a proxy).
-
-    Pass 2 — accept EITHER:
-      1. Loopback request with no proxy headers (direct CLI / localhost
-         UI on the ODIN host), OR
-      2. A valid X-ODIN-Setup-Token header matching the file written at
-         _setup_token_path(). Operator reads the token from the install
-         log or the host filesystem and pastes it into the wizard.
-
-    The token is consumed (file deleted) when setup completes, so the
-    secondary auth path closes itself once it's no longer needed.
+    The "freshly-installed ODIN on the internet is a LAN scanner" threat
+    that motivated the v1.8.6 setup token is now addressed at install
+    time: install.sh probes public reachability and refuses without
+    --force-public. See DECISION-012 in conductor/decision-log.md.
     """
-    if _setup_is_locked(db):
-        raise HTTPException(status_code=403, detail="Setup already completed")
-
-    _validate_setup_access(http_request, db)
+    _validate_setup_phase(db)
 
     from modules.printers.route_utils import _check_ssrf_blocklist
     _check_ssrf_blocklist(request.api_host)
@@ -487,7 +364,6 @@ def setup_mark_complete(current_user: dict = Depends(get_current_user), db: Sess
         config = SystemConfig(key="setup_complete", value="true")
         db.add(config)
     db.commit()
-    _consume_setup_token(db)
     return {"status": "complete"}
 
 

@@ -402,8 +402,8 @@ def _claim_digest_send(session, user_id: int, org_id, window_ended_at) -> bool:
     """
     try:
         session.execute(text(
-            "INSERT INTO quiet_hours_digest_sends (user_id, org_id, window_ended_at) "
-            "VALUES (:uid, :oid, :wend)"
+            "INSERT INTO quiet_hours_digest_sends (user_id, org_id, window_ended_at, delivery_status) "
+            "VALUES (:uid, :oid, :wend, 'pending')"
         ), {"uid": user_id, "oid": org_id, "wend": window_ended_at.isoformat()})
         session.commit()
         return True
@@ -413,6 +413,41 @@ def _claim_digest_send(session, user_id: int, org_id, window_ended_at) -> bool:
         log.debug(f"Digest send claim lost for user={user_id} window={window_ended_at}: {e}")
         session.rollback()
         return False
+
+
+def _update_digest_status(session, user_id: int, window_ended_at, status: str):
+    """v1.8.8: update the claim row's delivery_status after delivery.
+
+    Called by each _deliver_digest_* helper AFTER it's done (success or
+    failure). Status values: 'sent' (all configured channels delivered)
+    or 'failed:<reason>' (at least one channel failed; reason truncated
+    to 120 chars for sanity).
+    """
+    try:
+        session.execute(text(
+            "UPDATE quiet_hours_digest_sends SET delivery_status = :s "
+            "WHERE user_id = :uid AND window_ended_at = :wend"
+        ), {"s": status[:120], "uid": user_id, "wend": window_ended_at.isoformat()})
+        session.commit()
+    except Exception as e:
+        log.debug(f"Could not update digest status for user={user_id}: {e}")
+        session.rollback()
+
+
+def _update_org_digest_status(session, org_id, window_ended_at, status: str):
+    """Same as _update_digest_status but for the org-level webhook table."""
+    try:
+        session.execute(text(
+            "UPDATE quiet_hours_org_digest_sends SET delivery_status = :s "
+            "WHERE org_id IS :oid AND window_ended_at = :wend"
+            if org_id is None else
+            "UPDATE quiet_hours_org_digest_sends SET delivery_status = :s "
+            "WHERE org_id = :oid AND window_ended_at = :wend"
+        ), {"s": status[:120], "oid": org_id, "wend": window_ended_at.isoformat()})
+        session.commit()
+    except Exception as e:
+        log.debug(f"Could not update org digest status for org={org_id}: {e}")
+        session.rollback()
 
 
 def _claim_org_webhook_send(session, org_id, window_ended_at) -> bool:
@@ -599,16 +634,27 @@ def process_quiet_hours_digest(session):
             # but does NOT undo the claim — undoing would re-open the
             # duplicate-send window on the next poll. Operators see the
             # error in logs and can re-trigger manually if needed.
+            # v1.8.8: also record per-delivery status in the row so the
+            # Alerts page can surface "delivered / failed" without
+            # scraping logs.
+            delivery_ok = True
+            failure_reasons: list[str] = []
             if email_on and smtp_config:
                 try:
                     _deliver_digest_email(session, smtp_config, user_id, user_alerts, window_end)
                 except Exception as e:
                     log.error(f"Digest email failed for user {user_id}: {e}")
+                    delivery_ok = False
+                    failure_reasons.append(f"email:{type(e).__name__}")
             if push_on:
                 try:
                     _deliver_digest_push(session, user_id, user_alerts, window_end)
                 except Exception as e:
                     log.error(f"Digest push failed for user {user_id}: {e}")
+                    delivery_ok = False
+                    failure_reasons.append(f"push:{type(e).__name__}")
+            status = "sent" if delivery_ok else f"failed:{','.join(failure_reasons)}"
+            _update_digest_status(session, user_id, window_end, status)
 
         # Per-org webhook (one combined digest per org).
         # Codex pass 4 (2026-04-14): the org webhook had NO idempotency
@@ -618,13 +664,15 @@ def process_quiet_hours_digest(session):
         webhook_url = config.get("webhook_url")
         if webhook_url:
             if _claim_org_webhook_send(session, org_id, window_end):
-                _deliver_digest_webhook(
+                webhook_ok = _deliver_digest_webhook(
                     webhook_url,
                     config.get("webhook_type", "generic"),
                     alerts,
                     org_name,
                     window_end,
                 )
+                status = "sent" if webhook_ok else "failed:webhook"
+                _update_org_digest_status(session, org_id, window_end, status)
 
         log.info(
             f"Quiet hours digest delivered: org={org_name} "

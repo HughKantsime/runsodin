@@ -1,0 +1,109 @@
+name: Install Script Smoke
+
+# v1.8.8: validate that install/install.sh actually works end-to-end on
+# a clean Ubuntu LTS box. Catches regressions where the installer bails
+# on a missing dep, leaves half-installed state, or prints unreadable
+# errors.
+#
+# Strategy: run the installer inside a Docker container based on
+# ubuntu:24.04, mount the host's Docker socket so the installer's
+# `docker run` call actually starts ODIN on the host Docker, then
+# assert /health responds on 8000.
+#
+# This is a reflection of the smoke I ran locally on 2026-04-14 before
+# shipping this workflow; see the track plan for
+# user-friction-and-fail-loud-gaps_20260414 (T3.1).
+
+on:
+  pull_request:
+    paths:
+      - 'install/**'
+      - 'backend/**'
+      - '.github/workflows/install-smoke.yml'
+  workflow_dispatch:
+  schedule:
+    # Nightly at 06:00 UTC — catches image-pull regressions from GHCR
+    # even when no install/** changes landed.
+    - cron: '0 6 * * *'
+
+jobs:
+  smoke:
+    name: Install smoke on ubuntu:24.04
+    runs-on: mac-mini-runner
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Pull ubuntu:24.04
+        run: docker pull ubuntu:24.04
+
+      - name: Clean up any previous ODIN container
+        run: |
+          docker stop odin 2>/dev/null || true
+          docker rm odin 2>/dev/null || true
+          docker volume rm odin_data 2>/dev/null || true
+
+      - name: Run installer inside fresh Ubuntu container
+        env:
+          ODIN_SKIP_PUBLIC_CHECK: "1"
+        run: |
+          set -euo pipefail
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}/install:/install:ro" \
+            -e ODIN_SKIP_PUBLIC_CHECK=1 \
+            ubuntu:24.04 bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq >/dev/null 2>&1
+              apt-get install -qq -y curl ca-certificates >/dev/null 2>&1
+              install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+                -o /etc/apt/keyrings/docker.asc
+              chmod a+r /etc/apt/keyrings/docker.asc
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+                > /etc/apt/sources.list.d/docker.list
+              apt-get update -qq >/dev/null 2>&1
+              apt-get install -qq -y docker-ce-cli >/dev/null 2>&1
+              cd /tmp
+              cp /install/install.sh ./install.sh
+              chmod +x ./install.sh
+              bash ./install.sh
+            '
+
+      - name: Assert /health responds with 200
+        run: |
+          set -euo pipefail
+          # The installer started ODIN via the host's docker socket, so
+          # the container is running on the host, bound to :8000.
+          # Wait up to 60s for the app to come up (the installer's own
+          # healthcheck loop may have already raced past, so we give
+          # slack).
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health >/tmp/health.json 2>/dev/null; then
+              echo "/health responded at attempt $attempt:"
+              cat /tmp/health.json
+              if grep -q '"status":"ok"' /tmp/health.json; then
+                echo "OK"
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo "::error::/health did not return {status:ok} within 60s"
+          echo "Container state:"
+          docker ps -a --filter "name=odin"
+          echo "Recent logs:"
+          docker logs --tail 50 odin 2>&1 || true
+          exit 1
+
+      - name: Teardown
+        if: always()
+        run: |
+          docker stop odin 2>/dev/null || true
+          docker rm odin 2>/dev/null || true
+          docker volume rm odin_data 2>/dev/null || true

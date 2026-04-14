@@ -2,6 +2,99 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.8] - 2026-04-14
+
+### Breaking changes
+
+- **Setup token gate removed** (`X-ODIN-Setup-Token` header). If any
+  customer was scripting against `GET /setup/status` to capture the
+  token from a log tail, that tooling breaks. The new wizard has no
+  token step — just create the admin.
+
+### Added
+
+- **Industry-standard onboarding.** The setup wizard is now
+  WordPress / Ghost / Immich / Jellyfin shaped: open
+  `http://host:8000`, create admin (first-user-wins), pick a tier,
+  add your first printer, done. No tokens, no log-copying, no
+  `docker logs odin | grep SETUP`.
+
+- **License/tier step in the wizard.** Three branches: Community
+  (free, 5 printers / 1 user, no activation); license key (paste,
+  activates against runsodin.com via the Ed25519 proof-of-possession
+  flow from v1.8.3); offline activation (upload signed JSON for
+  air-gapped / ITAR deployments). No trial tier — free or paid.
+
+- **Install-script public-exposure warning.** `install/install.sh`
+  probes the host's public reachability on port 8000 and refuses
+  unless `FORCE_PUBLIC=1` is explicitly set. Best-effort — NAT'd,
+  air-gapped, or missing-curl boxes fall through. CI escape:
+  `ODIN_SKIP_PUBLIC_CHECK=1`. PowerShell port deferred.
+
+- **Vision "false alarm → resume print" endpoint.**
+  `POST /api/vision/detections/{id}/dismiss-and-resume` does both
+  steps in one call. Idempotent both ways. UI button deferred to
+  `ui-polish-v189`.
+
+- **`GET /health/ready` readiness probe** for watchtower and other
+  orchestrators. Returns 200 when DB round-trips and the migrated
+  `users` table is queryable; 503 with structured reason otherwise.
+
+- **Quiet-hours digest delivery status.** The two digest-sends
+  tables get a `delivery_status` column. Driver writes `'pending'`
+  on claim, then `'sent'` or `'failed:email:...,push:...'` after
+  delivery. UI strip deferred to `ui-polish-v189`.
+
+- **`GET /api/v1/portal/cron-status`** surfaces the last
+  `close-tickets` cron run plus a `stale: true` flag if >90 min
+  have passed.
+
+- **Install-script smoke in CI.**
+  `.github/workflows/install-smoke.yml` runs the installer inside a
+  clean `ubuntu:24.04` container on every PR touching `install/**`
+  and nightly. Verified locally against the same image before
+  shipping — installer completed all 9 phases cleanly and `/health`
+  returned `{"status":"ok"}`.
+
+### Changed
+
+- `/setup/test-printer` now gated on first-user-wins (same invariant
+  as WordPress / Ghost / Immich / Jellyfin). Refuses once any admin
+  exists or once `setup_complete` is set.
+- Setup wizard step order: welcome → admin → **tier (new)** →
+  printer → network → done.
+- Install-script version bumped to 1.8.8.
+
+### Removed
+
+- `_validate_setup_access()`, `_ensure_setup_token()`,
+  `_consume_setup_token()`, `_read_setup_token()`,
+  `_SETUP_TOKEN_HEADER`, `_SETUP_TOKEN_DB_KEY` from
+  `backend/modules/system/routes_setup.py`. Migration 004 deletes
+  any stored `setup_token` row from `system_config`.
+
+### Schema
+
+- Migration `004_drop_setup_token_add_delivery_status.sql`:
+  deletes the stale `setup_token` row and adds
+  `delivery_status TEXT DEFAULT 'pending'` to both digest-sends
+  tables. Idempotent on SQLite + Postgres.
+
+### Tests
+
+- `test_setup_probe_loopback.py` rewritten around the first-user-
+  wins invariant: 7 tests covering gate semantics and token-machinery
+  retirement. The v1.8.7 token-lifecycle tests are gone, not
+  commented.
+- 32 contract tests across the affected suites pass.
+
+### Deferred to follow-up tracks
+
+- UI polish (vision dismiss-resume button, digest status strip,
+  license-server-outage banner) → `ui-polish-v189`.
+- Frontend error-surface audit → its own dedicated track.
+- PowerShell install-script exposure check → follow-up.
+
 ## [1.8.7] - 2026-04-14
 
 ### Security

@@ -10,6 +10,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
 from pydantic import BaseModel as PydanticBaseModel, field_validator
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -56,6 +57,44 @@ async def health_check():
         database=settings.database_url.split("///")[-1],
         spoolman_connected=spoolman_ok
     )
+
+
+@router.get("/health/ready", tags=["System"])
+def readiness_check(db: Session = Depends(get_db)):
+    """Kubernetes-style readiness probe. Returns 200 when ODIN is ready
+    to serve traffic; returns 503 otherwise.
+
+    v1.8.8: watchtower and other orchestrators can gate container
+    replacement on this endpoint — pull the new image, wait for
+    /health/ready=200 before killing the old container. Documented in
+    the README's watchtower section.
+
+    Checks (order matters — cheapest first):
+      1. DB session round-trip (SELECT 1).
+      2. A known-good migrated table is readable (users). If migrations
+         haven't applied cleanly, the query raises.
+
+    Does NOT check Spoolman / license server reachability — those are
+    informational, not readiness. A network partition to an upstream
+    shouldn't flap the container.
+    """
+    try:
+        db.execute(text("SELECT 1")).fetchone()
+    except Exception as e:
+        log.error(f"/health/ready: DB round-trip failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "reason": f"db:{type(e).__name__}"},
+        )
+    try:
+        db.execute(text("SELECT 1 FROM users LIMIT 1")).fetchone()
+    except Exception as e:
+        log.error(f"/health/ready: users table not queryable: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "reason": f"migrations:{type(e).__name__}"},
+        )
+    return {"ready": True, "version": __version__}
 
 
 # ============== License ==============
