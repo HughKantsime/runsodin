@@ -281,7 +281,11 @@ export default function SystemTab() {
 
   const createBackup = useMutation({
     mutationFn: backupsApi.create,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['backups'] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+      toast.success('Backup created')
+    },
+    onError: (err: any) => toast.error('Backup failed: ' + (err?.message || 'Unknown error')),
   })
 
   const deleteBackup = useMutation({
@@ -289,7 +293,8 @@ export default function SystemTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
       setDeleteConfirm(null)
-    }
+    },
+    onError: (err: any) => toast.error('Delete backup failed: ' + (err?.message || 'Unknown error')),
   })
 
   return (

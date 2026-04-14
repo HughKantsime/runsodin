@@ -317,9 +317,13 @@ export default function Admin() {
   const deleteUser = useMutation({
     mutationFn: async (id) => {
       const response = await fetch(`${API_BASE}/users/${id}`, { method: 'DELETE', credentials: 'include' })
-      if (!response.ok) throw new Error('Failed to delete user')
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to delete user')
+      }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+    onError: (err) => toast.error('Delete failed: ' + (err.message || 'Unknown error')),
   })
 
   const handleSave = (formData) => { if (editingUser) { updateUser.mutate({ id: editingUser.id, ...formData }) } else { createUser.mutate(formData) } }

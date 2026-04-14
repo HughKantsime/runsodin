@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Save, RefreshCw, Database, Clock, Plug, CheckCircle, XCircle, Settings as SettingsIcon, Zap, Wifi, ExternalLink } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { config as configApi, pricingConfig, fetchAPI, users as usersApi } from '../../api'
 import { useLicense } from '../../LicenseContext'
 import { getApprovalSetting, setApprovalSetting } from '../../api'
@@ -208,6 +209,9 @@ export default function GeneralTab() {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     },
+    // v1.8.8 audit: don't let server-side validation errors vanish
+    // into "nothing happened" from the operator's POV.
+    onError: (err: any) => toast.error('Save failed: ' + (err?.message || 'Unknown error')),
   })
 
   const testSpoolman = useMutation({ mutationFn: () => configApi.testSpoolman() })

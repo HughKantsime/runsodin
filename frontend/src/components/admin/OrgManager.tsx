@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Users, UserPlus, Printer, Building2, X, Settings, Save } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { orgs } from '../../api'
 import { canDo } from '../../permissions'
 import { Button, Input } from '../ui'
@@ -37,24 +38,33 @@ export default function OrgManager() {
     },
   })
 
+  // v1.8.8 audit: every mutation gets an onError so operators see why
+  // a click didn't take, instead of walking away assuming it did.
+  const mutErr = (label: string) => (err: any) =>
+    toast.error(`${label}: ${err?.message || 'Unknown error'}`)
+
   const createOrg = useMutation({
     mutationFn: (data) => orgs.create(data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orgs'] }); setShowCreate(false); setName('') },
+    onError: mutErr('Create organization failed'),
   })
 
   const deleteOrg = useMutation({
     mutationFn: (id) => orgs.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+    onError: mutErr('Delete organization failed'),
   })
 
   const addMember = useMutation({
     mutationFn: ({ orgId, userId }) => orgs.addMember(orgId, userId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+    onError: mutErr('Add member failed'),
   })
 
   const assignPrinter = useMutation({
     mutationFn: ({ orgId, printerId }) => orgs.assignPrinter(orgId, printerId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['orgs'] }),
+    onError: mutErr('Assign printer failed'),
   })
 
   const updateSettings = useMutation({
@@ -62,6 +72,7 @@ export default function OrgManager() {
     onSuccess: (_, { orgId }) => {
       queryClient.invalidateQueries({ queryKey: ['org-settings', orgId] })
     },
+    onError: mutErr('Save settings failed'),
   })
 
   if (!canDo('settings.edit')) return null
