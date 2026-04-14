@@ -380,29 +380,61 @@ def process_due_reports(session):
 # Quiet hours digest
 # =============================================================================
 
-def _already_sent_digest(session, user_id: int, window_ended_at) -> bool:
-    """Idempotency check: has (user_id, window_ended_at) already been sent?"""
-    row = session.execute(text(
-        "SELECT 1 FROM quiet_hours_digest_sends "
-        "WHERE user_id = :uid AND window_ended_at = :wend"
-    ), {"uid": user_id, "wend": window_ended_at.isoformat()}).fetchone()
-    return row is not None
+def _claim_digest_send(session, user_id: int, org_id, window_ended_at) -> bool:
+    """Atomically CLAIM the right to send the digest BEFORE any side effects.
 
+    Returns True if THIS worker won the race and may proceed to deliver the
+    digest; False if another worker already claimed (or is delivering) it.
 
-def _record_digest_sent(session, user_id: int, org_id, window_ended_at):
-    """Atomic single-winner insert for idempotency. Loser rolls back; next
-    poll sees the row and no-ops."""
+    Codex pass 4 (2026-04-14): the previous flow was check-then-act:
+      1. SELECT to check if sent
+      2. deliver email/push
+      3. INSERT idempotency row
+    Two workers could both pass step 1, both deliver in step 2, and only
+    then race on step 3 — duplicate notifications already out the door.
+
+    Now: claim in one atomic INSERT, then deliver. The loser of the INSERT
+    race exits BEFORE any delivery code runs. The cost is that delivery
+    failures don't undo the claim — by design, since the alternative
+    (delete the row and let next poll retry) re-opens the duplicate-send
+    window. Loud delivery errors are logged; operators can see and
+    re-trigger manually if needed.
+    """
     try:
         session.execute(text(
             "INSERT INTO quiet_hours_digest_sends (user_id, org_id, window_ended_at) "
             "VALUES (:uid, :oid, :wend)"
         ), {"uid": user_id, "oid": org_id, "wend": window_ended_at.isoformat()})
         session.commit()
+        return True
     except Exception as e:
         # IntegrityError from UNIQUE(user_id, window_ended_at) — sibling
-        # worker won. Roll back and carry on; we did no harm.
-        log.debug(f"Digest send row race lost for user={user_id}: {e}")
+        # worker (or earlier poll) already claimed. We did no harm.
+        log.debug(f"Digest send claim lost for user={user_id} window={window_ended_at}: {e}")
         session.rollback()
+        return False
+
+
+def _claim_org_webhook_send(session, org_id, window_ended_at) -> bool:
+    """Same atomic-claim semantics as _claim_digest_send, but for the
+    per-org webhook digest.
+
+    Codex pass 4 (2026-04-14): previously the org webhook fired every
+    60-second poll for the duration of the next quiet period because
+    nothing remembered we already sent it. New table
+    quiet_hours_org_digest_sends tracks (org_id, window_ended_at).
+    org_id may be NULL for system-level webhook digests."""
+    try:
+        session.execute(text(
+            "INSERT INTO quiet_hours_org_digest_sends (org_id, window_ended_at) "
+            "VALUES (:oid, :wend)"
+        ), {"oid": org_id, "wend": window_ended_at.isoformat()})
+        session.commit()
+        return True
+    except Exception as e:
+        log.debug(f"Org digest webhook claim lost for org={org_id} window={window_ended_at}: {e}")
+        session.rollback()
+        return False
 
 
 def _deliver_digest_email(session, smtp_config, user_id, alerts, window_end):
@@ -545,10 +577,13 @@ def process_quiet_hours_digest(session):
             continue
 
         # Per-user fan-out (email + push)
+        # Codex pass 4 (2026-04-14): claim BEFORE delivery to prevent duplicate
+        # sends. Two workers can both pass a check-then-act guard and both
+        # deliver before either records the send. Atomic claim closes that.
         by_user = group_suppressed_by_user(alerts)
         for user_id, user_alerts in by_user.items():
-            if _already_sent_digest(session, user_id, window_end):
-                continue
+            if not _claim_digest_send(session, user_id, org_id, window_end):
+                continue  # another worker won the race; they own delivery
 
             prefs = session.execute(text(
                 "SELECT "
@@ -560,33 +595,36 @@ def process_quiet_hours_digest(session):
             email_on = bool(prefs.email_enabled) if prefs else False
             push_on = bool(prefs.push_enabled) if prefs else False
 
-            delivered = False
+            # Delivery is best-effort post-claim. A failure here logs ERROR
+            # but does NOT undo the claim — undoing would re-open the
+            # duplicate-send window on the next poll. Operators see the
+            # error in logs and can re-trigger manually if needed.
             if email_on and smtp_config:
                 try:
-                    if _deliver_digest_email(session, smtp_config, user_id, user_alerts, window_end):
-                        delivered = True
+                    _deliver_digest_email(session, smtp_config, user_id, user_alerts, window_end)
                 except Exception as e:
                     log.error(f"Digest email failed for user {user_id}: {e}")
             if push_on:
                 try:
-                    if _deliver_digest_push(session, user_id, user_alerts, window_end):
-                        delivered = True
+                    _deliver_digest_push(session, user_id, user_alerts, window_end)
                 except Exception as e:
                     log.error(f"Digest push failed for user {user_id}: {e}")
 
-            if delivered:
-                _record_digest_sent(session, user_id, org_id, window_end)
-
-        # Per-org webhook (one combined digest per org)
+        # Per-org webhook (one combined digest per org).
+        # Codex pass 4 (2026-04-14): the org webhook had NO idempotency
+        # before — every 60s poll re-sent the same digest until the next
+        # quiet period. Now claimed atomically against the new
+        # quiet_hours_org_digest_sends table.
         webhook_url = config.get("webhook_url")
         if webhook_url:
-            _deliver_digest_webhook(
-                webhook_url,
-                config.get("webhook_type", "generic"),
-                alerts,
-                org_name,
-                window_end,
-            )
+            if _claim_org_webhook_send(session, org_id, window_end):
+                _deliver_digest_webhook(
+                    webhook_url,
+                    config.get("webhook_type", "generic"),
+                    alerts,
+                    org_name,
+                    window_end,
+                )
 
         log.info(
             f"Quiet hours digest delivered: org={org_name} "

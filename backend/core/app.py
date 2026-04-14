@@ -193,8 +193,27 @@ async def _periodic_cleanup():
                     text("DELETE FROM token_blacklist WHERE expires_at < :now"),
                     {"now": now.isoformat()},
                 )
+                # v1.8.6 (codex pass 4): the digest-sends idempotency tables
+                # grow monotonically without this — one row per user per
+                # quiet-hours window forever. 30-day retention is well past
+                # any reasonable troubleshooting window for "did I get the
+                # 2026-Q1-04-13 digest?" while keeping the row count bounded.
+                # Tables are guarded with `IF EXISTS` since older
+                # deployments may not have run migrations 002/003 yet.
+                _digest_cutoff = (now - timedelta(days=30)).isoformat()
+                for _table in ("quiet_hours_digest_sends", "quiet_hours_org_digest_sends"):
+                    try:
+                        db.execute(
+                            text(f"DELETE FROM {_table} WHERE window_ended_at < :cutoff"),
+                            {"cutoff": _digest_cutoff},
+                        )
+                    except Exception:
+                        # Table doesn't exist yet (migration 002/003 hasn't
+                        # run on this deployment). Skip silently — next
+                        # startup applies the migrations.
+                        db.rollback()
                 db.commit()
-                log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens")
+                log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens, old digest-send rows")
             finally:
                 db.close()
         except Exception:

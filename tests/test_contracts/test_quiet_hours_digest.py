@@ -168,6 +168,55 @@ class TestDigestDriver:
             "either idempotency isn't wired or the table isn't used."
         )
 
+    def test_driver_claims_before_deliver(self):
+        """Codex pass 4 (2026-04-14): the driver must CLAIM the digest
+        send atomically BEFORE running any delivery code. The previous
+        check-then-act flow let two workers both pass _already_sent_digest()
+        and both deliver before either recorded the send — duplicate
+        notifications shipped before the race resolved."""
+        src = REPORT_RUNNER.read_text()
+        fn = _get_function_source(src, "process_quiet_hours_digest")
+        assert "_claim_digest_send" in fn, (
+            "process_quiet_hours_digest must call _claim_digest_send() "
+            "BEFORE delivery to win the idempotency race atomically. "
+            "Delivery-then-record (the v1.8.5 pattern) lets two workers "
+            "both deliver before either records — duplicate sends in the "
+            "wild."
+        )
+        # Old SELECT-then-INSERT pattern must be gone.
+        assert "_already_sent_digest" not in fn, (
+            "process_quiet_hours_digest still calls _already_sent_digest() "
+            "— that's the check-then-act pattern that allowed the race. "
+            "Replace with _claim_digest_send (atomic INSERT)."
+        )
+
+    def test_org_webhook_has_idempotency(self):
+        """Codex pass 4: the org webhook must ALSO claim atomically.
+        Previously it had no idempotency at all, so every 60s daemon
+        poll re-sent the same digest webhook for the duration of the
+        next quiet period."""
+        src = REPORT_RUNNER.read_text()
+        fn = _get_function_source(src, "process_quiet_hours_digest")
+        assert "_claim_org_webhook_send" in fn, (
+            "Org webhook digest must go through _claim_org_webhook_send() "
+            "for idempotency. Without it, every 60s poll re-fires the "
+            "same webhook for the rest of the day."
+        )
+
+    def test_org_webhook_idempotency_migration_exists(self):
+        """The org-level idempotency table needs a migration."""
+        org_migration = BACKEND_DIR / "core" / "migrations" / "003_quiet_hours_org_digest_sends.sql"
+        assert org_migration.exists(), (
+            "Migration 003_quiet_hours_org_digest_sends.sql is missing. "
+            "Without it, _claim_org_webhook_send raises at runtime and "
+            "org webhooks stop working."
+        )
+        sql = org_migration.read_text()
+        assert "UNIQUE(org_id, window_ended_at)" in sql, (
+            "Migration must include UNIQUE(org_id, window_ended_at) for "
+            "atomic claim semantics."
+        )
+
     def test_driver_respects_user_preferences(self):
         src = REPORT_RUNNER.read_text()
         fn = _get_function_source(src, "process_quiet_hours_digest")

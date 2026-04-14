@@ -229,25 +229,70 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
     # v1.8.5: push consumption back to Spoolman for any deductions whose
     # spool has a spoolman_spool_id. Fires AFTER the local commit so the
     # authoritative spool state is persisted regardless of whether
-    # Spoolman is reachable. Errors are surfaced to the operator via
-    # job.notes; no silent drops, no retry-queue coupling.
+    # Spoolman is reachable.
+    #
+    # Codex pass 4 (2026-04-14): two changes vs the original v1.8.5 wiring:
+    #   1. Background-thread the push so a slow / unreachable Spoolman
+    #      can't hold a request worker for 5s × linked_spools per
+    #      completion. Slow-Spoolman would otherwise be a worker-
+    #      exhaustion DoS surface (an attacker can't directly exploit
+    #      it, but a misconfigured Spoolman would degrade the whole
+    #      farm). Same daemon-thread pattern as send_webhook in
+    #      channels.py.
+    #   2. Sanitize the operator-visible note. The previous version
+    #      copied the raw exception (which can include the configured
+    #      Spoolman URL or an internal IP from WebhookSSRFError) into
+    #      job.notes, which is returned in JobResponse and visible to
+    #      every viewer with job access. The note now says only that
+    #      a push failed and points at server logs.
     if deductions:
-        try:
-            from modules.inventory.services import push_consumption_to_spoolman
-            push_errors = push_consumption_to_spoolman(deductions)
-            if push_errors:
-                for err in push_errors:
-                    log.error(f"Spoolman push error on job {job.id}: {err}")
-                appended = "\n".join(f"Spoolman push failed: {e}" for e in push_errors)
-                job.notes = f"{job.notes or ''}\n{appended}".strip()
-                db.commit()
-                db.refresh(job)
-        except Exception as e:
-            # Helper itself raised; don't let it take down the completion.
-            log.error(f"Spoolman push helper raised on job {job.id}: {e}")
-            job.notes = f"{job.notes or ''}\nSpoolman push helper error: {e}".strip()
-            db.commit()
-            db.refresh(job)
+        from modules.inventory.services import push_consumption_to_spoolman
+        import threading
+
+        def _push_async(snapshot_deductions, snapshot_job_id):
+            # New session for the background thread — never share a
+            # request-bound Session across threads.
+            from core.db import SessionLocal
+            try:
+                push_errors = push_consumption_to_spoolman(snapshot_deductions)
+                if push_errors:
+                    for err in push_errors:
+                        log.error(f"Spoolman push error on job {snapshot_job_id}: {err}")
+                    bg = SessionLocal()
+                    try:
+                        # Sanitized, short note — exception detail stays in
+                        # the server log, never the customer-visible field.
+                        marker = (
+                            f"\n[v1.8.6] Spoolman push failed for "
+                            f"{len(push_errors)} spool(s); see server logs."
+                        )
+                        bg.execute(
+                            text("UPDATE jobs SET notes = COALESCE(notes,'') || :m WHERE id = :id"),
+                            {"m": marker, "id": snapshot_job_id},
+                        )
+                        bg.commit()
+                    finally:
+                        bg.close()
+            except Exception as e:
+                # Helper itself raised in the background. Log only —
+                # do NOT propagate the exception text to job.notes.
+                log.error(f"Spoolman push helper raised on job {snapshot_job_id}: {e}")
+                bg = SessionLocal()
+                try:
+                    bg.execute(
+                        text("UPDATE jobs SET notes = COALESCE(notes,'') || :m WHERE id = :id"),
+                        {"m": "\n[v1.8.6] Spoolman push helper error; see server logs.",
+                         "id": snapshot_job_id},
+                    )
+                    bg.commit()
+                finally:
+                    bg.close()
+
+        threading.Thread(
+            target=_push_async,
+            args=(list(deductions), job.id),
+            daemon=True,
+        ).start()
 
     return job
 
