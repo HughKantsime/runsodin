@@ -65,6 +65,12 @@ export const vision = {
   getDetections: (params: VisionDetectionListParams): Promise<VisionDetection[]> => fetchAPI('/vision/detections?' + new URLSearchParams(params as Record<string, string>)),
   getDetection: (id: number): Promise<VisionDetection> => fetchAPI('/vision/detections/' + id),
   reviewDetection: (id: number, status: string): Promise<VisionDetection> => fetchAPI(`/vision/detections/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  // v1.8.8: one-click "false alarm, resume print" — dismisses the
+  // detection AND resumes the paused printer in one request.
+  // Idempotent both ways (already-dismissed / already-running return
+  // success with an `actions` array describing what was a no-op).
+  dismissAndResume: (id: number): Promise<{ detection_id: number; status: string; actions: string[] }> =>
+    fetchAPI(`/vision/detections/${id}/dismiss-and-resume`, { method: 'POST' }),
   getSettings: (): Promise<VisionSettings> => fetchAPI('/vision/settings'),
   updateSettings: (data: Partial<VisionSettings>): Promise<VisionSettings> => fetchAPI('/vision/settings', { method: 'PATCH', body: JSON.stringify(data) }),
   getPrinterSettings: (id: number): Promise<VisionSettings> => fetchAPI(`/printers/${id}/vision`),

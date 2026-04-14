@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown } from 'lucide-react'
+import { Eye, Check, X, AlertTriangle, Camera, Filter, ChevronDown, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { vision, printers } from '../../api'
 import { canDo } from '../../permissions'
@@ -49,7 +49,7 @@ function StatBar({ stats }) {
   )
 }
 
-function FrameModal({ detection, onClose, onReview }) {
+function FrameModal({ detection, onClose, onReview, onDismissAndResume }) {
   const canReview = canDo('manage_printers')
   const [imgEl, setImgEl] = useState(null)
 
@@ -103,7 +103,7 @@ function FrameModal({ detection, onClose, onReview }) {
 
           {/* Review actions */}
           {canReview && detection.status === 'pending' && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => onReview(detection.id, 'confirmed')}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 rounded-md text-sm font-medium transition-colors"
@@ -118,6 +118,19 @@ function FrameModal({ detection, onClose, onReview }) {
                 <X size={14} />
                 Dismiss
               </button>
+              {/* v1.8.8: one-click "false alarm, resume print" — only
+                  surfaced when the detection has a linked printer
+                  (auto-pause typically fires on a paused print). */}
+              {detection.printer_id && (
+                <button
+                  onClick={() => onDismissAndResume(detection.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600/80 hover:bg-green-500 rounded-md text-sm font-medium transition-colors"
+                  title="Dismiss the detection and resume the print in one click"
+                >
+                  <CheckCircle2 size={14} />
+                  False alarm — resume print
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -207,6 +220,36 @@ export default function Detections() {
       setSelectedDetection(null)
     } catch (e) {
       toast.error('Review failed: ' + (e.message || 'Unknown error'))
+    }
+  }
+
+  // v1.8.8: one-click "false alarm → resume print" flow. Calls the
+  // server's dismiss-and-resume endpoint, which marks the detection
+  // dismissed AND calls the printer's resume dispatch in a single
+  // request. Idempotent on both sides.
+  const handleDismissAndResume = async (id) => {
+    try {
+      const res = await vision.dismissAndResume(id)
+      queryClient.invalidateQueries({ queryKey: ['vision-detections'] })
+      queryClient.invalidateQueries({ queryKey: ['vision-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['printers'] })
+      setSelectedDetection(null)
+      // Surface what actually happened — the printer may have already
+      // been running (nothing to resume) or the resume call may have
+      // failed while the dismiss succeeded.
+      const acts = (res && res.actions) || []
+      const printerAction = acts.find((a) => a.startsWith('printer:')) || ''
+      if (printerAction === 'printer:resumed') {
+        toast.success('Dismissed and print resumed')
+      } else if (printerAction === 'printer:already_running') {
+        toast.success('Dismissed (printer was already running)')
+      } else if (printerAction === 'printer:resume_failed') {
+        toast.error('Dismissed, but resume failed — check the printer')
+      } else {
+        toast.success('Dismissed')
+      }
+    } catch (e) {
+      toast.error('Action failed: ' + (e.message || 'Unknown error'))
     }
   }
 
@@ -446,6 +489,7 @@ export default function Detections() {
           detection={selectedDetection}
           onClose={() => setSelectedDetection(null)}
           onReview={handleReview}
+          onDismissAndResume={handleDismissAndResume}
         />
       )}
     </div>
