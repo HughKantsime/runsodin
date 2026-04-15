@@ -90,6 +90,14 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 - **AI** — ONNX Runtime (Vigil AI failure detection)
 - **Deploy** — Docker, supervisord (9 managed processes)
 
+## Agents (v1.8.9+)
+
+O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with idempotent retries, dry-run previews, structured error codes, and a CMMC/ITAR-compatible local-LLM deployment path.
+
+- **[odin-print-farm-mcp](https://github.com/HughKantsime/odin-mcp)** (npm: `odin-print-farm-mcp@2`) — 26 tools covering queue, printers, jobs, inventory, alerts, maintenance.
+- **[MCP integration docs](https://docs.runsodin.com/integrations/mcp-server)** — Quick start, tool catalog, agent primitives, error codes.
+- **[ITAR / CMMC mode](https://docs.runsodin.com/configuration/itar-mode)** — Fail-closed air-gap deployment.
+
 ## Documentation
 
 - [Full Documentation](https://docs.runsodin.com) — Installation, configuration, features, API reference, troubleshooting
