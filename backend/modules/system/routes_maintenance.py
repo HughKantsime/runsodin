@@ -4,13 +4,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import AGENT_WRITE_SCOPE, require_any_scope, require_role
+from core.responses import build_next_actions, next_action
 from modules.printers.models import Printer
 from modules.system.models import MaintenanceTask, MaintenanceLog
 
@@ -139,17 +142,54 @@ def list_maintenance_logs(
 
 
 @router.post("/maintenance/logs", tags=["Maintenance"])
-def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Log a maintenance action performed on a printer."""
+def create_maintenance_log(
+    data: MaintenanceLogCreate,
+    request: Request,
+    # Stacked auth (Phase 2 canonical) — see routes_controls.py::pause_printer.
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Log a maintenance action performed on a printer.
+
+    Agent-surface (v1.9.0 Phase 2): honors X-Dry-Run, emits next_actions.
+    """
     printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
     if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {data.printer_id} not found",
+            status=404,
+        )
 
     result = db.execute(text(
         "SELECT COALESCE(SUM(duration_hours), 0) FROM jobs "
         "WHERE printer_id = :pid AND status = 'completed'"
     ), {"pid": data.printer_id}).scalar()
     total_hours = float(result or 0)
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "complete_maintenance",
+                "printer_id": data.printer_id,
+                "printer_name": printer.name,
+                "task_id": data.task_id,
+                "task_name": data.task_name,
+                "notes": data.notes,
+                "cost": data.cost,
+                "downtime_minutes": data.downtime_minutes,
+                "print_hours_at_service": total_hours,
+            },
+            next_actions=[
+                next_action(
+                    "list_maintenance_tasks",
+                    {"overdue_only": True},
+                    "verify task no longer overdue",
+                ),
+            ],
+            notes="Would insert a MaintenanceLog row; no other side effects.",
+        )
 
     log_entry = MaintenanceLog(
         printer_id=data.printer_id,
@@ -164,7 +204,18 @@ def create_maintenance_log(data: MaintenanceLogCreate, current_user: dict = Depe
     db.add(log_entry)
     db.commit()
     db.refresh(log_entry)
-    return {"id": log_entry.id, "message": "Maintenance logged", "print_hours_at_service": total_hours}
+    return {
+        "id": log_entry.id,
+        "message": "Maintenance logged",
+        "print_hours_at_service": total_hours,
+        "next_actions": build_next_actions(
+            next_action(
+                "list_maintenance_tasks",
+                {"overdue_only": True},
+                "confirm task no longer overdue",
+            ),
+        ),
+    }
 
 
 @router.delete("/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])

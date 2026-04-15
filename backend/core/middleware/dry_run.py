@@ -233,6 +233,7 @@ DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
     ("POST", "/api/v1/printers/{printer_id}/resume"),
     ("PATCH", "/api/v1/alerts/{alert_id}/read"),
     ("PATCH", "/api/v1/alerts/{alert_id}/dismiss"),
+    ("POST", "/api/v1/maintenance/logs"),
 )
 
 
