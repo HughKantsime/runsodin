@@ -2,6 +2,102 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.8.9] - 2026-04-15
+
+### Added — agent-native surface
+
+The backend now exposes a stable agent-facing contract for
+MCP / OpenClaw clients. All primitives ship as middleware + helpers
+so routes opt in per-endpoint in subsequent releases.
+
+- **Idempotency-Key middleware** with claim-before-execute, PK-scoped
+  by `(key, user_id)`, 24h TTL, 15-min pending watchdog. Handles
+  concurrent retries (loser gets 409 `idempotency_in_progress`),
+  authz drift (role/scope change → 409 `idempotency_authz_changed`,
+  handler does NOT re-execute), non-cacheable 2xx (Set-Cookie
+  responses → 409 `idempotency_uncacheable_success`), multipart and
+  oversized bodies (415 / 413 `idempotency_unsupported`). Preserves
+  response `Content-Type` on replay. Migration `005` + upgrade-safe
+  `006`.
+
+- **X-Dry-Run header** infrastructure. `is_dry_run(request)` +
+  `dry_run_preview(would_execute, ...)` helpers. Per-route opt-in
+  (explicitly empty registry at launch; routes land preview
+  branches in v1.8.10+).
+
+- **OdinError + structured envelope.** All error responses carry
+  the dual-shape body: top-level `detail` (backward-compat with
+  the existing frontend) and `error: {code, detail, retriable}`
+  for agents. Stable codes: `printer_not_found`, `job_not_found`,
+  `scope_denied`, `quota_exceeded`, `idempotency_conflict`,
+  `idempotency_in_progress`, `idempotency_authz_changed`,
+  `idempotency_uncacheable_success`, `idempotency_unsupported`,
+  `itar_outbound_blocked`, `rate_limited`, and more. Preserves
+  `exc.headers` (WWW-Authenticate, Retry-After) and structured
+  `exc.detail` payloads.
+
+- **Agent-scoped tokens.** Two new well-known scopes:
+  `agent:read` and `agent:write`. Granted via the existing
+  `api_tokens.scopes` column (no schema change). New
+  `require_any_scope("admin", "agent:write")` dependency. Admin /
+  license / backup / user-CRUD / SMTP endpoints stay humans-only
+  regardless of token scope.
+
+- **next_actions response hint.** Write responses include
+  `next_actions: [{tool, args?, reason?}]` to guide weak local
+  models without prompt-engineering.
+
+- **CORS allow-list** extended with `Idempotency-Key`, `X-Dry-Run`,
+  `X-Idempotent-Replay` for browser cross-origin agent clients.
+
+### Added — ITAR / CMMC mode
+
+`ODIN_ITAR_MODE=1` enables fail-closed air-gap mode.
+
+- **Boot audit.** Refuses to start if any configured outbound URL
+  (license server, update server, webhooks, SMTP host, MQTT
+  republish, OIDC discovery, Spoolman, org webhooks in
+  `groups.settings_json`) resolves to a public address.
+
+- **Runtime DNS pinning.** `pin_for_request(url)` context manager
+  resolves + validates + pins the socket to vetted private IPs
+  via ContextVar-backed `socket.getaddrinfo` override (async-safe
+  via `asyncio.to_thread` / anyio thread-pool context copy).
+  Applied to every outbound HTTP call site: `safe_post`,
+  `trusted_post`, license server (activate / unactivate /
+  reactivate / challenge / probe), OIDC (discovery / token /
+  Graph userinfo / JWKS), Spoolman (every GET site across
+  `inventory`, `printers`, `reporting`, `system/routes_health`),
+  printer adapters (Moonraker, PrusaLink, smart plug).
+
+- **Proxy bypass closed.** Every ITAR-protected httpx client passes
+  `trust_env=should_trust_env()` — blocks `HTTP(S)_PROXY` env vars
+  inside ITAR, honors them outside (no regression for non-ITAR
+  proxy deployments).
+
+- **Hard-disabled subsystems.** APNs (`api.push.apple.com` —
+  inherently public) and Web Push (pywebpush — third-party
+  transport cannot be pinned) refuse all sends under ITAR, in both
+  `channels.py` and `alert_dispatcher.py` paths. SMTP / MQTT
+  connects validated at call time.
+
+### Changed
+
+- HTTPException global handler now wraps responses in the dual-shape
+  envelope while preserving `exc.headers` (restores
+  `WWW-Authenticate` on 401 and `Retry-After` on 429).
+
+### Verified
+
+- **20 consecutive Codex adversarial review passes** against the
+  Phase 1 diff. 49 findings closed (4 critical, 39 high, 6 medium).
+  All fixes land with regression tests. Contract suite: 514 tests
+  green.
+
+- **odin-print-farm-mcp@2** (separate repo, same release train)
+  consumes this surface with 22 live tools + the 4 v1 reference
+  tools. 22 integration tests green against a mock ODIN.
+
 ## [1.8.8] - 2026-04-14
 
 ### Breaking changes
