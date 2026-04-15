@@ -755,11 +755,12 @@ def test_lookup_classifies_expired(conn):
 
 
 def test_stuck_pending_row_classifies_as_stuck_pending(conn):
-    """A pending row older than the 90s watchdog is treated as
-    stuck_pending so the caller can CAS-claim it (single winner)."""
+    """A pending row older than the watchdog is treated as
+    stuck_pending so the caller can CAS-claim it (single winner).
+    Watchdog is 15 min (codex pass 7) — test uses 20 min."""
     from core.middleware.idempotency import _lookup_row, _LOOKUP_STUCK_PENDING
 
-    past = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    past = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
@@ -863,7 +864,7 @@ def test_prune_removes_expired_complete_and_stuck_pending(conn):
 
     now = datetime.now(timezone.utc)
     long_ago = (now - timedelta(hours=30)).isoformat()        # expired complete
-    stuck = (now - timedelta(minutes=5)).isoformat()          # stuck pending
+    stuck = (now - timedelta(minutes=20)).isoformat()         # stuck pending (watchdog 15m)
     fresh = now.isoformat()                                    # still valid
 
     cases = [

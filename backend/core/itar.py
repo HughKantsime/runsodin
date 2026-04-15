@@ -297,3 +297,32 @@ def enforce_request_destination(url: str) -> None:
             f"ODIN_ITAR_MODE=1 refused outbound request — {reason}. "
             f"URL={url!r}."
         )
+
+
+def enforce_host_destination(host: str, scheme: str = "net") -> None:
+    """Raise ItarOutboundBlocked if ITAR is on and `host` is public.
+
+    For non-HTTP outbound channels — SMTP (smtplib), MQTT (paho), any
+    socket-level connect. The resolver check is the same as
+    enforce_request_destination but takes a bare hostname rather
+    than a URL.
+
+    Codex pass 7 (2026-04-15): boot-time DNS audit alone isn't enough.
+    A host that resolved private at boot could resolve public later
+    under split-horizon DNS / config drift / resolver changes. Every
+    outbound client path that could leak data must check on each
+    connect.
+
+    `scheme` is just a label threaded into the error message for
+    operator debugging ("smtp", "mqtt", etc.).
+    """
+    if not is_itar_mode():
+        return
+    if not host:
+        return
+    if is_private_destination(host):
+        return
+    raise ItarOutboundBlocked(
+        f"ODIN_ITAR_MODE=1 refused {scheme} connect — "
+        f"{host!r} resolves to a public address."
+    )

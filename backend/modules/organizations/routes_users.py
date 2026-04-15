@@ -71,6 +71,10 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
     msg.attach(MIMEText(html_body, "html"))
 
     try:
+        # v1.8.9 (codex pass 7): runtime ITAR guard.
+        from core.itar import enforce_host_destination
+        enforce_host_destination(smtp["host"], scheme="smtp")
+
         if smtp.get("use_tls", True):
             server = smtplib.SMTP(smtp["host"], smtp.get("port", 587), timeout=10)
             server.starttls()

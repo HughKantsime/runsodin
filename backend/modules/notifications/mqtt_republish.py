@@ -124,6 +124,11 @@ def _get_client():
             if config["use_tls"]:
                 client.tls_set()
 
+            # v1.8.9 (codex pass 7): runtime ITAR guard on every MQTT
+            # connect — boot-audit alone misses DNS drift.
+            from core.itar import enforce_host_destination
+            enforce_host_destination(config["host"], scheme="mqtt")
+
             client.connect(config["host"], config["port"], keepalive=60)
             client.loop_start()
 
@@ -240,6 +245,10 @@ def test_connection(host: str, port: int, username: str = "", password: str = ""
             client.username_pw_set(username, password)
         if use_tls:
             client.tls_set()
+
+        # v1.8.9 (codex pass 7): ITAR guard even on test-connect.
+        from core.itar import enforce_host_destination
+        enforce_host_destination(host, scheme="mqtt")
 
         client.connect(host, port, keepalive=10)
         client.loop_start()

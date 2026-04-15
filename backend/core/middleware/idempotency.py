@@ -90,11 +90,21 @@ _MAX_REQUEST_BODY_BYTES = 1024 * 1024
 _TTL_HOURS = 24
 
 # Pending-row watchdog: if a handler crashes without writing the
-# response, the key would be wedged until the pruner runs. 90s lets a
-# healthy handler finish (even slow ones) while bounding the stuck
-# window. A stuck pending row is treated as a cache miss on the next
-# read.
-_PENDING_WATCHDOG_SECONDS = 90
+# response, the key would be wedged until the pruner runs. The window
+# must be LONGER than the longest legitimate mutating handler or else
+# a slow-running request gets "reclaimed" by a retry and both
+# executions produce side effects.
+#
+# Codex pass 7 (2026-04-15): original value of 90s was too short —
+# timelapse edit routes invoke ffmpeg with 300-600s subprocess
+# timeouts (modules/archives/routes/projects.py). The reclaim would
+# fire while the first handler was still running, defeating the
+# whole idempotency contract. The watchdog is now 900s (15 min),
+# which covers every mutating handler currently in the tree. Routes
+# that ever exceed this should NOT send `Idempotency-Key` — the
+# middleware short-circuits cleanly when the header is absent, so
+# an opt-out is just "don't include the header."
+_PENDING_WATCHDOG_SECONDS = 15 * 60
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -183,6 +193,17 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
             if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
                 return None
             # Blacklist check — revoked sessions.
+            #
+            # Codex pass 7 (2026-04-15): do NOT require `active_sessions`
+            # presence. `get_current_user` in core/dependencies.py does
+            # NOT require it either (it only tries to update
+            # last_seen_at best-effort and tolerates missing rows).
+            # Requiring the row here created a split-brain where valid
+            # authenticated callers whose session row had been cleaned
+            # up would bypass the idempotency cache entirely, opening
+            # a duplicate-execution window. Keep the blacklist check
+            # (revocation is real auth); skip the active_sessions
+            # gate so our auth matches the route's.
             jti = payload.get("jti")
             if jti:
                 bl = db.execute(
@@ -190,13 +211,6 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
                     {"jti": jti},
                 ).fetchone()
                 if bl:
-                    return None
-                # Active session must still exist.
-                sess = db.execute(
-                    text("SELECT 1 FROM active_sessions WHERE token_jti = :jti"),
-                    {"jti": jti},
-                ).fetchone()
-                if not sess:
                     return None
             username = token_data.username
             if not username:

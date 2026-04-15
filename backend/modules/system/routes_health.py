@@ -236,7 +236,23 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
     S1 from 2026-04-12 review: unactivate / reactivate require proof-of-
     possession, which means signing a server-issued nonce. This helper
     encapsulates the GET so the three license routes share the flow.
+
+    v1.8.9 (codex pass 7): runtime ITAR enforcement. Boot-audit alone
+    isn't enough — if the configured license_server_url's DNS shifts
+    to a public address post-boot (split-horizon, config drift,
+    resolver change), the boot audit can't catch it. Every call
+    checks the destination before the HTTP request fires.
     """
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    try:
+        enforce_request_destination(license_server_url)
+    except ItarOutboundBlocked as exc:
+        log.error("License challenge refused under ITAR: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="License server destination blocked by ITAR mode.",
+        )
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(

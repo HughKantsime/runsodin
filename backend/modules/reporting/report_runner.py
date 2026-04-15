@@ -68,6 +68,10 @@ def send_report_email(smtp_config, recipient, subject, html_body):
         msg["To"] = recipient
         msg.attach(MIMEText(html_body, "html"))
 
+        # v1.8.9 (codex pass 7): runtime ITAR guard.
+        from core.itar import enforce_host_destination
+        enforce_host_destination(smtp_config["host"], scheme="smtp")
+
         if smtp_config.get("use_tls", True):
             server = smtplib.SMTP(smtp_config["host"], smtp_config.get("port", 587))
             server.starttls()
