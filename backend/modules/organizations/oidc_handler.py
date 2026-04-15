@@ -145,14 +145,14 @@ class OIDCHandler:
         # bare check was TOCTOU — resolution could drift between
         # check and httpx connect. pin_for_request pins the socket
         # to the vetted addresses for the duration of the block.
-        from core.itar import pin_for_request
+        from core.itar import pin_for_request, should_trust_env
         with pin_for_request(self.discovery_url):
-            # trust_env=False (codex pass 12): httpx honors
+            # trust_env=should_trust_env() (codex pass 12): httpx honors
             # HTTP(S)_PROXY by default, which would route the socket
             # through a proxy and bypass our DNS pin entirely. The
             # proxy then does its own lookup and can connect to a
             # public IdP. Disable env proxies so the pin holds.
-            async with httpx.AsyncClient(trust_env=False) as client:
+            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                 resp = await client.get(self.discovery_url, timeout=10)
                 resp.raise_for_status()
                 self._config = resp.json()
@@ -213,9 +213,9 @@ class OIDCHandler:
         }
         
         # v1.8.9 (codex pass 11): ITAR DNS-pinned exchange.
-        from core.itar import pin_for_request
+        from core.itar import pin_for_request, should_trust_env
         with pin_for_request(token_endpoint):
-            async with httpx.AsyncClient(trust_env=False) as client:
+            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                 resp = await client.post(
                     token_endpoint,
                     data=data,
@@ -241,9 +241,9 @@ class OIDCHandler:
             graph_url = "https://graph.microsoft.us/v1.0/me"
 
         # v1.8.9 (codex pass 11): ITAR DNS-pinned Graph fetch.
-        from core.itar import pin_for_request
+        from core.itar import pin_for_request, should_trust_env
         with pin_for_request(graph_url):
-            async with httpx.AsyncClient(trust_env=False) as client:
+            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                 resp = await client.get(
                     graph_url,
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -259,7 +259,7 @@ class OIDCHandler:
     async def parse_id_token(self, id_token: str) -> Dict[str, Any]:
         """
         Parse and validate ID token signature against the provider's JWKS endpoint.
-        Fetches JWKS via direct httpx (trust_env=False) so
+        Fetches JWKS via direct httpx (trust_env=should_trust_env()) so
         HTTP(S)_PROXY env vars cannot defeat ITAR DNS pinning.
         """
         import jwt as _jwt
@@ -272,14 +272,14 @@ class OIDCHandler:
         # v1.8.9 (codex pass 11 + 12): ITAR DNS-pinned JWKS fetch.
         # PyJWKClient uses urllib.request internally, which honors
         # HTTP(S)_PROXY env vars — a proxy would defeat the DNS pin.
-        # Fetch the JWKS ourselves via httpx with trust_env=False,
+        # Fetch the JWKS ourselves via httpx with trust_env=should_trust_env(),
         # then build a PyJWKSet from the JSON.
-        from core.itar import pin_for_request
+        from core.itar import pin_for_request, should_trust_env
         from jwt import PyJWKSet
 
         try:
             with pin_for_request(jwks_uri):
-                async with httpx.AsyncClient(trust_env=False) as _client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as _client:
                     _resp = await _client.get(jwks_uri, timeout=10)
                     _resp.raise_for_status()
                     _jwks_json = _resp.json()

@@ -79,6 +79,18 @@ def test_odin_error_to_envelope_shape():
     assert env["error"]["limit_grams"] == 1000
 
 
+def test_should_trust_env_inverts_itar_mode(monkeypatch):
+    """Codex pass 14: trust_env must be True (honor proxies) outside
+    ITAR, False (block proxies) inside ITAR."""
+    from core.itar import should_trust_env
+
+    monkeypatch.delenv("ODIN_ITAR_MODE", raising=False)
+    assert should_trust_env() is True
+
+    monkeypatch.setenv("ODIN_ITAR_MODE", "1")
+    assert should_trust_env() is False
+
+
 def test_odin_error_envelope_preserves_legacy_detail():
     """Top-level `detail` preserves the legacy frontend contract
     (client.ts / auth.ts read err.detail directly).
@@ -134,6 +146,20 @@ def test_build_next_actions():
     assert len(out) == 2
     assert out[0]["tool"] == "get_job"
     assert out[1]["tool"] == "list_queue"
+
+
+def test_exception_handler_source_preserves_headers():
+    """Codex pass 14: the HTTPException handler must forward
+    exc.headers so WWW-Authenticate, Retry-After, etc. survive.
+    Source-level assertion so no app boot is needed."""
+    from pathlib import Path
+
+    app_py = (
+        Path(__file__).resolve().parents[2] / "backend" / "core" / "app.py"
+    ).read_text(encoding="utf-8")
+    assert 'headers=getattr(exc, "headers", None)' in app_py, (
+        "HTTPException handler must pass through exc.headers"
+    )
 
 
 def test_build_next_actions_skips_none_entries():

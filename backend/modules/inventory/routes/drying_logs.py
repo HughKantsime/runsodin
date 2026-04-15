@@ -69,9 +69,9 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
 
     if settings.spoolman_url:
         try:
-            from core.itar import pin_for_request
+            from core.itar import pin_for_request, should_trust_env
             with pin_for_request(settings.spoolman_url):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
                     if resp.status_code == 200:
                         spools = resp.json()

@@ -282,6 +282,24 @@ class ItarOutboundBlocked(Exception):
     attempted in ITAR mode."""
 
 
+def should_trust_env() -> bool:
+    """Decide whether httpx should honor HTTP(S)_PROXY env vars.
+
+    Codex pass 14 (2026-04-15): an earlier fix forced
+    `trust_env=False` on every ITAR-protected httpx client to prevent
+    a proxy from bypassing the DNS pin. But outside ITAR mode,
+    operators often rely on a corporate proxy for legitimate egress
+    (OIDC discovery, license server, Spoolman). Hard-coding
+    trust_env=False broke those deployments with no security benefit
+    — pin_for_request is itself a no-op outside ITAR mode.
+
+    Returns True (honor proxies) when ITAR is OFF, False (disable
+    proxies) when ITAR is ON. Every ITAR-protected httpx client
+    should pass `trust_env=should_trust_env()`.
+    """
+    return not is_itar_mode()
+
+
 import contextlib
 
 

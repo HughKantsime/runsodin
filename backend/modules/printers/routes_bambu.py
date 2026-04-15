@@ -125,9 +125,9 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
     spoolman_list = []
     if settings.spoolman_url:
         try:
-            from core.itar import pin_for_request
+            from core.itar import pin_for_request, should_trust_env
             with pin_for_request(settings.spoolman_url):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
                     if resp.status_code == 200:
                         for spool in resp.json():

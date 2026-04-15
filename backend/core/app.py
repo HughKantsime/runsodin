@@ -686,6 +686,12 @@ def create_app() -> FastAPI:
             legacy_detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
             agent_detail = legacy_detail
 
+        # Codex pass 14 (2026-04-15): preserve exc.headers. Auth
+        # routes raise HTTPException(401, headers={"WWW-Authenticate":
+        # ...}); slowapi raises 429 with Retry-After. Losing those is
+        # a protocol-level regression — spec-compliant clients can't
+        # recover and operators see generic "access denied" instead of
+        # the challenge/backoff signal.
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -696,6 +702,7 @@ def create_app() -> FastAPI:
                     "retriable": code == ErrorCode.rate_limited,
                 },
             },
+            headers=getattr(exc, "headers", None),
         )
 
     # Global exception handler — capture unhandled exceptions into ring buffer

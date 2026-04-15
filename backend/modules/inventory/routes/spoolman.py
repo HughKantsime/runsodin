@@ -29,11 +29,11 @@ async def sync_spoolman(current_user: dict = Depends(require_role("operator")), 
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
 
     try:
-        # v1.8.9 (codex pass 13): DNS-pinned + trust_env=False.
-        from core.itar import pin_for_request, ItarOutboundBlocked
+        # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env().
+        from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
         try:
             with pin_for_request(settings.spoolman_url):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=10)
                     resp.raise_for_status()
                     spools = resp.json()
@@ -60,10 +60,10 @@ async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
 
     try:
-        from core.itar import pin_for_request, ItarOutboundBlocked
+        from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
         try:
             with pin_for_request(settings.spoolman_url):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=10)
                     resp.raise_for_status()
                     spools_data = resp.json()
@@ -93,10 +93,10 @@ async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer
 async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer"))):
     """Fetch all filament types from Spoolman."""
     try:
-        from core.itar import pin_for_request, ItarOutboundBlocked
+        from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
         try:
             with pin_for_request(settings.spoolman_url or ""):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     response = await client.get(f"{settings.spoolman_url}/api/v1/filament", timeout=10.0)
                     response.raise_for_status()
                     return response.json()

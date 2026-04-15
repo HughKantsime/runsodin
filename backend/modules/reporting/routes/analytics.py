@@ -82,9 +82,9 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     spoolman_connected = False
     if settings.spoolman_url:
         try:
-            from core.itar import pin_for_request
+            from core.itar import pin_for_request, should_trust_env
             with pin_for_request(settings.spoolman_url):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=3)
                     spoolman_connected = resp.status_code == 200
         except Exception as e:

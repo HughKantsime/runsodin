@@ -45,10 +45,10 @@ async def health_check():
     spoolman_ok = False
     if settings.spoolman_url:
         try:
-            # v1.8.9 (codex pass 13): DNS-pinned + trust_env=False.
-            from core.itar import pin_for_request
+            # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env().
+            from core.itar import pin_for_request, should_trust_env
             with pin_for_request(settings.spoolman_url):
-                async with httpx.AsyncClient(trust_env=False) as client:
+                async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                     resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
                     spoolman_ok = resp.status_code == 200
         except Exception as e:
@@ -89,15 +89,15 @@ async def _probe_license_server() -> dict:
         cached.update({"reachable": False, "detail": "license_server_url not configured", "checked_at": now})
         return {**cached, "cached": False}
 
-    # v1.8.9 (codex pass 13): DNS-pinned + trust_env=False outbound.
+    # v1.8.9 (codex pass 13): DNS-pinned + trust_env=should_trust_env() outbound.
     # The earlier enforce_request_destination check was TOCTOU; the
     # proxy-trusting default httpx client could also bypass the pin.
     reachable = False
     detail = ""
-    from core.itar import pin_for_request, ItarOutboundBlocked
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
         with pin_for_request(base):
-            async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=5, trust_env=should_trust_env()) as client:
                 for path in ("/api/v1/health", "/health", "/"):
                     try:
                         resp = await client.get(f"{base}{path}")
@@ -258,10 +258,10 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
     resolver change), the boot audit can't catch it. Every call
     checks the destination before the HTTP request fires.
     """
-    from core.itar import pin_for_request, ItarOutboundBlocked
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
         with pin_for_request(license_server_url):
-            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
                 resp = await client.get(
                     f"{license_server_url}/api/v1/challenge",
                     params={"installation_id": installation_id},
@@ -302,10 +302,10 @@ async def activate_license(
     _priv, device_pubkey = get_device_keypair()
 
     # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
-    from core.itar import pin_for_request, ItarOutboundBlocked
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
         with pin_for_request(license_server_url):
-            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
                 resp = await client.post(
                     f"{license_server_url}/api/v1/activate",
                     json={
@@ -424,10 +424,10 @@ async def unactivate_license(
     signature = sign_license_challenge("unactivate", license_key, installation_id, nonce)
 
     # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
-    from core.itar import pin_for_request, ItarOutboundBlocked
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
         with pin_for_request(license_server_url):
-            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
                 resp = await client.post(
                     f"{license_server_url}/api/v1/unactivate",
                     json={
@@ -482,10 +482,10 @@ async def reactivate_license(
     signature = sign_license_challenge("reactivate", current_license.key, installation_id, nonce)
 
     # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
-    from core.itar import pin_for_request, ItarOutboundBlocked
+    from core.itar import pin_for_request, ItarOutboundBlocked, should_trust_env
     try:
         with pin_for_request(license_server_url):
-            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+            async with httpx.AsyncClient(timeout=15, trust_env=should_trust_env()) as client:
                 resp = await client.post(
                     f"{license_server_url}/api/v1/reactivate",
                     json={
