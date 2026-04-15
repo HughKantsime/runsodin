@@ -287,7 +287,7 @@ def test_handler_exception_releases_pending_row(conn, monkeypatch):
     from types import SimpleNamespace
 
     class _Headers:
-        _h = {"Idempotency-Key": "exc-key"}
+        _h = {"Idempotency-Key": "exc-key", "content-length": "100", "content-type": "application/json"}
         def get(self, k, default=None):
             return self._h.get(k, default)
 
@@ -432,7 +432,7 @@ def test_fingerprint_drift_refuses_replay_AND_re_execution(monkeypatch, conn):
     monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
 
     class _Headers:
-        _h = {"Idempotency-Key": "k-fp", "content-type": "application/json"}
+        _h = {"Idempotency-Key": "k-fp", "content-type": "application/json", "content-length": "100"}
         def get(self, k, default=None):
             return self._h.get(k.lower(), self._h.get(k, default))
 
@@ -504,7 +504,7 @@ def test_fingerprint_replays_on_match(monkeypatch, conn):
     monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
 
     class _Headers:
-        _h = {"Idempotency-Key": "k-same", "content-type": "application/json"}
+        _h = {"Idempotency-Key": "k-same", "content-type": "application/json", "content-length": "100"}
         def get(self, k, default=None):
             return self._h.get(k.lower(), self._h.get(k, default))
 
@@ -554,6 +554,7 @@ def test_response_with_set_cookie_is_not_cacheable(monkeypatch, conn):
         _h = {
             "Idempotency-Key": "k-login",
             "content-type": "application/json",
+            "content-length": "100",
         }
         def get(self, k, default=None):
             return self._h.get(k.lower(), self._h.get(k, default))
@@ -608,6 +609,7 @@ def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
         _h = {
             "Idempotency-Key": "k-big-resp",
             "content-type": "application/json",
+            "content-length": "100",
         }
         def get(self, k, default=None):
             return self._h.get(k.lower(), self._h.get(k, default))
@@ -646,6 +648,42 @@ def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
     assert rows == 0
 
 
+def test_chunked_request_without_content_length_refused(monkeypatch, conn):
+    """Codex pass 11: requests without a bounded Content-Length MUST
+    NOT buffer the body — return 411 explicitly."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+
+    class _Headers:
+        # No content-length.
+        _h = {"Idempotency-Key": "k-chunked", "content-type": "application/json"}
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/jobs"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        cookies = {}
+        async def body(self):
+            raise AssertionError("body() must not be called without Content-Length")
+
+    async def _handler(request):
+        raise AssertionError("handler must not run")
+
+    import json as _json
+    result, call_count = _run_middleware_and_capture(monkeypatch, conn, _Req(), _handler)
+    assert call_count == 0
+    assert result.status_code == 411  # Length Required
+    body = _json.loads(bytes(result.body))
+    assert body["error"]["code"] == "idempotency_unsupported"
+
+
 def test_middleware_degrades_when_table_missing(monkeypatch):
     """Codex pass 8: if migration 005 hasn't applied, the middleware
     must pass through cleanly instead of 500ing every request."""
@@ -666,7 +704,7 @@ def test_middleware_degrades_when_table_missing(monkeypatch):
     idem_mod._SCHEMA_READY_CACHE["checked_at"] = 0.0
 
     class _Headers:
-        _h = {"Idempotency-Key": "k-skew", "content-type": "application/json"}
+        _h = {"Idempotency-Key": "k-skew", "content-type": "application/json", "content-length": "100"}
         def get(self, k, default=None):
             return self._h.get(k.lower(), self._h.get(k, default))
 

@@ -200,6 +200,40 @@ def test_collect_db_configured_urls_handles_missing_tables(monkeypatch):
     assert urls == []
 
 
+def test_pin_for_request_noop_when_itar_off(itar_off):
+    """When ITAR is disabled, pin_for_request is a pure passthrough."""
+    from core.itar import pin_for_request
+
+    with pin_for_request("https://8.8.8.8/"):
+        pass  # Should not raise.
+
+
+def test_pin_for_request_blocks_public_when_itar_on(itar_on):
+    """Literal public IP → refused with DNS pinning context."""
+    from core.itar import pin_for_request, ItarOutboundBlocked
+
+    with pytest.raises(ItarOutboundBlocked):
+        with pin_for_request("https://8.8.8.8/"):
+            pass
+
+
+def test_pin_for_request_allows_private_literal_when_itar_on(itar_on):
+    """Literal private IP → context enters fine."""
+    from core.itar import pin_for_request
+
+    with pin_for_request("http://10.0.0.5:8080/"):
+        pass  # Should not raise.
+
+
+def test_pin_for_request_refuses_empty_hostname(itar_on):
+    """Malformed URL (no host) → refused rather than silently accepted."""
+    from core.itar import pin_for_request, ItarOutboundBlocked
+
+    with pytest.raises(ItarOutboundBlocked):
+        with pin_for_request("not-a-url"):
+            pass
+
+
 def test_collect_db_configured_urls_returns_webhook_urls(monkeypatch):
     """Happy path: populated webhooks table yields plaintext URLs."""
     from core.itar import collect_db_configured_urls

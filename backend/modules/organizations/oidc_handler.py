@@ -141,20 +141,19 @@ class OIDCHandler:
             if age < 3600:  # Cache for 1 hour
                 return self._config
 
-        # v1.8.9 (codex pass 9): ITAR guard on OIDC discovery. Under
-        # ODIN_ITAR_MODE=1, a public IdP (Microsoft / Google / Okta)
-        # would receive authorization codes and user info — exactly
-        # the leak ITAR mode is supposed to prevent.
-        from core.itar import enforce_request_destination
-        enforce_request_destination(self.discovery_url)
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(self.discovery_url, timeout=10)
-            resp.raise_for_status()
-            self._config = resp.json()
-            self._config_fetched_at = now
-            log.info(f"Fetched OIDC config from {self.discovery_url}")
-            return self._config
+        # v1.8.9 (codex pass 11): ITAR guard with DNS pinning. The
+        # bare check was TOCTOU — resolution could drift between
+        # check and httpx connect. pin_for_request pins the socket
+        # to the vetted addresses for the duration of the block.
+        from core.itar import pin_for_request
+        with pin_for_request(self.discovery_url):
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(self.discovery_url, timeout=10)
+                resp.raise_for_status()
+                self._config = resp.json()
+                self._config_fetched_at = now
+                log.info(f"Fetched OIDC config from {self.discovery_url}")
+                return self._config
     
     async def get_authorization_url(self, state: Optional[str] = None) -> tuple[str, str]:
         """
@@ -208,22 +207,21 @@ class OIDCHandler:
             "grant_type": "authorization_code",
         }
         
-        # v1.8.9 (codex pass 9): ITAR guard on OIDC token exchange.
-        from core.itar import enforce_request_destination
-        enforce_request_destination(token_endpoint)
+        # v1.8.9 (codex pass 11): ITAR DNS-pinned exchange.
+        from core.itar import pin_for_request
+        with pin_for_request(token_endpoint):
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    token_endpoint,
+                    data=data,
+                    timeout=10,
+                )
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                token_endpoint,
-                data=data,
-                timeout=10,
-            )
+                if resp.status_code != 200:
+                    log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
+                    raise Exception(f"Token exchange failed: {resp.text}")
 
-            if resp.status_code != 200:
-                log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
-                raise Exception(f"Token exchange failed: {resp.text}")
-
-            return resp.json()
+                return resp.json()
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """
@@ -237,16 +235,15 @@ class OIDCHandler:
         if "microsoftonline.us" in self.discovery_url:
             graph_url = "https://graph.microsoft.us/v1.0/me"
 
-        # v1.8.9 (codex pass 9): ITAR guard on Graph userinfo fetch.
-        from core.itar import enforce_request_destination
-        enforce_request_destination(graph_url)
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                graph_url,
-                headers={"Authorization": f"Bearer {access_token}"},
-                timeout=10,
-            )
+        # v1.8.9 (codex pass 11): ITAR DNS-pinned Graph fetch.
+        from core.itar import pin_for_request
+        with pin_for_request(graph_url):
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    graph_url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10,
+                )
             
             if resp.status_code != 200:
                 log.error(f"User info fetch failed: {resp.status_code} {resp.text}")
@@ -267,17 +264,16 @@ class OIDCHandler:
         if not jwks_uri:
             raise ValueError("No jwks_uri in OIDC config")
 
-        # v1.8.9 (codex pass 10): ITAR guard on JWKS fetch. PyJWKClient
-        # does its own network request internally; we must validate
-        # the host BEFORE constructing it, or PyJWKClient will
-        # happily fetch the key set from public IdP infra in an ITAR
-        # deployment.
-        from core.itar import enforce_request_destination
-        enforce_request_destination(jwks_uri)
+        # v1.8.9 (codex pass 11): ITAR DNS-pinned JWKS fetch.
+        # PyJWKClient does its own network request internally —
+        # wrapping in pin_for_request ensures the socket connects
+        # to the vetted private IP.
+        from core.itar import pin_for_request
 
         try:
-            jwk_client = PyJWKClient(jwks_uri)
-            signing_key = jwk_client.get_signing_key_from_jwt(id_token)
+            with pin_for_request(jwks_uri):
+                jwk_client = PyJWKClient(jwks_uri)
+                signing_key = jwk_client.get_signing_key_from_jwt(id_token)
 
             claims = _jwt.decode(
                 id_token,

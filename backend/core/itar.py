@@ -282,6 +282,104 @@ class ItarOutboundBlocked(Exception):
     attempted in ITAR mode."""
 
 
+import contextlib
+
+
+@contextlib.contextmanager
+def pin_for_request(url: str):
+    """Context manager: validate AND DNS-pin an outbound httpx call.
+
+    Codex pass 11 (2026-04-15): the bare `enforce_request_destination`
+    check was TOCTOU. It resolved the hostname, said "private — ok,"
+    returned. The subsequent httpx call re-resolved, and under
+    split-horizon DNS / resolver drift / cache poison could connect
+    to a public IP instead. The air-gap contract requires that the
+    socket connect to the SAME addresses that passed validation.
+
+    This helper:
+      1. Resolves the URL's hostname.
+      2. Verifies every resolved address is private/loopback under
+         ITAR mode. Mixed answers (one private + one public) are
+         refused outright — the public record is the rebinding
+         signal.
+      3. Pins httpx's socket.getaddrinfo (via the thread-local pin
+         installed by `core/webhook_utils`) to the validated list
+         for the duration of the context. httpx + PyJWKClient both
+         go through `socket.getaddrinfo` under the hood so the pin
+         covers every outbound layer.
+      4. Outside ITAR mode: this is a pure no-op for zero overhead.
+
+    Usage:
+        with pin_for_request(url):
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url)
+    """
+    if not is_itar_mode() or not url:
+        yield
+        return
+
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise ItarOutboundBlocked(
+            f"ODIN_ITAR_MODE=1: URL has no hostname: {url!r}"
+        )
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+
+    # Literal-IP short-circuit.
+    try:
+        addr = ipaddress.ip_address(host)
+        if not (
+            addr.is_private or addr.is_loopback
+            or addr.is_link_local or addr.is_unspecified
+        ):
+            raise ItarOutboundBlocked(
+                f"ODIN_ITAR_MODE=1: literal IP {host!r} is public"
+            )
+        validated_ips = [str(addr)]
+    except ValueError:
+        # Hostname: resolve and validate every returned address.
+        try:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise ItarOutboundBlocked(
+                f"ODIN_ITAR_MODE=1: could not resolve {host!r}: {exc}"
+            )
+        validated: list[str] = []
+        public: list[str] = []
+        seen: set[str] = set()
+        for _fam, _type, _proto, _canon, sockaddr in infos:
+            ip_str = sockaddr[0]
+            try:
+                ip_obj = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified:
+                if ip_str not in seen:
+                    validated.append(ip_str)
+                    seen.add(ip_str)
+            else:
+                public.append(ip_str)
+        if public:
+            # Any public answer is a rebinding signal. Refuse outright.
+            raise ItarOutboundBlocked(
+                f"ODIN_ITAR_MODE=1: {host!r} resolves to public address(es) "
+                f"{public}; refusing to connect"
+            )
+        if not validated:
+            raise ItarOutboundBlocked(
+                f"ODIN_ITAR_MODE=1: {host!r} returned no addresses"
+            )
+        validated_ips = validated
+
+    # Pin for the duration of the context. Reuses the thread-local
+    # pin + socket.getaddrinfo override installed by webhook_utils.
+    from core.webhook_utils import _pin_dns
+    with _pin_dns(host, port, validated_ips):
+        yield
+
+
 def enforce_request_destination(url: str) -> None:
     """Raise ItarOutboundBlocked if ITAR is on and the URL is public.
 

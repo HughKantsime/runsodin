@@ -970,30 +970,32 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             media_type="application/json",
         )
 
-    # Body must be read before dispatch; FastAPI already buffers it for
-    # most routes, but we ensure it's available for hashing and then
-    # put it back so downstream handlers see it.
-    body = await request.body()
-    # Defence-in-depth: if the body arrived without a content-length
-    # header (chunked transfer) and exceeded the cap anyway, refuse
-    # rather than silently degrade.
-    if len(body) > _MAX_REQUEST_BODY_BYTES:
+    # Codex pass 11 (2026-04-15): refuse Idempotency-Key on chunked
+    # requests that don't declare a Content-Length. Without a bounded
+    # length header, `await request.body()` would buffer the full
+    # payload in memory before we could enforce the cap — a caller
+    # could force the app to hold 100+ MB per request and only then
+    # see a 413. Require a declared, bounded Content-Length.
+    if not content_length_str.isdigit():
         return Response(
             content=json.dumps({
                 "detail": (
-                    f"Idempotency-Key is not supported for requests larger "
-                    f"than {_MAX_REQUEST_BODY_BYTES} bytes (chunked body). "
-                    f"Use application-level dedup."
+                    "Idempotency-Key requires a declared Content-Length. "
+                    "Chunked transfer encoding without Content-Length is "
+                    "not supported; re-send with Content-Length set."
                 ),
                 "error": {
                     "code": "idempotency_unsupported",
-                    "detail": "Idempotency-Key not supported for oversized chunked requests.",
+                    "detail": "Idempotency-Key requires a declared Content-Length header.",
                     "retriable": False,
                 },
             }),
-            status_code=413,
+            status_code=411,  # Length Required
             media_type="application/json",
         )
+
+    # Body read is now safe — Content-Length is bounded and below cap.
+    body = await request.body()
 
     async def _receive():
         return {"type": "http.request", "body": body, "more_body": False}
