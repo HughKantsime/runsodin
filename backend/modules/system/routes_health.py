@@ -39,6 +39,18 @@ else:
 
 # ============== Health Check ==============
 
+@router.get("/version", tags=["System"])
+async def version():
+    """Return backend version. Unauthenticated; MCP clients call this
+    on first tool invocation to decide whether to forward X-Dry-Run
+    safely — pre-1.9.0 backends silently execute on un-retrofitted
+    routes, so the MCP client refuses dry-run against older servers.
+
+    Response: {"version": "1.9.0"} — semver string from the VERSION file.
+    """
+    return {"version": __version__}
+
+
 @router.get("/health", response_model=HealthCheck, tags=["System"])
 async def health_check():
     """Check API health and connectivity."""
