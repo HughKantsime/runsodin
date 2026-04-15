@@ -45,12 +45,12 @@ async def health_check():
     spoolman_ok = False
     if settings.spoolman_url:
         try:
-            # v1.8.9 (codex pass 8): ITAR guard — refuse public Spoolman.
-            from core.itar import enforce_request_destination
-            enforce_request_destination(settings.spoolman_url)
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
-                spoolman_ok = resp.status_code == 200
+            # v1.8.9 (codex pass 13): DNS-pinned + trust_env=False.
+            from core.itar import pin_for_request
+            with pin_for_request(settings.spoolman_url):
+                async with httpx.AsyncClient(trust_env=False) as client:
+                    resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
+                    spoolman_ok = resp.status_code == 200
         except Exception as e:
             log.debug(f"Spoolman health check failed: {e}")
 
@@ -89,12 +89,26 @@ async def _probe_license_server() -> dict:
         cached.update({"reachable": False, "detail": "license_server_url not configured", "checked_at": now})
         return {**cached, "cached": False}
 
-    # v1.8.9 (codex pass 8): ITAR guard on the 10-minute reachability
-    # probe — the cached result lives for 10 min, but the probe itself
-    # is a live outbound call.
+    # v1.8.9 (codex pass 13): DNS-pinned + trust_env=False outbound.
+    # The earlier enforce_request_destination check was TOCTOU; the
+    # proxy-trusting default httpx client could also bypass the pin.
+    reachable = False
+    detail = ""
+    from core.itar import pin_for_request, ItarOutboundBlocked
     try:
-        from core.itar import enforce_request_destination, ItarOutboundBlocked
-        enforce_request_destination(base)
+        with pin_for_request(base):
+            async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
+                for path in ("/api/v1/health", "/health", "/"):
+                    try:
+                        resp = await client.get(f"{base}{path}")
+                        if resp.status_code < 500:
+                            reachable = True
+                            detail = f"HTTP {resp.status_code} on {path}"
+                            break
+                    except Exception:
+                        continue
+                if not reachable:
+                    detail = "all probe paths failed"
     except ItarOutboundBlocked as exc:
         cached.update({
             "reachable": False,
@@ -102,22 +116,6 @@ async def _probe_license_server() -> dict:
             "checked_at": now,
         })
         return {**cached, "cached": False}
-
-    reachable = False
-    detail = ""
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            for path in ("/api/v1/health", "/health", "/"):
-                try:
-                    resp = await client.get(f"{base}{path}")
-                    if resp.status_code < 500:
-                        reachable = True
-                        detail = f"HTTP {resp.status_code} on {path}"
-                        break
-                except Exception:
-                    continue
-            if not reachable:
-                detail = "all probe paths failed"
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
 
@@ -260,22 +258,20 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
     resolver change), the boot audit can't catch it. Every call
     checks the destination before the HTTP request fires.
     """
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    from core.itar import pin_for_request, ItarOutboundBlocked
     try:
-        enforce_request_destination(license_server_url)
+        with pin_for_request(license_server_url):
+            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+                resp = await client.get(
+                    f"{license_server_url}/api/v1/challenge",
+                    params={"installation_id": installation_id},
+                )
     except ItarOutboundBlocked as exc:
         log.error("License challenge refused under ITAR: %s", exc)
         raise HTTPException(
             status_code=502,
             detail="License server destination blocked by ITAR mode.",
         )
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{license_server_url}/api/v1/challenge",
-                params={"installation_id": installation_id},
-            )
     except Exception as e:
         log.error("License challenge fetch failed: %s", e)
         raise HTTPException(status_code=502, detail="Could not reach license server.")
@@ -305,23 +301,21 @@ async def activate_license(
     # pair can't succeed — they don't hold the private key.
     _priv, device_pubkey = get_device_keypair()
 
-    # v1.8.9 (codex pass 8): ITAR guard on the activate POST.
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
+    from core.itar import pin_for_request, ItarOutboundBlocked
     try:
-        enforce_request_destination(license_server_url)
+        with pin_for_request(license_server_url):
+            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+                resp = await client.post(
+                    f"{license_server_url}/api/v1/activate",
+                    json={
+                        "key": request.key,
+                        "installation_id": installation_id,
+                        "device_pubkey": device_pubkey,
+                    },
+                )
     except ItarOutboundBlocked as ite:
         raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{license_server_url}/api/v1/activate",
-                json={
-                    "key": request.key,
-                    "installation_id": installation_id,
-                    "device_pubkey": device_pubkey,
-                },
-            )
     except Exception as e:
         log.error("License activation failed — could not reach license server: %s", e)
         raise HTTPException(status_code=502, detail="Could not reach license server. Check network connectivity and LICENSE_SERVER_URL.")
@@ -429,25 +423,22 @@ async def unactivate_license(
     nonce = await _fetch_license_challenge(license_server_url, installation_id)
     signature = sign_license_challenge("unactivate", license_key, installation_id, nonce)
 
-    # v1.8.9 (codex pass 8): ITAR guard — DNS could drift between the
-    # challenge fetch and this POST.
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
+    from core.itar import pin_for_request, ItarOutboundBlocked
     try:
-        enforce_request_destination(license_server_url)
+        with pin_for_request(license_server_url):
+            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+                resp = await client.post(
+                    f"{license_server_url}/api/v1/unactivate",
+                    json={
+                        "key": license_key,
+                        "installation_id": installation_id,
+                        "nonce": nonce,
+                        "signature": signature,
+                    },
+                )
     except ItarOutboundBlocked as ite:
         raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{license_server_url}/api/v1/unactivate",
-                json={
-                    "key": license_key,
-                    "installation_id": installation_id,
-                    "nonce": nonce,
-                    "signature": signature,
-                },
-            )
     except Exception as e:
         log.error("License unactivation failed — could not reach license server: %s", e)
         raise HTTPException(status_code=502, detail="Could not reach license server.")
@@ -490,23 +481,19 @@ async def reactivate_license(
     nonce = await _fetch_license_challenge(license_server_url, installation_id)
     signature = sign_license_challenge("reactivate", current_license.key, installation_id, nonce)
 
-    # v1.8.9 (codex pass 8): ITAR guard.
-    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    # v1.8.9 (codex pass 13): DNS-pinned, no env proxy.
+    from core.itar import pin_for_request, ItarOutboundBlocked
     try:
-        enforce_request_destination(license_server_url)
-    except ItarOutboundBlocked as ite:
-        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{license_server_url}/api/v1/reactivate",
-                json={
-                    "key": current_license.key,
-                    "installation_id": installation_id,
-                    "nonce": nonce,
-                    "signature": signature,
-                },
+        with pin_for_request(license_server_url):
+            async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+                resp = await client.post(
+                    f"{license_server_url}/api/v1/reactivate",
+                    json={
+                        "key": current_license.key,
+                        "installation_id": installation_id,
+                        "nonce": nonce,
+                        "signature": signature,
+                    },
             )
     except Exception as e:
         log.error("License reactivation failed — could not reach license server: %s", e)

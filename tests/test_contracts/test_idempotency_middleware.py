@@ -649,14 +649,20 @@ def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
 
 
 def test_chunked_request_without_content_length_refused(monkeypatch, conn):
-    """Codex pass 11: requests without a bounded Content-Length MUST
-    NOT buffer the body — return 411 explicitly."""
+    """Codex pass 11+13: only refuse actually-chunked requests. A
+    missing Content-Length by itself is NOT a refusal — many clients
+    omit it on empty-body POST/DELETE. Refuse only when
+    Transfer-Encoding: chunked is explicitly set."""
     from types import SimpleNamespace
     from fastapi.responses import Response
 
     class _Headers:
-        # No content-length.
-        _h = {"Idempotency-Key": "k-chunked", "content-type": "application/json"}
+        # Chunked transfer encoding + no Content-Length.
+        _h = {
+            "Idempotency-Key": "k-chunked",
+            "content-type": "application/json",
+            "transfer-encoding": "chunked",
+        }
         def get(self, k, default=None):
             return self._h.get(k.lower(), self._h.get(k, default))
 
@@ -682,6 +688,41 @@ def test_chunked_request_without_content_length_refused(monkeypatch, conn):
     assert result.status_code == 411  # Length Required
     body = _json.loads(bytes(result.body))
     assert body["error"]["code"] == "idempotency_unsupported"
+
+
+def test_empty_body_without_content_length_is_accepted(monkeypatch, conn):
+    """Codex pass 13: /auth/logout, /alerts/mark-all-read etc. have
+    empty bodies; many clients omit Content-Length in that case.
+    Middleware must accept — only refuse actual chunked uploads."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+
+    class _Headers:
+        # No Content-Length, no Transfer-Encoding: chunked.
+        _h = {"Idempotency-Key": "k-logout", "content-type": "application/json"}
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/auth/logout"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        cookies = {}
+        async def body(self):
+            return b""
+
+    async def _handler(request):
+        return Response(content=b'{"logged_out":true}', status_code=200, media_type="application/json")
+
+    result, call_count = _run_middleware_and_capture(monkeypatch, conn, _Req(), _handler)
+    # Handler ran; cached successfully.
+    assert call_count == 1
+    assert result.status_code == 200
 
 
 def test_middleware_degrades_when_table_missing(monkeypatch):

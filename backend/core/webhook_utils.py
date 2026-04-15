@@ -23,10 +23,10 @@ Codex pass 2 (2026-04-13):
 """
 
 import contextlib
+import contextvars
 import ipaddress
 import socket
 import ssl
-import threading
 import urllib.parse
 
 from fastapi import HTTPException
@@ -156,20 +156,24 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
 
 
 # Codex pass 3 (2026-04-13): replaced the process-wide lock with a
-# thread-local pin state. The previous lock-around-the-whole-POST
-# serialised every concurrent webhook dispatch behind one slow endpoint.
-# Thread-local lets each dispatcher thread carry its own pinned IP
-# without contention; the resolver override below routes the lookup based
-# on which thread is asking.
+# thread-local pin state so concurrent webhook dispatches don't
+# serialise.
 #
-# The override is installed once at module load (it's a no-op when no
-# thread has a pin set), so we never mutate socket.getaddrinfo at runtime.
-_dns_pin_state = threading.local()
+# Codex pass 13 (2026-04-15): upgraded from `threading.local()` to
+# `contextvars.ContextVar`. async FastAPI runs many coroutines on
+# one thread — thread-local state leaks between them on every
+# `await`, letting coroutine B overwrite coroutine A's pin between
+# A's validation and A's socket connect. ContextVar is the canonical
+# async-aware primitive: each coroutine gets its own snapshot, no
+# cross-coroutine contamination, and synchronous callers still get
+# thread-level isolation because each thread starts with a fresh
+# context.
+_dns_pin_state: contextvars.ContextVar = contextvars.ContextVar("odin_dns_pin", default=None)
 _real_getaddrinfo = socket.getaddrinfo
 
 
 def _pinned_getaddrinfo(host, port, *args, **kwargs):
-    pin = getattr(_dns_pin_state, "pin", None)
+    pin = _dns_pin_state.get()
     if pin and host == pin["hostname"] and (
         port == pin["port"] or port is None or str(port) == str(pin["port"])
     ):
@@ -200,19 +204,21 @@ if socket.getaddrinfo is _real_getaddrinfo:
 
 @contextlib.contextmanager
 def _pin_dns(hostname: str, port: int, ips: list[str]):
-    """Pin DNS for `hostname:port` to the validated `ips` list on the
-    current thread only. httpx may try them in order until one connects.
+    """Pin DNS for `hostname:port` to the validated `ips` list for
+    the duration of the context. Async-coroutine-safe via ContextVar.
 
-    Thread-local: other threads dispatching to other webhooks see no
-    interference. Defeats the DNS-rebinding TOCTOU window between the
-    validation call and httpx's socket connect.
+    Codex pass 13 (2026-04-15): migrated from threading.local. Under
+    async FastAPI, thread-local state is shared across coroutines on
+    the same thread; coroutine B could overwrite coroutine A's pin
+    between A's validation and A's socket connect. ContextVar
+    guarantees each coroutine sees its own pin, and each thread
+    starts with a fresh context so sync callers are also isolated.
     """
-    previous = getattr(_dns_pin_state, "pin", None)
-    _dns_pin_state.pin = {"hostname": hostname, "port": port, "ips": list(ips)}
+    token = _dns_pin_state.set({"hostname": hostname, "port": port, "ips": list(ips)})
     try:
         yield
     finally:
-        _dns_pin_state.pin = previous
+        _dns_pin_state.reset(token)
 
 
 def safe_post(url: str, **kwargs):

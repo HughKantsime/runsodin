@@ -213,12 +213,12 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
     spoolman_spools = []
     if settings.spoolman_url:
         try:
-            from core.itar import enforce_request_destination
-            enforce_request_destination(settings.spoolman_url)
-            with httpx.Client(timeout=5.0) as client:
-                resp = client.get(f"{settings.spoolman_url}/api/v1/spool")
-                if resp.status_code == 200:
-                    spoolman_spools = resp.json()
+            from core.itar import pin_for_request
+            with pin_for_request(settings.spoolman_url):
+                with httpx.Client(timeout=5.0, trust_env=False) as client:
+                    resp = client.get(f"{settings.spoolman_url}/api/v1/spool")
+                    if resp.status_code == 200:
+                        spoolman_spools = resp.json()
         except Exception as e:
             log.debug(f"Failed to fetch spoolman spools: {e}")
 

@@ -1011,23 +1011,26 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             media_type="application/json",
         )
 
-    # Codex pass 11 (2026-04-15): refuse Idempotency-Key on chunked
-    # requests that don't declare a Content-Length. Without a bounded
-    # length header, `await request.body()` would buffer the full
-    # payload in memory before we could enforce the cap — a caller
-    # could force the app to hold 100+ MB per request and only then
-    # see a 413. Require a declared, bounded Content-Length.
-    if not content_length_str.isdigit():
+    # Codex pass 11 + 13 (2026-04-15): only refuse chunked requests
+    # that don't declare a Content-Length. Many legitimate POST/DELETE
+    # endpoints (/auth/logout, /alerts/mark-all-read, various "action"
+    # endpoints) have no body, and most HTTP clients omit
+    # Content-Length in that case. Requiring it unconditionally
+    # broke those routes with spurious 411s. Only refuse when the
+    # request is actually streaming (Transfer-Encoding: chunked).
+    transfer_encoding = (request.headers.get("transfer-encoding") or "").lower()
+    is_chunked = "chunked" in transfer_encoding
+    if is_chunked and not content_length_str.isdigit():
         return Response(
             content=json.dumps({
                 "detail": (
-                    "Idempotency-Key requires a declared Content-Length. "
-                    "Chunked transfer encoding without Content-Length is "
-                    "not supported; re-send with Content-Length set."
+                    "Idempotency-Key is not supported for chunked "
+                    "transfer-encoded requests. Send with an explicit "
+                    "Content-Length, or use application-level dedup."
                 ),
                 "error": {
                     "code": "idempotency_unsupported",
-                    "detail": "Idempotency-Key requires a declared Content-Length header.",
+                    "detail": "Idempotency-Key not supported for chunked requests.",
                     "retriable": False,
                 },
             }),
@@ -1035,7 +1038,8 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             media_type="application/json",
         )
 
-    # Body read is now safe — Content-Length is bounded and below cap.
+    # Body read is safe: either Content-Length is bounded below cap,
+    # or there's no body (chunked already refused above).
     body = await request.body()
 
     async def _receive():

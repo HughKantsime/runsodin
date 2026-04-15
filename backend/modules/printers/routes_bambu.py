@@ -125,20 +125,20 @@ async def sync_bambu_ams(printer_id: int, current_user: dict = Depends(require_r
     spoolman_list = []
     if settings.spoolman_url:
         try:
-            from core.itar import enforce_request_destination
-            enforce_request_destination(settings.spoolman_url)
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
-                if resp.status_code == 200:
-                    for spool in resp.json():
-                        filament = spool.get("filament", {})
-                        spoolman_list.append({
-                            "id": f"spool_{spool['id']}",
-                            "brand": filament.get("vendor", {}).get("name", "Unknown"),
-                            "name": filament.get("name", "Unknown"),
-                            "material": filament.get("material", "PLA"),
-                            "color_hex": filament.get("color_hex"),
-                        })
+            from core.itar import pin_for_request
+            with pin_for_request(settings.spoolman_url):
+                async with httpx.AsyncClient(trust_env=False) as client:
+                    resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
+                    if resp.status_code == 200:
+                        for spool in resp.json():
+                            filament = spool.get("filament", {})
+                            spoolman_list.append({
+                                "id": f"spool_{spool['id']}",
+                                "brand": filament.get("vendor", {}).get("name", "Unknown"),
+                                "name": filament.get("name", "Unknown"),
+                                "material": filament.get("material", "PLA"),
+                                "color_hex": filament.get("color_hex"),
+                            })
         except Exception as e:
             log.debug(f"Failed to fetch spoolman spools: {e}")
 
