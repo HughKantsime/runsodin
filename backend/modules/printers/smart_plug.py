@@ -27,17 +27,34 @@ log = logging.getLogger("smart_plug")
 
 def _http_request(url: str, method: str = "GET", headers: dict = None,
                   data: str = None, timeout: int = 5) -> Tuple[int, str]:
-    """Simple HTTP request using urllib (no external deps)."""
+    """Simple HTTP request using urllib (no external deps).
+
+    v1.8.9 (codex pass 19): ITAR guard. Smart-plug URLs are usually
+    LAN-local (TP-Link Kasa, Tasmota, Shelly) but nothing stops an
+    admin from pasting a public URL. Under ITAR mode, any non-private
+    destination fails closed. urllib.request also honors HTTP(S)_PROXY
+    env vars — we reject public destinations before the call so DNS
+    drift / proxy bypass can't leak printer control data.
+    """
+    # ITAR check at request time — DNS drift between config and send
+    # is caught here rather than only at config time.
+    try:
+        from core.itar import enforce_request_destination, ItarOutboundBlocked
+        enforce_request_destination(url)
+    except ItarOutboundBlocked as exc:
+        log.warning("smart_plug: ITAR blocked outbound to %s: %s", url, exc)
+        return 0, f"Blocked by ITAR: {exc}"
+
     import urllib.request
     import urllib.error
-    
+
     req = urllib.request.Request(url, method=method)
     if headers:
         for k, v in headers.items():
             req.add_header(k, v)
     if data:
         req.data = data.encode("utf-8")
-    
+
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
             body = resp.read().decode("utf-8")

@@ -96,6 +96,16 @@ class PrusaLinkPrinter:
         url = f"{self.base_url}{path}"
         headers = {}
 
+        # v1.8.9 (codex pass 19): ITAR guard. PrusaLink is LAN-local
+        # by convention but an admin can configure any host; block
+        # public destinations under ITAR.
+        try:
+            from core.itar import enforce_request_destination, ItarOutboundBlocked
+            enforce_request_destination(url)
+        except ItarOutboundBlocked as exc:
+            log.warning("prusalink: ITAR blocked %s: %s", url, exc)
+            return None
+
         try:
             if self.api_key:
                 # API key auth (X-Api-Key header)

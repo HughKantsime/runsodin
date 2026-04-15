@@ -141,12 +141,25 @@ def _deliver_in_app(db, user_id, alert_type, severity, title, message,
 
 def _deliver_browser_push(db, user_id, title, message, severity):
     """Send browser push notification to all of a user's subscriptions."""
+    # v1.8.9 (codex pass 19): ITAR mode hard-disables web push here
+    # too. The `channels.py` send_push_notification path is gated by
+    # Fix 44; this legacy dispatcher path was missed in that pass.
+    # Browser push endpoints live on vendor infrastructure
+    # (fcm.googleapis.com, etc.) and pywebpush's transport cannot be
+    # DNS-pinned through — fail closed.
+    from core.itar import is_itar_mode
+    if is_itar_mode():
+        logger.info(
+            "Browser push skipped entirely under ITAR (user %s)", user_id,
+        )
+        return
+
     try:
         from pywebpush import webpush
     except ImportError:
         logger.warning("pywebpush not installed — skipping browser push")
         return
-    
+
     import os
     vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
     vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
