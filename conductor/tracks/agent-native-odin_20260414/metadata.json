@@ -1,0 +1,24 @@
+{
+  "version": 3,
+  "track_id": "agent-native-odin_20260414",
+  "name": "Agent-Native ODIN — OpenClaw + MCP Integration",
+  "type": "feature",
+  "status": "new",
+  "superpower_enhanced": true,
+  "created_at": "2026-04-14",
+  "target_release": "v1.8.9 (odin) + v2.0.0 (odin-mcp)",
+  "repos_touched": [
+    "odin",
+    "odin-mcp",
+    "odin-site"
+  ],
+  "parent_user_directive": "lean into agents running ODIN without ruining the airgapped deployment; do not stub, do not defer, codex-review until green",
+  "loop_state": {
+    "current_step": "EXECUTE",
+    "step_status": "NOT_STARTED",
+    "fix_cycle_count": 0
+  },
+  "post_loop_steps": [
+    "codex_adversarial_review"
+  ]
+}

@@ -221,7 +221,22 @@ async def _periodic_cleanup():
                 except Exception:
                     db.rollback()
                 db.commit()
-                log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens, old digest-send rows")
+
+                # v1.8.9: prune expired idempotency-cache rows. 24h TTL
+                # is enforced at read time too, but the hourly prune
+                # keeps the table from growing unbounded. Wrapped in its
+                # own try so a missing table on an older deployment
+                # (migration 005 not applied) doesn't block the rest.
+                try:
+                    from core.middleware.idempotency import prune_expired_idempotency_keys
+                    pruned = prune_expired_idempotency_keys(db)
+                    if pruned:
+                        log.info("Pruned %d expired idempotency-key rows", pruned)
+                except Exception:
+                    db.rollback()
+                    log.debug("idempotency-key prune skipped (table may not exist yet)")
+
+                log.info("Periodic cleanup completed: stale sessions, login attempts, expired tokens, old digest-send rows, idempotency cache")
             finally:
                 db.close()
         except Exception:
@@ -304,8 +319,18 @@ def _setup_middleware(app: FastAPI) -> None:
 
 
 def _register_http_middleware(app: FastAPI) -> None:
-    """Register @app.middleware("http") handlers for security headers and auth."""
+    """Register @app.middleware("http") handlers for security headers and auth.
+
+    ASGI middleware ordering note: `@app.middleware("http")` wraps
+    earlier-registered middleware with later-registered ones. The net
+    effect: the LAST registration in this function becomes the OUTERMOST
+    wrapper on the request path. That's why the idempotency middleware
+    is registered last — it gets first crack at the request and can
+    short-circuit with a cached response before auth overhead runs.
+    """
     from core.config import settings
+    from core.middleware.dry_run import dry_run_middleware
+    from core.middleware.idempotency import idempotency_middleware
 
     _CSP_SKIP_PREFIXES = (
         "/api/docs", "/api/redoc", "/api/v1/docs", "/api/v1/redoc", "/openapi.json"
@@ -441,6 +466,17 @@ def _register_http_middleware(app: FastAPI) -> None:
             status_code=401,
             content={"detail": "Invalid or missing API key"},
         )
+
+    # v1.8.9: dry-run flag setter. Runs before idempotency so that
+    # `request.state.dry_run` is available on cache-replay paths too
+    # (lets tests confirm a cached response retains dry_run semantics).
+    app.middleware("http")(dry_run_middleware)
+
+    # v1.8.9: Idempotency-Key cache for agent-safe retries. Registered
+    # last so it wraps auth + security_headers and gets first crack at
+    # the request — a cached replay can short-circuit before auth
+    # runs. See core/middleware/idempotency.py for full semantics.
+    app.middleware("http")(idempotency_middleware)
 
 
 # ---------------------------------------------------------------------------
