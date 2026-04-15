@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
+from core.errors import ErrorCode, OdinError
 from core.rbac import require_role
 from core.auth import hash_password
 import core.auth as auth_module
@@ -176,6 +177,13 @@ VALID_SCOPES = {
     "read:spools", "write:spools",
     "read:models", "write:models",
     "read:analytics",
+    # Phase 2 (v1.9.0): agent-surface scopes for the MCP tool layer.
+    # agent:write is strictly narrower than `write` — it grants the
+    # 11 advertised write tools and nothing else. See
+    # core/rbac.py::require_any_scope for enforcement. Minting these
+    # is role-gated below (viewers can mint agent:read; only
+    # operator+ can mint agent:write).
+    "agent:read", "agent:write",
     "admin",
 }
 
@@ -200,6 +208,18 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
         raise HTTPException(status_code=400, detail=f"Invalid scopes: {', '.join(invalid)}")
     if "admin" in scopes and current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admins can create tokens with admin scope")
+    # Phase 2 (v1.9.0): agent-surface mint-time role floor.
+    # agent:write grants the 11 advertised write tools without requiring
+    # operator role at request time — so the role gate MUST happen here,
+    # at mint time. Otherwise a viewer could mint agent:write and bypass
+    # operator role (require_any_scope has no role check). viewers may
+    # mint agent:read because read routes already floor on viewer anyway.
+    if "agent:write" in scopes and current_user["role"] not in ("admin", "operator"):
+        raise OdinError(
+            ErrorCode.permission_denied,
+            "Only operators and admins can mint agent:write tokens",
+            status=403,
+        )
 
     raw_token = f"odin_{secrets.token_urlsafe(32)}"
     token_prefix = raw_token[:10]
