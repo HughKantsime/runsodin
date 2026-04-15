@@ -2,6 +2,76 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.0] - 2026-04-15
+
+### Agent-native surface — Phase 2 (route retrofit + safety gates)
+
+1.8.9 shipped the primitives; 1.9.0 wires them to every MCP-advertised
+route and closes the three silent gaps a post-release audit surfaced:
+
+- **Dry-run was inert on every route** — middleware parsed the
+  header but no route checked the flag; dry-run requests silently
+  executed.
+- **Agent tokens could not be minted** — `VALID_SCOPES` did not
+  include `agent:*`; `POST /tokens` rejected agent-scoped mints.
+- **Agent scopes were unenforced** — zero routes used the
+  `require_any_scope("agent:*")` dep; MCP v2.0.4 had no reachable
+  authentication.
+
+### Added
+
+- **Deny-by-default dry-run middleware.** Any mutating method with
+  `X-Dry-Run: true` whose path is not in `DRY_RUN_SUPPORTED_ROUTES`
+  now returns **501 `dry_run_unsupported`** before the handler runs.
+  Every non-retrofitted route is automatically safe during migration.
+
+- **Agent-scope token minting.** `POST /tokens` accepts `agent:read`
+  and `agent:write`. Viewers can mint `agent:read`; only operator+
+  can mint `agent:write`.
+
+- **`GET /api/v1/version`** unauthenticated endpoint returning the
+  semver string. Used by `odin-mcp` 2.1.0 to refuse forwarding
+  dry-run to pre-1.9.0 backends.
+
+- **22/22 MCP-advertised routes retrofitted** with the canonical
+  Phase 2 pattern:
+  - **Stacked auth:** `require_role(floor)` + `require_any_scope(
+    "admin", AGENT_WRITE_SCOPE)`. BOTH required. Dropping either
+    creates either a viewer-JWT privilege escalation or an
+    unreachable token surface — an audit test
+    (`test_agent_routes_stack_both_gates.py`) prevents regression.
+  - **`is_dry_run(request)`** branches before any DB commit / event
+    emit / MQTT call on every write.
+  - **`OdinError(ErrorCode.*)`** replaces `HTTPException` for all
+    4xx/5xx on these routes.
+  - **`next_actions`** hints emitted on every write success.
+
+### Changed
+
+- `jobs_lifecycle.py` split — `cancel_job`, `approve_job`,
+  `reject_job` moved to new `jobs_agent.py` to stay under the
+  700-line architecture cap. `_get_job_or_raise` shared helper.
+
+- `use_spool` (consume_spool) now accepts both POST and PATCH on the
+  same handler; `SpoolUseRequest` accepts either `weight_used_g` or
+  `grams` via `resolved_grams` property — MCP compat.
+
+- `list_filaments` MCP tool reachable via new
+  `GET /api/v1/filament-library` alias. `assign_spool` reachable via
+  new `POST /api/v1/filament-slots`. Both routes matched MCP client
+  expectations; 1.8.9 backend didn't have either.
+
+### Fixed
+
+- 88 new contract tests; full suite 611 passing (1.8.9: 523).
+- Test-isolation bug where monkeypatched supported-routes leaked
+  between tests.
+
+### Paired release
+
+- `odin-mcp` 2.1.0 adds a backend-version-sniff safety gate that
+  refuses to forward `dry_run: true` to backends reporting < 1.9.0.
+
 ## [1.8.9] - 2026-04-15
 
 ### Added — agent-native surface
