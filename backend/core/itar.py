@@ -157,6 +157,76 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
     log.info("ODIN_ITAR_MODE=1 boot audit passed — all configured URLs are private.")
 
 
+def collect_db_configured_urls() -> list[str]:
+    """Pull every DB-backed outbound URL that would be called at runtime.
+
+    Codex pass 4 (2026-04-14) flagged that the startup audit only
+    inspected statically-known settings (license_server_url). A
+    freshly-installed ODIN with ITAR=1 could boot clean and then leak
+    data on the first webhook dispatch because the runtime
+    enforce_request_destination check is reactive.
+
+    This function consolidates every DB source of outbound URLs so
+    the boot audit can fail closed:
+      - `webhooks` table: per-alert dispatch targets (URL stored
+        encrypted; decrypt for audit).
+      - `system_config` rows with keys that historically carry a URL
+        (`license_server_url` — set dynamically), leaving room for
+        future entries.
+
+    Returns a flat list of plaintext URL strings. Silently drops
+    rows that fail to decrypt (logs a warning) — a boot audit
+    shouldn't crash on corrupt data, but a malformed row can't be
+    validated either.
+    """
+    from core.db import SessionLocal
+    from sqlalchemy import text as sa_text
+
+    urls: list[str] = []
+    db = SessionLocal()
+    try:
+        # Webhook table (post-v1 notifications refactor).
+        try:
+            rows = db.execute(
+                sa_text("SELECT url FROM webhooks")
+            ).fetchall()
+            for row in rows:
+                raw = row[0] if row else None
+                if not raw:
+                    continue
+                try:
+                    # Match routes/webhooks.py decryption pattern.
+                    from core.crypto import decrypt, is_encrypted
+                    plain = decrypt(raw) if is_encrypted(raw) else raw
+                except Exception as exc:
+                    log.warning("ITAR audit: could not decrypt webhook url: %s", exc)
+                    continue
+                urls.append(plain)
+        except Exception as exc:
+            # Table may not exist on a fresh install before first
+            # migration of the notifications module.
+            log.debug("ITAR audit: webhooks table not queryable: %s", exc)
+
+        # system_config rows that historically carry a URL value.
+        try:
+            rows = db.execute(
+                sa_text(
+                    "SELECT key, value FROM system_config "
+                    "WHERE key IN ('license_server_url', 'update_server_url')"
+                )
+            ).fetchall()
+            for key, value in rows:
+                if not value:
+                    continue
+                urls.append(str(value))
+        except Exception as exc:
+            log.debug("ITAR audit: system_config not queryable: %s", exc)
+    finally:
+        db.close()
+
+    return urls
+
+
 class ItarOutboundBlocked(Exception):
     """Raised by the HTTP client guard when a public destination is
     attempted in ITAR mode."""

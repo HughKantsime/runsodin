@@ -69,6 +69,23 @@ log = logging.getLogger("odin.middleware.idempotency")
 # safety net; ODIN write-endpoint responses are all small envelopes.
 _MAX_BODY_BYTES = 256 * 1024
 
+# Cap on request-body size we're willing to buffer for hashing. Codex
+# pass 4 (2026-04-14) flagged that `await request.body()` on large
+# upload endpoints (vision models up to 500 MB, print-files up to
+# 100 MB, backups up to 100 MB) would double memory pressure by
+# holding the full payload in the middleware AND in the route. Also,
+# multipart boundaries randomize per-retry, so a raw-byte hash
+# produces spurious 409 conflicts on legitimate retries. Both issues
+# are fixed by passing through without the middleware for oversized
+# or multipart requests.
+#
+# 1 MB is comfortably above every agent-surface JSON envelope we
+# know about (largest projected agent payload is a bulk-job create
+# in the tens of KB). Operators who want idempotency on a large
+# binary endpoint should use ETag/If-Match or application-level
+# dedup instead.
+_MAX_REQUEST_BODY_BYTES = 1024 * 1024
+
 # Completed-row TTL. Replays within this window; pruner cleans up.
 _TTL_HOURS = 24
 
@@ -602,10 +619,32 @@ async def idempotency_middleware(request: Any, call_next: Callable):
     if not key:
         return await call_next(request)
 
+    # Codex pass 4 (2026-04-14): skip idempotency for multipart /
+    # oversized uploads. Buffering a 500 MB video upload twice
+    # (middleware + route) is a path to OOM; and multipart boundary
+    # randomization per-retry makes raw-byte hashing produce false
+    # 409 conflicts on legitimate retries. Operators who need
+    # idempotency on binary uploads should use ETag/If-Match or
+    # application-level dedup.
+    content_type = (request.headers.get("content-type") or "").lower()
+    if content_type.startswith("multipart/"):
+        return await call_next(request)
+    content_length_str = request.headers.get("content-length") or ""
+    if content_length_str.isdigit() and int(content_length_str) > _MAX_REQUEST_BODY_BYTES:
+        return await call_next(request)
+
     # Body must be read before dispatch; FastAPI already buffers it for
     # most routes, but we ensure it's available for hashing and then
     # put it back so downstream handlers see it.
     body = await request.body()
+    # Defence-in-depth: if the body arrived without a content-length
+    # header (chunked transfer) and exceeded the cap anyway, skip
+    # hashing and pass the buffered bytes through.
+    if len(body) > _MAX_REQUEST_BODY_BYTES:
+        async def _passthrough_receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+        request._receive = _passthrough_receive  # type: ignore[assignment]
+        return await call_next(request)
 
     async def _receive():
         return {"type": "http.request", "body": body, "more_body": False}

@@ -178,3 +178,64 @@ def test_trusted_post_refuses_in_itar_mode(itar_on):
 
     with pytest.raises(WebhookSSRFError):
         trusted_post("https://api.telegram.org/botXYZ/sendMessage", json={})
+
+
+def test_collect_db_configured_urls_handles_missing_tables(monkeypatch):
+    """If neither `webhooks` nor `system_config` is queryable (fresh
+    install, pre-migration), collect returns an empty list without
+    raising — boot must not fail just because a table is missing."""
+    from core.itar import collect_db_configured_urls
+
+    class _RaiseDB:
+        def execute(self, *a, **k):
+            raise RuntimeError("table missing")
+        def close(self):
+            pass
+
+    import core.db as db_mod
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: _RaiseDB())
+
+    # Should not raise; returns [].
+    urls = collect_db_configured_urls()
+    assert urls == []
+
+
+def test_collect_db_configured_urls_returns_webhook_urls(monkeypatch):
+    """Happy path: populated webhooks table yields plaintext URLs."""
+    from core.itar import collect_db_configured_urls
+    import core.db as db_mod
+
+    class _Row:
+        def __init__(self, v):
+            self._v = v
+        def __getitem__(self, i):
+            return self._v
+
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+        def fetchall(self):
+            return self._rows
+
+    class _FakeDB:
+        def __init__(self):
+            self._calls = 0
+        def execute(self, clause, params=None):
+            self._calls += 1
+            sql = str(clause)
+            if "webhooks" in sql:
+                return _Result([_Row("https://internal.example/hook")])
+            if "system_config" in sql:
+                return _Result([("license_server_url", "http://10.0.0.5")])
+            return _Result([])
+        def close(self):
+            pass
+
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: _FakeDB())
+    # Bypass decryption for this test.
+    import core.crypto as _crypto
+    monkeypatch.setattr(_crypto, "is_encrypted", lambda v: False)
+
+    urls = collect_db_configured_urls()
+    assert "https://internal.example/hook" in urls
+    assert "http://10.0.0.5" in urls

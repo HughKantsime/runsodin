@@ -553,6 +553,22 @@ def create_app() -> FastAPI:
 
         _check_schema_drift(engine, Base)
 
+        # v1.8.9 codex pass 4: second ITAR audit, now that DB is
+        # populated. The early `create_app`-level check only sees
+        # static settings (license_server_url). DB-configured
+        # webhooks / update URLs are only visible after migrations
+        # run. Fail closed BEFORE accepting traffic if any of those
+        # resolve to a public address under ITAR mode.
+        if is_itar_mode():
+            from core.itar import collect_db_configured_urls
+            db_urls = collect_db_configured_urls()
+            if db_urls:
+                log.info(
+                    "ITAR mode: auditing %d DB-configured outbound URL(s).",
+                    len(db_urls),
+                )
+                enforce_boot_config(db_urls)
+
         # Validate all declared dependencies are satisfied
         registry.validate_dependencies()
 

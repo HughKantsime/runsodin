@@ -335,6 +335,111 @@ def test_conflict_response_is_dual_shape():
     assert body["error"]["retriable"] is True
 
 
+def _run_middleware_and_capture(monkeypatch, conn, req, handler):
+    """Helper: invoke the idempotency middleware end-to-end against a
+    test connection, returning the handler's execution count."""
+    import asyncio
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    test_db = _fake_db(conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+    monkeypatch.setattr(idem_mod, "_resolve_user_id", lambda req, db: 1)
+
+    calls = {"count": 0}
+
+    async def _wrapped(request):
+        calls["count"] += 1
+        return await handler(request)
+
+    result = asyncio.run(idem_mod.idempotency_middleware(req, _wrapped))
+    return result, calls["count"]
+
+
+def test_multipart_requests_skip_idempotency(monkeypatch, conn):
+    """Codex pass 4: multipart/form-data requests must not be buffered.
+
+    Multipart boundary randomizes per-retry so raw-byte hashing would
+    false-409 legitimate retries; and 500 MB video uploads would OOM
+    if buffered in the middleware on top of the route.
+    """
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-multi",
+            "content-type": "multipart/form-data; boundary=abc123",
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/vision/models"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        async def body(self):
+            raise AssertionError("body() must not be called for multipart")
+
+    async def _handler(request):
+        return Response(content=b'{"ok":true}', status_code=201, media_type="application/json")
+
+    result, call_count = _run_middleware_and_capture(monkeypatch, conn, _Req(), _handler)
+    assert call_count == 1
+    assert result.status_code == 201
+
+    # No row written for this key — middleware skipped caching.
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-multi'"
+    ).fetchone()[0]
+    assert rows == 0
+
+
+def test_oversized_content_length_skips_idempotency(monkeypatch, conn):
+    """Content-length above the 1 MB cap bypasses the middleware."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+
+    oversized = str(2 * 1024 * 1024)  # 2 MB
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-big",
+            "content-type": "application/octet-stream",
+            "content-length": oversized,
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/backups/restore"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        async def body(self):
+            raise AssertionError("body() must not be called for oversized")
+
+    async def _handler(request):
+        return Response(content=b'{"ok":true}', status_code=200, media_type="application/json")
+
+    result, call_count = _run_middleware_and_capture(monkeypatch, conn, _Req(), _handler)
+    assert call_count == 1
+    assert result.status_code == 200
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-big'"
+    ).fetchone()[0]
+    assert rows == 0
+
+
 # ---------------------------------------------------------------------------
 # Lookup classifier
 # ---------------------------------------------------------------------------
