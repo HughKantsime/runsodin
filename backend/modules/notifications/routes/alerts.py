@@ -11,7 +11,7 @@ from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_WRITE_SCOPE, require_any_scope, require_role
+from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role
 from core.responses import build_next_actions, next_action
 from core.base import AlertType
 from core.models import SystemConfig
@@ -108,12 +108,16 @@ async def list_alerts(
     is_read: Optional[bool] = None,
     limit: int = 25,
     offset: int = 0,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    # Stacked auth (Phase 2 canonical read shape). Replaces the ad-hoc
+    # `get_current_user + if not current_user` pattern — require_role
+    # raises the auth error structurally.
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
 ):
     """List alerts for the current user."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
 
     query = db.query(Alert).options(
         selectinload(Alert.printer),

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_WRITE_SCOPE, require_any_scope, require_role
+from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role
 from core.responses import build_next_actions, next_action
 from modules.printers.models import Printer
 from modules.system.models import MaintenanceTask, MaintenanceLog
@@ -57,7 +57,14 @@ class MaintenanceLogCreate(PydanticBaseModel):
 # ============== Task templates ==============
 
 @router.get("/maintenance/tasks", tags=["Maintenance"])
-def list_maintenance_tasks(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def list_maintenance_tasks(
+    db: Session = Depends(get_db),
+    # Stacked auth (Phase 2 canonical read shape).
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+):
     """List all maintenance task templates."""
     tasks = db.query(MaintenanceTask).order_by(MaintenanceTask.name).all()
     return [{

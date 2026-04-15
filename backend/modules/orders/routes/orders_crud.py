@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 import logging
 
 from core.db import get_db
-from core.rbac import require_role, get_org_scope, check_org_access
+from core.rbac import (
+    AGENT_READ_SCOPE,
+    AGENT_WRITE_SCOPE,
+    check_org_access,
+    get_org_scope,
+    require_any_scope,
+    require_role,
+)
 from core.base import OrderStatus, JobStatus
 from modules.orders.models import Product, Order, OrderItem
 from modules.inventory.models import Consumable, ConsumableUsage
@@ -80,8 +87,16 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
 def list_orders(
     status_filter: Optional[str] = None,
     platform: Optional[str] = None,
+    # Stacked auth (Phase 2 canonical read shape). Note: the v1.8.9 wiki
+    # documents `/api/v1/orders` as returning 500 under some conditions;
+    # this Phase 2 retrofit does not alter the handler body. If the 500
+    # reproduces under agent traffic, file a separate bugfix track per
+    # spec R7. Do not mask the error in this retrofit.
     current_user: dict = Depends(require_role("viewer")),
-    db: Session = Depends(get_db)
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
 ):
     """List all orders with optional filters."""
     org = get_org_scope(current_user)

@@ -11,6 +11,7 @@ from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
+    AGENT_READ_SCOPE,
     AGENT_WRITE_SCOPE,
     _get_org_filter,
     check_org_access,
@@ -69,8 +70,12 @@ def list_spools(
     filament_id: Optional[int] = None,
     printer_id: Optional[int] = None,
     org_id: Optional[int] = None,
+    # Stacked auth (Phase 2 canonical read shape).
     current_user: dict = Depends(require_role("viewer")),
-    db: Session = Depends(get_db)
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
 ):
     """List all spools with optional filters."""
     query = db.query(Spool)

@@ -13,7 +13,15 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.rbac import (
+    AGENT_READ_SCOPE,
+    AGENT_WRITE_SCOPE,
+    _get_org_filter,
+    check_org_access,
+    get_org_scope,
+    require_any_scope,
+    require_role,
+)
 import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
 from modules.printers.schemas import (
@@ -37,7 +45,12 @@ def list_printers(
     active_only: bool = False,
     tag: Optional[str] = None,
     org_id: Optional[int] = None,
+    # Stacked auth (Phase 2 canonical read shape) — viewer floor for JWT,
+    # admin/agent:write/agent:read for scoped tokens.
     current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
     db: Session = Depends(get_db),
 ):
     """List all printers, optionally filtered by tag and org."""
@@ -170,7 +183,14 @@ def get_all_printers_live_status_early(
 
 
 @router.get("/printers/{printer_id}", response_model=PrinterResponse, tags=["Printers"])
-def get_printer(printer_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_printer(
+    printer_id: int,
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
+):
     """Get a specific printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

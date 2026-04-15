@@ -14,6 +14,7 @@ from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import (
+    AGENT_READ_SCOPE,
     AGENT_WRITE_SCOPE,
     _get_org_filter,
     check_org_access,
@@ -281,8 +282,12 @@ def list_jobs(
     org_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     offset: int = 0,
+    # Stacked auth (Phase 2 canonical read shape).
     current_user: dict = Depends(require_role("viewer")),
-    db: Session = Depends(get_db)
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
 ):
     """List jobs with optional filters."""
     query = db.query(Job)
@@ -488,7 +493,14 @@ def create_job(
 
 
 @router.get("/{job_id}", response_model=JobResponse, tags=["Jobs"])
-def get_job(job_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_job(
+    job_id: int,
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+    ),
+    db: Session = Depends(get_db),
+):
     """Get a specific job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
