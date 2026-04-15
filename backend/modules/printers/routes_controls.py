@@ -50,6 +50,16 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
 async def pause_printer(
     printer_id: int,
     request: Request,
+    # Stacked auth (Phase 2 canonical pattern — see
+    # conductor/tracks/agent-native-phase2-safety_20260415/spec.md R3):
+    #   * require_role("operator") is the authoritative gate for JWT /
+    #     cookie sessions. require_any_scope bypasses non-token auth
+    #     entirely (core/rbac.py:193-196), so dropping the role dep
+    #     would let any authenticated JWT — including viewers — pause
+    #     printers. That is the regression Phase 2 spec revision caught.
+    #   * require_any_scope("admin", AGENT_WRITE_SCOPE) is the
+    #     authoritative gate for per-user scoped tokens.
+    # BOTH must be present. Do not "simplify" to one.
     current_user: dict = Depends(require_role("operator")),
     _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
     db: Session = Depends(get_db),

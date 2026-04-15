@@ -159,6 +159,38 @@ class TestPausePrinterSourceContract:
             "retriable=True explicitly so clients know to back off and retry."
         )
 
+    def test_stacked_auth_rationale_comment_present(self, fn_src: str):
+        """A future refactor that deletes require_role("operator") as "unused"
+        would reintroduce the viewer-JWT-escalation bug. The inline rationale
+        comment above the two Depends() lines is the source-of-record for
+        why both exist. This test enforces that comment is present — so a
+        naive cleanup refactor fails here before it can regress the auth shape.
+        """
+        # Comment must reference the core/rbac.py:193-196 bypass behavior,
+        # or at least clearly document the JWT vs token-scope rationale.
+        mentions_jwt_bypass = (
+            "JWT" in fn_src
+            or "rbac.py" in fn_src
+            or "non-token auth" in fn_src
+        )
+        assert mentions_jwt_bypass, (
+            "pause_printer must carry an inline comment explaining why both "
+            "require_role and require_any_scope are stacked. Reference "
+            "core/rbac.py:193-196 (the JWT bypass line) so future refactors "
+            "know not to drop the role dep."
+        )
+        # Must explicitly instruct future maintainers not to simplify.
+        forbids_simplification = re.search(
+            r"(BOTH must be present|do not.*simplify|do not.*drop|do not.*remove)",
+            fn_src,
+            re.IGNORECASE,
+        )
+        assert forbids_simplification, (
+            "Rationale comment must contain explicit instruction not to drop "
+            "either dep. Phrase like 'BOTH must be present' or 'do not simplify' "
+            "so grep-based code-review hits it."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Registry: pause_printer must be in the supported-routes tuple
