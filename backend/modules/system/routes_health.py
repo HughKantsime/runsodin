@@ -644,13 +644,21 @@ async def test_spoolman_connection(current_user: dict = Depends(require_superadm
     """Test Spoolman connection. Admin only."""
     if not settings.spoolman_url:
         return {"success": False, "message": "Spoolman URL not configured"}
+    # v1.8.9 (codex pass 15): ITAR guard on the admin test-button.
+    # Without this, superadmins could trigger outbound to a public
+    # Spoolman host from within an ODIN_ITAR_MODE=1 deployment —
+    # trivially bypassing the air-gap contract via an ad-hoc button.
+    from core.itar import pin_for_request, should_trust_env, ItarOutboundBlocked
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
-            if resp.status_code == 200:
-                return {"success": True, "message": f"Connected to Spoolman at {settings.spoolman_url}"}
-            else:
-                return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
+        with pin_for_request(settings.spoolman_url):
+            async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
+                resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
+                if resp.status_code == 200:
+                    return {"success": True, "message": f"Connected to Spoolman at {settings.spoolman_url}"}
+                else:
+                    return {"success": False, "message": f"Spoolman returned status {resp.status_code}"}
+    except ItarOutboundBlocked as ite:
+        return {"success": False, "message": f"Blocked by ITAR: {ite}"}
     except Exception as e:
         log.warning("Spoolman connection test failed: %s", e)
         return {"success": False, "message": "Connection failed. Check Spoolman URL and network connectivity."}

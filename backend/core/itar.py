@@ -248,7 +248,25 @@ def collect_db_configured_urls() -> list[str]:
         except Exception as exc:
             log.debug("ITAR audit: system_config not queryable: %s", exc)
 
-        # -------- 3. groups.settings_json — org-level webhooks --------
+        # -------- 3. oidc_config.discovery_url (only when enabled) --------
+        # Codex pass 15 (2026-04-15): OIDC login unconditionally
+        # reaches out to discovery_url; under ITAR it must be private
+        # or the service should fail at boot rather than at first login.
+        try:
+            rows = db.execute(
+                sa_text(
+                    "SELECT discovery_url FROM oidc_config "
+                    "WHERE is_enabled = 1 AND discovery_url IS NOT NULL"
+                )
+            ).fetchall()
+            for row in rows:
+                url = row[0] if row else None
+                if url:
+                    urls.append(str(url))
+        except Exception as exc:
+            log.debug("ITAR audit: oidc_config not queryable: %s", exc)
+
+        # -------- 4. groups.settings_json — org-level webhooks --------
         try:
             rows = db.execute(
                 sa_text("SELECT id, settings_json FROM groups")
