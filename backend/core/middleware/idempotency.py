@@ -103,42 +103,94 @@ _STATE_COMPLETE = "complete"
 
 
 def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
-    """Lightweight user-id lookup — must check expiry + active status.
+    """Full-auth user-id resolution for idempotency key scoping.
 
-    Codex pass 1 (2026-04-14) flagged that replay can happen with an
-    expired/revoked token if the middleware only does a prefix+hash
-    match and skips the checks `get_current_user` applies. The primary
-    defense is middleware registration order (auth runs before this),
-    but as a belt-and-suspenders check we also enforce:
-      - token not past `expires_at`
-      - user `is_active=1`
+    Codex pass 5 (2026-04-14) flagged that the middleware's own
+    auth check was lighter than `get_current_user` — missing the
+    token blacklist, MFA-pending / ws-only purpose claims, and
+    session-cookie path. Combined with the fact that the perimeter
+    `authenticate_request` middleware does NOT validate Authorization
+    Bearer tokens at all (it only checks X-API-Key + cookie), a
+    revoked Bearer could still serve a cached 2xx.
 
-    Returns None if the request is anonymous, the credential doesn't
-    resolve, or any check fails. The middleware then passes through
-    without touching the cache; downstream auth will reject the
-    request.
+    This function now replicates every check `get_current_user`
+    performs before returning a user_id:
+      - JWT decode + blacklist (`token_blacklist.jti`)
+      - Reject `ws`, `mfa_pending`, `mfa_setup_required` tokens
+      - Active session must still exist for the jti
+      - User `is_active`
+      - For `odin_` API tokens: token_hash match, not-past expires_at,
+        owning user active
+      - For the global API_KEY env: constant-time compare
+      - For session cookie: same JWT decode + blacklist + purpose
+        checks as Bearer
+
+    Returns None on any failure. The middleware then passes through
+    without touching the cache — `authenticate_request` rejects
+    downstream OR the route's own Depends(get_current_user) rejects,
+    depending on deployment.
     """
-    # JWT bearer
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
+
+    def _check_jwt(token: str) -> Optional[int]:
+        """JWT → user_id, running every validation get_current_user does."""
         try:
-            from core.auth import decode_access_token
-            token = auth[7:]
-            payload = decode_access_token(token)
-            username = payload.get("sub")
+            from core.auth import decode_token
+            import jwt as _jwt
+            from core.auth import SECRET_KEY, ALGORITHM
+            token_data = decode_token(token)
+            if not token_data:
+                return None
+            payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            # Purpose claims: any of these means the token is not valid
+            # for normal routes (matches get_current_user behavior).
+            if payload.get("ws") or payload.get("mfa_pending") or payload.get("mfa_setup_required"):
+                return None
+            # Blacklist check — revoked sessions.
+            jti = payload.get("jti")
+            if jti:
+                bl = db.execute(
+                    text("SELECT 1 FROM token_blacklist WHERE jti = :jti"),
+                    {"jti": jti},
+                ).fetchone()
+                if bl:
+                    return None
+                # Active session must still exist.
+                sess = db.execute(
+                    text("SELECT 1 FROM active_sessions WHERE token_jti = :jti"),
+                    {"jti": jti},
+                ).fetchone()
+                if not sess:
+                    return None
+            username = token_data.username
             if not username:
                 return None
             row = db.execute(
                 text("SELECT id, is_active FROM users WHERE username = :u"),
                 {"u": username},
             ).fetchone()
-            if not row:
-                return None
-            if not row.is_active:
+            if not row or not row.is_active:
                 return None
             return int(row.id)
         except Exception:
             return None
+
+    # Authorization: Bearer
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return _check_jwt(auth[7:])
+
+    # Session cookie — mirrors authenticate_request's cookie path.
+    try:
+        cookies = getattr(request, "cookies", None)
+        if cookies is None:
+            cookies = {}
+        session_cookie = cookies.get("session") if hasattr(cookies, "get") else None
+    except Exception:
+        session_cookie = None
+    if session_cookie:
+        uid = _check_jwt(session_cookie)
+        if uid is not None:
+            return uid
 
     # X-API-Key — per-user scoped token
     api_key = request.headers.get("X-API-Key", "")
@@ -171,7 +223,6 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
                             return None
                     except Exception:
                         return None
-                # Ensure the owning user is still active.
                 user_row = db.execute(
                     text("SELECT is_active FROM users WHERE id = :id"),
                     {"id": row.user_id},
@@ -464,22 +515,28 @@ def _finalize_row(
 ) -> None:
     """UPDATE the pending row to complete with the real response.
 
-    Codex pass 2 (2026-04-14): fail loud. The prior implementation
-    swallowed errors as debug logs, leaving the pending row alive for
-    the pruner to delete — which then allowed a later retry to
-    re-execute the mutation (duplicate side effects). If the UPDATE
-    cannot persist the completed row exactly once, we raise
-    IdempotencyFinalizeError; the middleware converts the situation
-    into a 500 response so the caller knows the retry contract is
-    broken and the operator sees it in logs.
+    Codex pass 2 (2026-04-14): fail loud — raise if the UPDATE does
+    not affect exactly one row.
+
+    Codex pass 5 (2026-04-14): refuse to cache anything that can't be
+    faithfully replayed. If the response body exceeds the cap, the
+    caller should have invoked `_release_row` instead; `_finalize_row`
+    only accepts a body it can store verbatim.
     """
+    try:
+        body_text = response_body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise IdempotencyFinalizeError(
+            f"idempotency finalize: response body not UTF-8 "
+            f"for key={key!r} user_id={user_id}: {exc}"
+        ) from exc
+
     if len(response_body) > _MAX_BODY_BYTES:
-        body_text = ""
-    else:
-        try:
-            body_text = response_body.decode("utf-8")
-        except UnicodeDecodeError:
-            body_text = ""
+        raise IdempotencyFinalizeError(
+            f"idempotency finalize: response body {len(response_body)} bytes "
+            f"exceeds {_MAX_BODY_BYTES}-byte cap. Caller should release the "
+            f"pending row instead of caching a truncated response."
+        )
 
     try:
         result = db.execute(
@@ -512,6 +569,58 @@ def _finalize_row(
             f"for key={key!r} user_id={user_id}. Row may have been pruned "
             f"mid-flight or state was not 'pending'."
         )
+
+
+def _response_is_cacheable(response: Any, body: bytes) -> tuple[bool, str]:
+    """Decide whether a 2xx response can be faithfully replayed.
+
+    Returns (cacheable, reason). When False, caller MUST release the
+    pending row so a retry executes the handler freshly rather than
+    serving a partial/incorrect replay.
+
+    Codex pass 5 (2026-04-14) flagged two fidelity failures in the
+    prior design:
+      1. Responses with Set-Cookie headers (login, OIDC callback)
+         were serialized without their cookie. Replay returned the
+         response body with no session → silent auth desync.
+      2. Bodies > _MAX_BODY_BYTES were finalized with empty
+         response_body but state='complete' → retries replayed an
+         empty 2xx.
+
+    Instead of trying to persist every header type (cookies are
+    sensitive, streaming responses aren't serializable), we refuse to
+    cache responses that would be lossy:
+      - Any response with Set-Cookie
+      - Body over the cap
+      - Non-UTF-8 body
+    """
+    # Oversized body
+    if len(body) > _MAX_BODY_BYTES:
+        return False, f"body {len(body)} bytes exceeds {_MAX_BODY_BYTES}-byte cap"
+
+    # Non-UTF-8 body (unlikely for JSON responses but possible for
+    # raw-bytes handlers).
+    try:
+        body.decode("utf-8")
+    except UnicodeDecodeError:
+        return False, "response body is not UTF-8"
+
+    # Set-Cookie presence. Starlette's Headers is a Multi-valued
+    # mapping — iterate raw headers to catch duplicates.
+    try:
+        raw = getattr(response, "raw_headers", None) or []
+        for name, _value in raw:
+            try:
+                name_s = name.decode("ascii") if isinstance(name, bytes) else str(name)
+            except Exception:
+                continue
+            if name_s.lower() == "set-cookie":
+                return False, "response sets cookies (session-bearing — not cacheable)"
+    except Exception:
+        # If we can't inspect headers, fall back to safe no-cache.
+        return False, "could not inspect response headers"
+
+    return True, ""
 
 
 def _release_row(db: Session, key: str, user_id: int) -> None:
@@ -743,11 +852,34 @@ async def idempotency_middleware(request: Any, call_next: Callable):
 
         if 200 <= response.status_code < 300:
             # Drain response body to bytes so we can both cache and
-            # re-emit it.
-            body_chunks: list[bytes] = []
-            async for chunk in response.body_iterator:
-                body_chunks.append(chunk)
-            captured = b"".join(body_chunks)
+            # re-emit it. Starlette's StreamingResponse exposes
+            # `body_iterator`; plain Response uses `.body` (already
+            # bytes in memory).
+            if hasattr(response, "body_iterator"):
+                body_chunks: list[bytes] = []
+                async for chunk in response.body_iterator:
+                    body_chunks.append(chunk)
+                captured = b"".join(body_chunks)
+            else:
+                captured = bytes(getattr(response, "body", b"") or b"")
+
+            # Codex pass 5 (2026-04-14): not every 2xx is safely
+            # replayable. Cookies, oversized bodies, and non-UTF-8
+            # payloads must be released instead of cached — otherwise
+            # a retry sees an inauthentic replay.
+            cacheable, reason = _response_is_cacheable(response, captured)
+            if not cacheable:
+                log.info(
+                    "idempotency: skipping cache for %s %s — %s",
+                    request.method, request.url.path, reason,
+                )
+                _release_row(db, key, user_id)
+                return Response(
+                    content=captured,
+                    status_code=response.status_code,
+                    media_type=response.media_type,
+                    headers=dict(response.headers),
+                )
 
             try:
                 _finalize_row(db, key, user_id, response.status_code, captured)

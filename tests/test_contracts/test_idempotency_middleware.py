@@ -302,6 +302,7 @@ def test_handler_exception_releases_pending_row(conn, monkeypatch):
         headers = _Headers()
         url = _URL()
         state = SimpleNamespace()
+        cookies = {}
 
         async def body(self):
             return b'{"item":"x"}'
@@ -383,6 +384,7 @@ def test_multipart_requests_skip_idempotency(monkeypatch, conn):
         headers = _Headers()
         url = _URL()
         state = SimpleNamespace()
+        cookies = {}
         async def body(self):
             raise AssertionError("body() must not be called for multipart")
 
@@ -396,6 +398,109 @@ def test_multipart_requests_skip_idempotency(monkeypatch, conn):
     # No row written for this key — middleware skipped caching.
     rows = conn.execute(
         "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-multi'"
+    ).fetchone()[0]
+    assert rows == 0
+
+
+def test_response_with_set_cookie_is_not_cacheable(monkeypatch, conn):
+    """Codex pass 5: session-cookie-bearing responses (login, OIDC)
+    must NOT be cached — replay would return body without cookie,
+    producing silent auth desync."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-login",
+            "content-type": "application/json",
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/auth/login"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        cookies = {}
+        async def body(self):
+            return b'{"username":"u","password":"p"}'
+
+    async def _login_handler(request):
+        resp = Response(
+            content=b'{"token":"xyz"}',
+            status_code=200,
+            media_type="application/json",
+        )
+        resp.set_cookie("session", "opaque-jwt", httponly=True)
+        return resp
+
+    result, call_count = _run_middleware_and_capture(
+        monkeypatch, conn, _Req(), _login_handler
+    )
+    assert call_count == 1
+    assert result.status_code == 200
+
+    # No row written — cookie-bearing responses are not cacheable.
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-login'"
+    ).fetchone()[0]
+    assert rows == 0
+
+
+def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
+    """Codex pass 5: responses larger than _MAX_BODY_BYTES must be
+    released rather than cached with an empty body (the prior design
+    would have replayed an empty JSON on retry)."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+    from core.middleware.idempotency import _MAX_BODY_BYTES
+
+    oversized_body = b'{"items":' + (b'"x",' * (_MAX_BODY_BYTES // 4 + 1)) + b'"end"]}'
+    assert len(oversized_body) > _MAX_BODY_BYTES
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-big-resp",
+            "content-type": "application/json",
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/jobs/bulk"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        cookies = {}
+        async def body(self):
+            return b'{"items":[]}'
+
+    async def _bulk_handler(request):
+        return Response(
+            content=oversized_body,
+            status_code=201,
+            media_type="application/json",
+        )
+
+    result, call_count = _run_middleware_and_capture(
+        monkeypatch, conn, _Req(), _bulk_handler
+    )
+    assert call_count == 1
+    assert result.status_code == 201
+
+    # No row cached — retries will execute the handler fresh rather
+    # than replaying a truncated body.
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-big-resp'"
     ).fetchone()[0]
     assert rows == 0
 
@@ -425,6 +530,7 @@ def test_oversized_content_length_skips_idempotency(monkeypatch, conn):
         headers = _Headers()
         url = _URL()
         state = SimpleNamespace()
+        cookies = {}
         async def body(self):
             raise AssertionError("body() must not be called for oversized")
 
