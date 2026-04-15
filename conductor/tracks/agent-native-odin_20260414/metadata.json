@@ -14,13 +14,23 @@
   ],
   "parent_user_directive": "lean into agents running ODIN without ruining the airgapped deployment; do not stub, do not defer, codex-review until green",
   "loop_state": {
-    "current_step": "EVALUATE_EXECUTION",
-    "step_status": "NOT_STARTED",
-    "phase": 1,
-    "phase_status": "ready_for_codex",
+    "current_step": "EXECUTE",
+    "step_status": "IN_PROGRESS",
+    "phase": 2,
+    "phase_status": "started",
     "fix_cycle_count": 0
   },
+  "phase_1": {
+    "status": "frozen_post_codex_hardening",
+    "codex_passes_completed": 20,
+    "findings_closed": 49,
+    "severity_breakdown": "4 critical + 39 high + 6 medium",
+    "contract_tests": 514,
+    "commits": 23,
+    "final_commit": "4f7612b",
+    "phase_1_hardening_note": "20 consecutive adversarial reviews from pass 1 through pass 20, all findings closed with regression tests. Last 6 passes had no critical findings and found narrow tail items (specific call-site coverage). Codex pass 21 blocked on API quota; resumed as Phase 2 executed in parallel."
+  },
   "post_loop_steps": [
-    "codex_adversarial_review"
+    "codex_adversarial_review_pass_21_pending_quota_reset"
   ]
 }
