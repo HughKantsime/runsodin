@@ -518,15 +518,21 @@ def _release_row(db: Session, key: str, user_id: int) -> None:
 
 
 def _conflict_response(code: str, detail: str):
-    """Build the 409 envelope for in-progress / conflict cases."""
+    """Build the 409 envelope for in-progress / conflict cases.
+
+    Dual-shape body (codex pass 3, 2026-04-14): top-level `detail`
+    for legacy client compat, plus `error.{code,detail,retriable}`
+    for agents.
+    """
     from fastapi.responses import Response  # noqa: WPS433
     return Response(
         content=json.dumps({
+            "detail": detail,
             "error": {
                 "code": code,
                 "detail": detail,
                 "retriable": code == "idempotency_in_progress",
-            }
+            },
         }),
         status_code=409,
         media_type="application/json",
@@ -683,7 +689,18 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 )
 
         # We own the key. Run the handler.
-        response = await call_next(request)
+        # Codex pass 3 (2026-04-14): if call_next raises, we MUST
+        # release the pending row or retries get 409 in_progress
+        # until the 90s watchdog expires — which pressures callers
+        # into switching keys (the anti-pattern we're trying to
+        # prevent). Release + re-raise preserves the safe-retry
+        # contract: the client can retry with the same key and
+        # either succeed or get a clean error.
+        try:
+            response = await call_next(request)
+        except BaseException:
+            _release_row(db, key, user_id)
+            raise
 
         if 200 <= response.status_code < 300:
             # Drain response body to bytes so we can both cache and
@@ -701,18 +718,19 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 # execution on retry (pruner deletes the row, next
                 # request hits miss, runs the mutation again). Fail loud.
                 log.error("idempotency finalize failed: %s", exc)
+                _detail = (
+                    "Request succeeded but idempotency cache could not be "
+                    "persisted. Check server logs; the operation may or may "
+                    "not have taken effect — verify before retrying."
+                )
                 return Response(
                     content=json.dumps({
+                        "detail": _detail,
                         "error": {
                             "code": "internal_error",
-                            "detail": (
-                                "Request succeeded but idempotency cache "
-                                "could not be persisted. Check server logs; "
-                                "the operation may or may not have taken "
-                                "effect — verify before retrying."
-                            ),
+                            "detail": _detail,
                             "retriable": False,
-                        }
+                        },
                     }),
                     status_code=500,
                     media_type="application/json",

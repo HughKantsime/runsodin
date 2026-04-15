@@ -79,6 +79,21 @@ def test_odin_error_to_envelope_shape():
     assert env["error"]["limit_grams"] == 1000
 
 
+def test_odin_error_envelope_preserves_legacy_detail():
+    """Top-level `detail` preserves the legacy frontend contract
+    (client.ts / auth.ts read err.detail directly).
+
+    Codex pass 3 (2026-04-14) flagged the prior envelope-only shape
+    as a breaking change for existing clients.
+    """
+    from core.errors import OdinError, ErrorCode
+
+    err = OdinError(ErrorCode.job_not_found, "Job 42 missing", status=404)
+    env = err.to_envelope()
+    assert env.get("detail") == "Job 42 missing"
+    assert env["error"]["detail"] == "Job 42 missing"
+
+
 def test_odin_error_string_code_accepted():
     """OdinError(code_str) works as well as OdinError(ErrorCode.enum)."""
     from core.errors import OdinError

@@ -124,11 +124,17 @@ class OdinError(Exception):
         super().__init__(f"[{self.code.value}] {detail}")
 
     def to_envelope(self) -> Dict[str, Any]:
-        """Serialize into the standard JSON body."""
+        """Serialize into the standard JSON body.
+
+        Dual-shape (codex pass 3, 2026-04-14): top-level `detail`
+        preserves the legacy frontend contract (client.ts /
+        auth.ts read `err.detail` directly); `error.{code,detail,
+        retriable}` gives agents the machine-readable branch.
+        """
         error_obj: Dict[str, Any] = {
             "code": self.code.value,
             "detail": self.detail,
             "retriable": self.retriable,
         }
         error_obj.update(self.extra)
-        return {"error": error_obj}
+        return {"detail": self.detail, "error": error_obj}

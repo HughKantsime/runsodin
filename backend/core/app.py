@@ -614,9 +614,19 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(HTTPException)
     async def _http_exception_handler(request: Request, exc: HTTPException):
-        # Map common legacy HTTPException statuses to stable codes so
-        # agents see a consistent shape even before every route is
-        # migrated to OdinError.
+        # Codex pass 3 (2026-04-14): preserve the legacy top-level
+        # `detail` field. Several shipped clients — including
+        # `frontend/src/api/client.ts` and `frontend/src/api/auth.ts`
+        # — read `err.detail` directly. Rewriting every HTTPException
+        # into only `{error: {...}}` would break those callers.
+        # Dual-shape envelope: old clients keep reading `detail`, new
+        # clients (agents / MCP tool layer) read `error.code`.
+        #
+        # Also: pass structured `detail` (dict, list) through
+        # unchanged. Some routes intentionally raise with a dict
+        # payload (e.g. quota-usage breakdown); stringifying those
+        # would turn a JSON body into a Python repr which no caller
+        # can parse.
         code = ErrorCode.http_error
         if exc.status_code == 401:
             code = ErrorCode.not_authenticated
@@ -626,14 +636,27 @@ def create_app() -> FastAPI:
             code = ErrorCode.not_found
         elif exc.status_code == 429:
             code = ErrorCode.rate_limited
+
+        # Detail: pass structured payloads through; stringify only scalars.
+        if isinstance(exc.detail, (dict, list)):
+            legacy_detail = exc.detail
+            agent_detail = exc.detail
+        elif exc.detail is None:
+            legacy_detail = code.value
+            agent_detail = code.value
+        else:
+            legacy_detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            agent_detail = legacy_detail
+
         return JSONResponse(
             status_code=exc.status_code,
             content={
+                "detail": legacy_detail,
                 "error": {
                     "code": code.value,
-                    "detail": str(exc.detail) if exc.detail else code.value,
+                    "detail": agent_detail,
                     "retriable": code == ErrorCode.rate_limited,
-                }
+                },
             },
         )
 
@@ -642,14 +665,18 @@ def create_app() -> FastAPI:
     async def _unhandled_exception_handler(request: Request, exc: Exception):
         error_buffer.capture(exc, request)
         log.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+        # Dual-shape envelope (see HTTPException handler above). Keep
+        # the legacy `detail` so existing frontend fallback messages
+        # still produce a readable error.
         return JSONResponse(
             status_code=500,
             content={
+                "detail": "Internal server error",
                 "error": {
                     "code": ErrorCode.internal_error.value,
                     "detail": "Internal server error",
                     "retriable": True,
-                }
+                },
             },
         )
 

@@ -108,6 +108,12 @@ def _fake_db(conn: sqlite3.Connection):
         def rollback(self):
             self.c.rollback()
 
+        def close(self):
+            # Do NOT close the underlying sqlite3 connection — tests
+            # keep using it afterwards to assert state. Middleware's
+            # `finally: db.close()` needs something callable here.
+            pass
+
     return _FakeDB(conn)
 
 
@@ -249,6 +255,84 @@ def test_finalize_row_raises_on_non_pending_state(conn):
     _finalize_row(db, "k", 1, 200, b"{}")  # first finalize ok
     with pytest.raises(IdempotencyFinalizeError):
         _finalize_row(db, "k", 1, 200, b"{}")  # second must raise
+
+
+def test_handler_exception_releases_pending_row(conn, monkeypatch):
+    """Codex pass 3: if the handler raises, the pending row must be
+    released so retries don't hit 409 until the 90s watchdog.
+
+    The middleware's claim-execute-finalize flow is:
+        _try_claim → call_next → on 2xx _finalize_row / non-2xx _release_row
+
+    The bug was that an uncaught exception in `call_next` skipped
+    both branches. Fix wraps call_next in try/except that calls
+    `_release_row` and re-raises. This test simulates that pattern
+    directly.
+    """
+    import asyncio
+
+    import core.middleware.idempotency as idem_mod
+    from core.db import SessionLocal as _RealSessionLocal  # type: ignore
+
+    # Point the middleware's lazy SessionLocal import at our fake DB.
+    test_db = _fake_db(conn)
+
+    class _FakeDB:
+        @staticmethod
+        def __call__():
+            return test_db
+
+    import core.db as db_mod
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+    monkeypatch.setattr(idem_mod, "_resolve_user_id", lambda req, db: 1)
+
+    from types import SimpleNamespace
+
+    class _Headers:
+        _h = {"Idempotency-Key": "exc-key"}
+        def get(self, k, default=None):
+            return self._h.get(k, default)
+
+    class _URL:
+        path = "/api/v1/jobs"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+
+        async def body(self):
+            return b'{"item":"x"}'
+
+    async def _boom(request):
+        raise RuntimeError("boom inside route")
+
+    req = _Req()
+
+    with pytest.raises(RuntimeError, match="boom inside route"):
+        asyncio.run(idem_mod.idempotency_middleware(req, _boom))
+
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'exc-key'"
+    ).fetchone()[0]
+    assert remaining == 0, (
+        "pending row must be released on handler exception so retries "
+        "don't get 409 until the 90s watchdog"
+    )
+
+
+def test_conflict_response_is_dual_shape():
+    """Codex pass 3: 409 envelope has both top-level `detail` and `error`."""
+    import json as _json
+    from core.middleware.idempotency import _conflict_response
+
+    resp = _conflict_response("idempotency_in_progress", "hold on")
+    body = _json.loads(bytes(resp.body))
+    assert body["detail"] == "hold on"
+    assert body["error"]["code"] == "idempotency_in_progress"
+    assert body["error"]["retriable"] is True
 
 
 # ---------------------------------------------------------------------------
