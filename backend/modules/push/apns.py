@@ -73,6 +73,15 @@ class APNsProvider:
         }
 
     def _is_configured(self) -> bool:
+        # v1.8.9 (codex pass 18): APNs targets api.push.apple.com, which
+        # is by definition public infrastructure. Under ODIN_ITAR_MODE=1
+        # we hard-disable the provider regardless of credentials — DNS
+        # pinning can't make Apple's endpoint non-public. Operators who
+        # need mobile push in an ITAR deployment must stand up an
+        # internal gateway and route through user-configured webhooks.
+        from core.itar import is_itar_mode
+        if is_itar_mode():
+            return False
         cfg = self._get_config()
         return bool(cfg["key_id"] and cfg["team_id"] and cfg["key_content"])
 

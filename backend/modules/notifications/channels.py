@@ -59,26 +59,31 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             try:
                 from pywebpush import webpush, WebPushException
 
-                # v1.8.9 (codex pass 9): ITAR guard. Browser push
-                # endpoints (fcm.googleapis.com etc.) are public
-                # infrastructure; under ODIN_ITAR_MODE=1 every push
-                # subscription must be a private-range endpoint
-                # (rare — operators using internal push infra). The
-                # check runs per-subscription so a future local-push
-                # setup works while public endpoints are refused.
-                from core.itar import enforce_request_destination, ItarOutboundBlocked
+                # v1.8.9 (codex pass 18): ITAR mode hard-disables
+                # browser push entirely. The earlier
+                # enforce_request_destination check was a TOCTOU: the
+                # third-party `pywebpush` library does its own DNS
+                # lookup and connect, respects env proxies, and does
+                # not expose a pinning interface. Even a subscription
+                # endpoint that resolves private during validation
+                # can leak through an env proxy or DNS rebinding when
+                # pywebpush makes the real connection. The only safe
+                # answer under a fail-closed air-gap contract is to
+                # refuse the send outright. Operators who need push
+                # in an ITAR deployment must stand up an internal
+                # push gateway and use user-configured webhooks (which
+                # safe_post validates + DNS-pins).
+                from core.itar import is_itar_mode
+                if is_itar_mode():
+                    log.info(
+                        "Web Push skipped entirely under ITAR for user %s "
+                        "(%d subscription(s))",
+                        user_id, len(subscriptions),
+                    )
+                    return
 
                 for endpoint, p256dh, auth in subscriptions:
                     try:
-                        try:
-                            enforce_request_destination(endpoint)
-                        except ItarOutboundBlocked as ite:
-                            log.info(
-                                "Push skipped under ITAR for user %s: %s",
-                                user_id, ite,
-                            )
-                            continue
-
                         webpush(
                             subscription_info={
                                 "endpoint": endpoint,

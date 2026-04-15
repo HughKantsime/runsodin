@@ -200,6 +200,33 @@ def test_collect_db_configured_urls_handles_missing_tables(monkeypatch):
     assert urls == []
 
 
+def test_apns_disabled_under_itar(itar_on, monkeypatch):
+    """Codex pass 18: APNs targets api.push.apple.com, inherently
+    public. ITAR mode must refuse to report APNs as configured even
+    when credentials are present."""
+    monkeypatch.setenv("APNS_KEY_ID", "K1")
+    monkeypatch.setenv("APNS_TEAM_ID", "T1")
+    monkeypatch.setenv("APNS_KEY_CONTENT", "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----")
+
+    from modules.push.apns import APNsProvider
+    provider = APNsProvider()
+    assert provider._is_configured() is False, (
+        "APNs must report not-configured under ITAR even with credentials "
+        "present — Apple push service is inherently public."
+    )
+
+
+def test_apns_configured_outside_itar(itar_off, monkeypatch):
+    """Sanity: outside ITAR, APNs works if credentials are set."""
+    monkeypatch.setenv("APNS_KEY_ID", "K1")
+    monkeypatch.setenv("APNS_TEAM_ID", "T1")
+    monkeypatch.setenv("APNS_KEY_CONTENT", "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----")
+
+    from modules.push.apns import APNsProvider
+    provider = APNsProvider()
+    assert provider._is_configured() is True
+
+
 def test_pin_for_request_noop_when_itar_off(itar_off):
     """When ITAR is disabled, pin_for_request is a pure passthrough."""
     from core.itar import pin_for_request
