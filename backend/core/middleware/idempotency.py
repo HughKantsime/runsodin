@@ -496,6 +496,45 @@ def _lookup_row(
     return _LOOKUP_HIT, int(row.response_status), row.response_body, str(created_raw), fp
 
 
+_SCHEMA_READY_CACHE: dict = {"ready": False, "checked_at": 0.0}
+
+
+def _idempotency_schema_ready() -> bool:
+    """Check (and cache) whether migration 005's table exists.
+
+    Codex pass 8 (2026-04-15): the middleware is registered
+    unconditionally at app startup, but a code-first deploy or a
+    partial rollback can leave the `idempotency_keys` table missing.
+    Hitting it on the request path would 500 every mutating request
+    that carries Idempotency-Key. This helper probes existence once
+    and caches the result for 60s so the hot path stays cheap.
+
+    Returns True if the table exists, False otherwise. Errors
+    during probe (e.g. DB unreachable) also return False — the
+    middleware degrades to pass-through.
+    """
+    import time
+    now = time.monotonic()
+    if _SCHEMA_READY_CACHE["ready"] and (now - _SCHEMA_READY_CACHE["checked_at"]) < 60:
+        return True
+
+    from core.db import SessionLocal
+    db = SessionLocal()
+    try:
+        # Portable existence probe: SELECT 1 LIMIT 0. Succeeds on
+        # SQLite AND Postgres if the table exists, raises if not.
+        db.execute(text("SELECT 1 FROM idempotency_keys LIMIT 0"))
+        _SCHEMA_READY_CACHE["ready"] = True
+        _SCHEMA_READY_CACHE["checked_at"] = now
+        return True
+    except Exception:
+        _SCHEMA_READY_CACHE["ready"] = False
+        _SCHEMA_READY_CACHE["checked_at"] = now
+        return False
+    finally:
+        db.close()
+
+
 def _now_iso() -> str:
     """Canonical timestamp format used for every row in this table.
 
@@ -859,6 +898,13 @@ async def idempotency_middleware(request: Any, call_next: Callable):
     Wired into the app factory via `app.middleware("http")`. Must be
     registered INSIDE the auth middleware so cached-replay requests
     still pass auth validation (token expiry, active user, scope).
+
+    Codex pass 8 (2026-04-15): if migration 005 hasn't applied (code-
+    first deploy, stale worker, partial rollback), the cache table
+    doesn't exist. The middleware degrades to pass-through rather
+    than 500ing every mutating request — the retry contract is lost
+    for that deploy window, but the service stays up. `_schema_ready`
+    is cached process-local for 60s to keep the hot path cheap.
     """
     from fastapi.responses import Response  # noqa: WPS433
 
@@ -868,6 +914,15 @@ async def idempotency_middleware(request: Any, call_next: Callable):
 
     key = request.headers.get("Idempotency-Key")
     if not key:
+        return await call_next(request)
+
+    if not _idempotency_schema_ready():
+        # Migration 005 hasn't applied yet. Degrade cleanly — no
+        # caching, but the request still executes.
+        log.warning(
+            "idempotency_keys table missing — middleware disabled until "
+            "migration 005 applies. Retry contract not active."
+        )
         return await call_next(request)
 
     # Codex pass 4 (2026-04-14): skip idempotency for multipart /

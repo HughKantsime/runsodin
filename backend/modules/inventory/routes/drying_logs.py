@@ -69,6 +69,8 @@ async def get_combined_filaments(current_user: dict = Depends(require_role("view
 
     if settings.spoolman_url:
         try:
+            from core.itar import enforce_request_destination
+            enforce_request_destination(settings.spoolman_url)
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=5)
                 if resp.status_code == 200:

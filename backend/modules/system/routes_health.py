@@ -45,6 +45,9 @@ async def health_check():
     spoolman_ok = False
     if settings.spoolman_url:
         try:
+            # v1.8.9 (codex pass 8): ITAR guard — refuse public Spoolman.
+            from core.itar import enforce_request_destination
+            enforce_request_destination(settings.spoolman_url)
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{settings.spoolman_url}/api/v1/health", timeout=5)
                 spoolman_ok = resp.status_code == 200
@@ -84,6 +87,20 @@ async def _probe_license_server() -> dict:
     base = (settings.license_server_url or "").rstrip("/")
     if not base:
         cached.update({"reachable": False, "detail": "license_server_url not configured", "checked_at": now})
+        return {**cached, "cached": False}
+
+    # v1.8.9 (codex pass 8): ITAR guard on the 10-minute reachability
+    # probe — the cached result lives for 10 min, but the probe itself
+    # is a live outbound call.
+    try:
+        from core.itar import enforce_request_destination, ItarOutboundBlocked
+        enforce_request_destination(base)
+    except ItarOutboundBlocked as exc:
+        cached.update({
+            "reachable": False,
+            "detail": f"blocked by ITAR: {exc}",
+            "checked_at": now,
+        })
         return {**cached, "cached": False}
 
     reachable = False
@@ -288,6 +305,13 @@ async def activate_license(
     # pair can't succeed — they don't hold the private key.
     _priv, device_pubkey = get_device_keypair()
 
+    # v1.8.9 (codex pass 8): ITAR guard on the activate POST.
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    try:
+        enforce_request_destination(license_server_url)
+    except ItarOutboundBlocked as ite:
+        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
@@ -405,6 +429,14 @@ async def unactivate_license(
     nonce = await _fetch_license_challenge(license_server_url, installation_id)
     signature = sign_license_challenge("unactivate", license_key, installation_id, nonce)
 
+    # v1.8.9 (codex pass 8): ITAR guard — DNS could drift between the
+    # challenge fetch and this POST.
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    try:
+        enforce_request_destination(license_server_url)
+    except ItarOutboundBlocked as ite:
+        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
@@ -457,6 +489,13 @@ async def reactivate_license(
     # S1: fetch challenge, sign with device key.
     nonce = await _fetch_license_challenge(license_server_url, installation_id)
     signature = sign_license_challenge("reactivate", current_license.key, installation_id, nonce)
+
+    # v1.8.9 (codex pass 8): ITAR guard.
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+    try:
+        enforce_request_destination(license_server_url)
+    except ItarOutboundBlocked as ite:
+        raise HTTPException(status_code=502, detail=f"License server blocked by ITAR: {ite}")
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:

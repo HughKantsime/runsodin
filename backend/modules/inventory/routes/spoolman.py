@@ -29,10 +29,18 @@ async def sync_spoolman(current_user: dict = Depends(require_role("operator")), 
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
 
     try:
+        # v1.8.9 (codex pass 8): runtime ITAR guard — block public Spoolman.
+        from core.itar import enforce_request_destination, ItarOutboundBlocked
+        try:
+            enforce_request_destination(settings.spoolman_url)
+        except ItarOutboundBlocked as ite:
+            raise HTTPException(status_code=502, detail=f"Spoolman blocked by ITAR: {ite}")
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=10)
             resp.raise_for_status()
             spools = resp.json()
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to connect to Spoolman: {e}")
 
@@ -52,10 +60,17 @@ async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer
         raise HTTPException(status_code=400, detail="Spoolman URL not configured")
 
     try:
+        from core.itar import enforce_request_destination, ItarOutboundBlocked
+        try:
+            enforce_request_destination(settings.spoolman_url)
+        except ItarOutboundBlocked as ite:
+            raise HTTPException(status_code=502, detail=f"Spoolman blocked by ITAR: {ite}")
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{settings.spoolman_url}/api/v1/spool", timeout=10)
             resp.raise_for_status()
             spools_data = resp.json()
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to connect to Spoolman: {e}")
 
@@ -78,6 +93,11 @@ async def list_spoolman_spools(current_user: dict = Depends(require_role("viewer
 async def get_spoolman_filaments(current_user: dict = Depends(require_role("viewer"))):
     """Fetch all filament types from Spoolman."""
     try:
+        from core.itar import enforce_request_destination, ItarOutboundBlocked
+        try:
+            enforce_request_destination(settings.spoolman_url or "")
+        except ItarOutboundBlocked as ite:
+            raise HTTPException(status_code=502, detail=f"Spoolman blocked by ITAR: {ite}")
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{settings.spoolman_url}/api/v1/filament", timeout=10.0)
             response.raise_for_status()

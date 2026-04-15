@@ -525,7 +525,12 @@ def create_app() -> FastAPI:
             "ODIN_ITAR_MODE=1 — refusing outbound to public addresses. "
             "Private/loopback targets only. This is a hard mode."
         )
-        enforce_boot_config([settings.license_server_url])
+        # Codex pass 8 (2026-04-15): spoolman_url was missing from the
+        # boot audit. Include every statically-known outbound URL.
+        enforce_boot_config([
+            settings.license_server_url,
+            getattr(settings, "spoolman_url", "") or "",
+        ])
 
     # -----------------------------------------------------------------------
     # Module discovery and registry (at import time, not in lifespan)

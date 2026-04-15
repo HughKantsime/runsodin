@@ -631,6 +631,56 @@ def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
     assert rows == 0
 
 
+def test_middleware_degrades_when_table_missing(monkeypatch):
+    """Codex pass 8: if migration 005 hasn't applied, the middleware
+    must pass through cleanly instead of 500ing every request."""
+    from types import SimpleNamespace
+    import asyncio
+    from fastapi.responses import Response
+    import sqlite3
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    # Fresh SQLite connection with NO migrations applied (no table).
+    empty_conn = sqlite3.connect(":memory:")
+    empty_db = _fake_db(empty_conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: empty_db)
+
+    # Clear any cached readiness from prior tests.
+    idem_mod._SCHEMA_READY_CACHE["ready"] = False
+    idem_mod._SCHEMA_READY_CACHE["checked_at"] = 0.0
+
+    class _Headers:
+        _h = {"Idempotency-Key": "k-skew", "content-type": "application/json"}
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/jobs"
+        query = ""
+
+    class _Req:
+        method = "POST"
+        headers = _Headers()
+        url = _URL()
+        state = SimpleNamespace()
+        cookies = {}
+        async def body(self):
+            return b'{"item":"x"}'
+
+    exec_count = {"n": 0}
+
+    async def _handler(request):
+        exec_count["n"] += 1
+        return Response(content=b'{"ok":true}', status_code=200, media_type="application/json")
+
+    # Should NOT raise; should pass through to handler.
+    result = asyncio.run(idem_mod.idempotency_middleware(_Req(), _handler))
+    assert result.status_code == 200
+    assert exec_count["n"] == 1
+    empty_conn.close()
+
+
 def test_oversized_content_length_skips_idempotency(monkeypatch, conn):
     """Content-length above the 1 MB cap bypasses the middleware."""
     from types import SimpleNamespace
