@@ -168,6 +168,17 @@ def _resolve_and_pin(url: str) -> tuple[list[str], int, str, str]:
 # cross-coroutine contamination, and synchronous callers still get
 # thread-level isolation because each thread starts with a fresh
 # context.
+#
+# Codex pass 17 (2026-04-15) propagation boundary: ContextVar
+# propagates to async worker threads via `asyncio.to_thread()`,
+# anyio.to_thread.run_sync(), and httpx's default anyio-based
+# executor — ALL of which call `contextvars.copy_context().run(...)`
+# under the hood. It does NOT propagate to raw
+# `loop.run_in_executor(None, func)` because asyncio's base
+# implementation does not copy context. Call-site rule: any async
+# code that needs the pin visible in a worker thread MUST go
+# through to_thread / anyio / httpx. Raw run_in_executor is
+# considered an out-of-context boundary.
 _dns_pin_state: contextvars.ContextVar = contextvars.ContextVar("odin_dns_pin", default=None)
 _real_getaddrinfo = socket.getaddrinfo
 
