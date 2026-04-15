@@ -235,6 +235,10 @@ def safe_post(url: str, **kwargs):
         pin so concurrent webhook dispatches no longer serialise behind
         one slow endpoint.
 
+    v1.8.9: when `ODIN_ITAR_MODE=1`, refuses public destinations at
+    call time (before DNS pinning). Private destinations (internal
+    webhooks to logging / ticketing systems) are still allowed.
+
     For HARDCODED third-party APIs (Telegram bot API, Pushover, WhatsApp
     Graph API) use trusted_post() instead — those targets are not user-
     controlled, don't need SSRF defense, and may legitimately need to
@@ -244,6 +248,12 @@ def safe_post(url: str, **kwargs):
     httpx.HTTPError unchanged.
     """
     import httpx as _httpx
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+
+    try:
+        enforce_request_destination(url)
+    except ItarOutboundBlocked as exc:
+        raise WebhookSSRFError(str(exc)) from exc
 
     validated_ips, port, hostname, _scheme = _resolve_and_pin(url)
     timeout = kwargs.pop("timeout", 10)
@@ -280,8 +290,21 @@ def trusted_post(url: str, **kwargs):
     Codex pass 3 (2026-04-13): introduced specifically because
     safe_post()'s `trust_env=False` broke proxy-only egress for the
     hardcoded API call sites in channels.py.
+
+    v1.8.9: when `ODIN_ITAR_MODE=1`, ALL trusted-API calls are refused
+    — the allowlisted hosts (api.telegram.org etc.) are all public
+    and violate the air-gap posture. Operators who need per-site
+    notification in ITAR deployments must set up an internal relay
+    and use user-configured webhooks (which safe_post validates for
+    privateness).
     """
     import httpx as _httpx
+    from core.itar import enforce_request_destination, ItarOutboundBlocked
+
+    try:
+        enforce_request_destination(url)
+    except ItarOutboundBlocked as exc:
+        raise WebhookSSRFError(str(exc)) from exc
 
     parsed = urllib.parse.urlparse(url)
     host = (parsed.hostname or "").lower()

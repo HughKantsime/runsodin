@@ -501,6 +501,25 @@ def create_app() -> FastAPI:
     from core.db import engine, Base
     from core.auth import decode_token
     from core.registry import registry
+    from core.itar import is_itar_mode, enforce_boot_config
+
+    # -----------------------------------------------------------------------
+    # v1.8.9: ITAR boot-audit. If ODIN_ITAR_MODE=1, every configured
+    # outbound destination must resolve to a private/loopback range or
+    # the container refuses to start. This fails loud rather than
+    # leaking the first outbound request.
+    #
+    # Webhook URLs live in `system_config` (DB-backed) so we can only
+    # audit the statically-known ones here (license_server_url). The
+    # webhook runtime guard (`enforce_request_destination` inside
+    # safe_post/trusted_post) catches DB-configured URLs at send time.
+    # -----------------------------------------------------------------------
+    if is_itar_mode():
+        log.warning(
+            "ODIN_ITAR_MODE=1 — refusing outbound to public addresses. "
+            "Private/loopback targets only. This is a hard mode."
+        )
+        enforce_boot_config([settings.license_server_url])
 
     # -----------------------------------------------------------------------
     # Module discovery and registry (at import time, not in lifespan)
@@ -576,12 +595,57 @@ def create_app() -> FastAPI:
         redoc_url="/api/v1/redoc",
     )
 
+    # v1.8.9: structured error envelope for agent-surface endpoints.
+    # OdinError gets the machine-readable `{error: {code, detail, retriable}}`
+    # shape; HTTPException falls through to a legacy-compatible envelope
+    # so not-yet-migrated routes still produce something agents can parse.
+    from core.errors import OdinError, ErrorCode
+    from fastapi import HTTPException
+
+    @app.exception_handler(OdinError)
+    async def _odin_error_handler(request: Request, exc: OdinError):
+        return JSONResponse(status_code=exc.status, content=exc.to_envelope())
+
+    @app.exception_handler(HTTPException)
+    async def _http_exception_handler(request: Request, exc: HTTPException):
+        # Map common legacy HTTPException statuses to stable codes so
+        # agents see a consistent shape even before every route is
+        # migrated to OdinError.
+        code = ErrorCode.http_error
+        if exc.status_code == 401:
+            code = ErrorCode.not_authenticated
+        elif exc.status_code == 403:
+            code = ErrorCode.permission_denied
+        elif exc.status_code == 404:
+            code = ErrorCode.not_found
+        elif exc.status_code == 429:
+            code = ErrorCode.rate_limited
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": code.value,
+                    "detail": str(exc.detail) if exc.detail else code.value,
+                    "retriable": code == ErrorCode.rate_limited,
+                }
+            },
+        )
+
     # Global exception handler — capture unhandled exceptions into ring buffer
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception):
         error_buffer.capture(exc, request)
         log.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": ErrorCode.internal_error.value,
+                    "detail": "Internal server error",
+                    "retriable": True,
+                }
+            },
+        )
 
     # Middleware (order matters: added in reverse call order for ASGI stack)
     _setup_middleware(app)

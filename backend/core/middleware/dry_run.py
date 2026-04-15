@@ -118,9 +118,15 @@ def dry_run_preview(
 # v1.8.9. Kept here (not just in docs) so CI / contract tests can
 # enumerate and assert the expected set without parsing markdown. If
 # you add dry-run support to a route, add it here.
+#
+# Note on maintenance completion: ODIN models this as "create a
+# maintenance log entry" (POST /maintenance/logs), not a task-level
+# "complete" action — the task schedule and the log history are
+# intentionally decoupled so repeating tasks keep their cadence
+# independent of individual completions.
 DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
     # (method, path_template)
-    ("POST", "/api/v1/queue/add"),
+    ("POST", "/api/v1/jobs"),                                # create_job (queue)
     ("POST", "/api/v1/jobs/{job_id}/cancel"),
     ("POST", "/api/v1/jobs/{job_id}/approve"),
     ("POST", "/api/v1/jobs/{job_id}/reject"),
@@ -128,7 +134,7 @@ DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
     ("POST", "/api/v1/printers/{printer_id}/resume"),
     ("PATCH", "/api/v1/alerts/{alert_id}/read"),
     ("PATCH", "/api/v1/alerts/{alert_id}/dismiss"),
-    ("POST", "/api/v1/spools/{spool_id}/assign"),
-    ("POST", "/api/v1/spools/{spool_id}/consume"),
-    ("POST", "/api/v1/maintenance/tasks/{task_id}/complete"),
+    ("POST", "/api/v1/filament-slots"),                      # spool→printer-slot assign
+    ("PATCH", "/api/v1/spools/{spool_id}/use"),              # consume
+    ("POST", "/api/v1/maintenance/logs"),                    # log completion
 )

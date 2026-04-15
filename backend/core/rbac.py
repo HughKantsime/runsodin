@@ -156,3 +156,74 @@ def require_scope(scope: str):
                 )
         return current_user
     return _check
+
+
+def require_any_scope(*allowed: str):
+    """FastAPI dependency: accept if the token has ANY of the listed scopes.
+
+    v1.8.9 agent-surface routes use this to express "admin OR agent:write"
+    concisely:
+
+        @router.post("/queue/add")
+        async def add(current_user = Depends(require_any_scope("admin", "agent:write"))):
+            ...
+
+    Semantics (matching existing `require_scope` for compat):
+    - JWT / cookie / global-API-key sessions bypass the check (full access).
+    - Per-user scoped tokens (odin_xxx): grant if any of `allowed` is in
+      the token's scopes list OR the token has `admin`.
+    - Umbrella check (`scope:*` matches `scope`) is kept for read/write.
+      agent:* scopes are treated as exact matches only — they don't grant
+      `read` or `write` by themselves, and `read`/`write` don't grant
+      `agent:*`. This is intentional: agent tokens are a narrower grant.
+
+    Raises OdinError with code `scope_denied` on failure so the MCP
+    tool layer can surface a clean "re-auth required" path.
+    """
+    from core.dependencies import get_current_user
+    from core.errors import OdinError, ErrorCode
+
+    async def _check(current_user: dict = Depends(get_current_user)):
+        if not current_user:
+            raise OdinError(
+                ErrorCode.not_authenticated,
+                "Not authenticated",
+                status=401,
+            )
+        token_scopes = current_user.get("_token_scopes", []) or []
+        if not token_scopes:
+            # Non-token auth (JWT, cookie, global key) — full access.
+            return current_user
+        if "admin" in token_scopes:
+            return current_user
+        for scope in allowed:
+            if scope in token_scopes:
+                return current_user
+            # Umbrella match only for read/write, not agent:*
+            if scope in ("read", "write") and any(
+                s.startswith(f"{scope}:") for s in token_scopes
+            ):
+                return current_user
+        raise OdinError(
+            ErrorCode.scope_denied,
+            f"Token scope insufficient; one of {list(allowed)} required",
+            status=403,
+            extra={"allowed_scopes": list(allowed), "token_scopes": list(token_scopes)},
+        )
+
+    return _check
+
+
+# Well-known scope strings for the v1.8.9 agent surface. Tokens can be
+# minted with any subset of these via the admin token-creation UI.
+AGENT_READ_SCOPE = "agent:read"
+AGENT_WRITE_SCOPE = "agent:write"
+
+# Convenience dependencies matching the two common agent-surface cases.
+def agent_read_or_above():
+    """Shortcut: admin OR agent:read OR agent:write."""
+    return require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+
+def agent_write_or_above():
+    """Shortcut: admin OR agent:write."""
+    return require_any_scope("admin", AGENT_WRITE_SCOPE)

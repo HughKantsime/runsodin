@@ -353,11 +353,19 @@ def prune_expired_idempotency_keys(db: Session) -> int:
 
     Called hourly by the scheduler. Returns the number of rows deleted
     so the scheduler can log activity.
+
+    Cutoff is passed as an ISO-8601 string rather than a datetime
+    object because SQLite's default datetime adapter (deprecated as of
+    Python 3.12) was stripping the UTC offset and producing silent
+    zero-match comparisons against naive ISO strings written by
+    `_store_cached`. String-on-string comparison is stable on both
+    SQLite and Postgres and matches the column's TEXT storage.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=_TTL_HOURS)
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=_TTL_HOURS)
+    cutoff_iso = cutoff_dt.isoformat()
     result = db.execute(
         text("DELETE FROM idempotency_keys WHERE created_at < :cutoff"),
-        {"cutoff": cutoff},
+        {"cutoff": cutoff_iso},
     )
     db.commit()
     try:

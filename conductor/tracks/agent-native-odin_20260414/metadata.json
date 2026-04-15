@@ -14,8 +14,10 @@
   ],
   "parent_user_directive": "lean into agents running ODIN without ruining the airgapped deployment; do not stub, do not defer, codex-review until green",
   "loop_state": {
-    "current_step": "EXECUTE",
+    "current_step": "EVALUATE_EXECUTION",
     "step_status": "NOT_STARTED",
+    "phase": 1,
+    "phase_status": "ready_for_codex",
     "fix_cycle_count": 0
   },
   "post_loop_steps": [
