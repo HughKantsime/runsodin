@@ -1,6 +1,6 @@
 """Job CRUD, creation, bulk operations, and queue management."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
@@ -11,7 +11,17 @@ import logging
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import (
+    AGENT_WRITE_SCOPE,
+    _get_org_filter,
+    check_org_access,
+    get_org_scope,
+    require_any_scope,
+    require_role,
+)
+from core.responses import build_next_actions, next_action
 from core.quota import _get_period_key, _get_quota_usage
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
@@ -289,12 +299,26 @@ def list_jobs(
     return query.order_by(Job.priority, Job.created_at).offset(offset).limit(limit).all()
 
 
-@router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED, tags=["Jobs"])
-def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
-    """Create a new print job. If approval is required and user is a viewer, job is created as 'submitted'.
+@router.post("", status_code=status.HTTP_201_CREATED, tags=["Jobs"])
+def create_job(
+    job: JobCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    # Stacked auth (Phase 2 canonical). Role floor is viewer because
+    # viewers can submit jobs for approval (handled internally by the
+    # approval_required branch below). agent:write is the scoped-token
+    # gate. See routes_controls.py::pause_printer for full rationale.
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+):
+    """Create a new print job (queue_job). Agent-surface v1.9.0 Phase 2.
 
-    require_role("viewer") allows viewers, operators, and admins — blocking only unauthenticated
-    requests. The approval workflow logic checks current_user["role"] internally.
+    If approval is required and user is a viewer, job is created as 'submitted'.
+    `response_model=JobResponse` intentionally omitted — this route returns a
+    dict that includes the job fields plus `next_actions`, which JobResponse
+    doesn't model. MCP clients consume the whole body; SPA clients still see
+    the job fields they need. If future strictness is wanted, extend
+    JobResponse with an optional `next_actions: List[dict]` field.
     """
     # Import here to avoid circular at module level
     from modules.models_library.services import calculate_job_cost
@@ -306,7 +330,12 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
             period = current_user.get("quota_period") or "monthly"
             usage = _get_quota_usage(db, current_user["id"], period)
             if usage["jobs_used"] >= quota_jobs:
-                raise HTTPException(status_code=429, detail=f"Job quota exceeded ({usage['jobs_used']}/{quota_jobs} for this {period} period)")
+                raise OdinError(
+                    ErrorCode.quota_exceeded,
+                    f"Job quota exceeded ({usage['jobs_used']}/{quota_jobs} for this {period} period)",
+                    status=429,
+                    retriable=False,
+                )
 
     # Calculate cost if model is linked
     estimated_cost, suggested_price, _ = (None, None, None)
@@ -347,6 +376,42 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
                 effective_filament_type = org_settings["default_filament_type"]
             if not effective_colors and org_settings.get("default_filament_color"):
                 effective_colors = org_settings["default_filament_color"]
+
+    # Phase 2 dry-run gate. After all preconditions/defaults are resolved but
+    # before any DB write or alert dispatch. Agent sees the exact shape the
+    # real call would produce.
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "queue_job",
+                "item_name": job.item_name,
+                "model_id": job.model_id,
+                "model_revision_id": model_revision_id,
+                "quantity": job.quantity,
+                "priority": job.priority,
+                "duration_hours": job.duration_hours,
+                "effective_filament_type": effective_filament_type,
+                "effective_colors": effective_colors,
+                "initial_status": str(initial_status),
+                "requires_approval": initial_status == "submitted",
+                "estimated_cost": estimated_cost,
+                "suggested_price": suggested_price,
+                "target_type": job.target_type or "specific",
+                "due_date": job.due_date.isoformat() if job.due_date else None,
+            },
+            next_actions=[
+                next_action(
+                    "list_queue",
+                    {},
+                    "see the queue with the new job added",
+                ),
+            ],
+            notes=(
+                "Would insert a jobs row; would increment quota usage; "
+                "would dispatch JOB_SUBMITTED alert if approval required. "
+                "None of these side effects run on dry-run."
+            ),
+        )
 
     db_job = Job(
         item_name=job.item_name,
@@ -404,7 +469,22 @@ def create_job(job: JobCreate, db: Session = Depends(get_db), current_user: dict
         except Exception as e:
             logger.warning(f"Failed to dispatch job_submitted alert: {e}")
 
-    return db_job
+    # Return JobResponse fields + next_actions as a dict. response_model
+    # is intentionally omitted on this route — see docstring.
+    response = JobResponse.model_validate(db_job, from_attributes=True).model_dump(mode="json")
+    response["next_actions"] = build_next_actions(
+        next_action(
+            "get_job",
+            {"id": db_job.id},
+            "confirm the job landed in the queue",
+        ),
+        next_action(
+            "list_queue",
+            {},
+            "see queue depth after insertion",
+        ),
+    )
+    return response
 
 
 @router.get("/{job_id}", response_model=JobResponse, tags=["Jobs"])

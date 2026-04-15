@@ -49,9 +49,7 @@ class MoveJobRequest(PydanticBaseModel):
     scheduled_start: datetime
 
 
-class _RejectJobRequest(PydanticBaseModel):
-    """Inline schema for reject endpoint."""
-    reason: str
+# _RejectJobRequest moved to jobs_agent.py alongside reject_job.
 
 
 @router.post("/{job_id}/start", response_model=JobResponse, tags=["Jobs"])
@@ -318,22 +316,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
     return job
 
 
-@router.post("/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
-def cancel_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Cancel a pending or scheduled job."""
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
-        raise HTTPException(status_code=400, detail="Can only cancel pending or scheduled jobs")
-    job.status = JobStatus.CANCELLED
-    job.is_locked = True
-    log_audit(db, "job.cancelled", "job", job.id)
-    db.commit()
-    db.refresh(job)
-    return job
+# cancel_job moved to jobs_agent.py in v1.9.0 Phase 2 (architecture cap).
 
 
 @router.post("/{job_id}/reset", response_model=JobResponse, tags=["Jobs"])
@@ -395,87 +378,8 @@ def dispatch_job_to_printer(
     return {"success": True, "message": message, "job_id": job_id, "status": job.status.value}
 
 
-@router.post("/{job_id}/approve", tags=["Jobs"])
-def approve_job(job_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("operator"))):
-    require_feature("job_approval")
-    """Approve a submitted job. Moves it to pending status for scheduling."""
-
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.status != "submitted":
-        raise HTTPException(status_code=400, detail="Job is not in submitted status")
-
-    job.status = JobStatus.PENDING
-    job.approved_by = current_user["id"]
-    job.approved_at = datetime.now(timezone.utc)
-    log_audit(db, "job.approved", "job", job.id, {"approved_by": current_user["id"]})
-    db.commit()
-    db.refresh(job)
-
-    # Notify the student who submitted
-    if job.submitted_by:
-        try:
-            from modules.notifications.alert_dispatcher import dispatch_alert
-            dispatch_alert(
-                db=db,
-                alert_type=AlertType.JOB_APPROVED,
-                severity=AlertSeverity.INFO,
-                title=f"Job approved: {job.item_name or 'Untitled'}",
-                message=f"Approved by {current_user.get('display_name') or current_user.get('username', 'an approver')}",
-                job_id=job.id,
-                target_user_ids=[job.submitted_by],
-            )
-        except Exception as e:
-            logger.warning(f"Failed to dispatch job_approved alert: {e}")
-
-    return {"status": "approved", "job_id": job.id}
-
-
-@router.post("/{job_id}/reject", tags=["Jobs"])
-def reject_job(job_id: int, body: _RejectJobRequest, db: Session = Depends(get_db), current_user: dict = Depends(require_role("operator"))):
-    require_feature("job_approval")
-    """Reject a submitted job with a required reason."""
-
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not check_org_access(current_user, job.charged_to_org_id):
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if job.status != "submitted":
-        raise HTTPException(status_code=400, detail="Job is not in submitted status")
-
-    if not body.reason or not body.reason.strip():
-        raise HTTPException(status_code=400, detail="Rejection reason is required")
-
-    job.status = "rejected"
-    job.approved_by = current_user["id"]
-    job.rejected_reason = body.reason.strip()
-    log_audit(db, "job.rejected", "job", job.id, {"rejected_by": current_user["id"], "reason": body.reason.strip()})
-    db.commit()
-    db.refresh(job)
-
-    # Notify the student who submitted
-    if job.submitted_by:
-        try:
-            from modules.notifications.alert_dispatcher import dispatch_alert
-            dispatch_alert(
-                db=db,
-                alert_type=AlertType.JOB_REJECTED,
-                severity=AlertSeverity.WARNING,
-                title=f"Job rejected: {job.item_name or 'Untitled'}",
-                message=f"Reason: {body.reason.strip()}",
-                job_id=job.id,
-                target_user_ids=[job.submitted_by],
-            )
-        except Exception as e:
-            logger.warning(f"Failed to dispatch job_rejected alert: {e}")
-
-    return {"status": "rejected", "job_id": job.id, "reason": body.reason.strip()}
+# approve_job + reject_job moved to jobs_agent.py in v1.9.0 Phase 2
+# (architecture cap — see conductor/tracks/agent-native-phase2-safety_20260415/).
 
 
 @router.post("/{job_id}/resubmit", tags=["Jobs"])
