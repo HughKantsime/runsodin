@@ -551,6 +551,15 @@ class MoonrakerPrinter:
     def _get(self, path: str, timeout: int = 5) -> Optional[Dict]:
         """GET request to Moonraker API."""
         url = f"{self.base_url}{path}"
+        # v1.8.9 (codex pass 20): ITAR guard. Moonraker is usually
+        # LAN-local but an admin can configure any host; block public
+        # destinations + catch DNS drift under ITAR.
+        try:
+            from core.itar import enforce_request_destination, ItarOutboundBlocked
+            enforce_request_destination(url)
+        except ItarOutboundBlocked as exc:
+            log.warning("moonraker: ITAR blocked %s: %s", url, exc)
+            return None
         try:
             req = Request(url)
             if self.api_key:
@@ -566,10 +575,17 @@ class MoonrakerPrinter:
         except Exception as e:
             log.warning(f"Request failed: {url} - {e}")
             return None
-    
+
     def _post(self, path: str, data: Dict = None, timeout: int = 10) -> Optional[Dict]:
         """POST request to Moonraker API."""
         url = f"{self.base_url}{path}"
+        # v1.8.9 (codex pass 20): ITAR guard — same rationale as _get.
+        try:
+            from core.itar import enforce_request_destination, ItarOutboundBlocked
+            enforce_request_destination(url)
+        except ItarOutboundBlocked as exc:
+            log.warning("moonraker: ITAR blocked %s: %s", url, exc)
+            return None
         try:
             body = json.dumps(data).encode() if data else b""
             req = Request(url, data=body, method="POST")

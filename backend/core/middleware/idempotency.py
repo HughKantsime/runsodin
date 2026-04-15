@@ -450,64 +450,60 @@ _LOOKUP_UNCACHEABLE = "uncacheable_success"
 
 def _lookup_row(
     db: Session, key: str, user_id: int, request_hash: str
-) -> tuple[str, Optional[int], Optional[str], Optional[str], Optional[str]]:
+) -> tuple[str, Optional[int], Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Look up the cache row and classify its state.
 
-    Returns (classification, status, body, created_at_str, auth_fingerprint).
-    The fifth element is the stored authz fingerprint from claim time;
-    the middleware compares it against the caller's current fingerprint
-    before serving a replay (codex pass 6 — closes role/scope/org
-    revocation gap).
+    Returns (classification, status, body, created_at_str,
+    auth_fingerprint, response_media_type). Codex pass 20 (2026-04-15)
+    added media_type so non-JSON replays (SDP, text/plain, etc.)
+    survive faithfully.
     """
     row = db.execute(
         text(
             "SELECT request_hash, state, response_status, response_body, "
-            "created_at, updated_at, auth_fingerprint "
+            "created_at, updated_at, auth_fingerprint, response_media_type "
             "FROM idempotency_keys "
             "WHERE key = :k AND user_id = :u"
         ),
         {"k": key, "u": user_id},
     ).fetchone()
     if not row:
-        return _LOOKUP_MISS, None, None, None, None
+        return _LOOKUP_MISS, None, None, None, None, None
 
     state = row.state
     now = datetime.now(timezone.utc)
     created_raw = row.created_at
     fp = row.auth_fingerprint
+    mt = row.response_media_type
 
     if state == _STATE_PENDING:
         created = _parse_created_at(created_raw)
         if created is None:
-            return _LOOKUP_MISS, None, None, None, None
+            return _LOOKUP_MISS, None, None, None, None, None
         if now - created > timedelta(seconds=_PENDING_WATCHDOG_SECONDS):
             log.debug(
                 "idempotency: pending row older than %ss — stuck_pending",
                 _PENDING_WATCHDOG_SECONDS,
             )
-            return _LOOKUP_STUCK_PENDING, None, None, str(created_raw), fp
+            return _LOOKUP_STUCK_PENDING, None, None, str(created_raw), fp, None
         if row.request_hash != request_hash:
-            return _LOOKUP_CONFLICT, None, None, None, None
-        return _LOOKUP_PENDING, None, None, None, fp
+            return _LOOKUP_CONFLICT, None, None, None, None, None
+        return _LOOKUP_PENDING, None, None, None, fp, None
 
-    # state == uncacheable_success → the original call succeeded but
-    # returned headers we can't replay (Set-Cookie etc.). Caller sees
-    # 409 with a clear "this key was used once, mint a fresh key"
-    # message; we do NOT re-execute the handler.
     if state == _STATE_UNCACHEABLE:
-        return _LOOKUP_UNCACHEABLE, None, None, None, fp
+        return _LOOKUP_UNCACHEABLE, None, None, None, fp, None
 
     # state == complete
     if row.request_hash != request_hash:
-        return _LOOKUP_CONFLICT, None, None, None, None
+        return _LOOKUP_CONFLICT, None, None, None, None, None
 
     created = _parse_created_at(created_raw)
     if created is None:
-        return _LOOKUP_MISS, None, None, None, None
+        return _LOOKUP_MISS, None, None, None, None, None
     if now - created > timedelta(hours=_TTL_HOURS):
-        return _LOOKUP_EXPIRED, None, None, str(created_raw), fp
+        return _LOOKUP_EXPIRED, None, None, str(created_raw), fp, None
 
-    return _LOOKUP_HIT, int(row.response_status), row.response_body, str(created_raw), fp
+    return _LOOKUP_HIT, int(row.response_status), row.response_body, str(created_raw), fp, mt
 
 
 _SCHEMA_READY_CACHE: dict = {"ready": False, "checked_at": 0.0}
@@ -684,6 +680,7 @@ def _finalize_row(
     user_id: int,
     response_status: int,
     response_body: bytes,
+    response_media_type: str = "application/json",
 ) -> None:
     """UPDATE the pending row to complete with the real response.
 
@@ -717,6 +714,7 @@ def _finalize_row(
                 "SET state = 'complete', "
                 "    response_status = :s, "
                 "    response_body = :b, "
+                "    response_media_type = :mt, "
                 "    updated_at = :now "
                 "WHERE key = :k AND user_id = :u "
                 "  AND state = 'pending'"
@@ -724,6 +722,7 @@ def _finalize_row(
             {
                 "k": key, "u": user_id,
                 "s": response_status, "b": body_text,
+                "mt": response_media_type or "application/json",
                 "now": _now_iso(),
             },
         )
@@ -936,7 +935,7 @@ def _concurrent_loser_response(
     - anything else (pending / stuck / expired): 409 in_progress.
     """
     from fastapi.responses import Response  # noqa: WPS433
-    classification, status, body_text, _, stored_fp = _lookup_row(
+    classification, status, body_text, _, stored_fp, stored_mt = _lookup_row(
         db, key, user_id, request_hash
     )
     if classification == _LOOKUP_HIT:
@@ -950,7 +949,7 @@ def _concurrent_loser_response(
         return Response(
             content=body_text or "",
             status_code=int(status or 200),
-            media_type="application/json",
+            media_type=stored_mt or "application/json",
             headers={"X-Idempotent-Replay": "true"},
         )
     if classification == _LOOKUP_CONFLICT:
@@ -1111,7 +1110,7 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             query=(request.url.query or ""),
         )
 
-        classification, status, body_text, created_at_str, stored_fp = _lookup_row(
+        classification, status, body_text, created_at_str, stored_fp, stored_mt = _lookup_row(
             db, key, user_id, request_hash
         )
 
@@ -1161,7 +1160,7 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             return Response(
                 content=body_text or "",
                 status_code=int(status or 200),
-                media_type="application/json",
+                media_type=stored_mt or "application/json",
                 headers={"X-Idempotent-Replay": "true"},
             )
 
@@ -1258,7 +1257,10 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 )
 
             try:
-                _finalize_row(db, key, user_id, response.status_code, captured)
+                _finalize_row(
+                    db, key, user_id, response.status_code, captured,
+                    response_media_type=getattr(response, "media_type", None) or "application/json",
+                )
             except IdempotencyFinalizeError as exc:
                 # The handler succeeded but the cache write didn't land
                 # exactly once. Returning the 2xx would risk a duplicate

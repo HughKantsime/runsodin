@@ -24,6 +24,11 @@
 ALTER TABLE idempotency_keys ADD COLUMN state TEXT NOT NULL DEFAULT 'pending';
 ALTER TABLE idempotency_keys ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE idempotency_keys ADD COLUMN auth_fingerprint TEXT NOT NULL DEFAULT '';
+-- Codex pass 20 (2026-04-15): replay must preserve the original
+-- response Content-Type. Without this, an SDP response from
+-- /api/cameras/{id}/webrtc or any non-JSON mutating endpoint would
+-- replay as JSON and break clients' media-type negotiation.
+ALTER TABLE idempotency_keys ADD COLUMN response_media_type TEXT NOT NULL DEFAULT 'application/json';
 
 -- Backfill updated_at ONLY for rows that were already present when
 -- the column was added (it now has the default ''). Populate with

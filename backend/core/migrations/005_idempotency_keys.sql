@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     state TEXT NOT NULL DEFAULT 'pending',
     response_status INTEGER NOT NULL DEFAULT 0,
     response_body TEXT NOT NULL DEFAULT '',
+    response_media_type TEXT NOT NULL DEFAULT 'application/json',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (key, user_id)

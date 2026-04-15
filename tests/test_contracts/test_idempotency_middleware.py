@@ -210,7 +210,7 @@ def test_reclaim_expired_cas_single_winner(conn):
     _try_claim(db, "k", 1, "POST", "/x", "oldhash")
     _finalize_row(db, "k", 1, 200, b"{}")
     # Read the current created_at — both racers would see this value.
-    _, _, _, prior, _ = _lookup_row(db, "k", 1, "oldhash")
+    _, _, _, prior, _, _ = _lookup_row(db, "k", 1, "oldhash")
     assert prior is not None
 
     # First reclaimer wins.
@@ -690,6 +690,69 @@ def test_chunked_request_without_content_length_refused(monkeypatch, conn):
     assert body["error"]["code"] == "idempotency_unsupported"
 
 
+def test_replay_preserves_non_json_media_type(monkeypatch, conn):
+    """Codex pass 20: replay must preserve the original Content-Type.
+    Mutating routes can legitimately return application/sdp (WebRTC
+    offer), text/plain, etc. Rebuilding replay as application/json
+    corrupts those responses."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+    import asyncio
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    test_db = _fake_db(conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+    monkeypatch.setattr(
+        idem_mod, "_resolve_user_context",
+        lambda req, db: {
+            "id": 1, "username": "u", "role": "admin",
+            "group_id": None, "is_active": True, "_token_scopes": [],
+        },
+    )
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-sdp",
+            "content-type": "application/json",
+            "content-length": "50",
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/cameras/1/webrtc"
+        query = ""
+
+    def _make_req():
+        class _Req:
+            method = "POST"
+            headers = _Headers()
+            url = _URL()
+            state = SimpleNamespace()
+            cookies = {}
+            async def body(self):
+                return b'{"offer":"x"}'
+        return _Req()
+
+    async def _sdp_handler(request):
+        return Response(
+            content=b"v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\n",
+            status_code=200,
+            media_type="application/sdp",
+        )
+
+    first = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _sdp_handler))
+    assert first.media_type == "application/sdp"
+
+    second = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _sdp_handler))
+    assert second.headers.get("X-Idempotent-Replay") == "true"
+    assert second.media_type == "application/sdp", (
+        f"replay lost Content-Type — got {second.media_type!r}, "
+        f"want application/sdp"
+    )
+
+
 def test_empty_body_without_content_length_is_accepted(monkeypatch, conn):
     """Codex pass 13: /auth/logout, /alerts/mark-all-read etc. have
     empty bodies; many clients omit Content-Length in that case.
@@ -972,7 +1035,7 @@ def test_lookup_classifies_miss(conn):
     from core.middleware.idempotency import _lookup_row, _LOOKUP_MISS
 
     db = _fake_db(conn)
-    cls, _, _, _, _ = _lookup_row(db, "missing", 1, "h")
+    cls, _, _, _, _, _ = _lookup_row(db, "missing", 1, "h")
     assert cls == _LOOKUP_MISS
 
 
@@ -983,7 +1046,7 @@ def test_lookup_classifies_pending_same_hash(conn):
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
-    cls, _, _, _, _ = _lookup_row(db, "k", 1, "h")
+    cls, _, _, _, _, _ = _lookup_row(db, "k", 1, "h")
     assert cls == _LOOKUP_PENDING
 
 
@@ -994,7 +1057,7 @@ def test_lookup_classifies_conflict_when_pending_with_different_hash(conn):
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "original")
-    cls, _, _, _, _ = _lookup_row(db, "k", 1, "different")
+    cls, _, _, _, _, _ = _lookup_row(db, "k", 1, "different")
     assert cls == _LOOKUP_CONFLICT
 
 
@@ -1006,7 +1069,7 @@ def test_lookup_classifies_hit(conn):
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
     _finalize_row(db, "k", 1, 201, b'{"id": 9}')
-    cls, status, body, _, _ = _lookup_row(db, "k", 1, "h")
+    cls, status, body, _, _, _ = _lookup_row(db, "k", 1, "h")
     assert cls == _LOOKUP_HIT
     assert status == 201
     assert body == '{"id": 9}'
@@ -1020,7 +1083,7 @@ def test_lookup_classifies_conflict_on_complete_with_different_hash(conn):
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
     _finalize_row(db, "k", 1, 200, b"{}")
-    cls, _, _, _, _ = _lookup_row(db, "k", 1, "different")
+    cls, _, _, _, _, _ = _lookup_row(db, "k", 1, "different")
     assert cls == _LOOKUP_CONFLICT
 
 
@@ -1041,7 +1104,7 @@ def test_lookup_classifies_expired(conn):
     conn.commit()
 
     db = _fake_db(conn)
-    cls, _, _, created_at_str, _ = _lookup_row(db, "old", 1, "h")
+    cls, _, _, created_at_str, _, _ = _lookup_row(db, "old", 1, "h")
     assert cls == _LOOKUP_EXPIRED
     assert created_at_str == past
 
@@ -1066,7 +1129,7 @@ def test_stuck_pending_row_classifies_as_stuck_pending(conn):
     conn.commit()
 
     db = _fake_db(conn)
-    cls, _, _, created_at_str, _ = _lookup_row(db, "stuck", 1, "h")
+    cls, _, _, created_at_str, _, _ = _lookup_row(db, "stuck", 1, "h")
     assert cls == _LOOKUP_STUCK_PENDING
     assert created_at_str == past
 

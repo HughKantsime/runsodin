@@ -32,12 +32,13 @@ EXPECTED_COLUMNS = {
     "method",
     "path",
     "request_hash",
-    "auth_fingerprint",  # added post-codex pass 6: authz drift invalidation
-    "state",             # added post-codex: 'pending' or 'complete'
+    "auth_fingerprint",    # added post-codex pass 6: authz drift invalidation
+    "state",               # added post-codex: 'pending' or 'complete'
     "response_status",
     "response_body",
+    "response_media_type", # added post-codex pass 20: preserve content-type on replay
     "created_at",
-    "updated_at",        # added post-codex: tracks state transitions
+    "updated_at",          # added post-codex: tracks state transitions
 }
 
 
