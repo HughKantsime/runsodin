@@ -537,10 +537,16 @@ def _idempotency_schema_ready() -> bool:
     try:
         # Reference every column the middleware actually writes/reads
         # so a narrow legacy schema (pre-006) fails the probe.
+        # Codex pass 21 (2026-04-15): response_media_type was added
+        # in the pass-20 migration update; the probe must reference
+        # it too, or a half-migrated environment (has state /
+        # updated_at / auth_fingerprint but not response_media_type)
+        # would pass this check and then 500 on the first mutating
+        # request that reads/writes that column.
         db.execute(
             text(
                 "SELECT key, user_id, method, path, request_hash, "
-                "state, response_status, response_body, "
+                "state, response_status, response_body, response_media_type, "
                 "created_at, updated_at, auth_fingerprint "
                 "FROM idempotency_keys LIMIT 0"
             )

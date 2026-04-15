@@ -199,20 +199,41 @@ def _deduct_filament_consumption(conn, printer_id: int, grams_used: float, archi
 
 
 def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
-    """Sync filament consumption to Spoolman via its API."""
-    import os
-    import urllib.request
-    import json
+    """Sync filament consumption to Spoolman via its API.
 
-    base_url = os.environ.get("SPOOLMAN_URL", "").rstrip("/")
+    v1.8.10 (codex pass 21): route through the same guarded stack
+    every other Spoolman caller uses. The previous implementation
+    read a separate `SPOOLMAN_URL` env var and called urlopen()
+    directly — that bypassed both the ITAR boot audit (which checks
+    `settings.spoolman_url`) AND the runtime pin/proxy-bypass
+    guards. Under ITAR this path could still ship spool usage data
+    to a public Spoolman endpoint on every archive sync.
+
+    Fix: read from `settings.spoolman_url` (single source of truth,
+    already boot-audited) and wrap the httpx call in
+    `pin_for_request` + `trust_env=should_trust_env()` so it inherits
+    the full ITAR posture — DNS pinning, no proxy bypass, and an
+    `ItarOutboundBlocked` refusal on public destinations.
+    """
+    import json
+    import httpx
+    from core.config import settings
+    from core.itar import pin_for_request, should_trust_env, ItarOutboundBlocked
+
+    base_url = (settings.spoolman_url or "").rstrip("/")
     if not base_url:
         return
 
     url = f"{base_url}/api/v1/spool/{spoolman_spool_id}/use"
-    data = json.dumps({"use_weight": grams_used}).encode()
-    req = urllib.request.Request(url, data=data, method="PUT",
-                                headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=10)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- verified safe — connects to admin-configured printer URLs, SSRF-checked at config time
+    try:
+        with pin_for_request(url):
+            with httpx.Client(timeout=10, trust_env=should_trust_env()) as client:
+                resp = client.put(url, json={"use_weight": grams_used})
+                resp.raise_for_status()
+    except ItarOutboundBlocked as exc:
+        log.warning("archive: ITAR blocked Spoolman sync: %s", exc)
+    except Exception as exc:
+        log.warning("archive: Spoolman sync failed for spool %s: %s", spoolman_spool_id, exc)
 
 
 # ---------------------------------------------------------------------------
