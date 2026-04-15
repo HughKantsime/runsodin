@@ -141,6 +141,13 @@ class OIDCHandler:
             if age < 3600:  # Cache for 1 hour
                 return self._config
 
+        # v1.8.9 (codex pass 9): ITAR guard on OIDC discovery. Under
+        # ODIN_ITAR_MODE=1, a public IdP (Microsoft / Google / Okta)
+        # would receive authorization codes and user info — exactly
+        # the leak ITAR mode is supposed to prevent.
+        from core.itar import enforce_request_destination
+        enforce_request_destination(self.discovery_url)
+
         async with httpx.AsyncClient() as client:
             resp = await client.get(self.discovery_url, timeout=10)
             resp.raise_for_status()
@@ -201,19 +208,23 @@ class OIDCHandler:
             "grant_type": "authorization_code",
         }
         
+        # v1.8.9 (codex pass 9): ITAR guard on OIDC token exchange.
+        from core.itar import enforce_request_destination
+        enforce_request_destination(token_endpoint)
+
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 token_endpoint,
                 data=data,
                 timeout=10,
             )
-            
+
             if resp.status_code != 200:
                 log.error(f"Token exchange failed: {resp.status_code} {resp.text}")
                 raise Exception(f"Token exchange failed: {resp.text}")
-            
+
             return resp.json()
-    
+
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """
         Get user info from Microsoft Graph API.
@@ -221,11 +232,15 @@ class OIDCHandler:
         """
         # Microsoft Graph endpoint (same for commercial and GCC High)
         graph_url = "https://graph.microsoft.com/v1.0/me"
-        
+
         # For GCC High, use different endpoint
         if "microsoftonline.us" in self.discovery_url:
             graph_url = "https://graph.microsoft.us/v1.0/me"
-        
+
+        # v1.8.9 (codex pass 9): ITAR guard on Graph userinfo fetch.
+        from core.itar import enforce_request_destination
+        enforce_request_destination(graph_url)
+
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 graph_url,

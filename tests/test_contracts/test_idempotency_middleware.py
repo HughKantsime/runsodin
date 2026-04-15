@@ -398,13 +398,17 @@ def test_multipart_requests_skip_idempotency(monkeypatch, conn):
             raise AssertionError("body() must not be called for multipart")
 
     async def _handler(request):
-        return Response(content=b'{"ok":true}', status_code=201, media_type="application/json")
+        raise AssertionError("handler must not run — middleware should 415")
 
+    import json as _json
     result, call_count = _run_middleware_and_capture(monkeypatch, conn, _Req(), _handler)
-    assert call_count == 1
-    assert result.status_code == 201
+    # Codex pass 9: explicit 415 rather than silent pass-through.
+    assert call_count == 0
+    assert result.status_code == 415
+    body = _json.loads(bytes(result.body))
+    assert body["error"]["code"] == "idempotency_unsupported"
+    assert body["error"]["retriable"] is False
 
-    # No row written for this key — middleware skipped caching.
     rows = conn.execute(
         "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-multi'"
     ).fetchone()[0]
@@ -711,11 +715,16 @@ def test_oversized_content_length_skips_idempotency(monkeypatch, conn):
             raise AssertionError("body() must not be called for oversized")
 
     async def _handler(request):
-        return Response(content=b'{"ok":true}', status_code=200, media_type="application/json")
+        raise AssertionError("handler must not run — middleware should 413")
 
+    import json as _json
     result, call_count = _run_middleware_and_capture(monkeypatch, conn, _Req(), _handler)
-    assert call_count == 1
-    assert result.status_code == 200
+    # Codex pass 9: explicit 413 rather than silent pass-through.
+    assert call_count == 0
+    assert result.status_code == 413
+    body = _json.loads(bytes(result.body))
+    assert body["error"]["code"] == "idempotency_unsupported"
+
     rows = conn.execute(
         "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-big'"
     ).fetchone()[0]

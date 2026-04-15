@@ -59,8 +59,26 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             try:
                 from pywebpush import webpush, WebPushException
 
+                # v1.8.9 (codex pass 9): ITAR guard. Browser push
+                # endpoints (fcm.googleapis.com etc.) are public
+                # infrastructure; under ODIN_ITAR_MODE=1 every push
+                # subscription must be a private-range endpoint
+                # (rare — operators using internal push infra). The
+                # check runs per-subscription so a future local-push
+                # setup works while public endpoints are refused.
+                from core.itar import enforce_request_destination, ItarOutboundBlocked
+
                 for endpoint, p256dh, auth in subscriptions:
                     try:
+                        try:
+                            enforce_request_destination(endpoint)
+                        except ItarOutboundBlocked as ite:
+                            log.info(
+                                "Push skipped under ITAR for user %s: %s",
+                                user_id, ite,
+                            )
+                            continue
+
                         webpush(
                             subscription_info={
                                 "endpoint": endpoint,

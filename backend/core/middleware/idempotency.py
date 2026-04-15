@@ -925,32 +925,75 @@ async def idempotency_middleware(request: Any, call_next: Callable):
         )
         return await call_next(request)
 
-    # Codex pass 4 (2026-04-14): skip idempotency for multipart /
-    # oversized uploads. Buffering a 500 MB video upload twice
-    # (middleware + route) is a path to OOM; and multipart boundary
-    # randomization per-retry makes raw-byte hashing produce false
-    # 409 conflicts on legitimate retries. Operators who need
-    # idempotency on binary uploads should use ETag/If-Match or
-    # application-level dedup.
+    # Codex pass 9 (2026-04-15): do NOT silently disable idempotency
+    # on multipart or oversized requests. Silently passing through
+    # turned agent retries on /vision/models, /print-files/upload,
+    # /backups/restore into duplicate-execution holes. Return an
+    # explicit 415-ish error so the client knows the retry contract
+    # is unavailable and can fall back to application-level dedup.
+    #
+    # Operators on those routes should rely on ETag/If-Match or
+    # content-hash deduplication at the application layer.
     content_type = (request.headers.get("content-type") or "").lower()
     if content_type.startswith("multipart/"):
-        return await call_next(request)
+        return Response(
+            content=json.dumps({
+                "detail": (
+                    "Idempotency-Key is not supported for multipart/form-data "
+                    "uploads. Use ETag/If-Match or content-hash dedup instead."
+                ),
+                "error": {
+                    "code": "idempotency_unsupported",
+                    "detail": "Idempotency-Key not supported for multipart uploads.",
+                    "retriable": False,
+                },
+            }),
+            status_code=415,
+            media_type="application/json",
+        )
     content_length_str = request.headers.get("content-length") or ""
     if content_length_str.isdigit() and int(content_length_str) > _MAX_REQUEST_BODY_BYTES:
-        return await call_next(request)
+        return Response(
+            content=json.dumps({
+                "detail": (
+                    f"Idempotency-Key is not supported for requests larger "
+                    f"than {_MAX_REQUEST_BODY_BYTES} bytes. "
+                    f"Use application-level dedup for large uploads."
+                ),
+                "error": {
+                    "code": "idempotency_unsupported",
+                    "detail": f"Idempotency-Key not supported for >{_MAX_REQUEST_BODY_BYTES}-byte requests.",
+                    "retriable": False,
+                },
+            }),
+            status_code=413,
+            media_type="application/json",
+        )
 
     # Body must be read before dispatch; FastAPI already buffers it for
     # most routes, but we ensure it's available for hashing and then
     # put it back so downstream handlers see it.
     body = await request.body()
     # Defence-in-depth: if the body arrived without a content-length
-    # header (chunked transfer) and exceeded the cap anyway, skip
-    # hashing and pass the buffered bytes through.
+    # header (chunked transfer) and exceeded the cap anyway, refuse
+    # rather than silently degrade.
     if len(body) > _MAX_REQUEST_BODY_BYTES:
-        async def _passthrough_receive():
-            return {"type": "http.request", "body": body, "more_body": False}
-        request._receive = _passthrough_receive  # type: ignore[assignment]
-        return await call_next(request)
+        return Response(
+            content=json.dumps({
+                "detail": (
+                    f"Idempotency-Key is not supported for requests larger "
+                    f"than {_MAX_REQUEST_BODY_BYTES} bytes (chunked body). "
+                    f"Use application-level dedup."
+                ),
+                "error": {
+                    "code": "idempotency_unsupported",
+                    "detail": "Idempotency-Key not supported for oversized chunked requests.",
+                    "retriable": False,
+                },
+            }),
+            status_code=413,
+            media_type="application/json",
+        )
 
     async def _receive():
         return {"type": "http.request", "body": body, "more_body": False}
