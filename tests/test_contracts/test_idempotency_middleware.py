@@ -193,21 +193,62 @@ def test_release_row_leaves_completed_intact(conn):
     assert row == ("complete",)
 
 
-def test_reclaim_expired_resets_row(conn):
-    from core.middleware.idempotency import _try_claim, _finalize_row, _reclaim_expired
+def test_reclaim_expired_cas_single_winner(conn):
+    """Reclaim is a compare-and-set on prior_created_at: exactly one
+    concurrent reclaimer succeeds, the other sees rowcount=0."""
+    from core.middleware.idempotency import (
+        _try_claim, _finalize_row, _lookup_row, _reclaim_expired,
+    )
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "oldhash")
     _finalize_row(db, "k", 1, 200, b"{}")
-    # Now reclaim with a new request hash — e.g. an old completed
-    # row past TTL.
-    assert _reclaim_expired(db, "k", 1, "POST", "/x", "newhash") is True
+    # Read the current created_at — both racers would see this value.
+    _, _, _, prior = _lookup_row(db, "k", 1, "oldhash")
+    assert prior is not None
 
+    # First reclaimer wins.
+    assert _reclaim_expired(
+        db, "k", 1, "POST", "/x", "newhash", prior_created_at=prior
+    ) is True
+
+    # Second reclaimer passes the SAME prior_created_at, but the row's
+    # created_at has been bumped by the winner → 0 rows affected.
+    assert _reclaim_expired(
+        db, "k", 1, "POST", "/x", "othernewhash", prior_created_at=prior
+    ) is False
+
+    # State reflects the winner.
     row = conn.execute(
-        "SELECT state, request_hash, response_status "
-        "FROM idempotency_keys WHERE key='k'"
+        "SELECT state, request_hash FROM idempotency_keys WHERE key='k'"
     ).fetchone()
-    assert row == ("pending", "newhash", 0)
+    assert row == ("pending", "newhash")
+
+
+def test_finalize_row_raises_on_missing_row(conn):
+    """A finalize against a deleted/missing pending row raises
+    IdempotencyFinalizeError (codex pass 2: fail loud)."""
+    from core.middleware.idempotency import (
+        _finalize_row, IdempotencyFinalizeError,
+    )
+
+    db = _fake_db(conn)
+    with pytest.raises(IdempotencyFinalizeError):
+        _finalize_row(db, "nonexistent", 1, 200, b"{}")
+
+
+def test_finalize_row_raises_on_non_pending_state(conn):
+    """Finalizing a row that's already 'complete' is a rowcount=0
+    event → raise."""
+    from core.middleware.idempotency import (
+        _try_claim, _finalize_row, IdempotencyFinalizeError,
+    )
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    _finalize_row(db, "k", 1, 200, b"{}")  # first finalize ok
+    with pytest.raises(IdempotencyFinalizeError):
+        _finalize_row(db, "k", 1, 200, b"{}")  # second must raise
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +259,7 @@ def test_lookup_classifies_miss(conn):
     from core.middleware.idempotency import _lookup_row, _LOOKUP_MISS
 
     db = _fake_db(conn)
-    cls, _, _ = _lookup_row(db, "missing", 1, "h")
+    cls, _, _, _ = _lookup_row(db, "missing", 1, "h")
     assert cls == _LOOKUP_MISS
 
 
@@ -229,7 +270,7 @@ def test_lookup_classifies_pending_same_hash(conn):
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
-    cls, _, _ = _lookup_row(db, "k", 1, "h")
+    cls, _, _, _ = _lookup_row(db, "k", 1, "h")
     assert cls == _LOOKUP_PENDING
 
 
@@ -240,7 +281,7 @@ def test_lookup_classifies_conflict_when_pending_with_different_hash(conn):
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "original")
-    cls, _, _ = _lookup_row(db, "k", 1, "different")
+    cls, _, _, _ = _lookup_row(db, "k", 1, "different")
     assert cls == _LOOKUP_CONFLICT
 
 
@@ -252,7 +293,7 @@ def test_lookup_classifies_hit(conn):
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
     _finalize_row(db, "k", 1, 201, b'{"id": 9}')
-    cls, status, body = _lookup_row(db, "k", 1, "h")
+    cls, status, body, _ = _lookup_row(db, "k", 1, "h")
     assert cls == _LOOKUP_HIT
     assert status == 201
     assert body == '{"id": 9}'
@@ -266,7 +307,7 @@ def test_lookup_classifies_conflict_on_complete_with_different_hash(conn):
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
     _finalize_row(db, "k", 1, 200, b"{}")
-    cls, _, _ = _lookup_row(db, "k", 1, "different")
+    cls, _, _, _ = _lookup_row(db, "k", 1, "different")
     assert cls == _LOOKUP_CONFLICT
 
 
@@ -274,43 +315,46 @@ def test_lookup_classifies_expired(conn):
     from core.middleware.idempotency import _lookup_row, _LOOKUP_EXPIRED
 
     past = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
         INSERT INTO idempotency_keys
         (key, user_id, method, path, request_hash, state,
-         response_status, response_body, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         response_status, response_body, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("old", 1, "POST", "/x", "h", "complete", 200, "{}", past),
+        ("old", 1, "POST", "/x", "h", "complete", 200, "{}", past, now),
     )
     conn.commit()
 
     db = _fake_db(conn)
-    cls, _, _ = _lookup_row(db, "old", 1, "h")
+    cls, _, _, created_at_str = _lookup_row(db, "old", 1, "h")
     assert cls == _LOOKUP_EXPIRED
+    assert created_at_str == past
 
 
-def test_stuck_pending_row_classifies_as_miss(conn):
-    """A pending row older than the 90s watchdog is treated as miss
-    so a crashed handler can't wedge the key forever."""
-    from core.middleware.idempotency import _lookup_row, _LOOKUP_MISS
+def test_stuck_pending_row_classifies_as_stuck_pending(conn):
+    """A pending row older than the 90s watchdog is treated as
+    stuck_pending so the caller can CAS-claim it (single winner)."""
+    from core.middleware.idempotency import _lookup_row, _LOOKUP_STUCK_PENDING
 
-    # 3 minutes old pending row — past the 90s watchdog.
     past = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
         INSERT INTO idempotency_keys
         (key, user_id, method, path, request_hash, state,
-         response_status, response_body, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         response_status, response_body, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("stuck", 1, "POST", "/x", "h", "pending", 0, "", past),
+        ("stuck", 1, "POST", "/x", "h", "pending", 0, "", past, now),
     )
     conn.commit()
 
     db = _fake_db(conn)
-    cls, _, _ = _lookup_row(db, "stuck", 1, "h")
-    assert cls == _LOOKUP_MISS
+    cls, _, _, created_at_str = _lookup_row(db, "stuck", 1, "h")
+    assert cls == _LOOKUP_STUCK_PENDING
+    assert created_at_str == past
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +398,41 @@ def test_request_hash_handles_non_json_body():
     assert h1 != h3
 
 
+def test_request_hash_includes_query_string():
+    """Codex pass 2: identical body but different query = different hash.
+
+    Motivation: `POST /vision/models?name=X` vs
+    `POST /vision/models?name=Y` with the same upload body would
+    otherwise replay each other's result.
+    """
+    from core.middleware.idempotency import _compute_request_hash
+
+    h1 = _compute_request_hash("POST", "/vision/models", b"BODY", query="name=foo")
+    h2 = _compute_request_hash("POST", "/vision/models", b"BODY", query="name=bar")
+    h3 = _compute_request_hash("POST", "/vision/models", b"BODY", query="")
+    assert h1 != h2
+    assert h1 != h3
+    assert h2 != h3
+
+
+def test_request_hash_query_string_order_canonicalized():
+    """?a=1&b=2 and ?b=2&a=1 hash the same."""
+    from core.middleware.idempotency import _compute_request_hash
+
+    h1 = _compute_request_hash("POST", "/x", b"{}", query="a=1&b=2")
+    h2 = _compute_request_hash("POST", "/x", b"{}", query="b=2&a=1")
+    assert h1 == h2
+
+
+def test_request_hash_query_string_preserves_repeated_keys():
+    """?tag=a&tag=b vs ?tag=a → different hash (different semantics)."""
+    from core.middleware.idempotency import _compute_request_hash
+
+    h1 = _compute_request_hash("POST", "/x", b"{}", query="tag=a&tag=b")
+    h2 = _compute_request_hash("POST", "/x", b"{}", query="tag=a")
+    assert h1 != h2
+
+
 # ---------------------------------------------------------------------------
 # Prune
 # ---------------------------------------------------------------------------
@@ -366,7 +445,6 @@ def test_prune_removes_expired_complete_and_stuck_pending(conn):
     stuck = (now - timedelta(minutes=5)).isoformat()          # stuck pending
     fresh = now.isoformat()                                    # still valid
 
-    # 1 expired complete, 1 stuck pending, 1 fresh complete, 1 fresh pending.
     cases = [
         ("k1", "complete", long_ago),
         ("k2", "pending",  stuck),
@@ -378,10 +456,10 @@ def test_prune_removes_expired_complete_and_stuck_pending(conn):
             """
             INSERT INTO idempotency_keys
             (key, user_id, method, path, request_hash, state,
-             response_status, response_body, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             response_status, response_body, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (key, 1, "POST", "/x", "h", state, 0, "", ts),
+            (key, 1, "POST", "/x", "h", state, 0, "", ts, ts),
         )
     conn.commit()
 
@@ -396,6 +474,31 @@ def test_prune_removes_expired_complete_and_stuck_pending(conn):
         ).fetchall()
     }
     assert remaining == {"k3", "k4"}
+
+
+def test_prune_does_not_delete_fresh_rows_on_mixed_timestamp_formats(conn):
+    """Codex pass 2 regression guard: if a row were written with
+    SQLite's CURRENT_TIMESTAMP format ('YYYY-MM-DD HH:MM:SS') instead
+    of ISO-8601 ('YYYY-MM-DDTHH:MM:SS+00:00'), lexical comparison
+    against an ISO cutoff would false-expire it.
+
+    The schema no longer defaults to CURRENT_TIMESTAMP — _try_claim
+    writes explicit ISO — so a fresh claim stays safe from prune.
+    """
+    from core.middleware.idempotency import (
+        _try_claim, prune_expired_idempotency_keys,
+    )
+
+    db = _fake_db(conn)
+    assert _try_claim(db, "fresh", 1, "POST", "/x", "h") is True
+
+    deleted = prune_expired_idempotency_keys(db)
+    assert deleted == 0
+
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys"
+    ).fetchone()[0]
+    assert remaining == 1
 
 
 # ---------------------------------------------------------------------------

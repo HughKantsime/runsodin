@@ -135,12 +135,13 @@ def test_migration_insert_and_replay_roundtrip(fresh_db):
     """End-to-end smoke: insert a completed row, query it back by (key, user_id)."""
     _apply_migration(fresh_db)
 
+    now = "2026-04-15T00:00:00+00:00"
     fresh_db.execute(
         """
         INSERT INTO idempotency_keys
         (key, user_id, method, path, request_hash, state,
-         response_status, response_body)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         response_status, response_body, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "11111111-2222-3333-4444-555555555555",
@@ -151,6 +152,8 @@ def test_migration_insert_and_replay_roundtrip(fresh_db):
             "complete",
             200,
             '{"job_id": 7}',
+            now,
+            now,
         ),
     )
     fresh_db.commit()
@@ -165,24 +168,27 @@ def test_migration_insert_and_replay_roundtrip(fresh_db):
 
 
 def test_state_defaults_to_pending(fresh_db):
-    """INSERT with only required fields gets state='pending' by default."""
+    """INSERT with only state+timestamps omitted (still needs created_at
+    and updated_at since they're NOT NULL) defaults state to 'pending',
+    response_status to 0, response_body to ''."""
     _apply_migration(fresh_db)
 
+    now = "2026-04-15T00:00:00+00:00"
     fresh_db.execute(
         """
         INSERT INTO idempotency_keys
-        (key, user_id, method, path, request_hash)
-        VALUES (?, ?, ?, ?, ?)
+        (key, user_id, method, path, request_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        ("abc", 1, "POST", "/x", "h"),
+        ("abc", 1, "POST", "/x", "h", now, now),
     )
     fresh_db.commit()
 
-    state = fresh_db.execute(
+    row = fresh_db.execute(
         "SELECT state, response_status, response_body "
         "FROM idempotency_keys WHERE key = 'abc'"
     ).fetchone()
-    assert state == ("pending", 0, "")
+    assert row == ("pending", 0, "")
 
 
 def test_state_index_exists(fresh_db):
@@ -200,16 +206,17 @@ def test_same_key_different_users_do_not_collide(fresh_db):
     """PK scope: same key can exist for user A and user B independently."""
     _apply_migration(fresh_db)
 
+    now = "2026-04-15T00:00:00+00:00"
     key = "88888888-7777-6666-5555-444444444444"
     for user_id, body in [(1, '{"a": 1}'), (2, '{"b": 2}')]:
         fresh_db.execute(
             """
             INSERT INTO idempotency_keys
             (key, user_id, method, path, request_hash, state,
-             response_status, response_body)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             response_status, response_body, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (key, user_id, "POST", "/x", "h", "complete", 200, body),
+            (key, user_id, "POST", "/x", "h", "complete", 200, body, now, now),
         )
     fresh_db.commit()
 

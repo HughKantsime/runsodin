@@ -181,12 +181,37 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
     return None
 
 
-def _compute_request_hash(method: str, path: str, body: bytes) -> str:
+def _canonicalize_query_string(query: str) -> str:
+    """Sort query params by (key, value) for a stable hash input.
+
+    Codex pass 2 (2026-04-14): several ODIN mutating routes carry
+    their semantic parameters in the query string rather than the
+    body (e.g. `POST /vision/models?name=X&detection_type=Y` with a
+    file-upload body). If the hash ignored query params, two
+    different operations with the same key and body would be
+    indistinguishable and replay would serve the wrong result.
+
+    Preserves repeated keys (`?tag=a&tag=b`) by sorting with a
+    stable (key, value) tuple ordering.
+    """
+    if not query:
+        return ""
+    from urllib.parse import parse_qsl, urlencode
+    pairs = parse_qsl(query, keep_blank_values=True)
+    pairs.sort()
+    return urlencode(pairs)
+
+
+def _compute_request_hash(method: str, path: str, body: bytes, query: str = "") -> str:
     """Deterministic hash over the request identity + body.
 
-    JSON bodies are canonicalized (sorted keys) before hashing so that
-    `{"a":1,"b":2}` and `{"b":2,"a":1}` are considered equivalent and
-    don't false-409 the client.
+    Includes: method, path, canonicalized query string, canonicalized
+    body. JSON bodies are canonicalized (sorted keys) before hashing
+    so `{"a":1,"b":2}` and `{"b":2,"a":1}` hash the same and don't
+    false-409 the client.
+
+    Query string is canonicalized (sorted pairs) so `?b=2&a=1` and
+    `?a=1&b=2` hash the same but `?name=foo` and `?name=bar` differ.
     """
     payload_bytes = body or b""
     if payload_bytes:
@@ -197,10 +222,14 @@ def _compute_request_hash(method: str, path: str, body: bytes) -> str:
             # Non-JSON body (e.g. multipart upload) — hash verbatim.
             pass
 
+    canonical_query = _canonicalize_query_string(query or "")
+
     h = hashlib.sha256()
     h.update(method.encode("ascii"))
     h.update(b"\x00")
     h.update(path.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(canonical_query.encode("utf-8"))
     h.update(b"\x00")
     h.update(payload_bytes)
     return h.hexdigest()
@@ -225,6 +254,7 @@ def _parse_created_at(raw: Any) -> Optional[datetime]:
 # Sentinels for the lookup classifier below.
 _LOOKUP_MISS = "miss"
 _LOOKUP_PENDING = "pending"
+_LOOKUP_STUCK_PENDING = "stuck_pending"
 _LOOKUP_CONFLICT = "conflict"
 _LOOKUP_HIT = "hit"
 _LOOKUP_EXPIRED = "expired"
@@ -232,21 +262,26 @@ _LOOKUP_EXPIRED = "expired"
 
 def _lookup_row(
     db: Session, key: str, user_id: int, request_hash: str
-) -> tuple[str, Optional[int], Optional[str]]:
+) -> tuple[str, Optional[int], Optional[str], Optional[str]]:
     """Look up the cache row and classify its state.
 
-    Returns (classification, status, body). `status`/`body` are only
-    populated when classification == hit.
+    Returns (classification, status, body, created_at_str).
+    `status`/`body` are only populated when classification == hit.
+    `created_at_str` is the raw `created_at` value as stored in the
+    DB (verbatim, not reparsed) so the caller can pass it to
+    `_reclaim_expired()` as a compare-and-set guard — that's how we
+    detect another reclaimer winning the race.
 
-    - `miss`: no row, or the previous row is stale and should be
-      treated as absent (caller re-claims).
-    - `pending`: another in-flight request holds the key; caller
+    - `miss`: no row in the DB. Caller INSERTs a fresh pending row.
+    - `stuck_pending`: pending row past the watchdog window. Caller
+      uses CAS to overwrite, guarding on this created_at.
+    - `pending`: another in-flight request holds the key. Caller
       returns 409 in_progress.
-    - `conflict`: row exists with a different request hash; caller
+    - `conflict`: row exists with a different request hash. Caller
       returns 409 conflict.
     - `hit`: cached response available for replay.
-    - `expired`: completed row is past TTL; caller treats as miss and
-      overwrites (claim-again path).
+    - `expired`: completed row past TTL. Caller uses CAS to overwrite,
+      guarding on this created_at.
     """
     row = db.execute(
         text(
@@ -258,38 +293,51 @@ def _lookup_row(
         {"k": key, "u": user_id},
     ).fetchone()
     if not row:
-        return _LOOKUP_MISS, None, None
+        return _LOOKUP_MISS, None, None, None
 
     state = row.state
     now = datetime.now(timezone.utc)
+    created_raw = row.created_at
 
     if state == _STATE_PENDING:
-        created = _parse_created_at(row.created_at)
+        created = _parse_created_at(created_raw)
         if created is None:
-            return _LOOKUP_MISS, None, None
-        # Stuck pending row — treat as absent so the caller can re-claim.
+            # Corrupt timestamp — caller cannot CAS safely. Treat as
+            # miss; the INSERT in _try_claim will collide on the PK
+            # and bounce back to a re-read, where hopefully the row
+            # is gone (pruner) or repaired.
+            return _LOOKUP_MISS, None, None, None
         if now - created > timedelta(seconds=_PENDING_WATCHDOG_SECONDS):
             log.debug(
-                "idempotency: pending row older than %ss — treating as miss",
+                "idempotency: pending row older than %ss — stuck_pending",
                 _PENDING_WATCHDOG_SECONDS,
             )
-            return _LOOKUP_MISS, None, None
-        # Still in-flight. Caller returns 409 in_progress.
+            return _LOOKUP_STUCK_PENDING, None, None, str(created_raw)
         if row.request_hash != request_hash:
-            return _LOOKUP_CONFLICT, None, None
-        return _LOOKUP_PENDING, None, None
+            return _LOOKUP_CONFLICT, None, None, None
+        return _LOOKUP_PENDING, None, None, None
 
     # state == complete
     if row.request_hash != request_hash:
-        return _LOOKUP_CONFLICT, None, None
+        return _LOOKUP_CONFLICT, None, None, None
 
-    created = _parse_created_at(row.created_at)
+    created = _parse_created_at(created_raw)
     if created is None:
-        return _LOOKUP_MISS, None, None
+        return _LOOKUP_MISS, None, None, None
     if now - created > timedelta(hours=_TTL_HOURS):
-        return _LOOKUP_EXPIRED, None, None
+        return _LOOKUP_EXPIRED, None, None, str(created_raw)
 
-    return _LOOKUP_HIT, int(row.response_status), row.response_body
+    return _LOOKUP_HIT, int(row.response_status), row.response_body, str(created_raw)
+
+
+def _now_iso() -> str:
+    """Canonical timestamp format used for every row in this table.
+
+    Codex pass 2 (2026-04-14): keeps all timestamps in a single ISO-8601
+    format so lexical comparison is sound across SQLite and Postgres.
+    Never return the DB-native `CURRENT_TIMESTAMP` shape.
+    """
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _try_claim(
@@ -309,16 +357,17 @@ def _try_claim(
     The insert is guarded by the PK; concurrent attempts resolve
     deterministically: exactly one INSERT succeeds, the rest raise
     IntegrityError. Stuck-pending rows are handled separately by the
-    caller (treats them as miss and UPDATEs state back to pending
-    with the new metadata).
+    caller (treats them as miss and goes through `_reclaim_expired`
+    which is a compare-and-set, single-winner).
     """
+    ts = _now_iso()
     try:
         db.execute(
             text(
                 "INSERT INTO idempotency_keys "
                 "(key, user_id, method, path, request_hash, state, "
-                " response_status, response_body) "
-                "VALUES (:k, :u, :m, :p, :h, 'pending', 0, '')"
+                " response_status, response_body, created_at, updated_at) "
+                "VALUES (:k, :u, :m, :p, :h, 'pending', 0, '', :ts, :ts)"
             ),
             {
                 "k": key,
@@ -326,6 +375,7 @@ def _try_claim(
                 "m": method,
                 "p": path,
                 "h": request_hash,
+                "ts": ts,
             },
         )
         db.commit()
@@ -342,30 +392,47 @@ def _reclaim_expired(
     method: str,
     path: str,
     request_hash: str,
+    prior_created_at: str,
 ) -> bool:
-    """Overwrite a stuck-pending or TTL-expired row back to pending.
+    """Compare-and-set claim of a stuck-pending or TTL-expired row.
 
-    Caller has already classified the row as miss/expired and wants
-    to claim it. Update-in-place preserves the PK.
+    Codex pass 2 (2026-04-14) flagged a race: the prior implementation
+    did an unconditional UPDATE and returned True unconditionally. Two
+    concurrent retriers would both "succeed" and both execute the
+    handler, duplicating side effects on the recovery path.
+
+    Fix: guard the UPDATE on the caller-observed `created_at`. The
+    caller classifies the row (sees `created_at = T`) and passes T to
+    this function. The UPDATE runs only if the row's current
+    created_at still matches T — i.e. no other writer has touched it
+    since. If another reclaimer won, the row now has a newer
+    created_at and this UPDATE affects 0 rows; we return False and
+    the caller's outer loop re-reads the classifier (the other
+    reclaimer's work is now visible as pending or complete).
+
+    Returns True iff exactly one row was updated by this call (we own
+    the key). False otherwise (another reclaimer won the race).
     """
-    now = datetime.now(timezone.utc)
+    now_iso = _now_iso()
     try:
-        db.execute(
+        result = db.execute(
             text(
                 "UPDATE idempotency_keys "
                 "SET method = :m, path = :p, request_hash = :h, "
                 "    state = 'pending', response_status = 0, "
                 "    response_body = '', "
                 "    created_at = :now, updated_at = :now "
-                "WHERE key = :k AND user_id = :u"
+                "WHERE key = :k AND user_id = :u "
+                "  AND created_at = :prior"
             ),
             {
                 "k": key, "u": user_id, "m": method, "p": path, "h": request_hash,
-                "now": now.isoformat(),
+                "now": now_iso, "prior": prior_created_at,
             },
         )
         db.commit()
-        return True
+        rowcount = int(getattr(result, "rowcount", 0) or 0)
+        return rowcount == 1
     except Exception:
         db.rollback()
         return False
@@ -378,12 +445,18 @@ def _finalize_row(
     response_status: int,
     response_body: bytes,
 ) -> None:
-    """UPDATE the pending row to complete with the real response."""
+    """UPDATE the pending row to complete with the real response.
+
+    Codex pass 2 (2026-04-14): fail loud. The prior implementation
+    swallowed errors as debug logs, leaving the pending row alive for
+    the pruner to delete — which then allowed a later retry to
+    re-execute the mutation (duplicate side effects). If the UPDATE
+    cannot persist the completed row exactly once, we raise
+    IdempotencyFinalizeError; the middleware converts the situation
+    into a 500 response so the caller knows the retry contract is
+    broken and the operator sees it in logs.
+    """
     if len(response_body) > _MAX_BODY_BYTES:
-        # Too big to cache — mark the row complete with an empty body so
-        # replay returns a sensible empty response rather than
-        # reserving the key forever. In practice all agent-surface
-        # responses are tiny; this path is a safety net.
         body_text = ""
     else:
         try:
@@ -392,25 +465,36 @@ def _finalize_row(
             body_text = ""
 
     try:
-        db.execute(
+        result = db.execute(
             text(
                 "UPDATE idempotency_keys "
                 "SET state = 'complete', "
                 "    response_status = :s, "
                 "    response_body = :b, "
                 "    updated_at = :now "
-                "WHERE key = :k AND user_id = :u"
+                "WHERE key = :k AND user_id = :u "
+                "  AND state = 'pending'"
             ),
             {
                 "k": key, "u": user_id,
                 "s": response_status, "b": body_text,
-                "now": datetime.now(timezone.utc).isoformat(),
+                "now": _now_iso(),
             },
         )
         db.commit()
     except Exception as exc:
         db.rollback()
-        log.debug("idempotency finalize failed: %s", exc)
+        raise IdempotencyFinalizeError(
+            f"idempotency finalize DB error for key={key!r} user_id={user_id}: {exc}"
+        ) from exc
+
+    rowcount = int(getattr(result, "rowcount", 0) or 0)
+    if rowcount != 1:
+        raise IdempotencyFinalizeError(
+            f"idempotency finalize expected 1 row updated, got {rowcount} "
+            f"for key={key!r} user_id={user_id}. Row may have been pruned "
+            f"mid-flight or state was not 'pending'."
+        )
 
 
 def _release_row(db: Session, key: str, user_id: int) -> None:
@@ -447,6 +531,52 @@ def _conflict_response(code: str, detail: str):
         status_code=409,
         media_type="application/json",
     )
+
+
+def _concurrent_loser_response(
+    db: Session, key: str, user_id: int, request_hash: str
+):
+    """Build the response for a request that lost a concurrent claim.
+
+    Re-classifies the row and picks the right 409 / replay for the
+    winner's current state:
+    - HIT: winner already completed → serve the cached response.
+    - CONFLICT: winner has a different request hash → 409.
+    - anything else (pending / stuck / expired): 409 in_progress.
+    """
+    from fastapi.responses import Response  # noqa: WPS433
+    classification, status, body_text, _ = _lookup_row(
+        db, key, user_id, request_hash
+    )
+    if classification == _LOOKUP_HIT:
+        return Response(
+            content=body_text or "",
+            status_code=int(status or 200),
+            media_type="application/json",
+            headers={"X-Idempotent-Replay": "true"},
+        )
+    if classification == _LOOKUP_CONFLICT:
+        return _conflict_response(
+            "idempotency_conflict",
+            "Idempotency-Key already used with a different request body.",
+        )
+    return _conflict_response(
+        "idempotency_in_progress",
+        "Another request with this Idempotency-Key is in flight. "
+        "Retry in a moment.",
+    )
+
+
+class IdempotencyFinalizeError(RuntimeError):
+    """Raised when _finalize_row cannot persist the completed row.
+
+    Codex pass 2 (2026-04-14): silent failure here left the row in
+    `pending` state (or absent), which meant the hourly pruner could
+    delete it and a later retry would execute the mutation a second
+    time. Surfacing this as an exception lets the middleware convert
+    a successful handler response into a 500 + clear operator message
+    rather than returning 2xx that cannot be replayed.
+    """
 
 
 async def idempotency_middleware(request: Any, call_next: Callable):
@@ -487,10 +617,13 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             return await call_next(request)
 
         request_hash = _compute_request_hash(
-            request.method, request.url.path, body
+            request.method,
+            request.url.path,
+            body,
+            query=(request.url.query or ""),
         )
 
-        classification, status, body_text = _lookup_row(
+        classification, status, body_text, created_at_str = _lookup_row(
             db, key, user_id, request_hash
         )
 
@@ -516,46 +649,37 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 headers={"X-Idempotent-Replay": "true"},
             )
 
-        # miss or expired — claim the key before running the handler.
+        # miss / stuck_pending / expired — claim the key before the handler.
         claimed = False
         if classification == _LOOKUP_MISS:
             claimed = _try_claim(
                 db, key, user_id, request.method, request.url.path, request_hash
             )
             if not claimed:
-                # A competing request claimed it between our lookup
-                # and our insert. Re-classify; the loser responds per
-                # whatever state the winner is in now.
-                classification, status, body_text = _lookup_row(
+                # Race lost at INSERT time. Re-read to see who won.
+                return _concurrent_loser_response(
                     db, key, user_id, request_hash
                 )
-                if classification == _LOOKUP_HIT:
-                    return Response(
-                        content=body_text or "",
-                        status_code=int(status or 200),
-                        media_type="application/json",
-                        headers={"X-Idempotent-Replay": "true"},
-                    )
-                if classification == _LOOKUP_CONFLICT:
-                    return _conflict_response(
-                        "idempotency_conflict",
-                        "Idempotency-Key already used with a different request body.",
-                    )
-                # Default: concurrent still-in-flight.
+        else:
+            # stuck_pending or expired: compare-and-set overwrite.
+            # created_at_str was returned by _lookup_row and pins the
+            # version we saw; another reclaimer that ran between our
+            # lookup and our CAS will have bumped created_at, which
+            # makes our UPDATE affect 0 rows → claimed = False.
+            if created_at_str is None:
+                # Corrupt state; fail retriably.
                 return _conflict_response(
                     "idempotency_in_progress",
-                    "Another request with this Idempotency-Key is in flight. "
-                    "Retry in a moment.",
+                    "Transient corruption on Idempotency-Key slot. Retry.",
                 )
-        else:
-            # expired — overwrite existing row back to pending.
             claimed = _reclaim_expired(
-                db, key, user_id, request.method, request.url.path, request_hash
+                db, key, user_id,
+                request.method, request.url.path, request_hash,
+                prior_created_at=created_at_str,
             )
             if not claimed:
-                return _conflict_response(
-                    "idempotency_in_progress",
-                    "Race while reclaiming an expired Idempotency-Key slot. Retry.",
+                return _concurrent_loser_response(
+                    db, key, user_id, request_hash
                 )
 
         # We own the key. Run the handler.
@@ -569,7 +693,30 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 body_chunks.append(chunk)
             captured = b"".join(body_chunks)
 
-            _finalize_row(db, key, user_id, response.status_code, captured)
+            try:
+                _finalize_row(db, key, user_id, response.status_code, captured)
+            except IdempotencyFinalizeError as exc:
+                # The handler succeeded but the cache write didn't land
+                # exactly once. Returning the 2xx would risk a duplicate
+                # execution on retry (pruner deletes the row, next
+                # request hits miss, runs the mutation again). Fail loud.
+                log.error("idempotency finalize failed: %s", exc)
+                return Response(
+                    content=json.dumps({
+                        "error": {
+                            "code": "internal_error",
+                            "detail": (
+                                "Request succeeded but idempotency cache "
+                                "could not be persisted. Check server logs; "
+                                "the operation may or may not have taken "
+                                "effect — verify before retrying."
+                            ),
+                            "retriable": False,
+                        }
+                    }),
+                    status_code=500,
+                    media_type="application/json",
+                )
 
             return Response(
                 content=captured,

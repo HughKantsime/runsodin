@@ -38,6 +38,13 @@
 -- existing column via the token-creation UI. No schema change
 -- required.
 
+-- Timestamp columns do NOT carry a DEFAULT. Codex pass 2 (2026-04-14)
+-- caught that SQLite's CURRENT_TIMESTAMP emits `YYYY-MM-DD HH:MM:SS`
+-- while the middleware writes ISO-8601 (`YYYY-MM-DDTHH:MM:SS+00:00`)
+-- on claim/finalize. Lexical comparison of mixed formats is broken
+-- (space < T in ASCII → fresh rows look older than the cutoff, get
+-- pruned prematurely). Forcing the insert/update paths to supply the
+-- ISO-8601 string keeps every row in one canonical format.
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT NOT NULL,
     user_id INTEGER NOT NULL,
@@ -47,8 +54,8 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     state TEXT NOT NULL DEFAULT 'pending',
     response_status INTEGER NOT NULL DEFAULT 0,
     response_body TEXT NOT NULL DEFAULT '',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     PRIMARY KEY (key, user_id)
 );
 
