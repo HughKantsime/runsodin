@@ -136,19 +136,83 @@ async def pause_printer(
 
 
 @router.post("/printers/{printer_id}/resume", tags=["Printers"])
-async def resume_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Resume paused print."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+async def resume_printer(
+    printer_id: int,
+    request: Request,
+    # Stacked auth — see pause_printer above for rationale. BOTH deps required.
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Resume paused print.
 
-    if _send_printer_command(printer, "resume_print"):
-        db.execute(text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"), {"id": printer_id})
-        db.commit()
-        return {"success": True, "message": "Print resumed"}
-    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+    Agent-surface (v1.9.0 Phase 2):
+      - Accepts JWT operator role OR an `agent:write` scoped token.
+      - Honors `X-Dry-Run: true` — returns preview without MQTT or DB write.
+      - Emits `next_actions` on success (get_printer, pause_printer).
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {printer_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "resume_print",
+                "printer_id": printer_id,
+                "printer_name": printer.name,
+                "current_gcode_state": printer.gcode_state,
+                "target_gcode_state": "RUNNING",
+            },
+            next_actions=[
+                next_action(
+                    "get_printer",
+                    {"printer_id": printer_id},
+                    "verify running state",
+                ),
+                next_action(
+                    "pause_printer",
+                    {"printer_id": printer_id},
+                    "if mid-print intervention needed",
+                ),
+            ],
+            notes="Would send MQTT resume_print command; no DB or printer side effects.",
+        )
+
+    if not _send_printer_command(printer, "resume_print"):
+        raise OdinError(
+            ErrorCode.upstream_unavailable,
+            "Printer unreachable or command failed",
+            status=503,
+            retriable=True,
+        )
+    db.execute(
+        text("UPDATE printers SET gcode_state = 'RUNNING' WHERE id = :id"),
+        {"id": printer_id},
+    )
+    db.commit()
+    return {
+        "success": True,
+        "message": "Print resumed",
+        "printer_id": printer_id,
+        "state": "RUNNING",
+        "next_actions": build_next_actions(
+            next_action(
+                "get_printer",
+                {"printer_id": printer_id},
+                "confirm running state",
+            ),
+            next_action(
+                "pause_printer",
+                {"printer_id": printer_id},
+                "if intervention needed",
+            ),
+        ),
+    }
 
 
 # ====================================================================

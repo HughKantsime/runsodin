@@ -46,9 +46,27 @@ from core.middleware.dry_run import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def _restore_supported_routes():
+    """Save/restore DRY_RUN_SUPPORTED_ROUTES + _SUPPORTED_MATCHER around each test.
+
+    Without this, tests that monkeypatch the registry leak state into
+    later tests (e.g. test_resume_printer_in_supported_routes in
+    test_resume_printer_agent_surface.py would fail because the registry
+    was replaced with just the pause entry)."""
+    original_routes = dry_run_mod.DRY_RUN_SUPPORTED_ROUTES
+    original_matcher = dry_run_mod._SUPPORTED_MATCHER
+    yield
+    dry_run_mod.DRY_RUN_SUPPORTED_ROUTES = original_routes
+    dry_run_mod._SUPPORTED_MATCHER = original_matcher
+
+
 def _build_test_app(supported_routes: tuple[tuple[str, str], ...]):
     """Build a minimal FastAPI app with the dry_run_middleware applied and
-    the supported-routes allowlist monkeypatched for the duration of the test."""
+    the supported-routes allowlist monkeypatched for the duration of the test.
+
+    The autouse fixture _restore_supported_routes above handles cleanup —
+    callers here only have to install their desired routes."""
     # Swap in custom supported routes + rebuild matcher.
     dry_run_mod.DRY_RUN_SUPPORTED_ROUTES = supported_routes  # type: ignore[attr-defined]
     dry_run_mod._SUPPORTED_MATCHER = _build_supported_matcher()
