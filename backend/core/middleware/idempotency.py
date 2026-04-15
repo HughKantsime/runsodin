@@ -110,6 +110,12 @@ _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 _STATE_PENDING = "pending"
 _STATE_COMPLETE = "complete"
+# Codex pass 12 (2026-04-15): routes that return 2xx with Set-Cookie,
+# oversized bodies, or other non-cacheable headers cannot be replayed
+# faithfully. The first call succeeds and side effects land; later
+# retries MUST NOT re-execute the handler. This state marks the key
+# as "successfully used once — refuse any further requests under it."
+_STATE_UNCACHEABLE = "uncacheable_success"
 
 
 def _compute_auth_fingerprint(user: Optional[dict]) -> str:
@@ -439,6 +445,7 @@ _LOOKUP_STUCK_PENDING = "stuck_pending"
 _LOOKUP_CONFLICT = "conflict"
 _LOOKUP_HIT = "hit"
 _LOOKUP_EXPIRED = "expired"
+_LOOKUP_UNCACHEABLE = "uncacheable_success"
 
 
 def _lookup_row(
@@ -482,6 +489,13 @@ def _lookup_row(
         if row.request_hash != request_hash:
             return _LOOKUP_CONFLICT, None, None, None, None
         return _LOOKUP_PENDING, None, None, None, fp
+
+    # state == uncacheable_success → the original call succeeded but
+    # returned headers we can't replay (Set-Cookie etc.). Caller sees
+    # 409 with a clear "this key was used once, mint a fresh key"
+    # message; we do NOT re-execute the handler.
+    if state == _STATE_UNCACHEABLE:
+        return _LOOKUP_UNCACHEABLE, None, None, None, fp
 
     # state == complete
     if row.request_hash != request_hash:
@@ -794,6 +808,33 @@ def _release_row(db: Session, key: str, user_id: int) -> None:
         db.rollback()
 
 
+def _mark_uncacheable(db: Session, key: str, user_id: int) -> None:
+    """Transition a pending row to `uncacheable_success`.
+
+    Codex pass 12 (2026-04-15): a 2xx response whose headers make
+    faithful replay impossible (Set-Cookie, oversized, etc.) leaves
+    the caller with a successful side effect but no way to safely
+    replay. Releasing the row and returning the 2xx would let a retry
+    execute the handler again (duplicate session creation, duplicate
+    login cookie, etc.). Marking it `uncacheable_success` instead
+    blocks any later request under the same key with a 409 that
+    tells the client to mint a fresh key.
+    """
+    try:
+        db.execute(
+            text(
+                "UPDATE idempotency_keys "
+                "SET state = 'uncacheable_success', "
+                "    updated_at = :now "
+                "WHERE key = :k AND user_id = :u AND state = 'pending'"
+            ),
+            {"k": key, "u": user_id, "now": _now_iso()},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 def _release_row_force(db: Session, key: str, user_id: int) -> None:
     """Delete ANY row (pending or complete) for this (key, user_id).
 
@@ -1076,6 +1117,18 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 headers={"X-Idempotent-Replay": "true"},
             )
 
+        # Key was used for a non-cacheable success. Refuse further
+        # requests; client must mint a fresh key (codex pass 12).
+        if classification == _LOOKUP_UNCACHEABLE:
+            return _conflict_response(
+                "idempotency_uncacheable_success",
+                "This Idempotency-Key was used for a successful request "
+                "whose response could not be cached (e.g. it set session "
+                "cookies or returned a large body). Retries would cause "
+                "duplicate side effects — mint a fresh key for any new "
+                "request.",
+            )
+
         # miss / stuck_pending / expired — claim the key before the handler.
         claimed = False
         if classification == _LOOKUP_MISS:
@@ -1133,17 +1186,22 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             else:
                 captured = bytes(getattr(response, "body", b"") or b"")
 
-            # Codex pass 5 (2026-04-14): not every 2xx is safely
-            # replayable. Cookies, oversized bodies, and non-UTF-8
-            # payloads must be released instead of cached — otherwise
-            # a retry sees an inauthentic replay.
+            # Codex pass 5 + 12 (2026-04-14/15): not every 2xx is
+            # safely replayable. Cookies, oversized bodies, and
+            # non-UTF-8 payloads cannot be cached. The v1 approach
+            # released the row, which let retries re-execute the
+            # handler — producing duplicate sessions / duplicate
+            # side effects on auth routes. The v2 approach marks
+            # the row `uncacheable_success`: the first call sees
+            # the real 2xx + cookies, any retry gets a 409 telling
+            # the client to mint a fresh key.
             cacheable, reason = _response_is_cacheable(response, captured)
             if not cacheable:
                 log.info(
-                    "idempotency: skipping cache for %s %s — %s",
+                    "idempotency: marking uncacheable for %s %s — %s",
                     request.method, request.url.path, reason,
                 )
-                _release_row(db, key, user_id)
+                _mark_uncacheable(db, key, user_id)
                 return Response(
                     content=captured,
                     status_code=response.status_code,

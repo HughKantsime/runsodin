@@ -147,7 +147,12 @@ class OIDCHandler:
         # to the vetted addresses for the duration of the block.
         from core.itar import pin_for_request
         with pin_for_request(self.discovery_url):
-            async with httpx.AsyncClient() as client:
+            # trust_env=False (codex pass 12): httpx honors
+            # HTTP(S)_PROXY by default, which would route the socket
+            # through a proxy and bypass our DNS pin entirely. The
+            # proxy then does its own lookup and can connect to a
+            # public IdP. Disable env proxies so the pin holds.
+            async with httpx.AsyncClient(trust_env=False) as client:
                 resp = await client.get(self.discovery_url, timeout=10)
                 resp.raise_for_status()
                 self._config = resp.json()
@@ -210,7 +215,7 @@ class OIDCHandler:
         # v1.8.9 (codex pass 11): ITAR DNS-pinned exchange.
         from core.itar import pin_for_request
         with pin_for_request(token_endpoint):
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(trust_env=False) as client:
                 resp = await client.post(
                     token_endpoint,
                     data=data,
@@ -238,7 +243,7 @@ class OIDCHandler:
         # v1.8.9 (codex pass 11): ITAR DNS-pinned Graph fetch.
         from core.itar import pin_for_request
         with pin_for_request(graph_url):
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(trust_env=False) as client:
                 resp = await client.get(
                     graph_url,
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -254,26 +259,41 @@ class OIDCHandler:
     async def parse_id_token(self, id_token: str) -> Dict[str, Any]:
         """
         Parse and validate ID token signature against the provider's JWKS endpoint.
-        Uses PyJWT's PyJWKClient for JWKS fetching and key resolution.
+        Fetches JWKS via direct httpx (trust_env=False) so
+        HTTP(S)_PROXY env vars cannot defeat ITAR DNS pinning.
         """
         import jwt as _jwt
-        from jwt import PyJWKClient
 
         config = await self._get_oidc_config()
         jwks_uri = config.get("jwks_uri")
         if not jwks_uri:
             raise ValueError("No jwks_uri in OIDC config")
 
-        # v1.8.9 (codex pass 11): ITAR DNS-pinned JWKS fetch.
-        # PyJWKClient does its own network request internally —
-        # wrapping in pin_for_request ensures the socket connects
-        # to the vetted private IP.
+        # v1.8.9 (codex pass 11 + 12): ITAR DNS-pinned JWKS fetch.
+        # PyJWKClient uses urllib.request internally, which honors
+        # HTTP(S)_PROXY env vars — a proxy would defeat the DNS pin.
+        # Fetch the JWKS ourselves via httpx with trust_env=False,
+        # then build a PyJWKSet from the JSON.
         from core.itar import pin_for_request
+        from jwt import PyJWKSet
 
         try:
             with pin_for_request(jwks_uri):
-                jwk_client = PyJWKClient(jwks_uri)
-                signing_key = jwk_client.get_signing_key_from_jwt(id_token)
+                async with httpx.AsyncClient(trust_env=False) as _client:
+                    _resp = await _client.get(jwks_uri, timeout=10)
+                    _resp.raise_for_status()
+                    _jwks_json = _resp.json()
+
+            jwk_set = PyJWKSet.from_dict(_jwks_json)
+            unverified = _jwt.get_unverified_header(id_token)
+            kid = unverified.get("kid")
+            signing_key = None
+            for k in jwk_set.keys:
+                if getattr(k, "key_id", None) == kid:
+                    signing_key = k
+                    break
+            if signing_key is None:
+                raise ValueError(f"No JWKS key matches kid={kid!r}")
 
             claims = _jwt.decode(
                 id_token,

@@ -587,11 +587,12 @@ def test_response_with_set_cookie_is_not_cacheable(monkeypatch, conn):
     assert call_count == 1
     assert result.status_code == 200
 
-    # No row written — cookie-bearing responses are not cacheable.
-    rows = conn.execute(
-        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-login'"
-    ).fetchone()[0]
-    assert rows == 0
+    # Row is marked 'uncacheable_success' so a retry can't re-execute
+    # (codex pass 12). The first call saw the real response + cookies.
+    row = conn.execute(
+        "SELECT state FROM idempotency_keys WHERE key = 'k-login'"
+    ).fetchone()
+    assert row is not None and row[0] == "uncacheable_success"
 
 
 def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
@@ -640,12 +641,11 @@ def test_oversized_response_body_is_not_cacheable(monkeypatch, conn):
     assert call_count == 1
     assert result.status_code == 201
 
-    # No row cached — retries will execute the handler fresh rather
-    # than replaying a truncated body.
-    rows = conn.execute(
-        "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-big-resp'"
-    ).fetchone()[0]
-    assert rows == 0
+    # Row marked uncacheable_success — retries 409 instead of re-executing.
+    row = conn.execute(
+        "SELECT state FROM idempotency_keys WHERE key = 'k-big-resp'"
+    ).fetchone()
+    assert row is not None and row[0] == "uncacheable_success"
 
 
 def test_chunked_request_without_content_length_refused(monkeypatch, conn):
@@ -732,6 +732,76 @@ def test_middleware_degrades_when_table_missing(monkeypatch):
     assert result.status_code == 200
     assert exec_count["n"] == 1
     empty_conn.close()
+
+
+def test_retry_after_uncacheable_success_returns_409(monkeypatch, conn):
+    """Codex pass 12: a retry with the same key on a route that
+    returned a non-cacheable 2xx must 409, not re-execute. This is
+    the core anti-duplication guarantee for auth routes."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+    import asyncio
+    import json as _json
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    test_db = _fake_db(conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+    monkeypatch.setattr(
+        idem_mod, "_resolve_user_context",
+        lambda req, db: {
+            "id": 1, "username": "u", "role": "admin",
+            "group_id": None, "is_active": True, "_token_scopes": [],
+        },
+    )
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-retry-uncache",
+            "content-type": "application/json",
+            "content-length": "100",
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/auth/login"
+        query = ""
+
+    def _make_req():
+        class _Req:
+            method = "POST"
+            headers = _Headers()
+            url = _URL()
+            state = SimpleNamespace()
+            cookies = {}
+            async def body(self):
+                return b'{"username":"u","password":"p"}'
+        return _Req()
+
+    calls = {"n": 0}
+
+    async def _login_handler(request):
+        calls["n"] += 1
+        resp = Response(
+            content=b'{"token":"xyz"}',
+            status_code=200,
+            media_type="application/json",
+        )
+        resp.set_cookie("session", "opaque-jwt", httponly=True)
+        return resp
+
+    # First call: success, row marked uncacheable_success.
+    result1 = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _login_handler))
+    assert result1.status_code == 200
+    assert calls["n"] == 1
+
+    # Second call with the SAME key: must 409, handler must NOT run again.
+    result2 = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _login_handler))
+    assert calls["n"] == 1, "handler must not re-execute on retry of uncacheable success"
+    assert result2.status_code == 409
+    body = _json.loads(bytes(result2.body))
+    assert body["error"]["code"] == "idempotency_uncacheable_success"
 
 
 def test_oversized_content_length_skips_idempotency(monkeypatch, conn):
