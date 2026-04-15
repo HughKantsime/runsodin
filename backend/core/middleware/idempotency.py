@@ -514,18 +514,22 @@ _SCHEMA_READY_CACHE: dict = {"ready": False, "checked_at": 0.0}
 
 
 def _idempotency_schema_ready() -> bool:
-    """Check (and cache) whether migration 005's table exists.
+    """Check (and cache) whether the idempotency_keys schema is complete.
 
-    Codex pass 8 (2026-04-15): the middleware is registered
-    unconditionally at app startup, but a code-first deploy or a
-    partial rollback can leave the `idempotency_keys` table missing.
-    Hitting it on the request path would 500 every mutating request
-    that carries Idempotency-Key. This helper probes existence once
-    and caches the result for 60s so the hot path stays cheap.
+    Codex pass 8 (2026-04-15): degrade cleanly if migration 005 is
+    missing rather than 500 every mutating request.
 
-    Returns True if the table exists, False otherwise. Errors
-    during probe (e.g. DB unreachable) also return False — the
-    middleware degrades to pass-through.
+    Codex pass 16 (2026-04-15): don't just probe table existence —
+    verify the columns the middleware actually writes/reads. An
+    intermediate branch deployment could have left a narrow version
+    of the table (no state / updated_at / auth_fingerprint) that
+    would pass a bare `SELECT 1 FROM idempotency_keys` but then fail
+    on the real query. Migration 006 exists to upgrade those rows;
+    this probe confirms the upgrade landed. Requires all three
+    post-pass columns to be present.
+
+    Returns True only when every required column is present. Errors
+    or missing columns → False; middleware degrades to pass-through.
     """
     import time
     now = time.monotonic()
@@ -535,9 +539,16 @@ def _idempotency_schema_ready() -> bool:
     from core.db import SessionLocal
     db = SessionLocal()
     try:
-        # Portable existence probe: SELECT 1 LIMIT 0. Succeeds on
-        # SQLite AND Postgres if the table exists, raises if not.
-        db.execute(text("SELECT 1 FROM idempotency_keys LIMIT 0"))
+        # Reference every column the middleware actually writes/reads
+        # so a narrow legacy schema (pre-006) fails the probe.
+        db.execute(
+            text(
+                "SELECT key, user_id, method, path, request_hash, "
+                "state, response_status, response_body, "
+                "created_at, updated_at, auth_fingerprint "
+                "FROM idempotency_keys LIMIT 0"
+            )
+        )
         _SCHEMA_READY_CACHE["ready"] = True
         _SCHEMA_READY_CACHE["checked_at"] = now
         return True
@@ -732,16 +743,46 @@ def _finalize_row(
         )
 
 
-# Only these response headers are safe to drop on replay. Any
-# additional header (Set-Cookie, Content-Disposition, Location, ETag,
-# Last-Modified, Cache-Control, custom X-*, etc.) carries semantics
-# the replay would silently lose. The allowlist approach fails closed:
-# new header types default to "not cacheable" without needing a code
-# change.
-_CACHEABLE_RESPONSE_HEADERS: frozenset[str] = frozenset({
+# Headers we preserve verbatim when caching + replaying a 2xx.
+_REPLAY_PRESERVED_HEADERS: frozenset[str] = frozenset({
     "content-type",
     "content-length",
 })
+
+# Headers that the framework adds unconditionally on every response
+# (security_headers middleware in core/app.py). These are safe to
+# IGNORE when deciding cacheability — they're the same on every
+# response regardless of route, and the security_headers middleware
+# will add them again on the replay path too. Without this list,
+# every real 2xx in the live app becomes `uncacheable_success`
+# because CSP/X-Frame-Options/etc. are always present.
+# Codex pass 16 (2026-04-15).
+_FRAMEWORK_IGNORABLE_HEADERS: frozenset[str] = frozenset({
+    "content-security-policy",
+    "x-content-type-options",
+    "x-frame-options",
+    "x-xss-protection",
+    "referrer-policy",
+    "permissions-policy",
+    "strict-transport-security",
+    # CORS headers get added by CORSMiddleware on cross-origin
+    # responses; same idempotence applies.
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-expose-headers",
+    "vary",
+    # Date is always different across time — safe to drop.
+    "date",
+    "server",
+})
+
+# The true deny list for replay-safety: Set-Cookie, Content-Disposition,
+# Location, ETag, Last-Modified, Cache-Control, WWW-Authenticate,
+# Retry-After, and anything else not in the framework-ignore list is
+# a semantic header the replay would corrupt. The fail-closed default
+# comes from the code below: only _REPLAY_PRESERVED_HEADERS +
+# _FRAMEWORK_IGNORABLE_HEADERS are allowed; anything else triggers
+# `uncacheable_success`.
 
 
 def _response_is_cacheable(response: Any, body: bytes) -> tuple[bool, str]:
@@ -780,8 +821,11 @@ def _response_is_cacheable(response: Any, body: bytes) -> tuple[bool, str]:
                 ).lower()
             except Exception:
                 return False, "could not decode a response header name"
-            if name_s not in _CACHEABLE_RESPONSE_HEADERS:
-                return False, f"response carries non-cacheable header: {name_s!r}"
+            if name_s in _REPLAY_PRESERVED_HEADERS:
+                continue
+            if name_s in _FRAMEWORK_IGNORABLE_HEADERS:
+                continue
+            return False, f"response carries non-cacheable header: {name_s!r}"
     except Exception:
         return False, "could not inspect response headers"
 

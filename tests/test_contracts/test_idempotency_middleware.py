@@ -775,6 +775,79 @@ def test_middleware_degrades_when_table_missing(monkeypatch):
     empty_conn.close()
 
 
+def test_response_with_security_headers_is_cacheable(monkeypatch, conn):
+    """Codex pass 16: security_headers middleware adds CSP /
+    X-Frame-Options / etc. to every response. Those MUST NOT make
+    the response uncacheable — they're framework-idempotent and get
+    re-added on replay. Without this fix, every real 2xx write in the
+    live stack ended up as `uncacheable_success` → retries failed 409."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+    import asyncio
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    test_db = _fake_db(conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+    monkeypatch.setattr(
+        idem_mod, "_resolve_user_context",
+        lambda req, db: {
+            "id": 1, "username": "u", "role": "admin",
+            "group_id": None, "is_active": True, "_token_scopes": [],
+        },
+    )
+
+    class _Headers:
+        _h = {
+            "Idempotency-Key": "k-sec",
+            "content-type": "application/json",
+            "content-length": "50",
+        }
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/jobs"
+        query = ""
+
+    def _make_req():
+        class _Req:
+            method = "POST"
+            headers = _Headers()
+            url = _URL()
+            state = SimpleNamespace()
+            cookies = {}
+            async def body(self):
+                return b'{"item":"x"}'
+        return _Req()
+
+    async def _handler_with_security_headers(request):
+        resp = Response(
+            content=b'{"id":1}',
+            status_code=201,
+            media_type="application/json",
+        )
+        # Simulate what security_headers middleware adds.
+        resp.headers["Content-Security-Policy"] = "default-src 'self'"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        return resp
+
+    # First call: completes normally (NOT uncacheable).
+    asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler_with_security_headers))
+    row = conn.execute(
+        "SELECT state FROM idempotency_keys WHERE key = 'k-sec'"
+    ).fetchone()
+    assert row is not None and row[0] == "complete", (
+        f"security headers must not disqualify caching; got state={row}"
+    )
+
+    # Second call: replays successfully.
+    result2 = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler_with_security_headers))
+    assert result2.status_code == 201
+    assert result2.headers.get("X-Idempotent-Replay") == "true"
+
+
 def test_retry_after_uncacheable_success_returns_409(monkeypatch, conn):
     """Codex pass 12: a retry with the same key on a route that
     returned a non-cacheable 2xx must 409, not re-execute. This is
