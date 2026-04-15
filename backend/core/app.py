@@ -324,9 +324,17 @@ def _register_http_middleware(app: FastAPI) -> None:
     ASGI middleware ordering note: `@app.middleware("http")` wraps
     earlier-registered middleware with later-registered ones. The net
     effect: the LAST registration in this function becomes the OUTERMOST
-    wrapper on the request path. That's why the idempotency middleware
-    is registered last — it gets first crack at the request and can
-    short-circuit with a cached response before auth overhead runs.
+    wrapper on the request path.
+
+    Codex pass 1 (2026-04-14) flagged a critical auth-bypass risk in
+    the prior ordering: the idempotency middleware was registered
+    outermost so cached replays could short-circuit BEFORE auth ran.
+    An expired/revoked token could keep replaying 2xx responses
+    forever. The ordering below puts `authenticate_request` outermost
+    so every request — cache hit, cache miss, pending, or conflict —
+    first passes the live auth chain (JWT expiry, token expiry,
+    is_active, blacklist, session cookie). The idempotency and
+    dry-run layers sit inside, only reached by authorized callers.
     """
     from core.config import settings
     from core.middleware.dry_run import dry_run_middleware
@@ -364,6 +372,15 @@ def _register_http_middleware(app: FastAPI) -> None:
                 "max-age=63072000; includeSubDomains; preload"
             )
         return response
+
+    # v1.8.9 (post-codex-fix-1): dry-run + idempotency registered BEFORE
+    # authenticate_request so auth wraps them on the inbound path.
+    # A cache-replay request must pass the live auth chain (token
+    # expiry, revocation, is_active) first; only then does idempotency
+    # decide whether to replay. See idempotency_middleware for the
+    # claim-before-execute protocol.
+    app.middleware("http")(dry_run_middleware)
+    app.middleware("http")(idempotency_middleware)
 
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
@@ -466,17 +483,6 @@ def _register_http_middleware(app: FastAPI) -> None:
             status_code=401,
             content={"detail": "Invalid or missing API key"},
         )
-
-    # v1.8.9: dry-run flag setter. Runs before idempotency so that
-    # `request.state.dry_run` is available on cache-replay paths too
-    # (lets tests confirm a cached response retains dry_run semantics).
-    app.middleware("http")(dry_run_middleware)
-
-    # v1.8.9: Idempotency-Key cache for agent-safe retries. Registered
-    # last so it wraps auth + security_headers and gets first crack at
-    # the request — a cached replay can short-circuit before auth
-    # runs. See core/middleware/idempotency.py for full semantics.
-    app.middleware("http")(idempotency_middleware)
 
 
 # ---------------------------------------------------------------------------

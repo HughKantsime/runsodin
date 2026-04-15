@@ -32,9 +32,11 @@ EXPECTED_COLUMNS = {
     "method",
     "path",
     "request_hash",
+    "state",             # added post-codex: 'pending' or 'complete'
     "response_status",
     "response_body",
     "created_at",
+    "updated_at",        # added post-codex: tracks state transitions
 }
 
 
@@ -130,21 +132,23 @@ def test_migration_is_idempotent(fresh_db):
 
 
 def test_migration_insert_and_replay_roundtrip(fresh_db):
-    """End-to-end smoke: insert a row, query it back by (key, user_id)."""
+    """End-to-end smoke: insert a completed row, query it back by (key, user_id)."""
     _apply_migration(fresh_db)
 
     fresh_db.execute(
         """
         INSERT INTO idempotency_keys
-        (key, user_id, method, path, request_hash, response_status, response_body)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (key, user_id, method, path, request_hash, state,
+         response_status, response_body)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "11111111-2222-3333-4444-555555555555",
             42,
             "POST",
-            "/api/v1/queue/add",
+            "/api/v1/jobs",
             "abc123",
+            "complete",
             200,
             '{"job_id": 7}',
         ),
@@ -152,12 +156,44 @@ def test_migration_insert_and_replay_roundtrip(fresh_db):
     fresh_db.commit()
 
     row = fresh_db.execute(
-        "SELECT response_status, response_body "
+        "SELECT state, response_status, response_body "
         "FROM idempotency_keys "
         "WHERE key = ? AND user_id = ?",
         ("11111111-2222-3333-4444-555555555555", 42),
     ).fetchone()
-    assert row == (200, '{"job_id": 7}')
+    assert row == ("complete", 200, '{"job_id": 7}')
+
+
+def test_state_defaults_to_pending(fresh_db):
+    """INSERT with only required fields gets state='pending' by default."""
+    _apply_migration(fresh_db)
+
+    fresh_db.execute(
+        """
+        INSERT INTO idempotency_keys
+        (key, user_id, method, path, request_hash)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("abc", 1, "POST", "/x", "h"),
+    )
+    fresh_db.commit()
+
+    state = fresh_db.execute(
+        "SELECT state, response_status, response_body "
+        "FROM idempotency_keys WHERE key = 'abc'"
+    ).fetchone()
+    assert state == ("pending", 0, "")
+
+
+def test_state_index_exists(fresh_db):
+    """ix_idempotency_keys_state index is present for state-based scans."""
+    _apply_migration(fresh_db)
+
+    rows = fresh_db.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='index' AND name='ix_idempotency_keys_state'"
+    ).fetchall()
+    assert rows
 
 
 def test_same_key_different_users_do_not_collide(fresh_db):
@@ -169,10 +205,11 @@ def test_same_key_different_users_do_not_collide(fresh_db):
         fresh_db.execute(
             """
             INSERT INTO idempotency_keys
-            (key, user_id, method, path, request_hash, response_status, response_body)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (key, user_id, method, path, request_hash, state,
+             response_status, response_body)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (key, user_id, "POST", "/x", "h", 200, body),
+            (key, user_id, "POST", "/x", "h", "complete", 200, body),
         )
     fresh_db.commit()
 

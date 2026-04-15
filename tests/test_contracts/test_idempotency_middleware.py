@@ -1,22 +1,23 @@
 """
-Contract test — Idempotency-Key middleware (v1.8.9).
+Contract test — Idempotency-Key middleware (v1.8.9, post-codex-fix).
 
-Validates the agent-safe-retry primitive that backs `queue_job`,
+Validates the claim-before-execute primitive that backs `queue_job`,
 `cancel_job`, `approve_job`, etc. in the MCP tool surface.
 
 Covers:
-  1. Miss: no cache row → request executes fresh, response body hashes
-     into the cache.
-  2. Hit: same key + same body → returns cached response with
-     `X-Idempotent-Replay: true`.
-  3. Conflict: same key + different body → 409.
-  4. Expiry: row older than TTL is not replayed.
-  5. Per-user PK scope: same key different users does not cross-replay.
-  6. TTL prune deletes expired rows.
+  1. Classifier on every state (miss, pending, conflict, hit, expired,
+     stuck-pending treated as miss).
+  2. Claim-before-execute: _try_claim is atomic under concurrent INSERT.
+  3. _finalize_row transitions pending → complete.
+  4. _release_row drops pending rows on non-2xx.
+  5. _reclaim_expired overwrites stuck/expired rows back to pending.
+  6. Per-user PK scope preserved.
+  7. TTL prune handles both complete and pending states.
+  8. Request-hash canonicalization.
 
-The middleware itself is tested as a unit (not via live HTTP) so that
-this file has no backend-server dependency and runs in the contract
-suite without needing ODIN running.
+Unit-level against the pure helpers. The full middleware coroutine
+(call_next wrapping, body streaming) is exercised by the live
+integration suite.
 """
 
 import sys
@@ -26,9 +27,6 @@ from pathlib import Path
 
 import pytest
 
-# The middleware module imports SQLAlchemy eagerly. Skip this whole
-# file cleanly on machines without a populated test venv — CI runs
-# it with the full deps installed.
 pytest.importorskip("sqlalchemy", reason="SQLAlchemy not installed in test venv")
 pytest.importorskip("fastapi", reason="FastAPI not installed in test venv")
 
@@ -42,17 +40,13 @@ MIGRATION_005 = (
 
 
 def _seed_schema(conn: sqlite3.Connection) -> None:
-    """Apply migration 005 to the scratch DB."""
     conn.executescript(MIGRATION_005.read_text(encoding="utf-8"))
     conn.commit()
 
 
 def _fake_db(conn: sqlite3.Connection):
-    """Minimal SQLAlchemy-like session that wraps a sqlite3 conn.
+    """Minimal SQLAlchemy-like session wrapping a sqlite3 conn."""
 
-    Supports db.execute(text_obj, params), db.commit(), db.rollback(),
-    which is all the idempotency helpers use.
-    """
     class _Result:
         def __init__(self, cur):
             self._cur = cur
@@ -62,21 +56,43 @@ def _fake_db(conn: sqlite3.Connection):
                 self.rowcount = 0
 
         def fetchone(self):
-            return self._cur.fetchone()
+            row = self._cur.fetchone()
+            if row is None:
+                return None
+            # Build an attribute-accessible row wrapper so helpers that
+            # use .attr access (row.state, row.response_status) work
+            # against the raw sqlite3 tuple.
+            names = [d[0] for d in self._cur.description]
+
+            class _Row(tuple):
+                def __getattr__(self, k):
+                    try:
+                        return self[names.index(k)]
+                    except ValueError:
+                        raise AttributeError(k)
+
+            return _Row(row)
 
         def fetchall(self):
-            return self._cur.fetchall()
+            rows = self._cur.fetchall()
+            names = [d[0] for d in self._cur.description]
+
+            class _Row(tuple):
+                def __getattr__(self, k):
+                    try:
+                        return self[names.index(k)]
+                    except ValueError:
+                        raise AttributeError(k)
+
+            return [_Row(r) for r in rows]
 
     class _FakeDB:
         def __init__(self, c):
             self.c = c
 
         def execute(self, clause, params=None):
-            # The idempotency helpers pass sqlalchemy.text(...) objects;
-            # we render them to strings and translate :name → ? for sqlite.
             sql = str(clause.compile(compile_kwargs={"literal_binds": False}))
             if params:
-                # Named binds → positional for sqlite3.
                 import re
                 names_ordered = re.findall(r":(\w+)", sql)
                 sql = re.sub(r":\w+", "?", sql)
@@ -103,140 +119,205 @@ def conn():
     c.close()
 
 
-def test_lookup_cached_returns_none_on_miss(conn):
-    """Empty cache → lookup returns None."""
-    from core.middleware.idempotency import _lookup_cached
+# ---------------------------------------------------------------------------
+# Claim-before-execute primitives
+# ---------------------------------------------------------------------------
+
+def test_try_claim_succeeds_on_empty_slot(conn):
+    from core.middleware.idempotency import _try_claim
 
     db = _fake_db(conn)
-    result = _lookup_cached(db, "missing-key", user_id=1, request_hash="x")
-    assert result is None
+    assert _try_claim(db, "k", 1, "POST", "/x", "h") is True
+
+    row = conn.execute(
+        "SELECT state, response_status FROM idempotency_keys WHERE key='k'"
+    ).fetchone()
+    assert row == ("pending", 0)
 
 
-def test_store_and_hit_roundtrip(conn):
-    """Store a row, then look it up with matching hash → hit."""
-    from core.middleware.idempotency import _store_cached, _lookup_cached
+def test_try_claim_fails_on_collision(conn):
+    from core.middleware.idempotency import _try_claim
 
     db = _fake_db(conn)
-    _store_cached(
-        db=db,
-        key="abc",
-        user_id=1,
-        method="POST",
-        path="/api/v1/queue/add",
-        request_hash="hash-1",
-        response_status=201,
-        response_body=b'{"job_id": 7}',
+    assert _try_claim(db, "k", 1, "POST", "/x", "h") is True
+    # Second attempt on the same (key, user_id) must fail.
+    assert _try_claim(db, "k", 1, "POST", "/x", "h") is False
+
+
+def test_try_claim_same_key_different_user_both_succeed(conn):
+    from core.middleware.idempotency import _try_claim
+
+    db = _fake_db(conn)
+    assert _try_claim(db, "k", 1, "POST", "/x", "h") is True
+    assert _try_claim(db, "k", 2, "POST", "/x", "h") is True
+
+
+def test_finalize_row_transitions_pending_to_complete(conn):
+    from core.middleware.idempotency import _try_claim, _finalize_row
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    _finalize_row(db, "k", 1, 201, b'{"id": 7}')
+
+    row = conn.execute(
+        "SELECT state, response_status, response_body "
+        "FROM idempotency_keys WHERE key='k' AND user_id=1"
+    ).fetchone()
+    assert row == ("complete", 201, '{"id": 7}')
+
+
+def test_release_row_drops_pending(conn):
+    from core.middleware.idempotency import _try_claim, _release_row
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    _release_row(db, "k", 1)
+
+    count = conn.execute(
+        "SELECT COUNT(*) FROM idempotency_keys WHERE key='k'"
+    ).fetchone()[0]
+    assert count == 0
+
+
+def test_release_row_leaves_completed_intact(conn):
+    from core.middleware.idempotency import _try_claim, _finalize_row, _release_row
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    _finalize_row(db, "k", 1, 200, b"{}")
+    _release_row(db, "k", 1)  # should be a no-op for completed rows
+
+    row = conn.execute(
+        "SELECT state FROM idempotency_keys WHERE key='k'"
+    ).fetchone()
+    assert row == ("complete",)
+
+
+def test_reclaim_expired_resets_row(conn):
+    from core.middleware.idempotency import _try_claim, _finalize_row, _reclaim_expired
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "oldhash")
+    _finalize_row(db, "k", 1, 200, b"{}")
+    # Now reclaim with a new request hash — e.g. an old completed
+    # row past TTL.
+    assert _reclaim_expired(db, "k", 1, "POST", "/x", "newhash") is True
+
+    row = conn.execute(
+        "SELECT state, request_hash, response_status "
+        "FROM idempotency_keys WHERE key='k'"
+    ).fetchone()
+    assert row == ("pending", "newhash", 0)
+
+
+# ---------------------------------------------------------------------------
+# Lookup classifier
+# ---------------------------------------------------------------------------
+
+def test_lookup_classifies_miss(conn):
+    from core.middleware.idempotency import _lookup_row, _LOOKUP_MISS
+
+    db = _fake_db(conn)
+    cls, _, _ = _lookup_row(db, "missing", 1, "h")
+    assert cls == _LOOKUP_MISS
+
+
+def test_lookup_classifies_pending_same_hash(conn):
+    from core.middleware.idempotency import (
+        _try_claim, _lookup_row, _LOOKUP_PENDING,
     )
 
-    result = _lookup_cached(db, "abc", user_id=1, request_hash="hash-1")
-    assert result is not None
-    status, body, is_conflict = result
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    cls, _, _ = _lookup_row(db, "k", 1, "h")
+    assert cls == _LOOKUP_PENDING
+
+
+def test_lookup_classifies_conflict_when_pending_with_different_hash(conn):
+    from core.middleware.idempotency import (
+        _try_claim, _lookup_row, _LOOKUP_CONFLICT,
+    )
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "original")
+    cls, _, _ = _lookup_row(db, "k", 1, "different")
+    assert cls == _LOOKUP_CONFLICT
+
+
+def test_lookup_classifies_hit(conn):
+    from core.middleware.idempotency import (
+        _try_claim, _finalize_row, _lookup_row, _LOOKUP_HIT,
+    )
+
+    db = _fake_db(conn)
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    _finalize_row(db, "k", 1, 201, b'{"id": 9}')
+    cls, status, body = _lookup_row(db, "k", 1, "h")
+    assert cls == _LOOKUP_HIT
     assert status == 201
-    assert body == '{"job_id": 7}'
-    assert is_conflict is False
+    assert body == '{"id": 9}'
 
 
-def test_conflict_when_same_key_different_hash(conn):
-    """Same key + different hash → (0, "", True) conflict sentinel."""
-    from core.middleware.idempotency import _store_cached, _lookup_cached
-
-    db = _fake_db(conn)
-    _store_cached(
-        db=db,
-        key="k",
-        user_id=1,
-        method="POST",
-        path="/x",
-        request_hash="original",
-        response_status=200,
-        response_body=b"{}",
+def test_lookup_classifies_conflict_on_complete_with_different_hash(conn):
+    from core.middleware.idempotency import (
+        _try_claim, _finalize_row, _lookup_row, _LOOKUP_CONFLICT,
     )
 
-    result = _lookup_cached(db, "k", user_id=1, request_hash="different")
-    assert result is not None
-    _, _, is_conflict = result
-    assert is_conflict is True
-
-
-def test_same_key_different_users_do_not_collide(conn):
-    """User A's cached response is invisible to user B."""
-    from core.middleware.idempotency import _store_cached, _lookup_cached
-
     db = _fake_db(conn)
-    _store_cached(
-        db=db,
-        key="shared-key",
-        user_id=1,
-        method="POST",
-        path="/x",
-        request_hash="h1",
-        response_status=200,
-        response_body=b'{"for": "user_1"}',
-    )
-    _store_cached(
-        db=db,
-        key="shared-key",
-        user_id=2,
-        method="POST",
-        path="/x",
-        request_hash="h2",
-        response_status=200,
-        response_body=b'{"for": "user_2"}',
-    )
-
-    a = _lookup_cached(db, "shared-key", user_id=1, request_hash="h1")
-    b = _lookup_cached(db, "shared-key", user_id=2, request_hash="h2")
-    assert a[1] == '{"for": "user_1"}'
-    assert b[1] == '{"for": "user_2"}'
+    _try_claim(db, "k", 1, "POST", "/x", "h")
+    _finalize_row(db, "k", 1, 200, b"{}")
+    cls, _, _ = _lookup_row(db, "k", 1, "different")
+    assert cls == _LOOKUP_CONFLICT
 
 
-def test_expired_row_not_replayed(conn):
-    """Row older than TTL → lookup returns None (will execute fresh)."""
-    from core.middleware.idempotency import _lookup_cached
+def test_lookup_classifies_expired(conn):
+    from core.middleware.idempotency import _lookup_row, _LOOKUP_EXPIRED
 
-    db = _fake_db(conn)
-    # Insert with an old created_at.
     past = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
     conn.execute(
         """
         INSERT INTO idempotency_keys
-        (key, user_id, method, path, request_hash, response_status, response_body, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (key, user_id, method, path, request_hash, state,
+         response_status, response_body, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("old", 1, "POST", "/x", "h", 200, "{}", past),
+        ("old", 1, "POST", "/x", "h", "complete", 200, "{}", past),
     )
     conn.commit()
 
-    result = _lookup_cached(db, "old", user_id=1, request_hash="h")
-    assert result is None
+    db = _fake_db(conn)
+    cls, _, _ = _lookup_row(db, "old", 1, "h")
+    assert cls == _LOOKUP_EXPIRED
 
 
-def test_prune_removes_expired_rows(conn):
-    """Hourly prune deletes rows older than TTL, keeps fresh ones."""
-    from core.middleware.idempotency import prune_expired_idempotency_keys
+def test_stuck_pending_row_classifies_as_miss(conn):
+    """A pending row older than the 90s watchdog is treated as miss
+    so a crashed handler can't wedge the key forever."""
+    from core.middleware.idempotency import _lookup_row, _LOOKUP_MISS
 
-    past = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
-    now = datetime.now(timezone.utc).isoformat()
-    for i, created in enumerate([past, past, now]):
-        conn.execute(
-            """
-            INSERT INTO idempotency_keys
-            (key, user_id, method, path, request_hash, response_status, response_body, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (f"k{i}", 1, "POST", "/x", "h", 200, "{}", created),
-        )
+    # 3 minutes old pending row — past the 90s watchdog.
+    past = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    conn.execute(
+        """
+        INSERT INTO idempotency_keys
+        (key, user_id, method, path, request_hash, state,
+         response_status, response_body, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("stuck", 1, "POST", "/x", "h", "pending", 0, "", past),
+    )
     conn.commit()
 
     db = _fake_db(conn)
-    deleted = prune_expired_idempotency_keys(db)
-    remaining = conn.execute("SELECT COUNT(*) FROM idempotency_keys").fetchone()[0]
-    assert deleted == 2
-    assert remaining == 1
+    cls, _, _ = _lookup_row(db, "stuck", 1, "h")
+    assert cls == _LOOKUP_MISS
 
+
+# ---------------------------------------------------------------------------
+# Request-hash helper
+# ---------------------------------------------------------------------------
 
 def test_request_hash_canonicalizes_json_key_order():
-    """{a:1,b:2} and {b:2,a:1} hash identically (no spurious 409s)."""
     from core.middleware.idempotency import _compute_request_hash
 
     h1 = _compute_request_hash("POST", "/q", b'{"a":1,"b":2}')
@@ -245,7 +326,6 @@ def test_request_hash_canonicalizes_json_key_order():
 
 
 def test_request_hash_distinguishes_different_bodies():
-    """Different body values → different hash."""
     from core.middleware.idempotency import _compute_request_hash
 
     h1 = _compute_request_hash("POST", "/q", b'{"model_id":1}')
@@ -254,7 +334,6 @@ def test_request_hash_distinguishes_different_bodies():
 
 
 def test_request_hash_distinguishes_method_and_path():
-    """Path / method differences affect the hash."""
     from core.middleware.idempotency import _compute_request_hash
 
     h1 = _compute_request_hash("POST", "/a", b"{}")
@@ -266,7 +345,6 @@ def test_request_hash_distinguishes_method_and_path():
 
 
 def test_request_hash_handles_non_json_body():
-    """Binary / non-UTF-8 bodies hash without raising (multipart, etc.)."""
     from core.middleware.idempotency import _compute_request_hash
 
     h1 = _compute_request_hash("POST", "/u", b"\xff\xfe\xfd")
@@ -274,3 +352,91 @@ def test_request_hash_handles_non_json_body():
     h3 = _compute_request_hash("POST", "/u", b"\xff\xfe\xfc")
     assert h1 == h2
     assert h1 != h3
+
+
+# ---------------------------------------------------------------------------
+# Prune
+# ---------------------------------------------------------------------------
+
+def test_prune_removes_expired_complete_and_stuck_pending(conn):
+    from core.middleware.idempotency import prune_expired_idempotency_keys
+
+    now = datetime.now(timezone.utc)
+    long_ago = (now - timedelta(hours=30)).isoformat()        # expired complete
+    stuck = (now - timedelta(minutes=5)).isoformat()          # stuck pending
+    fresh = now.isoformat()                                    # still valid
+
+    # 1 expired complete, 1 stuck pending, 1 fresh complete, 1 fresh pending.
+    cases = [
+        ("k1", "complete", long_ago),
+        ("k2", "pending",  stuck),
+        ("k3", "complete", fresh),
+        ("k4", "pending",  fresh),
+    ]
+    for key, state, ts in cases:
+        conn.execute(
+            """
+            INSERT INTO idempotency_keys
+            (key, user_id, method, path, request_hash, state,
+             response_status, response_body, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (key, 1, "POST", "/x", "h", state, 0, "", ts),
+        )
+    conn.commit()
+
+    db = _fake_db(conn)
+    deleted = prune_expired_idempotency_keys(db)
+    assert deleted == 2
+
+    remaining = {
+        r[0]
+        for r in conn.execute(
+            "SELECT key FROM idempotency_keys"
+        ).fetchall()
+    }
+    assert remaining == {"k3", "k4"}
+
+
+# ---------------------------------------------------------------------------
+# _resolve_user_id — auth-tight version (codex fix 2)
+# ---------------------------------------------------------------------------
+
+def test_resolve_user_id_rejects_inactive_user(conn):
+    """Even with a valid token match, is_active=0 → None (no replay)."""
+    from core.middleware.idempotency import _resolve_user_id
+    from types import SimpleNamespace
+
+    # Seed a users row with is_active=0 and a token for that user.
+    # Requires the users + api_tokens tables — seed just enough schema.
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            username TEXT,
+            is_active INTEGER DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            token_prefix TEXT,
+            token_hash TEXT,
+            expires_at TEXT
+        );
+        INSERT INTO users (id, username, is_active) VALUES (1, 'u', 0);
+        """
+    )
+    conn.commit()
+
+    # Build a fake request with an Authorization Bearer. The JWT
+    # decode path hits `decode_access_token`; if that raises, the
+    # function falls through to None — same end result for the test.
+    class _Req:
+        class _H:
+            _data = {"Authorization": "Bearer garbage"}
+            def get(self, k, default=None):
+                return self._data.get(k, default)
+        headers = _H()
+
+    db = _fake_db(conn)
+    assert _resolve_user_id(_Req(), db) is None

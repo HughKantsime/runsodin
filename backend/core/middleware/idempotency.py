@@ -11,23 +11,29 @@ that "forgets" it already fired a `queue_job` tool and retries would
 otherwise create duplicate jobs. With Idempotency-Key, the retry is
 a no-op.
 
-Scope and semantics:
-- Enforced on POST/PUT/PATCH/DELETE only. GETs are idempotent by
-  definition; no need to cache.
-- Keyed on (key, user_id). Two distinct users with the same UUID
-  (vanishingly unlikely but non-zero) do not cross-replay.
-- request_hash = sha256(method + path + sorted-body). If the same key
-  arrives with a *different* hash, the middleware returns 409
-  Conflict — that's a client bug, not a silent different-result
-  replay.
-- Cache TTL is 24h. Rows are pruned by an hourly scheduler job;
-  stale rows are also rejected at read time so a delayed pruner
-  cannot leak stale responses.
-- If the request is anonymous (no auth credentials resolvable to a
-  user_id), the middleware passes through without caching. The
-  downstream auth check will reject the request; idempotency-for-
-  anonymous would either dedupe across different users (unsafe) or
-  not dedupe at all (pointless).
+Design (post-codex-review, 2026-04-14):
+- **Claim-before-execute.** The middleware INSERTs a pending row
+  BEFORE running the handler. If two concurrent same-key requests
+  race, only one wins the INSERT; the loser sees `state='pending'`
+  and returns 409 `idempotency_in_progress` instead of executing a
+  second mutation. The winner runs the handler and UPDATEs the row
+  to `state='complete'` with the real response.
+- **Auth must pass before replay.** Replay returns a cached 2xx
+  body only after the request has passed the app's auth chain in
+  the live direction (the middleware is registered INSIDE the auth
+  layer — see `_register_http_middleware` in core/app.py). A
+  request with an expired/revoked token hits 401 from auth before
+  the middleware ever consults the cache.
+- **Per-user PK scope.** Keyed on (key, user_id). Two distinct users
+  with the same UUID (vanishingly unlikely but non-zero) do not
+  cross-replay.
+- **request_hash pinning.** `request_hash = sha256(method + path +
+  canonicalized-body)`. If the same key arrives with a different
+  hash, the middleware returns 409 `idempotency_conflict` — that's
+  a client bug, not a silent different-result replay.
+- **TTL.** 24h for completed rows. Pending rows expire after 90s so
+  a crashed handler can't wedge the key forever. Both are enforced
+  at read time AND by the hourly pruner.
 
 Not enforced:
 - Streaming responses. The middleware reads the response body into
@@ -63,23 +69,37 @@ log = logging.getLogger("odin.middleware.idempotency")
 # safety net; ODIN write-endpoint responses are all small envelopes.
 _MAX_BODY_BYTES = 256 * 1024
 
-# 24-hour cache TTL. Hourly prune runs on top of this; the read-side
-# check enforces the TTL even if the pruner is late or skipped.
+# Completed-row TTL. Replays within this window; pruner cleans up.
 _TTL_HOURS = 24
+
+# Pending-row watchdog: if a handler crashes without writing the
+# response, the key would be wedged until the pruner runs. 90s lets a
+# healthy handler finish (even slow ones) while bounding the stuck
+# window. A stuck pending row is treated as a cache miss on the next
+# read.
+_PENDING_WATCHDOG_SECONDS = 90
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+_STATE_PENDING = "pending"
+_STATE_COMPLETE = "complete"
+
 
 def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
-    """Lightweight user-id lookup that mirrors `get_current_user`.
+    """Lightweight user-id lookup — must check expiry + active status.
 
-    Only needs enough of the logic to pin a user_id for scoping the
-    idempotency cache. Full auth (expiry check, MFA, etc.) happens in
-    the route's own `Depends(get_current_user)` — we just need a stable
-    identity handle.
+    Codex pass 1 (2026-04-14) flagged that replay can happen with an
+    expired/revoked token if the middleware only does a prefix+hash
+    match and skips the checks `get_current_user` applies. The primary
+    defense is middleware registration order (auth runs before this),
+    but as a belt-and-suspenders check we also enforce:
+      - token not past `expires_at`
+      - user `is_active=1`
 
-    Returns None if the request is anonymous or the credential doesn't
-    resolve. In that case the middleware passes through without caching.
+    Returns None if the request is anonymous, the credential doesn't
+    resolve, or any check fails. The middleware then passes through
+    without touching the cache; downstream auth will reject the
+    request.
     """
     # JWT bearer
     auth = request.headers.get("Authorization", "")
@@ -89,13 +109,17 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
             token = auth[7:]
             payload = decode_access_token(token)
             username = payload.get("sub")
-            if username:
-                row = db.execute(
-                    text("SELECT id FROM users WHERE username = :u"),
-                    {"u": username},
-                ).fetchone()
-                if row:
-                    return int(row[0])
+            if not username:
+                return None
+            row = db.execute(
+                text("SELECT id, is_active FROM users WHERE username = :u"),
+                {"u": username},
+            ).fetchone()
+            if not row:
+                return None
+            if not row.is_active:
+                return None
+            return int(row.id)
         except Exception:
             return None
 
@@ -106,12 +130,38 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
             from core.auth import verify_password
             prefix = api_key[:10]
             candidates = db.execute(
-                text("SELECT id, user_id, token_hash FROM api_tokens WHERE token_prefix = :p"),
+                text(
+                    "SELECT id, user_id, token_hash, expires_at "
+                    "FROM api_tokens WHERE token_prefix = :p"
+                ),
                 {"p": prefix},
             ).fetchall()
+            now = datetime.now(timezone.utc)
             for row in candidates:
-                if verify_password(api_key, row.token_hash):
-                    return int(row.user_id)
+                if not verify_password(api_key, row.token_hash):
+                    continue
+                if row.expires_at:
+                    try:
+                        from dateutil.parser import parse as parse_dt
+                        exp = (
+                            parse_dt(row.expires_at)
+                            if isinstance(row.expires_at, str)
+                            else row.expires_at
+                        )
+                        if exp.tzinfo is None:
+                            exp = exp.replace(tzinfo=timezone.utc)
+                        if exp < now:
+                            return None
+                    except Exception:
+                        return None
+                # Ensure the owning user is still active.
+                user_row = db.execute(
+                    text("SELECT is_active FROM users WHERE id = :id"),
+                    {"id": row.user_id},
+                ).fetchone()
+                if not user_row or not user_row.is_active:
+                    return None
+                return int(row.user_id)
         except Exception:
             return None
 
@@ -156,78 +206,119 @@ def _compute_request_hash(method: str, path: str, body: bytes) -> str:
     return h.hexdigest()
 
 
-def _lookup_cached(
-    db: Session,
-    key: str,
-    user_id: int,
-    request_hash: str,
-) -> Optional[tuple[int, str, bool]]:
-    """Look up a cached response for (key, user_id).
+def _parse_created_at(raw: Any) -> Optional[datetime]:
+    """Best-effort parse of the `created_at` column across drivers."""
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
-    Returns (status_code, body_text, is_conflict) or None if no match.
-    `is_conflict=True` means the key exists but the body hash differs
-    from the current request — the caller returns 409.
+
+# Sentinels for the lookup classifier below.
+_LOOKUP_MISS = "miss"
+_LOOKUP_PENDING = "pending"
+_LOOKUP_CONFLICT = "conflict"
+_LOOKUP_HIT = "hit"
+_LOOKUP_EXPIRED = "expired"
+
+
+def _lookup_row(
+    db: Session, key: str, user_id: int, request_hash: str
+) -> tuple[str, Optional[int], Optional[str]]:
+    """Look up the cache row and classify its state.
+
+    Returns (classification, status, body). `status`/`body` are only
+    populated when classification == hit.
+
+    - `miss`: no row, or the previous row is stale and should be
+      treated as absent (caller re-claims).
+    - `pending`: another in-flight request holds the key; caller
+      returns 409 in_progress.
+    - `conflict`: row exists with a different request hash; caller
+      returns 409 conflict.
+    - `hit`: cached response available for replay.
+    - `expired`: completed row is past TTL; caller treats as miss and
+      overwrites (claim-again path).
     """
     row = db.execute(
         text(
-            "SELECT request_hash, response_status, response_body, created_at "
+            "SELECT request_hash, state, response_status, response_body, "
+            "created_at, updated_at "
             "FROM idempotency_keys "
             "WHERE key = :k AND user_id = :u"
         ),
         {"k": key, "u": user_id},
     ).fetchone()
     if not row:
-        return None
+        return _LOOKUP_MISS, None, None
 
-    created_at = row[3]
-    if isinstance(created_at, str):
-        try:
-            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        except Exception:
-            # Corrupt timestamp — treat as expired.
-            return None
+    state = row.state
+    now = datetime.now(timezone.utc)
 
-    # Normalize to aware UTC for the TTL compare.
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=timezone.utc)
+    if state == _STATE_PENDING:
+        created = _parse_created_at(row.created_at)
+        if created is None:
+            return _LOOKUP_MISS, None, None
+        # Stuck pending row — treat as absent so the caller can re-claim.
+        if now - created > timedelta(seconds=_PENDING_WATCHDOG_SECONDS):
+            log.debug(
+                "idempotency: pending row older than %ss — treating as miss",
+                _PENDING_WATCHDOG_SECONDS,
+            )
+            return _LOOKUP_MISS, None, None
+        # Still in-flight. Caller returns 409 in_progress.
+        if row.request_hash != request_hash:
+            return _LOOKUP_CONFLICT, None, None
+        return _LOOKUP_PENDING, None, None
 
-    if datetime.now(timezone.utc) - created_at > timedelta(hours=_TTL_HOURS):
-        # Expired row — do not replay. The pruner cleans up eventually.
-        return None
+    # state == complete
+    if row.request_hash != request_hash:
+        return _LOOKUP_CONFLICT, None, None
 
-    if row[0] != request_hash:
-        return 0, "", True
+    created = _parse_created_at(row.created_at)
+    if created is None:
+        return _LOOKUP_MISS, None, None
+    if now - created > timedelta(hours=_TTL_HOURS):
+        return _LOOKUP_EXPIRED, None, None
 
-    return int(row[1]), row[2], False
+    return _LOOKUP_HIT, int(row.response_status), row.response_body
 
 
-def _store_cached(
+def _try_claim(
     db: Session,
     key: str,
     user_id: int,
     method: str,
     path: str,
     request_hash: str,
-    response_status: int,
-    response_body: bytes,
-) -> None:
-    """Persist the response in the idempotency cache."""
-    if len(response_body) > _MAX_BODY_BYTES:
-        log.debug("idempotency cache skipped — body %d bytes exceeds max", len(response_body))
-        return
+) -> bool:
+    """Atomically claim the key by inserting a pending row.
 
-    try:
-        body_text = response_body.decode("utf-8")
-    except UnicodeDecodeError:
-        log.debug("idempotency cache skipped — response body not UTF-8")
-        return
+    Returns True if we own the key (handler should run). False if the
+    row already existed (caller re-reads to see why — pending, hit,
+    conflict, or expired).
 
+    The insert is guarded by the PK; concurrent attempts resolve
+    deterministically: exactly one INSERT succeeds, the rest raise
+    IntegrityError. Stuck-pending rows are handled separately by the
+    caller (treats them as miss and UPDATEs state back to pending
+    with the new metadata).
+    """
     try:
         db.execute(
             text(
                 "INSERT INTO idempotency_keys "
-                "(key, user_id, method, path, request_hash, response_status, response_body) "
-                "VALUES (:k, :u, :m, :p, :h, :s, :b)"
+                "(key, user_id, method, path, request_hash, state, "
+                " response_status, response_body) "
+                "VALUES (:k, :u, :m, :p, :h, 'pending', 0, '')"
             ),
             {
                 "k": key,
@@ -235,24 +326,137 @@ def _store_cached(
                 "m": method,
                 "p": path,
                 "h": request_hash,
-                "s": response_status,
-                "b": body_text,
+            },
+        )
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        return False
+
+
+def _reclaim_expired(
+    db: Session,
+    key: str,
+    user_id: int,
+    method: str,
+    path: str,
+    request_hash: str,
+) -> bool:
+    """Overwrite a stuck-pending or TTL-expired row back to pending.
+
+    Caller has already classified the row as miss/expired and wants
+    to claim it. Update-in-place preserves the PK.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        db.execute(
+            text(
+                "UPDATE idempotency_keys "
+                "SET method = :m, path = :p, request_hash = :h, "
+                "    state = 'pending', response_status = 0, "
+                "    response_body = '', "
+                "    created_at = :now, updated_at = :now "
+                "WHERE key = :k AND user_id = :u"
+            ),
+            {
+                "k": key, "u": user_id, "m": method, "p": path, "h": request_hash,
+                "now": now.isoformat(),
+            },
+        )
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        return False
+
+
+def _finalize_row(
+    db: Session,
+    key: str,
+    user_id: int,
+    response_status: int,
+    response_body: bytes,
+) -> None:
+    """UPDATE the pending row to complete with the real response."""
+    if len(response_body) > _MAX_BODY_BYTES:
+        # Too big to cache — mark the row complete with an empty body so
+        # replay returns a sensible empty response rather than
+        # reserving the key forever. In practice all agent-surface
+        # responses are tiny; this path is a safety net.
+        body_text = ""
+    else:
+        try:
+            body_text = response_body.decode("utf-8")
+        except UnicodeDecodeError:
+            body_text = ""
+
+    try:
+        db.execute(
+            text(
+                "UPDATE idempotency_keys "
+                "SET state = 'complete', "
+                "    response_status = :s, "
+                "    response_body = :b, "
+                "    updated_at = :now "
+                "WHERE key = :k AND user_id = :u"
+            ),
+            {
+                "k": key, "u": user_id,
+                "s": response_status, "b": body_text,
+                "now": datetime.now(timezone.utc).isoformat(),
             },
         )
         db.commit()
     except Exception as exc:
-        # Race: another request with the same key+user_id committed
-        # first. That's fine — we can read their row on replay.
         db.rollback()
-        log.debug("idempotency cache insert failed (likely race): %s", exc)
+        log.debug("idempotency finalize failed: %s", exc)
+
+
+def _release_row(db: Session, key: str, user_id: int) -> None:
+    """Delete the pending row after the handler returned non-2xx.
+
+    We cache only successful writes (2xx) — errors should be retried
+    freshly because the cause may be transient. Releasing the row
+    frees the key for a fresh attempt.
+    """
+    try:
+        db.execute(
+            text(
+                "DELETE FROM idempotency_keys "
+                "WHERE key = :k AND user_id = :u AND state = 'pending'"
+            ),
+            {"k": key, "u": user_id},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _conflict_response(code: str, detail: str):
+    """Build the 409 envelope for in-progress / conflict cases."""
+    from fastapi.responses import Response  # noqa: WPS433
+    return Response(
+        content=json.dumps({
+            "error": {
+                "code": code,
+                "detail": detail,
+                "retriable": code == "idempotency_in_progress",
+            }
+        }),
+        status_code=409,
+        media_type="application/json",
+    )
 
 
 async def idempotency_middleware(request: Any, call_next: Callable):
     """FastAPI HTTP middleware: cache-by-Idempotency-Key for mutators.
 
-    Wired into the app factory via `app.middleware("http")`.
+    Wired into the app factory via `app.middleware("http")`. Must be
+    registered INSIDE the auth middleware so cached-replay requests
+    still pass auth validation (token expiry, active user, scope).
     """
-    from fastapi.responses import Response  # noqa: WPS433 — see module docstring
+    from fastapi.responses import Response  # noqa: WPS433
 
     # Fast-path: non-mutating method. No work.
     if request.method not in _MUTATING_METHODS:
@@ -272,70 +476,101 @@ async def idempotency_middleware(request: Any, call_next: Callable):
 
     request._receive = _receive  # type: ignore[assignment]
 
-    # DB handle. Use a short-lived session so we don't tangle with the
-    # route's own session lifecycle.
     from core.db import SessionLocal
     db = SessionLocal()
     try:
         user_id = _resolve_user_id(request, db)
         if user_id is None:
-            # Anonymous / unresolvable — pass through; auth will reject
-            # downstream and we don't want to cache under a null key.
+            # Anonymous / unresolvable / expired — pass through; auth
+            # will reject downstream and we don't want to cache under
+            # a null key.
             return await call_next(request)
 
         request_hash = _compute_request_hash(
             request.method, request.url.path, body
         )
-        cached = _lookup_cached(db, key, user_id, request_hash)
-        if cached is not None:
-            status_code, body_text, is_conflict = cached
-            if is_conflict:
-                return Response(
-                    content=json.dumps({
-                        "error": {
-                            "code": "idempotency_conflict",
-                            "detail": (
-                                "Idempotency-Key already used with a different "
-                                "request body. Use a fresh key for a new request."
-                            ),
-                            "retriable": False,
-                        }
-                    }),
-                    status_code=409,
-                    media_type="application/json",
-                )
-            # Cached hit — replay.
+
+        classification, status, body_text = _lookup_row(
+            db, key, user_id, request_hash
+        )
+
+        if classification == _LOOKUP_CONFLICT:
+            return _conflict_response(
+                "idempotency_conflict",
+                "Idempotency-Key already used with a different request body. "
+                "Use a fresh key for a new request.",
+            )
+
+        if classification == _LOOKUP_PENDING:
+            return _conflict_response(
+                "idempotency_in_progress",
+                "Another request with this Idempotency-Key is in flight. "
+                "Retry in a moment — this is retriable.",
+            )
+
+        if classification == _LOOKUP_HIT:
             return Response(
-                content=body_text,
-                status_code=status_code,
+                content=body_text or "",
+                status_code=int(status or 200),
                 media_type="application/json",
                 headers={"X-Idempotent-Replay": "true"},
             )
 
-        # Cache miss — execute the route and capture the response body.
+        # miss or expired — claim the key before running the handler.
+        claimed = False
+        if classification == _LOOKUP_MISS:
+            claimed = _try_claim(
+                db, key, user_id, request.method, request.url.path, request_hash
+            )
+            if not claimed:
+                # A competing request claimed it between our lookup
+                # and our insert. Re-classify; the loser responds per
+                # whatever state the winner is in now.
+                classification, status, body_text = _lookup_row(
+                    db, key, user_id, request_hash
+                )
+                if classification == _LOOKUP_HIT:
+                    return Response(
+                        content=body_text or "",
+                        status_code=int(status or 200),
+                        media_type="application/json",
+                        headers={"X-Idempotent-Replay": "true"},
+                    )
+                if classification == _LOOKUP_CONFLICT:
+                    return _conflict_response(
+                        "idempotency_conflict",
+                        "Idempotency-Key already used with a different request body.",
+                    )
+                # Default: concurrent still-in-flight.
+                return _conflict_response(
+                    "idempotency_in_progress",
+                    "Another request with this Idempotency-Key is in flight. "
+                    "Retry in a moment.",
+                )
+        else:
+            # expired — overwrite existing row back to pending.
+            claimed = _reclaim_expired(
+                db, key, user_id, request.method, request.url.path, request_hash
+            )
+            if not claimed:
+                return _conflict_response(
+                    "idempotency_in_progress",
+                    "Race while reclaiming an expired Idempotency-Key slot. Retry.",
+                )
+
+        # We own the key. Run the handler.
         response = await call_next(request)
 
-        # Only cache successful writes (2xx). Errors should be
-        # retried freshly because the cause may be transient.
         if 200 <= response.status_code < 300:
-            # Response bodies from FastAPI are iterators; drain to bytes.
+            # Drain response body to bytes so we can both cache and
+            # re-emit it.
             body_chunks: list[bytes] = []
             async for chunk in response.body_iterator:
                 body_chunks.append(chunk)
             captured = b"".join(body_chunks)
 
-            _store_cached(
-                db=db,
-                key=key,
-                user_id=user_id,
-                method=request.method,
-                path=request.url.path,
-                request_hash=request_hash,
-                response_status=response.status_code,
-                response_body=captured,
-            )
+            _finalize_row(db, key, user_id, response.status_code, captured)
 
-            # Re-emit the response to the client with the captured body.
             return Response(
                 content=captured,
                 status_code=response.status_code,
@@ -343,13 +578,15 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 headers=dict(response.headers),
             )
 
+        # Non-2xx — release the key so the caller can retry freshly.
+        _release_row(db, key, user_id)
         return response
     finally:
         db.close()
 
 
 def prune_expired_idempotency_keys(db: Session) -> int:
-    """Delete rows older than the TTL.
+    """Delete rows older than the TTL OR pending rows past the watchdog.
 
     Called hourly by the scheduler. Returns the number of rows deleted
     so the scheduler can log activity.
@@ -358,17 +595,30 @@ def prune_expired_idempotency_keys(db: Session) -> int:
     object because SQLite's default datetime adapter (deprecated as of
     Python 3.12) was stripping the UTC offset and producing silent
     zero-match comparisons against naive ISO strings written by
-    `_store_cached`. String-on-string comparison is stable on both
+    `_finalize_row`. String-on-string comparison is stable on both
     SQLite and Postgres and matches the column's TEXT storage.
     """
-    cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=_TTL_HOURS)
-    cutoff_iso = cutoff_dt.isoformat()
-    result = db.execute(
-        text("DELETE FROM idempotency_keys WHERE created_at < :cutoff"),
-        {"cutoff": cutoff_iso},
+    now = datetime.now(timezone.utc)
+    complete_cutoff = (now - timedelta(hours=_TTL_HOURS)).isoformat()
+    pending_cutoff = (now - timedelta(seconds=_PENDING_WATCHDOG_SECONDS)).isoformat()
+
+    result1 = db.execute(
+        text(
+            "DELETE FROM idempotency_keys "
+            "WHERE state = 'complete' AND created_at < :cutoff"
+        ),
+        {"cutoff": complete_cutoff},
+    )
+    # Stuck pending rows — orphaned by a crashed handler.
+    result2 = db.execute(
+        text(
+            "DELETE FROM idempotency_keys "
+            "WHERE state = 'pending' AND created_at < :cutoff"
+        ),
+        {"cutoff": pending_cutoff},
     )
     db.commit()
     try:
-        return int(result.rowcount or 0)
+        return int((result1.rowcount or 0) + (result2.rowcount or 0))
     except Exception:
         return 0

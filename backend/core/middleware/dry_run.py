@@ -1,5 +1,23 @@
 """`X-Dry-Run: true` header support for agent-safe previews.
 
+v1.8.9 status (post-codex-fix-3, 2026-04-14):
+  **Phase 1 ships the infrastructure only.** The middleware sets
+  `request.state.dry_run` from the header and the `dry_run_preview()`
+  helper builds the canonical response envelope. **Zero routes
+  currently opt in**, so the header is inert today — it does not
+  cause any route to skip its side effects.
+
+  Per-route opt-in is Phase 2 work, paired one-to-one with the MCP
+  tool that exercises each route. A route is considered "opted in"
+  only when its handler:
+    1. Reads `is_dry_run(request)` before any DB commit / event emit
+       / filesystem write / external call, AND
+    2. Returns `dry_run_preview(...)` on that branch.
+
+  Until a route opts in, sending `X-Dry-Run: true` to that route will
+  execute normally. Clients must NOT assume dry-run works against a
+  given endpoint without verifying the route explicitly supports it.
+
 Pattern:
 - A client (agent or human) sends `X-Dry-Run: true` on a mutating
   request.
@@ -8,7 +26,7 @@ Pattern:
   writes, emitting events, or making external calls. If the flag is
   set, the handler builds a preview of what *would* happen and
   returns `{"dry_run": true, "would_execute": {...}, "next_actions": [...]}`
-  with a 200 status. **No side effects.**
+  with a 200 status. **No side effects on that branch.**
 
 Why per-route opt-in instead of global rollback?
 - Several ODIN routes emit async events (alert dispatch, webhook
@@ -21,13 +39,9 @@ Why per-route opt-in instead of global rollback?
 - Explicit per-route handling forces the author to think about
   "what changes, what's safe to preview" at each call site.
 
-Routes that do NOT support dry-run should ignore the flag and
-proceed normally. That's the safe default — dry-run is additive,
-not enforced.
-
-The list of opted-in endpoints for v1.8.9 is tracked in
-`DRY_RUN_SUPPORTED_ROUTES` at the bottom of this module and echoed
-in `docs/agent-surface.md` (if present).
+Routes that do NOT support dry-run ignore the flag and proceed
+normally. That's the safe default for an infrastructure-only Phase 1
+release — dry-run is additive, not enforced.
 """
 
 from __future__ import annotations
@@ -113,28 +127,25 @@ def dry_run_preview(
 # ---------------------------------------------------------------------------
 # Route opt-in registry
 # ---------------------------------------------------------------------------
-
-# Canonical list of routes that currently honor `X-Dry-Run: true` in
-# v1.8.9. Kept here (not just in docs) so CI / contract tests can
-# enumerate and assert the expected set without parsing markdown. If
-# you add dry-run support to a route, add it here.
 #
-# Note on maintenance completion: ODIN models this as "create a
-# maintenance log entry" (POST /maintenance/logs), not a task-level
-# "complete" action — the task schedule and the log history are
-# intentionally decoupled so repeating tasks keep their cadence
-# independent of individual completions.
-DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
-    # (method, path_template)
-    ("POST", "/api/v1/jobs"),                                # create_job (queue)
-    ("POST", "/api/v1/jobs/{job_id}/cancel"),
-    ("POST", "/api/v1/jobs/{job_id}/approve"),
-    ("POST", "/api/v1/jobs/{job_id}/reject"),
-    ("POST", "/api/v1/printers/{printer_id}/pause"),
-    ("POST", "/api/v1/printers/{printer_id}/resume"),
-    ("PATCH", "/api/v1/alerts/{alert_id}/read"),
-    ("PATCH", "/api/v1/alerts/{alert_id}/dismiss"),
-    ("POST", "/api/v1/filament-slots"),                      # spool→printer-slot assign
-    ("PATCH", "/api/v1/spools/{spool_id}/use"),              # consume
-    ("POST", "/api/v1/maintenance/logs"),                    # log completion
-)
+# Phase 1 ships with zero opted-in routes. The empty tuple is
+# intentional — the previous draft listed 11 endpoints as a roadmap,
+# but codex adversarial review (2026-04-14) correctly flagged that
+# listing routes here without corresponding `is_dry_run(request)`
+# branches was a dangerous contract bug: clients would read the
+# registry, send `X-Dry-Run: true`, and the route would still
+# perform the real mutation.
+#
+# Phase 2 populates this tuple one entry at a time, in lockstep with
+# the corresponding route retrofit:
+#     1. Route handler reads `is_dry_run(request)` and returns
+#        `dry_run_preview(...)` before any DB commit / event emit.
+#     2. Route is added to this tuple.
+#     3. A contract test asserts the `dry_run: true` path produces
+#        no DB side effects for that route.
+# All three must land in the same commit.
+#
+# Contract test `test_dry_run_middleware.py::test_supported_routes_enumeration_shape`
+# asserts the tuple shape but does NOT assert its length — the tuple
+# is allowed to be empty while route migration is in flight.
+DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = ()

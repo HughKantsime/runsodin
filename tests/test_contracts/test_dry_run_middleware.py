@@ -106,12 +106,18 @@ def test_middleware_sets_flag_on_header():
 
 
 def test_supported_routes_enumeration_shape():
-    """The canonical opt-in list has (method, path) tuples."""
+    """The canonical opt-in list has (method, path) tuples.
+
+    Phase 1 ships with an empty tuple — codex pass 1 (2026-04-14)
+    flagged that listing routes here without a matching
+    `is_dry_run(request)` branch in each handler is a dangerous
+    contract bug: clients read the registry, assume preview is safe,
+    but the real mutation still runs. The tuple is populated in
+    Phase 2 one entry at a time, in lockstep with route retrofits.
+    """
     from core.middleware.dry_run import DRY_RUN_SUPPORTED_ROUTES
 
-    assert len(DRY_RUN_SUPPORTED_ROUTES) >= 11, (
-        "Expected at least 11 routes in v1.8.9 (the MCP write tool surface)"
-    )
+    # Shape only; do not assert length.
     for entry in DRY_RUN_SUPPORTED_ROUTES:
         assert isinstance(entry, tuple) and len(entry) == 2
         method, path = entry
