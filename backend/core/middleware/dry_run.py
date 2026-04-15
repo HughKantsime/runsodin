@@ -47,13 +47,21 @@ release — dry-run is additive, not enforced.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Optional
+import re
+from typing import Any, Callable, Dict, Optional, Pattern
+
+from starlette.responses import JSONResponse
 
 log = logging.getLogger("odin.middleware.dry_run")
 
 # True when an incoming request has `X-Dry-Run: true` (case-insensitive
 # match on the value; header name is case-insensitive per HTTP spec).
 _TRUTHY_VALUES = {"true", "1", "yes", "on"}
+
+# Methods that can have server-side side effects and therefore need the
+# dry-run gate. GET/HEAD/OPTIONS are excluded — they have no side effect
+# by HTTP contract, so `X-Dry-Run` on them is a no-op (not an error).
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 def _parse_dry_run_header(value: Optional[str]) -> bool:
@@ -63,18 +71,87 @@ def _parse_dry_run_header(value: Optional[str]) -> bool:
     return value.strip().lower() in _TRUTHY_VALUES
 
 
+def _compile_route_template(template: str) -> Pattern[str]:
+    """Compile a FastAPI path template to a regex matching real request paths.
+
+    `{param}` segments match exactly one non-slash segment. The pattern is
+    anchored at both ends so partial matches do not slip through (e.g.
+    `/api/v1/printers/42/logs` must NOT match
+    `/api/v1/printers/{printer_id}/pause`).
+
+    Implementation note: `re.escape` turns `{` into `\\{` in the output,
+    so we match `\\{...\\}` (escaped braces) rather than raw `{...}`.
+    """
+    escaped = re.escape(template)
+    pattern = re.sub(r"\\\{[^/}]+\\\}", r"[^/]+", escaped)
+    return re.compile(f"^{pattern}$")
+
+
+def _build_supported_matcher() -> list[tuple[str, Pattern[str]]]:
+    """Compile every DRY_RUN_SUPPORTED_ROUTES entry into a (method, regex) pair.
+
+    Called once at module load. The middleware hot path iterates this list;
+    small (single-digit to low-double-digit size) so linear scan is fine.
+    """
+    return [(method, _compile_route_template(path)) for method, path in DRY_RUN_SUPPORTED_ROUTES]
+
+
 async def dry_run_middleware(request: Any, call_next: Callable):
-    """Set `request.state.dry_run` based on the `X-Dry-Run` header.
+    """Parse `X-Dry-Run` header, deny-by-default on unsupported routes.
 
-    The flag is only meaningful for mutating methods — on a GET it is
-    still set for convenience (routes may find it useful for consistent
-    behavior) but has no side effect because GETs don't commit.
+    Behavior:
+      - Sets `request.state.dry_run` to True/False based on header.
+      - Reads are never gated — a GET with `X-Dry-Run: true` passes
+        through with the flag set (some read endpoints may log or
+        annotate differently; that's their choice).
+      - On a MUTATING method with `X-Dry-Run: true`:
+        * If the request path matches a registered entry in
+          `DRY_RUN_SUPPORTED_ROUTES`, call_next is invoked and the
+          route's `is_dry_run(request)` branch returns the preview.
+        * If no entry matches, return **501 Not Implemented** with the
+          `dry_run_unsupported` error envelope. No `call_next` — the
+          request never reaches the handler, so no side effect is
+          possible.
+      - On a mutating method with a falsy / absent header, call_next is
+        invoked normally — dry-run opt-in is optional for routes.
 
-    Routes that haven't been migrated to check the flag are unaffected:
-    `request.state.dry_run` defaults to False if not set.
+    This is the Phase 2 deny-by-default safety gate. Before this, a
+    client sending `X-Dry-Run: true` to a non-opted-in route would
+    silently execute the real mutation (because no route branched on
+    the flag). That was the agent-safety lie Phase 2 had to close.
     """
     value = request.headers.get("X-Dry-Run")
-    request.state.dry_run = _parse_dry_run_header(value)
+    dry_run = _parse_dry_run_header(value)
+    request.state.dry_run = dry_run
+
+    if dry_run and request.method in _MUTATING_METHODS:
+        path = request.url.path
+        matched = any(
+            request.method == method and regex.match(path)
+            for method, regex in _SUPPORTED_MATCHER
+        )
+        if not matched:
+            detail = (
+                f"Route {request.method} {path} does not support dry-run. "
+                "Retry without the X-Dry-Run header, or upgrade the ODIN "
+                "backend to a version where this route opts in."
+            )
+            log.warning(
+                "dry_run_unsupported method=%s path=%s supported_count=%d",
+                request.method, path, len(_SUPPORTED_MATCHER),
+            )
+            return JSONResponse(
+                status_code=501,
+                content={
+                    "detail": "Route does not support dry-run",
+                    "error": {
+                        "code": "dry_run_unsupported",
+                        "detail": detail,
+                        "retriable": False,
+                    },
+                },
+            )
+
     return await call_next(request)
 
 
@@ -148,4 +225,17 @@ def dry_run_preview(
 # Contract test `test_dry_run_middleware.py::test_supported_routes_enumeration_shape`
 # asserts the tuple shape but does NOT assert its length — the tuple
 # is allowed to be empty while route migration is in flight.
-DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = ()
+DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
+    # Phase 2 retrofit — populated in lockstep with route opt-ins.
+    # Each entry has a paired `is_dry_run(request)` branch that returns
+    # `dry_run_preview(...)` before any MQTT / DB / filesystem side effect.
+    ("POST", "/api/v1/printers/{printer_id}/pause"),
+)
+
+
+# Compiled once at module import. The middleware hot-path iterates this.
+# Kept module-private so tests that override DRY_RUN_SUPPORTED_ROUTES
+# via monkeypatch won't see stale regexes — tests that need to change
+# the supported set should patch _SUPPORTED_MATCHER too (see
+# test_dry_run_deny_by_default.py).
+_SUPPORTED_MATCHER: list[tuple[str, Pattern[str]]] = _build_supported_matcher()

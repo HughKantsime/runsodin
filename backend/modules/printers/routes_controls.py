@@ -3,12 +3,20 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.rbac import require_role, check_org_access
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import (
+    AGENT_WRITE_SCOPE,
+    check_org_access,
+    require_any_scope,
+    require_role,
+)
+from core.responses import build_next_actions, next_action
 import core.crypto as crypto
 from modules.printers.models import Printer
 from modules.printers.route_utils import _send_printer_command, _bambu_command_direct
@@ -39,19 +47,82 @@ async def stop_printer(printer_id: int, current_user: dict = Depends(require_rol
 
 
 @router.post("/printers/{printer_id}/pause", tags=["Printers"])
-async def pause_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Pause current print."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
-    if not check_org_access(current_user, printer.org_id):
-        raise HTTPException(status_code=404, detail="Printer not found")
+async def pause_printer(
+    printer_id: int,
+    request: Request,
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Pause current print.
 
-    if _send_printer_command(printer, "pause_print"):
-        db.execute(text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"), {"id": printer_id})
-        db.commit()
-        return {"success": True, "message": "Print paused"}
-    raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+    Agent-surface (v1.8.9 Phase 2):
+      - Accepts JWT operator role OR an `agent:write` scoped token.
+      - Honors `X-Dry-Run: true` — returns a preview without touching MQTT or DB.
+      - Emits `next_actions` on success so agents can chain verification.
+    """
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {printer_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "pause_print",
+                "printer_id": printer_id,
+                "printer_name": printer.name,
+                "current_gcode_state": printer.gcode_state,
+                "target_gcode_state": "PAUSED",
+            },
+            next_actions=[
+                next_action(
+                    "get_printer",
+                    {"printer_id": printer_id},
+                    "verify paused state",
+                ),
+                next_action(
+                    "resume_printer",
+                    {"printer_id": printer_id},
+                    "when ready to continue",
+                ),
+            ],
+            notes="Would send MQTT pause_print command; no DB or printer side effects.",
+        )
+
+    if not _send_printer_command(printer, "pause_print"):
+        raise OdinError(
+            ErrorCode.upstream_unavailable,
+            "Printer unreachable or command failed",
+            status=503,
+            retriable=True,
+        )
+    db.execute(
+        text("UPDATE printers SET gcode_state = 'PAUSED' WHERE id = :id"),
+        {"id": printer_id},
+    )
+    db.commit()
+    return {
+        "success": True,
+        "message": "Print paused",
+        "printer_id": printer_id,
+        "state": "PAUSED",
+        "next_actions": build_next_actions(
+            next_action(
+                "get_printer",
+                {"printer_id": printer_id},
+                "confirm paused state",
+            ),
+            next_action(
+                "resume_printer",
+                {"printer_id": printer_id},
+                "when ready to continue",
+            ),
+        ),
+    }
 
 
 @router.post("/printers/{printer_id}/resume", tags=["Printers"])

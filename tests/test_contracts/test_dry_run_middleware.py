@@ -83,10 +83,21 @@ def test_middleware_sets_flag_on_header():
         def get(self, k, default=None):
             return self._h.get(k, default)
 
+    class _Url:
+        def __init__(self, path):
+            self.path = path
+
     class _Req:
-        def __init__(self, headers):
+        def __init__(self, headers, method="GET", path="/"):
+            # Phase 2 middleware also reads .method and .url.path to
+            # enforce deny-by-default on unsupported dry-run routes.
+            # Default GET/path-"/" keeps this flag-parsing test focused
+            # on state.dry_run assignment (GETs never 501 — see
+            # test_dry_run_deny_by_default.py for the method/path gate).
             self.headers = _Headers(headers)
             self.state = SimpleNamespace()
+            self.method = method
+            self.url = _Url(path)
 
     async def _call_next(request):
         return request  # echo for assertion

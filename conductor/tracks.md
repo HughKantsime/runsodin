@@ -6,6 +6,7 @@ Active and completed development tracks.
 
 | Track ID | Name | Type | Status | Step | Created |
 |----------|------|------|--------|------|---------|
+| agent-native-phase2-safety_20260415 | Agent-Native ODIN — Phase 2 Safety & Route Retrofit | feature | new | NOT_STARTED | 2026-04-15 |
 | agent-native-odin_20260414 | Agent-Native ODIN — OpenClaw + MCP Integration | feature | new | PLAN | 2026-04-14 |
 
 ## Completed Tracks
