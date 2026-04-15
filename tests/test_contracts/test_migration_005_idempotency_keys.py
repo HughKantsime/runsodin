@@ -32,6 +32,7 @@ EXPECTED_COLUMNS = {
     "method",
     "path",
     "request_hash",
+    "auth_fingerprint",  # added post-codex pass 6: authz drift invalidation
     "state",             # added post-codex: 'pending' or 'complete'
     "response_status",
     "response_body",

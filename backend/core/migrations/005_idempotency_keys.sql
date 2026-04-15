@@ -45,12 +45,22 @@
 -- (space < T in ASCII → fresh rows look older than the cutoff, get
 -- pruned prematurely). Forcing the insert/update paths to supply the
 -- ISO-8601 string keeps every row in one canonical format.
+-- `auth_fingerprint` captures authorization-relevant user state at
+-- the moment of the claim (role, token scopes, org membership).
+-- Codex pass 6 (2026-04-15) flagged that replay returns a cached 2xx
+-- without running FastAPI dependencies like `require_role` or
+-- `require_any_scope`. A user whose role is reduced after the
+-- original successful POST could otherwise replay that success for
+-- the full 24h TTL. The middleware now persists the fingerprint on
+-- claim and invalidates the row if the current user's fingerprint
+-- differs at replay time.
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT NOT NULL,
     user_id INTEGER NOT NULL,
     method TEXT NOT NULL,
     path TEXT NOT NULL,
     request_hash TEXT NOT NULL,
+    auth_fingerprint TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL DEFAULT 'pending',
     response_status INTEGER NOT NULL DEFAULT 0,
     response_body TEXT NOT NULL DEFAULT '',

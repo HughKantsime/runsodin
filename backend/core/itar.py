@@ -158,26 +158,31 @@ def enforce_boot_config(urls: Iterable[str]) -> None:
 
 
 def collect_db_configured_urls() -> list[str]:
-    """Pull every DB-backed outbound URL that would be called at runtime.
+    """Pull every DB-backed outbound destination that would be called at runtime.
 
-    Codex pass 4 (2026-04-14) flagged that the startup audit only
-    inspected statically-known settings (license_server_url). A
-    freshly-installed ODIN with ITAR=1 could boot clean and then leak
-    data on the first webhook dispatch because the runtime
-    enforce_request_destination check is reactive.
-
-    This function consolidates every DB source of outbound URLs so
-    the boot audit can fail closed:
+    Codex pass 4 + pass 6 (2026-04-14/15): the ITAR boot audit must
+    cover every real egress path, not just `webhooks`. This function
+    now consolidates:
       - `webhooks` table: per-alert dispatch targets (URL stored
         encrypted; decrypt for audit).
-      - `system_config` rows with keys that historically carry a URL
-        (`license_server_url` — set dynamically), leaving room for
-        future entries.
+      - `system_config` URL-bearing rows (`license_server_url`,
+        `update_server_url`).
+      - `system_config.smtp_config` (host + port → audit as
+        smtp://host:port).
+      - `system_config` MQTT republish host (mqtt://host:port).
+      - `groups.settings_json` webhook URLs (org-level outbound from
+        OrgSettingsProvider).
 
-    Returns a flat list of plaintext URL strings. Silently drops
-    rows that fail to decrypt (logs a warning) — a boot audit
-    shouldn't crash on corrupt data, but a malformed row can't be
-    validated either.
+    Non-HTTP destinations (SMTP, MQTT) are encoded as synthetic URLs
+    so `check_url_allowed` (which uses urlparse + getaddrinfo on the
+    hostname) can validate them uniformly. The audit only cares about
+    whether the host resolves to RFC1918/loopback; scheme / port are
+    not used for the network check.
+
+    Returns a flat list of plaintext URL strings. Silently drops rows
+    that fail to decrypt or parse — a boot audit shouldn't crash on
+    corrupt data, but a malformed row can't be validated either so
+    it's best-effort.
     """
     from core.db import SessionLocal
     from sqlalchemy import text as sa_text
@@ -185,17 +190,14 @@ def collect_db_configured_urls() -> list[str]:
     urls: list[str] = []
     db = SessionLocal()
     try:
-        # Webhook table (post-v1 notifications refactor).
+        # -------- 1. webhooks table (encrypted) --------
         try:
-            rows = db.execute(
-                sa_text("SELECT url FROM webhooks")
-            ).fetchall()
+            rows = db.execute(sa_text("SELECT url FROM webhooks")).fetchall()
             for row in rows:
                 raw = row[0] if row else None
                 if not raw:
                     continue
                 try:
-                    # Match routes/webhooks.py decryption pattern.
                     from core.crypto import decrypt, is_encrypted
                     plain = decrypt(raw) if is_encrypted(raw) else raw
                 except Exception as exc:
@@ -203,24 +205,72 @@ def collect_db_configured_urls() -> list[str]:
                     continue
                 urls.append(plain)
         except Exception as exc:
-            # Table may not exist on a fresh install before first
-            # migration of the notifications module.
             log.debug("ITAR audit: webhooks table not queryable: %s", exc)
 
-        # system_config rows that historically carry a URL value.
+        # -------- 2. system_config URL-bearing keys --------
         try:
             rows = db.execute(
                 sa_text(
                     "SELECT key, value FROM system_config "
-                    "WHERE key IN ('license_server_url', 'update_server_url')"
+                    "WHERE key IN ('license_server_url', 'update_server_url', "
+                    "              'smtp_config', "
+                    "              'mqtt_republish_host', 'mqtt_republish_port')"
                 )
             ).fetchall()
+            mqtt_host: Optional[str] = None
+            mqtt_port: Optional[str] = None
             for key, value in rows:
                 if not value:
                     continue
-                urls.append(str(value))
+                if key in ("license_server_url", "update_server_url"):
+                    urls.append(str(value))
+                elif key == "smtp_config":
+                    # JSON blob; extract host + port.
+                    try:
+                        import json as _json
+                        cfg = (
+                            _json.loads(value) if isinstance(value, str) else value
+                        )
+                        host = cfg.get("host")
+                        port = cfg.get("port", 25)
+                        enabled = cfg.get("enabled", True)
+                        if enabled and host:
+                            urls.append(f"smtp://{host}:{int(port)}")
+                    except Exception as exc:
+                        log.warning("ITAR audit: could not parse smtp_config: %s", exc)
+                elif key == "mqtt_republish_host":
+                    mqtt_host = str(value)
+                elif key == "mqtt_republish_port":
+                    mqtt_port = str(value)
+            if mqtt_host:
+                port_s = mqtt_port or "1883"
+                urls.append(f"mqtt://{mqtt_host}:{port_s}")
         except Exception as exc:
             log.debug("ITAR audit: system_config not queryable: %s", exc)
+
+        # -------- 3. groups.settings_json — org-level webhooks --------
+        try:
+            rows = db.execute(
+                sa_text("SELECT id, settings_json FROM groups")
+            ).fetchall()
+            import json as _json
+            for row in rows:
+                raw = row[1] if len(row) > 1 else None
+                if not raw:
+                    continue
+                try:
+                    settings = _json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    continue
+                # Org webhook shape varies; check the common keys that
+                # can hold a URL.
+                for k in ("webhook_url", "notification_webhook_url",
+                          "alert_webhook_url", "digest_webhook_url"):
+                    v = settings.get(k) if isinstance(settings, dict) else None
+                    if v:
+                        urls.append(str(v))
+        except Exception as exc:
+            log.debug("ITAR audit: groups table not queryable: %s", exc)
     finally:
         db.close()
 

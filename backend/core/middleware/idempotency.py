@@ -102,6 +102,43 @@ _STATE_PENDING = "pending"
 _STATE_COMPLETE = "complete"
 
 
+def _compute_auth_fingerprint(user: Optional[dict]) -> str:
+    """Stable authorization fingerprint for a resolved user.
+
+    Codex pass 6 (2026-04-15): replay must invalidate when the user's
+    authz-relevant state changes (role demotion, scope reduction, org
+    move). This function returns a canonical string that encodes
+    those fields; the middleware persists it at claim time and
+    compares at replay time.
+
+    Fields included:
+      - role: primary RBAC role (admin / operator / viewer).
+      - group_id: org membership (org-scoped access checks).
+      - _token_scopes: JSON array of token scopes (sorted for
+        stability); empty for JWT/cookie sessions, populated for
+        per-user API tokens.
+      - is_active: always 1 here because `_resolve_user_id` rejects
+        inactive users — but included so an explicit `deactivate +
+        reactivate within 24h` still shows a different fingerprint
+        when combined with other changes.
+
+    Produces `role=X|gid=Y|sc=[...]|act=1`. Empty string for unresolved.
+    """
+    if not user:
+        return ""
+    role = user.get("role") or ""
+    gid = user.get("group_id")
+    gid_s = "" if gid is None else str(int(gid))
+    scopes = user.get("_token_scopes") or []
+    try:
+        # Sort for stable serialization.
+        scopes_s = json.dumps(sorted([str(s) for s in scopes]))
+    except Exception:
+        scopes_s = "[]"
+    active = "1" if user.get("is_active") else "0"
+    return f"role={role}|gid={gid_s}|sc={scopes_s}|act={active}"
+
+
 def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
     """Full-auth user-id resolution for idempotency key scoping.
 
@@ -249,6 +286,68 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
     return None
 
 
+def _resolve_user_context(request: Any, db: Session) -> Optional[dict]:
+    """Full user context including role + scopes for fingerprinting.
+
+    Returns a dict with at least `id`, `role`, `group_id`, `is_active`,
+    `_token_scopes`. None if unresolved or fails any of the checks in
+    `_resolve_user_id` — this helper is a superset.
+
+    Callers who only need the ID can use `_resolve_user_id`; callers
+    who need the authz fingerprint for cache consistency use this.
+    """
+    uid = _resolve_user_id(request, db)
+    if uid is None:
+        return None
+
+    row = db.execute(
+        text(
+            "SELECT id, username, role, group_id, is_active "
+            "FROM users WHERE id = :id"
+        ),
+        {"id": uid},
+    ).fetchone()
+    if not row or not row.is_active:
+        return None
+
+    ctx: dict = {
+        "id": int(row.id),
+        "username": row.username,
+        "role": row.role,
+        "group_id": row.group_id,
+        "is_active": bool(row.is_active),
+        "_token_scopes": [],
+    }
+
+    # If the request used a per-user token, attach its scopes so the
+    # fingerprint captures scope revocation.
+    api_key_header = request.headers.get("X-API-Key", "")
+    if api_key_header.startswith("odin_"):
+        try:
+            from core.auth import verify_password
+            prefix = api_key_header[:10]
+            candidates = db.execute(
+                text(
+                    "SELECT token_hash, scopes FROM api_tokens "
+                    "WHERE token_prefix = :p AND user_id = :u"
+                ),
+                {"p": prefix, "u": uid},
+            ).fetchall()
+            for candidate in candidates:
+                if verify_password(api_key_header, candidate.token_hash):
+                    try:
+                        ctx["_token_scopes"] = (
+                            json.loads(candidate.scopes) if candidate.scopes else []
+                        )
+                    except Exception:
+                        ctx["_token_scopes"] = []
+                    break
+        except Exception:
+            pass
+
+    return ctx
+
+
 def _canonicalize_query_string(query: str) -> str:
     """Sort query params by (key, value) for a stable hash input.
 
@@ -330,72 +429,57 @@ _LOOKUP_EXPIRED = "expired"
 
 def _lookup_row(
     db: Session, key: str, user_id: int, request_hash: str
-) -> tuple[str, Optional[int], Optional[str], Optional[str]]:
+) -> tuple[str, Optional[int], Optional[str], Optional[str], Optional[str]]:
     """Look up the cache row and classify its state.
 
-    Returns (classification, status, body, created_at_str).
-    `status`/`body` are only populated when classification == hit.
-    `created_at_str` is the raw `created_at` value as stored in the
-    DB (verbatim, not reparsed) so the caller can pass it to
-    `_reclaim_expired()` as a compare-and-set guard — that's how we
-    detect another reclaimer winning the race.
-
-    - `miss`: no row in the DB. Caller INSERTs a fresh pending row.
-    - `stuck_pending`: pending row past the watchdog window. Caller
-      uses CAS to overwrite, guarding on this created_at.
-    - `pending`: another in-flight request holds the key. Caller
-      returns 409 in_progress.
-    - `conflict`: row exists with a different request hash. Caller
-      returns 409 conflict.
-    - `hit`: cached response available for replay.
-    - `expired`: completed row past TTL. Caller uses CAS to overwrite,
-      guarding on this created_at.
+    Returns (classification, status, body, created_at_str, auth_fingerprint).
+    The fifth element is the stored authz fingerprint from claim time;
+    the middleware compares it against the caller's current fingerprint
+    before serving a replay (codex pass 6 — closes role/scope/org
+    revocation gap).
     """
     row = db.execute(
         text(
             "SELECT request_hash, state, response_status, response_body, "
-            "created_at, updated_at "
+            "created_at, updated_at, auth_fingerprint "
             "FROM idempotency_keys "
             "WHERE key = :k AND user_id = :u"
         ),
         {"k": key, "u": user_id},
     ).fetchone()
     if not row:
-        return _LOOKUP_MISS, None, None, None
+        return _LOOKUP_MISS, None, None, None, None
 
     state = row.state
     now = datetime.now(timezone.utc)
     created_raw = row.created_at
+    fp = row.auth_fingerprint
 
     if state == _STATE_PENDING:
         created = _parse_created_at(created_raw)
         if created is None:
-            # Corrupt timestamp — caller cannot CAS safely. Treat as
-            # miss; the INSERT in _try_claim will collide on the PK
-            # and bounce back to a re-read, where hopefully the row
-            # is gone (pruner) or repaired.
-            return _LOOKUP_MISS, None, None, None
+            return _LOOKUP_MISS, None, None, None, None
         if now - created > timedelta(seconds=_PENDING_WATCHDOG_SECONDS):
             log.debug(
                 "idempotency: pending row older than %ss — stuck_pending",
                 _PENDING_WATCHDOG_SECONDS,
             )
-            return _LOOKUP_STUCK_PENDING, None, None, str(created_raw)
+            return _LOOKUP_STUCK_PENDING, None, None, str(created_raw), fp
         if row.request_hash != request_hash:
-            return _LOOKUP_CONFLICT, None, None, None
-        return _LOOKUP_PENDING, None, None, None
+            return _LOOKUP_CONFLICT, None, None, None, None
+        return _LOOKUP_PENDING, None, None, None, fp
 
     # state == complete
     if row.request_hash != request_hash:
-        return _LOOKUP_CONFLICT, None, None, None
+        return _LOOKUP_CONFLICT, None, None, None, None
 
     created = _parse_created_at(created_raw)
     if created is None:
-        return _LOOKUP_MISS, None, None, None
+        return _LOOKUP_MISS, None, None, None, None
     if now - created > timedelta(hours=_TTL_HOURS):
-        return _LOOKUP_EXPIRED, None, None, str(created_raw)
+        return _LOOKUP_EXPIRED, None, None, str(created_raw), fp
 
-    return _LOOKUP_HIT, int(row.response_status), row.response_body, str(created_raw)
+    return _LOOKUP_HIT, int(row.response_status), row.response_body, str(created_raw), fp
 
 
 def _now_iso() -> str:
@@ -415,6 +499,7 @@ def _try_claim(
     method: str,
     path: str,
     request_hash: str,
+    auth_fingerprint: str = "",
 ) -> bool:
     """Atomically claim the key by inserting a pending row.
 
@@ -427,15 +512,20 @@ def _try_claim(
     IntegrityError. Stuck-pending rows are handled separately by the
     caller (treats them as miss and goes through `_reclaim_expired`
     which is a compare-and-set, single-winner).
+
+    `auth_fingerprint` is the stable encoding of the caller's authz-
+    relevant state at claim time (see `_compute_auth_fingerprint`).
+    Stored verbatim so replay can compare against the current user's
+    fingerprint and invalidate on role/scope/org changes.
     """
     ts = _now_iso()
     try:
         db.execute(
             text(
                 "INSERT INTO idempotency_keys "
-                "(key, user_id, method, path, request_hash, state, "
-                " response_status, response_body, created_at, updated_at) "
-                "VALUES (:k, :u, :m, :p, :h, 'pending', 0, '', :ts, :ts)"
+                "(key, user_id, method, path, request_hash, auth_fingerprint, "
+                " state, response_status, response_body, created_at, updated_at) "
+                "VALUES (:k, :u, :m, :p, :h, :af, 'pending', 0, '', :ts, :ts)"
             ),
             {
                 "k": key,
@@ -443,6 +533,7 @@ def _try_claim(
                 "m": method,
                 "p": path,
                 "h": request_hash,
+                "af": auth_fingerprint,
                 "ts": ts,
             },
         )
@@ -461,6 +552,7 @@ def _reclaim_expired(
     path: str,
     request_hash: str,
     prior_created_at: str,
+    auth_fingerprint: str = "",
 ) -> bool:
     """Compare-and-set claim of a stuck-pending or TTL-expired row.
 
@@ -487,6 +579,7 @@ def _reclaim_expired(
             text(
                 "UPDATE idempotency_keys "
                 "SET method = :m, path = :p, request_hash = :h, "
+                "    auth_fingerprint = :af, "
                 "    state = 'pending', response_status = 0, "
                 "    response_body = '', "
                 "    created_at = :now, updated_at = :now "
@@ -495,6 +588,7 @@ def _reclaim_expired(
             ),
             {
                 "k": key, "u": user_id, "m": method, "p": path, "h": request_hash,
+                "af": auth_fingerprint,
                 "now": now_iso, "prior": prior_created_at,
             },
         )
@@ -571,6 +665,18 @@ def _finalize_row(
         )
 
 
+# Only these response headers are safe to drop on replay. Any
+# additional header (Set-Cookie, Content-Disposition, Location, ETag,
+# Last-Modified, Cache-Control, custom X-*, etc.) carries semantics
+# the replay would silently lose. The allowlist approach fails closed:
+# new header types default to "not cacheable" without needing a code
+# change.
+_CACHEABLE_RESPONSE_HEADERS: frozenset[str] = frozenset({
+    "content-type",
+    "content-length",
+})
+
+
 def _response_is_cacheable(response: Any, body: bytes) -> tuple[bool, str]:
     """Decide whether a 2xx response can be faithfully replayed.
 
@@ -578,46 +684,38 @@ def _response_is_cacheable(response: Any, body: bytes) -> tuple[bool, str]:
     pending row so a retry executes the handler freshly rather than
     serving a partial/incorrect replay.
 
-    Codex pass 5 (2026-04-14) flagged two fidelity failures in the
-    prior design:
-      1. Responses with Set-Cookie headers (login, OIDC callback)
-         were serialized without their cookie. Replay returned the
-         response body with no session → silent auth desync.
-      2. Bodies > _MAX_BODY_BYTES were finalized with empty
-         response_body but state='complete' → retries replayed an
-         empty 2xx.
-
-    Instead of trying to persist every header type (cookies are
-    sensitive, streaming responses aren't serializable), we refuse to
-    cache responses that would be lossy:
-      - Any response with Set-Cookie
-      - Body over the cap
-      - Non-UTF-8 body
+    Refuse to cache if any of:
+      - Body exceeds `_MAX_BODY_BYTES`.
+      - Body is not UTF-8.
+      - Response has any header outside `_CACHEABLE_RESPONSE_HEADERS`.
+        Codex passes 5 & 6 (2026-04-14/15) surfaced multiple examples
+        of header-drop hazards: Set-Cookie (session desync),
+        Content-Disposition (file download filename lost), Location
+        (redirect semantics lost), ETag / Last-Modified (conditional-
+        request contracts broken). Allowlist is stricter than an
+        explicit deny list, so new header types fail safe without a
+        code change.
     """
-    # Oversized body
     if len(body) > _MAX_BODY_BYTES:
         return False, f"body {len(body)} bytes exceeds {_MAX_BODY_BYTES}-byte cap"
 
-    # Non-UTF-8 body (unlikely for JSON responses but possible for
-    # raw-bytes handlers).
     try:
         body.decode("utf-8")
     except UnicodeDecodeError:
         return False, "response body is not UTF-8"
 
-    # Set-Cookie presence. Starlette's Headers is a Multi-valued
-    # mapping — iterate raw headers to catch duplicates.
     try:
         raw = getattr(response, "raw_headers", None) or []
         for name, _value in raw:
             try:
-                name_s = name.decode("ascii") if isinstance(name, bytes) else str(name)
+                name_s = (
+                    name.decode("ascii") if isinstance(name, bytes) else str(name)
+                ).lower()
             except Exception:
-                continue
-            if name_s.lower() == "set-cookie":
-                return False, "response sets cookies (session-bearing — not cacheable)"
+                return False, "could not decode a response header name"
+            if name_s not in _CACHEABLE_RESPONSE_HEADERS:
+                return False, f"response carries non-cacheable header: {name_s!r}"
     except Exception:
-        # If we can't inspect headers, fall back to safe no-cache.
         return False, "could not inspect response headers"
 
     return True, ""
@@ -635,6 +733,26 @@ def _release_row(db: Session, key: str, user_id: int) -> None:
             text(
                 "DELETE FROM idempotency_keys "
                 "WHERE key = :k AND user_id = :u AND state = 'pending'"
+            ),
+            {"k": key, "u": user_id},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _release_row_force(db: Session, key: str, user_id: int) -> None:
+    """Delete ANY row (pending or complete) for this (key, user_id).
+
+    Used when authz-fingerprint drift invalidates a cached hit
+    (codex pass 6, 2026-04-15). The replay would be unsafe; wipe the
+    row so a fresh claim runs through current authz.
+    """
+    try:
+        db.execute(
+            text(
+                "DELETE FROM idempotency_keys "
+                "WHERE key = :k AND user_id = :u"
             ),
             {"k": key, "u": user_id},
         )
@@ -666,21 +784,31 @@ def _conflict_response(code: str, detail: str):
 
 
 def _concurrent_loser_response(
-    db: Session, key: str, user_id: int, request_hash: str
+    db: Session, key: str, user_id: int, request_hash: str, current_fp: str = ""
 ):
     """Build the response for a request that lost a concurrent claim.
 
     Re-classifies the row and picks the right 409 / replay for the
     winner's current state:
-    - HIT: winner already completed → serve the cached response.
+    - HIT with matching authz fingerprint: serve the cached response.
+    - HIT with mismatched fingerprint: 409 in_progress (authz changed
+      between our claim attempt and the winner's success; the loser
+      should retry freshly to get current authz enforcement).
     - CONFLICT: winner has a different request hash → 409.
     - anything else (pending / stuck / expired): 409 in_progress.
     """
     from fastapi.responses import Response  # noqa: WPS433
-    classification, status, body_text, _ = _lookup_row(
+    classification, status, body_text, _, stored_fp = _lookup_row(
         db, key, user_id, request_hash
     )
     if classification == _LOOKUP_HIT:
+        if stored_fp is not None and stored_fp != current_fp:
+            # Winner ran under a different authz context — don't
+            # replay that to the current user.
+            return _conflict_response(
+                "idempotency_in_progress",
+                "Another request under a different authorization context holds this key. Retry.",
+            )
         return Response(
             content=body_text or "",
             status_code=int(status or 200),
@@ -763,12 +891,15 @@ async def idempotency_middleware(request: Any, call_next: Callable):
     from core.db import SessionLocal
     db = SessionLocal()
     try:
-        user_id = _resolve_user_id(request, db)
-        if user_id is None:
+        user_ctx = _resolve_user_context(request, db)
+        if user_ctx is None:
             # Anonymous / unresolvable / expired — pass through; auth
             # will reject downstream and we don't want to cache under
             # a null key.
             return await call_next(request)
+
+        user_id = user_ctx["id"]
+        current_fp = _compute_auth_fingerprint(user_ctx)
 
         request_hash = _compute_request_hash(
             request.method,
@@ -777,9 +908,27 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             query=(request.url.query or ""),
         )
 
-        classification, status, body_text, created_at_str = _lookup_row(
+        classification, status, body_text, created_at_str, stored_fp = _lookup_row(
             db, key, user_id, request_hash
         )
+
+        # Codex pass 6 (2026-04-15): authz drift invalidation.
+        # If the caller's current authz fingerprint differs from the
+        # one captured at claim, the user's role/scopes/org has
+        # changed since the original success. Serving the cached
+        # response would bypass the new authz state (reduced role
+        # could still replay a privileged mutation for 24h). Treat
+        # as a cache miss — if the current user has the right authz
+        # for a fresh execution, the route's own Depends() will
+        # accept; if not, the route will reject.
+        if classification == _LOOKUP_HIT and stored_fp is not None and stored_fp != current_fp:
+            log.info(
+                "idempotency: authz fingerprint changed for %s %s "
+                "(user_id=%s); invalidating cache row",
+                request.method, request.url.path, user_id,
+            )
+            _release_row_force(db, key, user_id)
+            classification = _LOOKUP_MISS
 
         if classification == _LOOKUP_CONFLICT:
             return _conflict_response(
@@ -807,21 +956,17 @@ async def idempotency_middleware(request: Any, call_next: Callable):
         claimed = False
         if classification == _LOOKUP_MISS:
             claimed = _try_claim(
-                db, key, user_id, request.method, request.url.path, request_hash
+                db, key, user_id,
+                request.method, request.url.path, request_hash,
+                auth_fingerprint=current_fp,
             )
             if not claimed:
                 # Race lost at INSERT time. Re-read to see who won.
                 return _concurrent_loser_response(
-                    db, key, user_id, request_hash
+                    db, key, user_id, request_hash, current_fp,
                 )
         else:
-            # stuck_pending or expired: compare-and-set overwrite.
-            # created_at_str was returned by _lookup_row and pins the
-            # version we saw; another reclaimer that ran between our
-            # lookup and our CAS will have bumped created_at, which
-            # makes our UPDATE affect 0 rows → claimed = False.
             if created_at_str is None:
-                # Corrupt state; fail retriably.
                 return _conflict_response(
                     "idempotency_in_progress",
                     "Transient corruption on Idempotency-Key slot. Retry.",
@@ -830,10 +975,11 @@ async def idempotency_middleware(request: Any, call_next: Callable):
                 db, key, user_id,
                 request.method, request.url.path, request_hash,
                 prior_created_at=created_at_str,
+                auth_fingerprint=current_fp,
             )
             if not claimed:
                 return _concurrent_loser_response(
-                    db, key, user_id, request_hash
+                    db, key, user_id, request_hash, current_fp,
                 )
 
         # We own the key. Run the handler.

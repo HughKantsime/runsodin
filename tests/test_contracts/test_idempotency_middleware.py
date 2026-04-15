@@ -210,7 +210,7 @@ def test_reclaim_expired_cas_single_winner(conn):
     _try_claim(db, "k", 1, "POST", "/x", "oldhash")
     _finalize_row(db, "k", 1, 200, b"{}")
     # Read the current created_at — both racers would see this value.
-    _, _, _, prior = _lookup_row(db, "k", 1, "oldhash")
+    _, _, _, prior, _ = _lookup_row(db, "k", 1, "oldhash")
     assert prior is not None
 
     # First reclaimer wins.
@@ -272,19 +272,17 @@ def test_handler_exception_releases_pending_row(conn, monkeypatch):
     import asyncio
 
     import core.middleware.idempotency as idem_mod
-    from core.db import SessionLocal as _RealSessionLocal  # type: ignore
 
-    # Point the middleware's lazy SessionLocal import at our fake DB.
     test_db = _fake_db(conn)
-
-    class _FakeDB:
-        @staticmethod
-        def __call__():
-            return test_db
-
     import core.db as db_mod
     monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
-    monkeypatch.setattr(idem_mod, "_resolve_user_id", lambda req, db: 1)
+    monkeypatch.setattr(
+        idem_mod, "_resolve_user_context",
+        lambda req, db: {
+            "id": 1, "username": "u", "role": "admin",
+            "group_id": None, "is_active": True, "_token_scopes": [],
+        },
+    )
 
     from types import SimpleNamespace
 
@@ -336,7 +334,7 @@ def test_conflict_response_is_dual_shape():
     assert body["error"]["retriable"] is True
 
 
-def _run_middleware_and_capture(monkeypatch, conn, req, handler):
+def _run_middleware_and_capture(monkeypatch, conn, req, handler, user_ctx=None):
     """Helper: invoke the idempotency middleware end-to-end against a
     test connection, returning the handler's execution count."""
     import asyncio
@@ -345,7 +343,18 @@ def _run_middleware_and_capture(monkeypatch, conn, req, handler):
 
     test_db = _fake_db(conn)
     monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
-    monkeypatch.setattr(idem_mod, "_resolve_user_id", lambda req, db: 1)
+
+    # Default user_ctx: admin with no token scopes, matching what
+    # get_current_user returns for cookie/JWT sessions.
+    default_ctx = user_ctx or {
+        "id": 1,
+        "username": "admin",
+        "role": "admin",
+        "group_id": None,
+        "is_active": True,
+        "_token_scopes": [],
+    }
+    monkeypatch.setattr(idem_mod, "_resolve_user_context", lambda req, db: default_ctx)
 
     calls = {"count": 0}
 
@@ -400,6 +409,123 @@ def test_multipart_requests_skip_idempotency(monkeypatch, conn):
         "SELECT COUNT(*) FROM idempotency_keys WHERE key = 'k-multi'"
     ).fetchone()[0]
     assert rows == 0
+
+
+def test_fingerprint_invalidates_on_role_change(monkeypatch, conn):
+    """Codex pass 6: if the caller's role/scopes/org has changed
+    since the cached success, the replay must be invalidated and the
+    handler must re-run under current authz."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    test_db = _fake_db(conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+
+    class _Headers:
+        _h = {"Idempotency-Key": "k-fp", "content-type": "application/json"}
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/jobs"
+        query = ""
+
+    def _make_req():
+        class _Req:
+            method = "POST"
+            headers = _Headers()
+            url = _URL()
+            state = SimpleNamespace()
+            cookies = {}
+            async def body(self):
+                return b'{"item":"x"}'
+        return _Req()
+
+    exec_count = {"count": 0}
+
+    async def _handler(request):
+        exec_count["count"] += 1
+        return Response(content=b'{"id":1}', status_code=201, media_type="application/json")
+
+    # First call as admin.
+    import asyncio
+    monkeypatch.setattr(
+        idem_mod, "_resolve_user_context",
+        lambda req, db: {
+            "id": 1, "username": "u", "role": "admin",
+            "group_id": None, "is_active": True, "_token_scopes": [],
+        },
+    )
+    asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
+    assert exec_count["count"] == 1  # real run
+
+    # Second call: same key, same user_id, but role demoted. The
+    # cached response must NOT be replayed — handler must run again
+    # under the new authz (which would be rejected by the route's own
+    # require_role Depends in production).
+    monkeypatch.setattr(
+        idem_mod, "_resolve_user_context",
+        lambda req, db: {
+            "id": 1, "username": "u", "role": "viewer",
+            "group_id": None, "is_active": True, "_token_scopes": [],
+        },
+    )
+    asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
+    assert exec_count["count"] == 2, (
+        "fingerprint mismatch must invalidate cache and re-run the handler"
+    )
+
+
+def test_fingerprint_replays_on_match(monkeypatch, conn):
+    """Same-caller retry hits the cache and replays without re-running."""
+    from types import SimpleNamespace
+    from fastapi.responses import Response
+    import core.middleware.idempotency as idem_mod
+    import core.db as db_mod
+
+    test_db = _fake_db(conn)
+    monkeypatch.setattr(db_mod, "SessionLocal", lambda: test_db)
+
+    class _Headers:
+        _h = {"Idempotency-Key": "k-same", "content-type": "application/json"}
+        def get(self, k, default=None):
+            return self._h.get(k.lower(), self._h.get(k, default))
+
+    class _URL:
+        path = "/api/v1/jobs"
+        query = ""
+
+    def _make_req():
+        class _Req:
+            method = "POST"
+            headers = _Headers()
+            url = _URL()
+            state = SimpleNamespace()
+            cookies = {}
+            async def body(self):
+                return b'{"item":"x"}'
+        return _Req()
+
+    exec_count = {"count": 0}
+
+    async def _handler(request):
+        exec_count["count"] += 1
+        return Response(content=b'{"id":1}', status_code=201, media_type="application/json")
+
+    ctx = {
+        "id": 1, "username": "u", "role": "admin",
+        "group_id": None, "is_active": True, "_token_scopes": [],
+    }
+    monkeypatch.setattr(idem_mod, "_resolve_user_context", lambda req, db: ctx)
+
+    import asyncio
+    asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
+    result = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
+
+    assert exec_count["count"] == 1, "second call must replay from cache"
+    assert result.headers.get("X-Idempotent-Replay") == "true"
 
 
 def test_response_with_set_cookie_is_not_cacheable(monkeypatch, conn):
@@ -554,7 +680,7 @@ def test_lookup_classifies_miss(conn):
     from core.middleware.idempotency import _lookup_row, _LOOKUP_MISS
 
     db = _fake_db(conn)
-    cls, _, _, _ = _lookup_row(db, "missing", 1, "h")
+    cls, _, _, _, _ = _lookup_row(db, "missing", 1, "h")
     assert cls == _LOOKUP_MISS
 
 
@@ -565,7 +691,7 @@ def test_lookup_classifies_pending_same_hash(conn):
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
-    cls, _, _, _ = _lookup_row(db, "k", 1, "h")
+    cls, _, _, _, _ = _lookup_row(db, "k", 1, "h")
     assert cls == _LOOKUP_PENDING
 
 
@@ -576,7 +702,7 @@ def test_lookup_classifies_conflict_when_pending_with_different_hash(conn):
 
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "original")
-    cls, _, _, _ = _lookup_row(db, "k", 1, "different")
+    cls, _, _, _, _ = _lookup_row(db, "k", 1, "different")
     assert cls == _LOOKUP_CONFLICT
 
 
@@ -588,7 +714,7 @@ def test_lookup_classifies_hit(conn):
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
     _finalize_row(db, "k", 1, 201, b'{"id": 9}')
-    cls, status, body, _ = _lookup_row(db, "k", 1, "h")
+    cls, status, body, _, _ = _lookup_row(db, "k", 1, "h")
     assert cls == _LOOKUP_HIT
     assert status == 201
     assert body == '{"id": 9}'
@@ -602,7 +728,7 @@ def test_lookup_classifies_conflict_on_complete_with_different_hash(conn):
     db = _fake_db(conn)
     _try_claim(db, "k", 1, "POST", "/x", "h")
     _finalize_row(db, "k", 1, 200, b"{}")
-    cls, _, _, _ = _lookup_row(db, "k", 1, "different")
+    cls, _, _, _, _ = _lookup_row(db, "k", 1, "different")
     assert cls == _LOOKUP_CONFLICT
 
 
@@ -623,7 +749,7 @@ def test_lookup_classifies_expired(conn):
     conn.commit()
 
     db = _fake_db(conn)
-    cls, _, _, created_at_str = _lookup_row(db, "old", 1, "h")
+    cls, _, _, created_at_str, _ = _lookup_row(db, "old", 1, "h")
     assert cls == _LOOKUP_EXPIRED
     assert created_at_str == past
 
@@ -647,7 +773,7 @@ def test_stuck_pending_row_classifies_as_stuck_pending(conn):
     conn.commit()
 
     db = _fake_db(conn)
-    cls, _, _, created_at_str = _lookup_row(db, "stuck", 1, "h")
+    cls, _, _, created_at_str, _ = _lookup_row(db, "stuck", 1, "h")
     assert cls == _LOOKUP_STUCK_PENDING
     assert created_at_str == past
 
