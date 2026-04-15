@@ -231,6 +231,8 @@ DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
     # `dry_run_preview(...)` before any MQTT / DB / filesystem side effect.
     ("POST", "/api/v1/printers/{printer_id}/pause"),
     ("POST", "/api/v1/printers/{printer_id}/resume"),
+    ("PATCH", "/api/v1/alerts/{alert_id}/read"),
+    ("PATCH", "/api/v1/alerts/{alert_id}/dismiss"),
 )
 
 

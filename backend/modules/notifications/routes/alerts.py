@@ -1,6 +1,6 @@
 """O.D.I.N. — Alerts, Alert Preferences, and SMTP Configuration."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import text
 from typing import List, Optional
@@ -9,7 +9,10 @@ import logging
 import core.crypto as crypto
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import AGENT_WRITE_SCOPE, require_any_scope, require_role
+from core.responses import build_next_actions, next_action
 from core.base import AlertType
 from core.models import SystemConfig
 from modules.notifications.models import Alert, AlertPreference
@@ -187,21 +190,60 @@ async def get_alert_summary(
 @router.patch("/alerts/{alert_id}/read")
 async def mark_alert_read(
     alert_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    request: Request,
+    # Stacked auth (Phase 2 canonical) — viewer floor for JWT, agent:write
+    # for scoped tokens. See routes_controls.py::pause_printer for rationale.
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
 ):
-    """Mark a single alert as read."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    """Mark a single alert as read.
+
+    Agent-surface (v1.9.0 Phase 2): honors X-Dry-Run, emits next_actions.
+    """
     alert = db.query(Alert).filter(
         Alert.id == alert_id,
-        Alert.user_id == current_user["id"]
+        Alert.user_id == current_user["id"],
     ).first()
     if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
+        raise OdinError(
+            ErrorCode.alert_not_found,
+            f"Alert {alert_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "mark_alert_read",
+                "alert_id": alert_id,
+                "from_is_read": alert.is_read,
+                "to_is_read": True,
+            },
+            next_actions=[
+                next_action(
+                    "list_alerts",
+                    {"unread_only": True},
+                    "verify unread count decreased",
+                ),
+            ],
+            notes="Would update alerts.is_read; no other side effects.",
+        )
+
     alert.is_read = True
     db.commit()
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "alert_id": alert_id,
+        "is_read": True,
+        "next_actions": build_next_actions(
+            next_action(
+                "list_alerts",
+                {"unread_only": True},
+                "confirm unread count",
+            ),
+        ),
+    }
 
 
 @router.post("/alerts/mark-all-read")
@@ -223,22 +265,62 @@ async def mark_all_read(
 @router.patch("/alerts/{alert_id}/dismiss")
 async def dismiss_alert(
     alert_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    request: Request,
+    # Stacked auth (Phase 2 canonical).
+    current_user: dict = Depends(require_role("viewer")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
 ):
-    """Dismiss an alert (hide from dashboard widget)."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    """Dismiss an alert (hide from dashboard widget).
+
+    Also marks read — dismissing implies reading. Agent-surface v1.9.0.
+    """
     alert = db.query(Alert).filter(
         Alert.id == alert_id,
-        Alert.user_id == current_user["id"]
+        Alert.user_id == current_user["id"],
     ).first()
     if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
+        raise OdinError(
+            ErrorCode.alert_not_found,
+            f"Alert {alert_id} not found",
+            status=404,
+        )
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "dismiss_alert",
+                "alert_id": alert_id,
+                "from_is_dismissed": alert.is_dismissed,
+                "to_is_dismissed": True,
+                "also_marks_read": True,
+            },
+            next_actions=[
+                next_action(
+                    "list_alerts",
+                    {},
+                    "verify alert no longer surfaces",
+                ),
+            ],
+            notes="Would update alerts.is_dismissed+is_read; no other side effects.",
+        )
+
     alert.is_dismissed = True
     alert.is_read = True
     db.commit()
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "alert_id": alert_id,
+        "is_dismissed": True,
+        "is_read": True,
+        "next_actions": build_next_actions(
+            next_action(
+                "list_alerts",
+                {},
+                "confirm alert dismissed",
+            ),
+        ),
+    }
 
 
 # ============== Alert Preferences ==============
