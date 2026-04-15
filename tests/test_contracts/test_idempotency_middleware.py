@@ -415,10 +415,14 @@ def test_multipart_requests_skip_idempotency(monkeypatch, conn):
     assert rows == 0
 
 
-def test_fingerprint_invalidates_on_role_change(monkeypatch, conn):
-    """Codex pass 6: if the caller's role/scopes/org has changed
-    since the cached success, the replay must be invalidated and the
-    handler must re-run under current authz."""
+def test_fingerprint_drift_refuses_replay_AND_re_execution(monkeypatch, conn):
+    """Codex pass 10: fingerprint mismatch on a completed row must
+    NOT replay AND must NOT re-execute. Previous behavior (pass 6)
+    deleted the row and ran the handler again, which reopened
+    duplicate-execution risk (the original mutation already took
+    effect; a second run could be accepted under the new authz and
+    produce a duplicate). Correct behavior: 409 idempotency_authz_changed,
+    client mints a fresh key."""
     from types import SimpleNamespace
     from fastapi.responses import Response
     import core.middleware.idempotency as idem_mod
@@ -453,8 +457,7 @@ def test_fingerprint_invalidates_on_role_change(monkeypatch, conn):
         exec_count["count"] += 1
         return Response(content=b'{"id":1}', status_code=201, media_type="application/json")
 
-    # First call as admin.
-    import asyncio
+    import asyncio, json as _json
     monkeypatch.setattr(
         idem_mod, "_resolve_user_context",
         lambda req, db: {
@@ -463,12 +466,9 @@ def test_fingerprint_invalidates_on_role_change(monkeypatch, conn):
         },
     )
     asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
-    assert exec_count["count"] == 1  # real run
+    assert exec_count["count"] == 1
 
-    # Second call: same key, same user_id, but role demoted. The
-    # cached response must NOT be replayed — handler must run again
-    # under the new authz (which would be rejected by the route's own
-    # require_role Depends in production).
+    # Fingerprint now changes.
     monkeypatch.setattr(
         idem_mod, "_resolve_user_context",
         lambda req, db: {
@@ -476,10 +476,21 @@ def test_fingerprint_invalidates_on_role_change(monkeypatch, conn):
             "group_id": None, "is_active": True, "_token_scopes": [],
         },
     )
-    asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
-    assert exec_count["count"] == 2, (
-        "fingerprint mismatch must invalidate cache and re-run the handler"
+    result = asyncio.run(idem_mod.idempotency_middleware(_make_req(), _handler))
+    # Handler must NOT have run again.
+    assert exec_count["count"] == 1, (
+        "handler must not re-execute on fingerprint drift — that "
+        "would duplicate the original mutation"
     )
+    assert result.status_code == 409
+    body = _json.loads(bytes(result.body))
+    assert body["error"]["code"] == "idempotency_authz_changed"
+
+    # Original row must still be present (not deleted).
+    rows = conn.execute(
+        "SELECT state FROM idempotency_keys WHERE key = 'k-fp'"
+    ).fetchone()
+    assert rows is not None and rows[0] == "complete"
 
 
 def test_fingerprint_replays_on_match(monkeypatch, conn):

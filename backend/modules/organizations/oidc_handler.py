@@ -267,6 +267,14 @@ class OIDCHandler:
         if not jwks_uri:
             raise ValueError("No jwks_uri in OIDC config")
 
+        # v1.8.9 (codex pass 10): ITAR guard on JWKS fetch. PyJWKClient
+        # does its own network request internally; we must validate
+        # the host BEFORE constructing it, or PyJWKClient will
+        # happily fetch the key set from public IdP infra in an ITAR
+        # deployment.
+        from core.itar import enforce_request_destination
+        enforce_request_destination(jwks_uri)
+
         try:
             jwk_client = PyJWKClient(jwks_uri)
             signing_key = jwk_client.get_signing_key_from_jwt(id_token)

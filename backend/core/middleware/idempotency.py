@@ -1024,23 +1024,33 @@ async def idempotency_middleware(request: Any, call_next: Callable):
             db, key, user_id, request_hash
         )
 
-        # Codex pass 6 (2026-04-15): authz drift invalidation.
-        # If the caller's current authz fingerprint differs from the
-        # one captured at claim, the user's role/scopes/org has
-        # changed since the original success. Serving the cached
-        # response would bypass the new authz state (reduced role
-        # could still replay a privileged mutation for 24h). Treat
-        # as a cache miss — if the current user has the right authz
-        # for a fresh execution, the route's own Depends() will
-        # accept; if not, the route will reject.
+        # Codex pass 10 (2026-04-15): authz drift must NOT re-execute.
+        # Earlier fix (pass 6) deleted the completed row and treated
+        # the request as MISS so the handler ran under current authz.
+        # But that reopens duplicate-execution risk: the original
+        # mutation already took effect, and the fresh handler run
+        # might be accepted by the route's own Depends() under the
+        # new authz state — producing a second job/order/write.
+        # Idempotency's strongest guarantee is "at-most-once for this
+        # key"; that guarantee must survive authz drift.
+        #
+        # New behavior: keep the completed row, refuse to replay under
+        # the new context, refuse to re-execute either. Return 409
+        # authz_changed — client must mint a FRESH key for a new
+        # request under current authz. This is retriable only from
+        # the caller's perspective (with a different key).
         if classification == _LOOKUP_HIT and stored_fp is not None and stored_fp != current_fp:
             log.info(
                 "idempotency: authz fingerprint changed for %s %s "
-                "(user_id=%s); invalidating cache row",
+                "(user_id=%s); refusing replay AND re-execution",
                 request.method, request.url.path, user_id,
             )
-            _release_row_force(db, key, user_id)
-            classification = _LOOKUP_MISS
+            return _conflict_response(
+                "idempotency_authz_changed",
+                "Authorization context has changed since this Idempotency-Key "
+                "was used for a completed request. Mint a new Idempotency-Key "
+                "for any fresh request under the current authorization.",
+            )
 
         if classification == _LOOKUP_CONFLICT:
             return _conflict_response(

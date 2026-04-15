@@ -314,7 +314,24 @@ def _setup_middleware(app: FastAPI) -> None:
         allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-API-Key", "Accept"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-API-Key",
+            "Accept",
+            # v1.8.9 (codex pass 10): agent-surface headers. Without
+            # these in the allow-list, browser cross-origin clients
+            # would fail preflight when sending the new primitives,
+            # making safe retries + dry-run unavailable exactly in
+            # the deployments where CORS is in play.
+            "Idempotency-Key",
+            "X-Dry-Run",
+        ],
+        expose_headers=[
+            # Let JS read the replay indicator so SDKs can surface
+            # "this was replayed" to their caller.
+            "X-Idempotent-Replay",
+        ],
     )
 
 
