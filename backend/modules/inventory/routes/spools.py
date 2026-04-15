@@ -3,12 +3,22 @@
 from typing import Optional
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
-from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import (
+    AGENT_WRITE_SCOPE,
+    _get_org_filter,
+    check_org_access,
+    get_org_scope,
+    require_any_scope,
+    require_role,
+)
+from core.responses import build_next_actions, next_action
 from core.base import SpoolStatus
 from modules.inventory.models import Spool, SpoolUsage
 from modules.printers.models import FilamentSlot, Printer
@@ -322,36 +332,84 @@ def unload_spool(
 
 
 @router.post("/{spool_id}/use", tags=["Spools"])
-def use_spool(spool_id: int, request: SpoolUseRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
-    """Record filament usage from a spool."""
+@router.patch("/{spool_id}/use", tags=["Spools"])
+def use_spool(
+    spool_id: int,
+    body: SpoolUseRequest,
+    request: Request,
+    # Stacked auth (Phase 2 canonical) — param name `body` so `request` is
+    # the raw FastAPI Request (middleware dry-run flag lives here).
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Record filament usage from a spool (consume_spool).
+
+    Agent-surface v1.9.0 Phase 2. Accepts both POST (legacy) and PATCH
+    (MCP's consume_spool shape) on the same handler. Body accepts either
+    `weight_used_g` (legacy) or `grams` (MCP) — resolved before use.
+    """
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
-    if not spool:
-        raise HTTPException(status_code=404, detail="Spool not found")
-    if not check_org_access(current_user, spool.org_id):
-        raise HTTPException(status_code=404, detail="Spool not found")
+    if not spool or not check_org_access(current_user, spool.org_id):
+        raise OdinError(
+            ErrorCode.spool_not_found,
+            f"Spool {spool_id} not found",
+            status=404,
+        )
 
-    # Deduct weight
-    spool.remaining_weight_g = max(0, spool.remaining_weight_g - request.weight_used_g)
+    try:
+        grams = body.resolved_grams
+    except ValueError as e:
+        raise OdinError(
+            ErrorCode.validation_failed,
+            str(e),
+            status=400,
+            retriable=False,
+        )
 
-    # Check if empty
-    if spool.remaining_weight_g <= 0:
+    current_remaining = spool.remaining_weight_g
+    new_remaining = max(0, current_remaining - grams)
+    will_deplete = new_remaining <= 0
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "consume_spool",
+                "spool_id": spool_id,
+                "grams_consumed": grams,
+                "current_remaining_g": current_remaining,
+                "new_remaining_g": new_remaining,
+                "would_deplete_to_empty": will_deplete,
+                "would_insert_usage_row": True,
+                "job_id": body.job_id,
+            },
+            next_actions=[
+                next_action("list_spools", {}, "verify remaining weights"),
+            ],
+            notes="Would update spools.remaining_weight_g and insert a spool_usage row.",
+        )
+
+    spool.remaining_weight_g = new_remaining
+    if will_deplete:
         spool.status = SpoolStatus.EMPTY
 
-    # Record usage
     usage = SpoolUsage(
         spool_id=spool.id,
-        job_id=request.job_id,
-        weight_used_g=request.weight_used_g,
-        notes=request.notes,
+        job_id=body.job_id,
+        weight_used_g=grams,
+        notes=body.notes,
     )
     db.add(usage)
-    log_audit(db, "use", "spool", spool_id, {"weight_used_g": request.weight_used_g, "remaining": spool.remaining_weight_g})
+    log_audit(db, "use", "spool", spool_id, {"weight_used_g": grams, "remaining": spool.remaining_weight_g})
     db.commit()
     return {
         "success": True,
         "remaining_weight_g": spool.remaining_weight_g,
         "percent_remaining": spool.percent_remaining,
         "status": spool.status.value,
+        "next_actions": build_next_actions(
+            next_action("list_spools", {}, "verify remaining weights"),
+        ),
     }
 
 

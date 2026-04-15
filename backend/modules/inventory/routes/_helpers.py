@@ -71,9 +71,23 @@ class SpoolLoadRequest(PydanticBaseModel):
 
 
 class SpoolUseRequest(PydanticBaseModel):
-    weight_used_g: float
+    # Backward-compatible body shape. Either `weight_used_g` (legacy
+    # frontend/portal field) or `grams` (MCP consume_spool field name)
+    # may be sent; if both are present, `weight_used_g` wins. The
+    # handler resolves to a single value before use.
+    weight_used_g: Optional[float] = None
+    grams: Optional[float] = None
     job_id: Optional[int] = None
     notes: Optional[str] = None
+
+    @property
+    def resolved_grams(self) -> float:
+        """Return whichever of weight_used_g / grams is set. Raises ValueError if neither."""
+        if self.weight_used_g is not None:
+            return float(self.weight_used_g)
+        if self.grams is not None:
+            return float(self.grams)
+        raise ValueError("Must provide either weight_used_g or grams")
 
 
 class SpoolWeighRequest(PydanticBaseModel):

@@ -28,6 +28,7 @@ from modules.printers import (  # noqa: E402
     routes_ams_env,
     routes_smart_plug,
     routes_nozzle,
+    routes_filament_slots,
 )
 
 router.include_router(routes_crud.router)
@@ -38,6 +39,8 @@ router.include_router(routes_bambu.router)
 router.include_router(routes_ams_env.router)
 router.include_router(routes_smart_plug.router)
 router.include_router(routes_nozzle.router)
+# Phase 2 agent-surface: POST /filament-slots for MCP assign_spool.
+router.include_router(routes_filament_slots.router)
 
 # Re-export shared utilities so camera_routes.py can continue to import from here
 from modules.printers.route_utils import get_camera_url, sync_go2rtc_config  # noqa: F401, E402
