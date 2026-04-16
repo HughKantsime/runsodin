@@ -250,12 +250,20 @@ jobs:
           exit 1
 
   # ── Phase 5: Verify prod deployment ──
+  #
+  # IMPORTANT: this job does NOT use continue-on-error. Prior to 2026-04-16
+  # it had `continue-on-error: true`, which meant a failure here (prod
+  # hasn't picked up the new image) reported as the whole Deploy workflow
+  # succeeding — GitHub showed a green ✓ badge while prod was actually
+  # crash-looping. That's how v1.9.0's prod outage went undetected for
+  # 19 hours. The notify job below still runs via `if: always()` so we
+  # still get the summary+notification on partial failure; the change is
+  # just that the overall workflow status now reflects reality.
   verify-prod:
     name: Verify Prod
     needs: [build, tag]
     if: needs.tag.outputs.tag_created == 'true'
     runs-on: mac-mini-runner
-    continue-on-error: true
     outputs:
       prod_ok: ${{ steps.verify.outcome == 'success' }}
     steps:

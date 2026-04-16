@@ -2,6 +2,43 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.3] - 2026-04-16
+
+### Fixed — scoped-token auth was broken against live traffic
+
+An end-to-end sweep of the Phase 2 agent surface against live v1.9.1
+prod surfaced two bugs that the source-level contract tests couldn't
+catch:
+
+- **`ModuleNotFoundError: No module named 'dateutil'`** in
+  `core/dependencies.py::get_current_user`. The scoped-token resolver
+  imported `dateutil.parser` to parse `expires_at` but `python-dateutil`
+  isn't in `requirements.txt`. Every agent-surface call via `X-API-Key`
+  returned 500 `internal_error`. Silent for weeks because no integration
+  test exercised the scoped-token path against a running container.
+  Replaced with stdlib `datetime.fromisoformat` (Python 3.11+ handles
+  every shape SQLAlchemy emits for SQLite). Regression guard:
+  `test_scoped_token_auth_path.py` fails loud if `dateutil` is
+  re-imported anywhere in dependencies.py.
+
+- **`sqlite3.OperationalError: database is locked`** on every scoped-
+  token request. The auth path updates `api_tokens.last_used_at` on
+  every call, and that UPDATE + commit raced the idempotency middleware's
+  writes on the same WAL-mode SQLite DB. Under the tiniest bit of
+  concurrent traffic the auth layer returned 500. The update is
+  *telemetry*, not part of the auth decision — now wrapped in
+  try/except with rollback and a debug log. Auth stays green when the
+  telemetry lock race fires; operator can revoke tokens via the admin
+  UI without last_used_at being authoritative.
+
+**End-to-end sweep outcome**: 9/9 reads return 200, 8/8 writes that had
+valid test IDs return 200 with the correct dry_run envelope. Cancel/
+approve/reject return 400 `invalid_state_transition` on test IDs — this
+is the OdinError envelope firing correctly, not a bug.
+
+Prod was hot-patched via `docker cp` while this release builds. v1.9.3
+ships the durable fix.
+
 ## [1.9.2] - 2026-04-16
 
 ### Fixed — prod boot crash loop

@@ -247,25 +247,61 @@ async def get_current_user(
             ).fetchall()
             for candidate in candidates:
                 if verify_password(api_key, candidate.token_hash):
-                    # Check expiry
+                    # Check expiry.
+                    #
+                    # Historical (v1.9.1 prod incident 2026-04-16): this
+                    # block previously imported `dateutil.parser.parse` which
+                    # isn't in requirements.txt. The ModuleNotFoundError
+                    # raised on EVERY scoped-token auth, returning 500 on
+                    # every agent-surface call. Silent for ~days because no
+                    # end-to-end test exercised the X-API-Key path against
+                    # a real container. Switched to stdlib
+                    # `datetime.fromisoformat` which Python 3.11 supports
+                    # natively for the shapes SQLAlchemy emits here
+                    # (tz-aware ISO-8601 with offset, or tz-naive which we
+                    # coerce to UTC before comparing).
                     if candidate.expires_at:
-                        from dateutil.parser import parse as parse_dt
                         try:
-                            exp = (
-                                parse_dt(candidate.expires_at)
-                                if isinstance(candidate.expires_at, str)
-                                else candidate.expires_at
-                            )
+                            raw = candidate.expires_at
+                            if isinstance(raw, str):
+                                exp = datetime.fromisoformat(raw)
+                            else:
+                                exp = raw
+                            if exp.tzinfo is None:
+                                exp = exp.replace(tzinfo=timezone.utc)
                             if exp < datetime.now(timezone.utc):
                                 continue
                         except Exception:
+                            # Malformed expires_at — don't expire, let it
+                            # through. Worst case: a token that should have
+                            # expired keeps working; operator can revoke.
                             pass
-                    # Update last_used_at
-                    db.execute(
-                        text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
-                        {"now": datetime.now(timezone.utc), "id": candidate.id},
-                    )
-                    db.commit()
+                    # Update last_used_at — best effort. This is telemetry,
+                    # not part of the auth decision. If it races with another
+                    # writer (idempotency middleware, another auth call) and
+                    # SQLite returns `database is locked`, we must NOT fail
+                    # the auth — the agent would see a 500 on every scoped-
+                    # token call under any concurrent write load, which is
+                    # exactly what the v1.9.1 sweep 2026-04-16 surfaced.
+                    try:
+                        db.execute(
+                            text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
+                            {"now": datetime.now(timezone.utc), "id": candidate.id},
+                        )
+                        db.commit()
+                    except Exception as exc:
+                        # Roll back the failed UPDATE so the session is
+                        # clean for the handler that runs next. Log at
+                        # debug — this race is expected under load; we
+                        # only care if it happens on EVERY call.
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        log.debug(
+                            "Best-effort api_tokens.last_used_at update failed "
+                            "(likely SQLite WAL contention): %s", exc,
+                        )
                     # Fetch the user
                     user = db.execute(
                         text("SELECT * FROM users WHERE id = :id"),
