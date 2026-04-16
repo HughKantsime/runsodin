@@ -2,6 +2,40 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.2] - 2026-04-16
+
+### Fixed — prod boot crash loop
+
+Migration `004_drop_setup_token_add_delivery_status.sql` had a header
+comment that ended a sentence with a semicolon (`"would be dead state;
+one DELETE is the correct cleanup."`). The SQLite migration loader
+used a naive `sql.split(";")` to separate statements in ALTER-TABLE
+files, which interpreted that comment-internal `;` as a statement
+separator. The chunk following the split began with `one DELETE ...`,
+which SQLite rejected with `OperationalError: near "one": syntax
+error`. Any fresh DB that reached this migration for the first time
+entered an infinite restart loop.
+
+**Fixes (both land together):**
+
+- `backend/core/db.py::_strip_sql_comments` — new helper that strips
+  line comments (`-- ...`) from the SQL blob before splitting on `;`.
+  The ALTER-TABLE branch of `_run_sql_file` now calls it. Inline
+  semicolons inside line comments can no longer contaminate a split.
+- `backend/core/migrations/004_...` — the two offending comment
+  semicolons were rephrased to em-dashes. Belt-and-suspenders with
+  the loader fix.
+- `tests/test_contracts/test_migration_loader_comment_semicolons.py`
+  — three assertions: the loader survives inline `;` in a comment
+  and actually applies the ALTER, the comment stripper removes line
+  comments, and migration 004 specifically never reintroduces a `;`
+  inside a `-- ` line.
+
+**Prod recovery**: the fixed files were `docker cp`-ed directly into
+the running container on `192.168.71.211` and the container restarted
+cleanly. `v1.9.2` is published so Watchtower picks up the durable fix
+on the next image pull.
+
 ## [1.9.1] - 2026-04-15
 
 ### Security

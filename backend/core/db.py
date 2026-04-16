@@ -94,6 +94,35 @@ def _db_path_from_url(database_url: str) -> str:
     raise ValueError(f"Unsupported database URL for SQLite migration runner: {database_url}")
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """Strip SQL line comments (`-- ...`) from a SQL blob.
+
+    The naive prior approach of `sql.split(";")` broke on comments
+    containing inline semicolons (v1.9.1 prod incident 2026-04-16:
+    a header comment in migration 004 read "would be dead state; one
+    DELETE is the correct cleanup." The `;` inside the comment split
+    the blob, leaving "one DELETE..." as the start of the next chunk
+    and sqlite3 choked with `near "one": syntax error` on boot).
+
+    We strip line comments BEFORE splitting so inline `;` inside
+    comments cannot leak into SQL. Block comments (`/* ... */`) are
+    rare in ODIN migrations but are left intact — SQLite parses them
+    correctly; we only need to neutralize line comments, which are
+    the ones that can contaminate a split when they carry a `;`.
+    """
+    out_lines = []
+    for line in sql.splitlines():
+        idx = line.find("--")
+        # Naive check — doesn't account for `--` inside a string
+        # literal, but none of the ODIN migrations use that pattern.
+        # If that ever becomes an issue, swap in sqlparse or
+        # equivalent.
+        if idx >= 0:
+            line = line[:idx]
+        out_lines.append(line)
+    return "\n".join(out_lines)
+
+
 def _run_sql_file(db_path: str, sql_file: Path) -> None:
     """Execute a single SQL migration file against the SQLite database."""
     sql = sql_file.read_text(encoding="utf-8")
@@ -108,13 +137,13 @@ def _run_sql_file(db_path: str, sql_file: Path) -> None:
     conn = sqlite3.connect(db_path)
     try:
         if "ALTER TABLE" in sql.upper():
-            for stmt in sql.split(";"):
+            # Strip comments FIRST so an inline `;` inside a comment
+            # (see `_strip_sql_comments` docstring for the prod
+            # incident) can't split a statement in half.
+            stripped = _strip_sql_comments(sql)
+            for stmt in stripped.split(";"):
                 stmt = stmt.strip()
-                if not stmt or stmt.startswith("--"):
-                    continue
-                real_lines = [l for l in stmt.splitlines()
-                              if l.strip() and not l.strip().startswith("--")]
-                if not real_lines:
+                if not stmt:
                     continue
                 try:
                     conn.execute(stmt)
