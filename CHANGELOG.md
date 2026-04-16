@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.1] - 2026-04-15
+
+### Security
+
+- Bumped `python-multipart` 0.0.22 → 0.0.26 (CVE-2026-40347: DoS via
+  crafted `multipart/form-data` preamble/epilogue causing CPU-burn
+  during request parsing). Upstream fix skips ahead to next boundary
+  candidate instead of walking leading CR/LF bytes and discards
+  epilogue data immediately after the closing boundary.
+
+  CI `pip-audit` now clean on `main`.
+
 ## [1.9.0] - 2026-04-15
 
 ### Agent-native surface — Phase 2 (route retrofit + safety gates)
