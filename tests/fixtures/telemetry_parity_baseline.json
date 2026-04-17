@@ -1,0 +1,122 @@
+[
+  {
+    "fixture": "bambu-a1-happy-path",
+    "field": "state",
+    "v2_value": "finished",
+    "legacy_value": "idle",
+    "classification": "intentional",
+    "rationale": "V2 distinguishes FINISHED from IDLE; legacy collapses both. Headline fix."
+  },
+  {
+    "fixture": "bambu-a1-happy-path",
+    "field": "state",
+    "v2_value": "preparing",
+    "legacy_value": "printing",
+    "classification": "intentional",
+    "rationale": "V2 has a dedicated PREPARING state; legacy maps PREPARE to PRINTING."
+  },
+  {
+    "fixture": "bambu-a1-kickoff",
+    "field": "state",
+    "v2_value": "preparing",
+    "legacy_value": "printing",
+    "classification": "intentional",
+    "rationale": "V2 has a dedicated PREPARING state; legacy maps PREPARE to PRINTING."
+  },
+  {
+    "fixture": "bambu-h2d-failure",
+    "field": "active_errors",
+    "v2_value": "5 HMS entries",
+    "legacy_value": "[legacy drops HMS]",
+    "classification": "improvement",
+    "rationale": "V2 surfaces HMS codes as ActiveError; legacy drops print.hms[]."
+  },
+  {
+    "fixture": "bambu-h2d-failure",
+    "field": "state",
+    "v2_value": "error",
+    "legacy_value": "idle",
+    "classification": "improvement",
+    "rationale": "V2 surfaces ERROR via HMS severity=error or print_error overlay even when gcode_state is IDLE/FINISH; legacy drops HMS silently."
+  },
+  {
+    "fixture": "bambu-h2d-failure-arc",
+    "field": "active_errors",
+    "v2_value": "5 HMS entries",
+    "legacy_value": "[legacy drops HMS]",
+    "classification": "improvement",
+    "rationale": "V2 surfaces HMS codes as ActiveError; legacy drops print.hms[]."
+  },
+  {
+    "fixture": "bambu-h2d-failure-arc",
+    "field": "stage_code",
+    "v2_value": "29",
+    "legacy_value": "[legacy STAGE_MAP fallback: 'Stage N']",
+    "classification": "improvement",
+    "rationale": "V2 accepts stages 29/39 (H2D recovery); legacy falls through."
+  },
+  {
+    "fixture": "bambu-h2d-failure-arc",
+    "field": "state",
+    "v2_value": "error",
+    "legacy_value": "printing",
+    "classification": "improvement",
+    "rationale": "V2 surfaces ERROR via HMS severity=error even while gcode_state=RUNNING; legacy doesn't look at HMS."
+  },
+  {
+    "fixture": "bambu-h2d-failure-arc",
+    "field": "state",
+    "v2_value": "error",
+    "legacy_value": "idle",
+    "classification": "improvement",
+    "rationale": "V2 surfaces ERROR via HMS severity=error or print_error overlay even when gcode_state is IDLE/FINISH; legacy drops HMS silently."
+  },
+  {
+    "fixture": "bambu-h2d-failure-arc",
+    "field": "state",
+    "v2_value": "finished",
+    "legacy_value": "idle",
+    "classification": "intentional",
+    "rationale": "V2 distinguishes FINISHED from IDLE; legacy collapses both. Headline fix."
+  },
+  {
+    "fixture": "bambu-h2d-failure-arc",
+    "field": "state",
+    "v2_value": "preparing",
+    "legacy_value": "printing",
+    "classification": "intentional",
+    "rationale": "V2 has a dedicated PREPARING state; legacy maps PREPARE to PRINTING."
+  },
+  {
+    "fixture": "bambu-h2d-recovery",
+    "field": "active_errors",
+    "v2_value": "5 HMS entries",
+    "legacy_value": "[legacy drops HMS]",
+    "classification": "improvement",
+    "rationale": "V2 surfaces HMS codes as ActiveError; legacy drops print.hms[]."
+  },
+  {
+    "fixture": "bambu-h2d-recovery",
+    "field": "stage_code",
+    "v2_value": "29",
+    "legacy_value": "[legacy STAGE_MAP fallback: 'Stage N']",
+    "classification": "improvement",
+    "rationale": "V2 accepts stages 29/39 (H2D recovery); legacy falls through."
+  },
+  {
+    "fixture": "bambu-h2d-recovery",
+    "field": "state",
+    "v2_value": "error",
+    "legacy_value": "idle",
+    "classification": "improvement",
+    "rationale": "V2 surfaces ERROR via HMS severity=error or print_error overlay even when gcode_state is IDLE/FINISH; legacy drops HMS silently."
+  },
+  {
+    "fixture": "bambu-h2d-recovery",
+    "field": "state",
+    "v2_value": "error",
+    "legacy_value": "printing",
+    "classification": "improvement",
+    "rationale": "V2 surfaces ERROR via HMS severity=error even while gcode_state=RUNNING; legacy doesn't look at HMS."
+  }
+]
