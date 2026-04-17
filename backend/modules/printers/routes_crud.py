@@ -424,6 +424,40 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
     if api_type == "bambu":
         if not request.serial or not request.access_code:
             raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
+
+        from modules.printers.telemetry.feature_flag import is_v2_enabled
+        if is_v2_enabled():
+            from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+            from modules.printers.telemetry.bambu.session import read_status_once
+            from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
+
+            config = BambuAdapterConfig(
+                printer_id="crud-test",
+                serial=request.serial,
+                host=request.api_host,
+                access_code=request.access_code,
+            )
+            try:
+                result = read_status_once(config, timeout=8.0)
+            except Exception as e:
+                log.warning("Bambu V2 test-connection failed: %s", e)
+                return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
+            if not result.success:
+                return {"success": False, "error": result.error or "Failed to connect."}
+            view = result.view
+            ams_slots = ams_slots_from_section(result.section) if result.section else []
+            try:
+                from modules.printers.printer_models import normalize_model_name
+                detected_model = normalize_model_name("bambu", view.printer_type)
+            except Exception:
+                detected_model = None
+            return {
+                "success": True, "state": view.state,
+                "bed_temp": view.bed_temp, "nozzle_temp": view.nozzle_temp,
+                "ams_slots": len(ams_slots), "model": detected_model,
+            }
+
+        # Legacy path
         try:
             from modules.printers.adapters.bambu import BambuPrinter
             bambu = BambuPrinter(ip=request.api_host, serial=request.serial, access_code=request.access_code)
