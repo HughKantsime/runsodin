@@ -6,7 +6,7 @@ Active and completed development tracks.
 
 | Track ID | Name | Type | Status | Step | Created |
 |----------|------|------|--------|------|---------|
-| telemetry-v2-cutover_20260417 | Bambu Command Plane + Legacy Cutover | refactor | new | PLAN | 2026-04-17 |
+| telemetry-v2-cutover_20260417 | Bambu Command Plane + Legacy Cutover | refactor | landed-pending-operator-flip | COMPLETE | 2026-04-17 |
 | telemetry-rewrite-bambu-first_20260417 | Printer Telemetry Rewrite — Bambu-First + Demo Engine | feature | landed-pending-cutover | COMPLETE | 2026-04-17 |
 | agent-native-phase2-safety_20260415 | Agent-Native ODIN — Phase 2 Safety & Route Retrofit | feature | new | NOT_STARTED | 2026-04-15 |
 | agent-native-odin_20260414 | Agent-Native ODIN — OpenClaw + MCP Integration | feature | new | PLAN | 2026-04-14 |
