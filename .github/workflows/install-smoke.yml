@@ -21,10 +21,6 @@ on:
       - 'backend/**'
       - '.github/workflows/install-smoke.yml'
   workflow_dispatch:
-  schedule:
-    # Nightly at 06:00 UTC — catches image-pull regressions from GHCR
-    # even when no install/** changes landed.
-    - cron: '0 6 * * *'
 
 jobs:
   smoke:
