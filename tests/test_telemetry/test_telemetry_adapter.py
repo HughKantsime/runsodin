@@ -224,7 +224,7 @@ class TestFailLoudParsing:
         )
         degraded = [e for e in captured_events if isinstance(e, DegradedEvent)]
         assert len(degraded) == 1
-        assert "neither" in degraded[0].reason
+        assert "no recognized section" in degraded[0].reason
         assert adapter.status().state == PrinterState.DEGRADED
 
     def test_unknown_gcode_state_emits_degraded(self, adapter, captured_events):

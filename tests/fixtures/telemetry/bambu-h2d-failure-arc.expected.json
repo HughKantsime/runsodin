@@ -1,0 +1,39 @@
+{
+  "fixture": "bambu-h2d-failure-arc.jsonl",
+  "printer_id": "bambu-h2d",
+  "event_count": 738,
+  "degraded_count": 0,
+  "final_state": "error",
+  "transitions": [
+    {
+      "ts": 1776350821.52569,
+      "from_state": "offline",
+      "to_state": "finished",
+      "reason": "gcode_state=FINISH"
+    },
+    {
+      "ts": 1776350868.16997,
+      "from_state": "finished",
+      "to_state": "preparing",
+      "reason": "gcode_state=PREPARE"
+    },
+    {
+      "ts": 1776350869.9125571,
+      "from_state": "preparing",
+      "to_state": "printing",
+      "reason": "gcode_state=RUNNING"
+    },
+    {
+      "ts": 1776350935.1403499,
+      "from_state": "printing",
+      "to_state": "paused",
+      "reason": "gcode_state=PAUSE"
+    },
+    {
+      "ts": 1776350936.816728,
+      "from_state": "paused",
+      "to_state": "error",
+      "reason": "print_error=83918991"
+    }
+  ]
+}

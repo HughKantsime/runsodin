@@ -42,6 +42,7 @@ from backend.modules.printers.telemetry.events import (
     DegradedEvent,
     TelemetryEvent,
 )
+from backend.modules.printers.telemetry.observability import observer
 from backend.modules.printers.telemetry.state import (
     PrinterStatus,
     StateTransitionEvent,
@@ -111,6 +112,13 @@ def line_to_event(line: dict, printer_id: str) -> TelemetryEvent | None:
                 raw_excerpt=json.dumps(payload)[:MAX_VALIDATION_EXCERPT],
             )
 
+        # surface unmapped fields so the observer snapshot reflects replay
+        # alongside live traffic — the allowlist regression test uses this
+        if report.model_extra:
+            observer.observe("bambu", report.model_extra)
+        if report.print is not None and report.print.model_extra:
+            observer.observe("bambu", report.print.model_extra)
+
         if report.print is not None:
             return BambuReportEvent(
                 printer_id=printer_id,
@@ -123,6 +131,8 @@ def line_to_event(line: dict, printer_id: str) -> TelemetryEvent | None:
                 ts=ts,
                 section=report.info,
             )
+        # report.system: command-ack envelopes — not telemetry; skip
+        return None
 
     # Unclassified — skip silently (no value in surfacing capture-envelope noise)
     return None

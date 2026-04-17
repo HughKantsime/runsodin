@@ -58,6 +58,7 @@ _BAMBU_STATE_MAP: dict[BambuGcodeState, PrinterState] = {
 # This map is the complete *observed* set; future captures may add more.
 _BAMBU_KNOWN_STAGES: set[int] = {
     -1,     # sentinel: just-failed / not-yet-started
+    0,      # idle/finished (legacy mqtt_telemetry.STAGE_MAP calls this "Idle")
     1,      # auto-leveling
     2,      # heatbed preheating / first layer
     3,      # sweeping XY

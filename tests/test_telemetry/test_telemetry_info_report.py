@@ -141,12 +141,12 @@ class TestBambuReport:
         context is preserved in the error body.
         """
         from pydantic import ValidationError
-        with pytest.raises(ValidationError, match="neither"):
+        with pytest.raises(ValidationError, match="no recognized section"):
             BambuReport.model_validate({"foo": "bar"})
 
     def test_report_empty_fails_loud(self):
         from pydantic import ValidationError
-        with pytest.raises(ValidationError, match="neither"):
+        with pytest.raises(ValidationError, match="no recognized section"):
             BambuReport.model_validate({})
 
 

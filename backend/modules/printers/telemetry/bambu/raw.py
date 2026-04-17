@@ -334,22 +334,26 @@ class BambuReport(_StrictBase):
     """Top-level envelope of a Bambu MQTT report.
 
     A Bambu printer's MQTT topic `device/<serial>/report` emits messages
-    that have either a `print` key (status reports, the 99% case), an
-    `info` key (module firmware identity, ~15 samples per session), or
-    both.
+    with one of the following top-level keys:
 
-    If a message has neither, it is an unknown envelope — raise
-    `InvalidBambuReport` so the adapter can log + surface DEGRADED state
-    instead of silently dropping.
+    - `print` — status report (the 99% case).
+    - `info` — module firmware identity (rare; ~15 samples per session).
+    - `system` — command-ack envelopes (ledctrl, reboot, etc.). Not
+      telemetry; recognized so the adapter doesn't degrade on them but
+      carries no status. Kept as opaque dict.
+
+    If a message has none of the above, it is an unknown envelope —
+    raise `InvalidBambuReport` so the adapter surfaces DEGRADED state.
     """
 
     print: Optional[BambuPrintSection] = None
     info: Optional[BambuInfoSection] = None
+    system: Optional[dict] = None              # command-ack; not telemetry
 
     def model_post_init(self, __context) -> None:
-        if self.print is None and self.info is None:
+        if self.print is None and self.info is None and self.system is None:
             raise InvalidBambuReport(
-                "Bambu report has neither `print` nor `info` section. "
+                "Bambu report has no recognized section (print|info|system). "
                 f"Keys present: {list(self.model_extra or {})}"
             )
 

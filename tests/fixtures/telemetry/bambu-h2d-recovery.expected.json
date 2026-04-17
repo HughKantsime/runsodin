@@ -1,0 +1,15 @@
+{
+  "fixture": "bambu-h2d-recovery.jsonl",
+  "printer_id": "bambu-h2d",
+  "event_count": 280,
+  "degraded_count": 0,
+  "final_state": "error",
+  "transitions": [
+    {
+      "ts": 1776356160.548065,
+      "from_state": "offline",
+      "to_state": "error",
+      "reason": "gcode_state=FAILED, print_error=50348044"
+    }
+  ]
+}
