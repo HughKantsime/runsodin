@@ -2,6 +2,58 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased] — Bambu telemetry V2 pipeline
+
+Two-track refactor shipping (1) a typed, fail-loud Bambu telemetry
+pipeline with empirical grounding in real captures, and (2) full
+migration of the 10 `BambuPrinter` callsites to V2 behind an
+`ODIN_TELEMETRY_V2` feature flag.
+
+### Added
+
+- `backend/modules/printers/telemetry/` — V2 pipeline (Pydantic raw
+  models, pure state-machine `transition()`, HMS code catalog + lookup,
+  UnmappedFieldObserver, replay, live-shadow parity gate, demo engine,
+  CLI). 348 contract tests.
+- `BambuCommandAdapter` with 15 byte-equivalent command methods
+  (pause/resume/stop/send_gcode/set_bed_temp/set_nozzle_temp/lights/
+  fans/AMS filament/clear_errors/skip_objects/print_speed/start_print).
+- `BambuV2StatusView` legacy-shape compatibility layer.
+- Session helpers `read_status_once` + `run_command` for short-lived
+  connect/do-a-thing/disconnect patterns.
+- Demo engine + `python -m ...demo_cli <scenario>` for recording
+  marketing footage against mosquitto + fixture replay.
+- 4 demo scenarios, 3 `qa.yaml` agent-demo ground-truth files.
+
+### Changed — V2 routing gated by `ODIN_TELEMETRY_V2` (default `0`)
+
+10 BambuPrinter callsites migrated, each with a flag-gated branch.
+Default behavior is unchanged until the operator flips to `1`:
+
+- `routes_status.py` — live status fetch
+- `vision/detection_thread.py` — pause on vision detection
+- `printers/route_utils.py` — both `_bambu_command` and `_bambu_command_direct`
+- `system/routes_setup.py` — test connection
+- `printers/routes_crud.py` — test connection
+- `printers/routes_ams.py` — AMS sync
+- `printers/routes_controls.py` — chamber light toggle
+- `printers/dispatch.py` — FTPS upload + start_print
+- `printers/monitors/mqtt_printer.py` — long-running monitor daemon
+
+### Deprecated
+
+- `backend/modules/printers/adapters/bambu.py` — emits a
+  `DeprecationWarning` on import. Scheduled for deletion per
+  `backend/modules/printers/telemetry/CUTOVER.md`.
+
+### Operator action remaining
+
+Before legacy deletion can happen:
+1. Flip `ODIN_TELEMETRY_V2=1` in staging.
+2. Soak for one release cycle against a live Bambu.
+3. Flip in production.
+4. Delete legacy files per CUTOVER.md.
+
 ## [1.9.3] - 2026-04-16
 
 ### Fixed — scoped-token auth was broken against live traffic

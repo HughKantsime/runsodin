@@ -1,5 +1,21 @@
 """
-Bambu Lab Printer Adapter
+Bambu Lab Printer Adapter — LEGACY, scheduled for deletion.
+
+Replaced by `backend/modules/printers/telemetry/bambu/` (V2 pipeline):
+- Telemetry reads → `BambuTelemetryAdapter` + `BambuV2StatusView`
+- Commands → `BambuCommandAdapter`
+- Short-lived sessions → `telemetry.bambu.session.read_status_once` /
+  `run_command`
+
+This file continues to run as the fallback when `ODIN_TELEMETRY_V2=0`
+(the current default). All 10 historical callsites now have a
+flag-gated branch. Once the operator flips the default to `1`, soaks in
+staging, and validates on a live Bambu, follow
+`backend/modules/printers/telemetry/CUTOVER.md` to delete this file.
+
+Until then: DO NOT add new uses of `BambuPrinter`. Use the V2 module.
+
+--- original docstring ---
 
 Connects to Bambu printers via local MQTT for:
 - Status monitoring (idle, printing, error)
@@ -27,6 +43,19 @@ Usage:
 import ftplib  # nosec B402
 import json
 import os
+import warnings
+
+# One-shot deprecation warning on first import. Fires in dev + CI
+# but only appears once per process. Silences in production under
+# pytest's -W filter or Python's `-W ignore::DeprecationWarning` if
+# operators prefer. The underlying code still runs.
+warnings.warn(
+    "adapters.bambu.BambuPrinter is deprecated — V2 adapter "
+    "(backend/modules/printers/telemetry/bambu/) replaces it. "
+    "See telemetry/CUTOVER.md for the delete checklist.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 import socket
 import ssl
 import time
