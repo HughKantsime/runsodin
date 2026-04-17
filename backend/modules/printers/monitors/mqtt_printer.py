@@ -68,8 +68,18 @@ class PrinterMonitor:
         self._lock = Lock()
 
     def connect(self) -> bool:
-        """Connect to printer MQTT."""
+        """Connect to printer MQTT.
+
+        Behind `ODIN_TELEMETRY_V2=1`, the monitor uses V2's
+        BambuTelemetryAdapter but dumps the parsed section back to a
+        dict so the existing _on_status() domain logic — which reads
+        `status.raw_data['print']` — continues to work unchanged.
+        """
+        from modules.printers.telemetry.feature_flag import is_v2_enabled
+
         try:
+            if is_v2_enabled():
+                return self._connect_v2()
             self._bambu = BambuPrinter(
                 ip=self.ip,
                 serial=self.serial,
@@ -86,6 +96,45 @@ class PrinterMonitor:
                 return False
         except Exception as e:
             log.error(f"[{self.name}] Connection error: {e}")
+            return False
+
+    def _connect_v2(self) -> bool:
+        """V2 path — BambuTelemetryAdapter with a shim that mimics the
+        legacy PrinterStatus just enough for _on_status to read
+        raw_data['print']."""
+        from modules.printers.telemetry.bambu.adapter import (
+            BambuAdapterConfig,
+            BambuTelemetryAdapter,
+        )
+        from modules.printers.telemetry.events import BambuReportEvent
+
+        class _LegacyStatusShim:
+            """Minimal legacy-PrinterStatus shape. Only raw_data is read."""
+            def __init__(self, section_dict):
+                self.raw_data = {"print": section_dict}
+
+        on_status = self._on_status
+
+        def emit(item):
+            if isinstance(item, BambuReportEvent):
+                # model_dump() preserves the same keys legacy saw
+                section_dict = item.section.model_dump(exclude_none=False)
+                on_status(_LegacyStatusShim(section_dict))
+
+        config = BambuAdapterConfig(
+            printer_id=f"monitor-{self.printer_id}",
+            serial=self.serial,
+            host=self.ip,
+            access_code=self.access_code,
+        )
+        self._v2_adapter = BambuTelemetryAdapter(config, emitter=emit)
+        try:
+            self._v2_adapter.start()
+            log.info(f"[{self.name}] Connected (V2)")
+            self._recover_orphaned_jobs()
+            return True
+        except Exception as e:
+            log.error(f"[{self.name}] V2 connection error: {e}")
             return False
 
     def _recover_orphaned_jobs(self):
@@ -131,6 +180,12 @@ class PrinterMonitor:
             self._bambu.disconnect()
             self._bambu = None
             log.info(f"[{self.name}] Disconnected")
+        # V2 path
+        v2 = getattr(self, "_v2_adapter", None)
+        if v2 is not None:
+            v2.stop()
+            self._v2_adapter = None
+            log.info(f"[{self.name}] Disconnected (V2)")
 
     def _trigger_reschedule(self):
         """Fire-and-forget POST to /api/scheduler/run so bumped jobs get reassigned."""
