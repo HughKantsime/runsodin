@@ -32,7 +32,7 @@ defusedxml==0.7.1
 pywebpush==2.0.1
 
 # OIDC/SSO
-authlib==1.6.9
+authlib==1.6.11
 
 # MFA / TOTP
 pyotp==2.9.0
