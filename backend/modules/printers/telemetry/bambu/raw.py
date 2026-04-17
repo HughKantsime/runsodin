@@ -171,3 +171,117 @@ class BambuAMSRoot(_StrictBase):
     unbind_ams_stat: Optional[int] = None
 
     version: Optional[int] = None
+
+
+# ===== The `print` section itself =====
+
+# Float coercion for fields that Bambu sends as both int and float.
+# Empirical: bed_temper/nozzle_temper split across float:27067 and int:434
+# on h2d/x1c — different firmware versions emit different types.
+FloatLoose = Annotated[Optional[float], BeforeValidator(
+    lambda v: None if v is None else (
+        float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else
+        float(str(v).strip()) if isinstance(v, str) and str(v).strip() else
+        None
+    )
+)]
+
+
+class BambuPrintSection(_StrictBase):
+    """The top-level `print` object in a Bambu MQTT report.
+
+    Models ~45 first-class fields out of 105 top-level scalar fields
+    observed across 4 printer models in `run-2026-04-16`. Fields
+    deliberately NOT modeled here (aux, ap_err, fun, fun2, flag3,
+    fail_reason, etc.) flow to the UnmappedFieldObserver via
+    `extra="allow"` so we see them without modeling opaque semantics.
+    """
+
+    # ---- protocol envelope ----
+    command: Optional[str] = None                   # "push_status", "gcode_line", etc.
+    sequence_id: Optional[str] = None
+    msg: Optional[int] = None                       # sequence counter
+
+    # ---- lifecycle / state ----
+    # gcode_state handled via the BambuGcodeState enum in T1.8; keep str here
+    # so raw.py has no enum dependency. The enum is applied in the adapter layer.
+    gcode_state: Optional[str] = None
+
+    # stg_cur is polymorphic — int OR str-of-int. Normalize to int or raise.
+    stg_cur: IntLoose = None
+    stg_cd: Optional[int] = None                    # h2d only; stage change detail
+    mc_print_stage: Optional[str] = None            # legacy str form; numeric form is stg_cur
+    mc_print_sub_stage: Optional[int] = None
+
+    # ---- progress ----
+    mc_percent: Optional[int] = None
+    percent: Optional[int] = None                   # duplicate-ish; source of truth TBD
+    layer_num: Optional[int] = None
+    total_layer_num: Optional[int] = None
+    mc_remaining_time: Optional[int] = None         # minutes
+    remain_time: Optional[int] = None               # duplicate-ish
+    prepare_per: Optional[int] = None               # prepare phase percent
+    gcode_file_prepare_percent: Optional[str] = None  # stringified
+
+    # ---- temperatures (polymorphic int/float) ----
+    bed_temper: FloatLoose = None
+    bed_target_temper: FloatLoose = None
+    nozzle_temper: FloatLoose = None
+    nozzle_target_temper: FloatLoose = None
+    chamber_temper: FloatLoose = None               # h2d only
+
+    # ---- fans (all stringified numbers on wire) ----
+    cooling_fan_speed: Optional[str] = None
+    heatbreak_fan_speed: Optional[str] = None
+    big_fan1_speed: Optional[str] = None
+    big_fan2_speed: Optional[str] = None
+    fan_gear: Optional[int] = None
+
+    # ---- print job identity ----
+    gcode_file: Optional[str] = None
+    gcode_start_time: Optional[str] = None
+    file: Optional[str] = None                      # gcode file path
+    profile_id: Optional[str] = None                # slicer profile
+    project_id: Optional[str] = None                # Bambu cloud project
+    subtask_id: Optional[str] = None                # Bambu cloud subtask
+    subtask_name: Optional[str] = None
+    task_id: Optional[str] = None                   # Bambu cloud task
+    job_id: Optional[str] = None                    # local job id
+    model_id: Optional[str] = None
+    design_id: Optional[str] = None
+
+    # ---- speed preset ----
+    spd_lvl: Optional[int] = None                   # 1=silent, 2=standard, 3=sport, 4=ludicrous
+    spd_mag: Optional[int] = None                   # speed magnitude percent
+
+    # ---- error channel ----
+    print_error: Optional[int] = None               # 0 = no error; non-zero surfaces as ERROR
+    mc_print_error_code: Optional[str] = None
+    hms: list[BambuHMSEvent] = Field(default_factory=list)
+
+    # ---- nested structures ----
+    ams: Optional[BambuAMSRoot] = None
+    ams_status: Optional[int] = None
+    ams_rfid_status: Optional[int] = None
+
+    # Less-prioritized nested structures — kept as raw dict/list for now; can
+    # be modeled later as the need arises (observer flags them as unmodeled).
+    device: Optional[dict] = None                   # h2d chamber/airduct/extruder info
+    net: Optional[dict] = None                      # x1c network info
+    care: Optional[list[dict]] = None               # maintenance reminders
+    lights_report: Optional[list[dict]] = None
+
+    # ---- connectivity / hardware ----
+    wifi_signal: Optional[str] = None               # e.g. "-62dBm"
+    sdcard: Optional[bool] = None
+    home_flag: Optional[int] = None
+    hw_switch_state: Optional[int] = None
+    nozzle_diameter: Optional[str] = None
+    nozzle_type: Optional[str] = None
+    printer_type: Optional[str] = None              # historically dead-read but occasionally present
+
+    # ---- legacy / opaque but always-present (avoid observer noise) ----
+    cfg: Optional[str] = None                       # printer config blob (stringified)
+    ver: Optional[str] = None
+    state: Optional[int] = None                     # low-level state; gcode_state is canonical
+
