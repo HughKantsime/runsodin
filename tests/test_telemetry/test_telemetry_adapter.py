@@ -36,6 +36,7 @@ class FakeMqttClient:
     def __init__(self):
         self.tls_set_context = MagicMock()
         self.username_pw_set = MagicMock()
+        self.connect = MagicMock(return_value=0)
         self.connect_async = MagicMock()
         self.loop_start = MagicMock()
         self.loop_stop = MagicMock()

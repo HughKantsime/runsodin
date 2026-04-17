@@ -60,7 +60,12 @@ Emitter = Callable[[object], None]
 
 @dataclass
 class BambuAdapterConfig:
-    """Connection config for one Bambu printer."""
+    """Connection config for one Bambu printer.
+
+    `use_tls` defaults to True because Bambu MQTT on 8883 is the only
+    production path. The embedded replayer broker (live_replay.py) is
+    plain TCP on a random port — tests set `use_tls=False` to connect.
+    """
 
     printer_id: str                # ODIN's internal ID (stable across sessions)
     serial: str                    # Bambu device serial — used in topic
@@ -68,6 +73,7 @@ class BambuAdapterConfig:
     access_code: str               # Bambu "LAN-only" access code (MQTT password)
     port: int = 8883
     username: str = "bblp"
+    use_tls: bool = True
 
     @property
     def topic_report(self) -> str:
@@ -94,9 +100,15 @@ class BambuTelemetryAdapter:
     """
 
     # Testing hook — production code should never set this. Test code
-    # monkeypatches this to return a FakeMqttClient. Default uses real paho.
+    # monkeypatches this to return a FakeMqttClient. Default uses real paho
+    # with protocol=MQTTv311 (Bambu firmware + amqtt test broker are both
+    # 3.1.1; paho's default V2-callback-API setting would negotiate MQTT5
+    # which neither end supports).
     _client_factory: Callable[[], mqtt.Client] = staticmethod(
-        lambda: mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        lambda: mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            protocol=mqtt.MQTTv311,
+        )
     )
 
     def __init__(self, config: BambuAdapterConfig, emitter: Emitter):
@@ -115,23 +127,29 @@ class BambuTelemetryAdapter:
         if self._client is not None:
             raise RuntimeError("adapter already started")
         client = self._client_factory()
-        client.username_pw_set(self._config.username, self._config.access_code)
+        # Only set credentials when access_code is non-empty — embedded
+        # test broker is anonymous and rejects empty-password logins.
+        if self._config.access_code:
+            client.username_pw_set(self._config.username, self._config.access_code)
 
-        # Bambu uses a self-signed cert on port 8883. Legacy adapter disabled
-        # verification; V2 keeps the same behavior (documented in spec:
-        # local LAN-only, verification doesn't add defense against a MITM
-        # who's already inside the printer VLAN).
-        tls = ssl.create_default_context()
-        tls.check_hostname = False
-        tls.verify_mode = ssl.CERT_NONE
-        client.tls_set_context(tls)
+        if self._config.use_tls:
+            # Bambu uses a self-signed cert on port 8883. Legacy adapter disabled
+            # verification; V2 keeps the same behavior (documented in spec:
+            # local LAN-only, verification doesn't add defense against a MITM
+            # who's already inside the printer VLAN).
+            tls = ssl.create_default_context()
+            tls.check_hostname = False
+            tls.verify_mode = ssl.CERT_NONE
+            client.tls_set_context(tls)
 
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
 
         self._client = client
-        client.connect_async(self._config.host, self._config.port, keepalive=60)
+        # Use sync connect() to get immediate TCP setup + reliable
+        # on_connect firing. The network loop runs async after loop_start().
+        client.connect(self._config.host, self._config.port, keepalive=60)
         client.loop_start()
 
     def stop(self) -> None:
