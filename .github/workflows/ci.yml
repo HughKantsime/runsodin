@@ -28,6 +28,29 @@ jobs:
         run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3.11 -m pytest tests/test_contracts/ -v --tb=short --override-ini="confcutdir=tests/test_contracts"
 
   # ─────────────────────────────────────────────────────────
+  # Job 0b: Telemetry V2 Contract Tests
+  # Gates the Bambu telemetry rewrite (track
+  # telemetry-rewrite-bambu-first_20260417). Runs the full
+  # tests/test_telemetry/ suite against committed fixture snapshots;
+  # drift in the state machine, HMS surfacing, or Pydantic model
+  # coverage fails this job.
+  # ─────────────────────────────────────────────────────────
+  telemetry-contracts:
+    name: Telemetry V2 Contract Tests
+    runs-on: mac-mini-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Homebrew to PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
+
+      - name: Install test dependencies
+        run: pip3.11 install --break-system-packages pytest && pip3.11 install --break-system-packages -r backend/requirements.txt
+
+      - name: Run telemetry contract tests
+        run: python3.11 -m pytest tests/test_telemetry/ -v --tb=short
+
+  # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
   # Catches credentials/keys committed to the repo.
   # Belt-and-suspenders over the pre-commit gitleaks hook.
