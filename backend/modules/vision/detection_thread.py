@@ -336,14 +336,26 @@ class PrinterVisionThread(threading.Thread):
                 success = adapter.pause_print()
 
             elif api_type == 'bambu':
-                from modules.printers.adapters.bambu import BambuPrinter
                 from core.crypto import decrypt
+                from modules.printers.telemetry.feature_flag import is_v2_enabled
                 creds = decrypt(api_key)
                 serial, access_code = creds.split('|', 1)
-                adapter = BambuPrinter(api_host, serial, access_code)
-                if adapter.connect():
-                    success = adapter.pause_print()
-                    adapter.disconnect()
+                if is_v2_enabled():
+                    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+                    from modules.printers.telemetry.bambu.session import run_command
+                    config = BambuAdapterConfig(
+                        printer_id=f"vision-pause-{self.printer_id}",
+                        serial=serial,
+                        host=api_host,
+                        access_code=access_code,
+                    )
+                    success = run_command(config, "pause_print")
+                else:
+                    from modules.printers.adapters.bambu import BambuPrinter
+                    adapter = BambuPrinter(api_host, serial, access_code)
+                    if adapter.connect():
+                        success = adapter.pause_print()
+                        adapter.disconnect()
 
             elif api_type == 'prusalink':
                 from modules.printers.adapters.prusalink import PrusaLinkPrinter
