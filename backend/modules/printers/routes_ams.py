@@ -173,30 +173,69 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
 
     serial, access_code = decrypted_key.split("|", 1)
 
-    try:
-        from modules.printers.adapters.bambu import BambuPrinter
+    from modules.printers.telemetry.feature_flag import is_v2_enabled
 
-        bambu = BambuPrinter(ip=printer.api_host, serial=serial, access_code=access_code)
-        if not bambu.connect():
-            raise HTTPException(status_code=503, detail="Failed to connect to printer")
-        # Poll for AMS data — printers take 5-10s to send first MQTT report
-        bambu_status = None
-        for _ in range(20):
-            time.sleep(1)
-            bambu_status = bambu.get_status()
-            if bambu_status.ams_slots:
-                break
-        bambu.disconnect()
-        if not bambu_status or not bambu_status.ams_slots:
+    if is_v2_enabled():
+        from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+        from modules.printers.telemetry.bambu.session import read_status_once
+        from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
+
+        config = BambuAdapterConfig(
+            printer_id=f"ams-sync-{printer_id}",
+            serial=serial,
+            host=printer.api_host,
+            access_code=access_code,
+        )
+        # Printers take 5-10s to emit their first MQTT report.
+        try:
+            result = read_status_once(config, timeout=20.0)
+        except Exception as e:
+            log.error(f"Printer connection error (Bambu V2 sync): {e}")
+            raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
+
+        if not result.success:
+            raise HTTPException(status_code=503, detail=result.error or "Failed to connect to printer")
+
+        slots = ams_slots_from_section(result.section) if result.section else []
+        if not slots:
             return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
                     "slots_synced": 0, "slots": [], "mismatches": [],
                     "message": "No AMS data received. Printer may not have an AMS or timed out."}
 
-    except ImportError:
-        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
-    except Exception as e:
-        log.error(f"Printer connection error (Bambu sync): {e}")
-        raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
+        # Construct a minimal status-like object with .ams_slots for the
+        # downstream code to iterate. Everything else that code reads is
+        # on the slot, not the status.
+        class _StatusShim:
+            def __init__(self, slots):
+                self.ams_slots = slots
+        bambu_status = _StatusShim(slots)
+
+    else:
+        # Legacy path
+        try:
+            from modules.printers.adapters.bambu import BambuPrinter
+
+            bambu = BambuPrinter(ip=printer.api_host, serial=serial, access_code=access_code)
+            if not bambu.connect():
+                raise HTTPException(status_code=503, detail="Failed to connect to printer")
+            # Poll for AMS data — printers take 5-10s to send first MQTT report
+            bambu_status = None
+            for _ in range(20):
+                time.sleep(1)
+                bambu_status = bambu.get_status()
+                if bambu_status.ams_slots:
+                    break
+            bambu.disconnect()
+            if not bambu_status or not bambu_status.ams_slots:
+                return {"success": True, "printer_id": printer_id, "printer_name": printer.name,
+                        "slots_synced": 0, "slots": [], "mismatches": [],
+                        "message": "No AMS data received. Printer may not have an AMS or timed out."}
+
+        except ImportError:
+            raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+        except Exception as e:
+            log.error(f"Printer connection error (Bambu sync): {e}")
+            raise HTTPException(status_code=503, detail="Printer connection error. Check printer IP and credentials.")
 
     filament_type_map = {
         "PLA": FilamentType.PLA, "PETG": FilamentType.PETG, "ABS": FilamentType.ABS,
