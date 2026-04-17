@@ -320,6 +320,33 @@ def _call_adapter_method(adapter, action: str, *args):
 
 def _bambu_command(printer, action: str) -> bool:
     """Send a command to a Bambu printer via a short-lived MQTT connection."""
+    from modules.printers.telemetry.feature_flag import is_v2_enabled
+
+    if is_v2_enabled():
+        return _bambu_command_v2(printer, action)
+    return _bambu_command_legacy(printer, action)
+
+
+def _bambu_command_v2(printer, action: str) -> bool:
+    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.session import run_command
+    try:
+        creds = crypto.decrypt(printer.api_key)
+        serial, access_code = creds.split("|", 1)
+        config = BambuAdapterConfig(
+            printer_id=f"cmd-{printer.id}",
+            serial=serial,
+            host=printer.api_host,
+            access_code=access_code,
+        )
+        # V2's command adapter supports the same allowlisted methods.
+        return run_command(config, action)
+    except Exception as e:
+        log.error(f"Bambu V2 {action} failed for printer {printer.id}: {e}")
+        return False
+
+
+def _bambu_command_legacy(printer, action: str) -> bool:
     from modules.printers.adapters.bambu import BambuPrinter
     import time as _time
     try:
@@ -393,6 +420,25 @@ def _send_printer_command(printer, action: str) -> bool:
 
 def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
     """Call a BambuPrinter method directly (for commands not in the generic allowlist)."""
+    from modules.printers.telemetry.feature_flag import is_v2_enabled
+
+    if is_v2_enabled():
+        from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+        from modules.printers.telemetry.bambu.session import run_command
+        try:
+            creds = crypto.decrypt(printer.api_key)
+            serial, access_code = creds.split("|", 1)
+            config = BambuAdapterConfig(
+                printer_id=f"cmd-direct-{printer.id}",
+                serial=serial,
+                host=printer.api_host,
+                access_code=access_code,
+            )
+            return run_command(config, method_name, *args, **kwargs)
+        except Exception as e:
+            log.error(f"Bambu V2 {method_name} failed for printer {printer.id}: {e}")
+            return False
+
     from modules.printers.adapters.bambu import BambuPrinter
     import time as _time
     try:
