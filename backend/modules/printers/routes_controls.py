@@ -340,6 +340,26 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
     serial, access_code = decrypted_key.split("|", 1)
     turn_on = not printer.lights_on
 
+    from modules.printers.telemetry.feature_flag import is_v2_enabled
+
+    if is_v2_enabled():
+        from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+        from modules.printers.telemetry.bambu.session import run_command
+        config = BambuAdapterConfig(
+            printer_id=f"lights-{printer_id}",
+            serial=serial,
+            host=printer.api_host,
+            access_code=access_code,
+        )
+        success = run_command(config, "set_chamber_light", turn_on)
+        if not success:
+            raise HTTPException(status_code=503, detail="Failed to send light command")
+        printer.lights_on = turn_on
+        printer.lights_toggled_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(printer)
+        return {"lights_on": turn_on, "message": f"Lights {'on' if turn_on else 'off'}"}
+
     try:
         from modules.printers.adapters.bambu import BambuPrinter
 

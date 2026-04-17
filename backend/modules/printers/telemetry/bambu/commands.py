@@ -170,6 +170,19 @@ class BambuCommandAdapter:
     def turn_light_off(self) -> bool:
         return self.send_gcode("M355 S0")
 
+    def set_chamber_light(self, on: bool) -> bool:
+        """Toggle the chamber light via Bambu's native `system.ledctrl`
+        command — not via gcode. Used by the /printers/{id}/toggle-lights
+        route; byte-equivalent to what legacy publishes there."""
+        return self._publish({
+            "system": {
+                "sequence_id": "0",
+                "command": "ledctrl",
+                "led_node": "chamber_light",
+                "led_mode": "on" if on else "off",
+            }
+        })
+
     def set_fan_speed(self, fan: str, speed: int) -> bool:
         """Set fan via M106. `fan` in {"part_cooling", "auxiliary", "chamber"}."""
         fan_map = {"part_cooling": 1, "auxiliary": 2, "chamber": 3}
