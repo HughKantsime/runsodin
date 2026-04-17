@@ -94,16 +94,6 @@ class TestPublishFixture:
             )
 
 
-@pytest.mark.skip(
-    reason=(
-        "amqtt's anonymous-auth plugin config is idiosyncratic — broker "
-        "accepts TCP but never sends CONNACK for paho clients. Full "
-        "end-to-end validation requires either a real mosquitto install "
-        "or switching to a different embedded broker. Tracked as a gap in "
-        "plan.md; scope bounded since publish_fixture + LocalBroker are "
-        "independently tested above."
-    )
-)
 class TestEndToEnd:
     """Broker + publisher + adapter in the same process — the real
     ingestion path with real paho callbacks and real MQTT frames."""

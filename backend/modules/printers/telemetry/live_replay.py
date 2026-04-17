@@ -1,36 +1,34 @@
 """Live-MQTT replay for demo footage and end-to-end adapter testing.
 
-Spawns an in-process amqtt broker, lets a publisher replay fixture
-JSONL to `device/<serial>/report`, and (optionally) connects a real
-`BambuTelemetryAdapter` to receive. The adapter is unchanged — it's
-the same production code connecting to a broker on 127.0.0.1.
+Spawns a real mosquitto broker subprocess, lets a publisher replay
+fixture JSONL to `device/<serial>/report`, and (optionally) connects a
+real `BambuTelemetryAdapter` to receive. The adapter is unchanged —
+same production code connecting to a broker on 127.0.0.1.
 
 This closes the loop that was split in Phase 3: the in-process
-`replay()` path (which feeds events to `transition()` directly) proves
-the state-machine behavior in CI. This module proves the **adapter**
+`replay()` path (feeds events to `transition()` directly) proves the
+state-machine behavior in CI. This module proves the **adapter**
 end-to-end — MQTT subscribe, paho callbacks, V2 pipeline — using real
 broker traffic.
 
-Pure-Python stack (no Docker, no native mosquitto dep):
-- `amqtt` broker embedded on a random high port.
-- `paho.mqtt.client` as publisher (matches production adapter's
-  client lib; consistency is a feature).
-- Adapter side uses whatever the caller injects (normally
-  `BambuTelemetryAdapter`).
+Broker choice: native mosquitto subprocess. Tried amqtt first; its
+anonymous-auth plugin accepted TCP but wouldn't CONNACK for paho
+clients. Mosquitto handshakes cleanly with paho MQTT 3.1.1 and is
+already available on the M4 CI runner (`brew install mosquitto`).
 
 Used by:
 - Phase 6 demo scenarios (`replayer demo <scenario>`).
 - Integration tests that cover the full MQTT-to-state-machine path.
-- The follow-up track's live shadow-mode adapter (legacy + V2 running
-  against the same broker from fixture traffic).
+- Future live shadow-mode adapter.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
+import shutil
 import socket
-import threading
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,75 +54,90 @@ def _free_port() -> int:
 
 
 class LocalBroker:
-    """Embedded amqtt broker on a random 127.0.0.1 port.
+    """Mosquitto subprocess bound to a random 127.0.0.1 port.
 
     Lifecycle:
         broker = LocalBroker()
-        broker.start()       # background thread, ready ~100ms
+        broker.start()       # subprocess + readiness probe
         ...                  # adapter/publisher connect to broker.host:port
         broker.stop()
 
-    Thread-safe `start()` / `stop()`; `host`/`port` valid after `start()`.
+    Requires `mosquitto` on PATH. Detection + helpful error on missing.
     """
+
+    MOSQUITTO_STARTUP_TIMEOUT = 3.0
 
     def __init__(self, host: str = "127.0.0.1"):
         self.host = host
         self.port = _free_port()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
-        self._broker = None
-        self._ready = threading.Event()
-        self._stop_requested = threading.Event()
+        self._proc: Optional[subprocess.Popen] = None
+        self._config_dir: Optional[tempfile.TemporaryDirectory] = None
+
+    @staticmethod
+    def _mosquitto_binary() -> str:
+        path = shutil.which("mosquitto")
+        if path is None:
+            raise RuntimeError(
+                "mosquitto binary not on PATH. Install via "
+                "`brew install mosquitto` or equivalent before running "
+                "live-broker tests."
+            )
+        return path
 
     def start(self) -> None:
-        """Start broker in a background thread. Blocks until ready."""
-        if self._thread is not None:
+        if self._proc is not None:
             raise RuntimeError("broker already started")
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        if not self._ready.wait(timeout=5.0):
-            raise RuntimeError("broker failed to start within 5s")
-
-    def _run(self) -> None:
-        from amqtt.broker import Broker
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-
-        config = {
-            "listeners": {
-                "default": {
-                    "type": "tcp",
-                    "bind": f"{self.host}:{self.port}",
-                    "max_connections": 50,
-                },
-            },
-            "sys_interval": 0,
-            "auth": {"allow-anonymous": True, "plugins": []},
-            "topic-check": {"enabled": False},
-        }
-
-        async def _lifecycle():
-            # Broker() must be constructed INSIDE the running loop —
-            # asyncio.get_running_loop() is called in __init__.
-            self._broker = Broker(config)
-            await self._broker.start()
-            self._ready.set()
-            while not self._stop_requested.is_set():
-                await asyncio.sleep(0.05)
-            await self._broker.shutdown()
-
-        try:
-            self._loop.run_until_complete(_lifecycle())
-        finally:
-            self._loop.close()
+        binary = self._mosquitto_binary()
+        self._config_dir = tempfile.TemporaryDirectory(prefix="odin-mqtt-")
+        cfg_path = Path(self._config_dir.name) / "mosquitto.conf"
+        cfg_path.write_text(
+            f"listener {self.port} {self.host}\n"
+            "allow_anonymous true\n"
+            "persistence false\n"
+            # Keep logs on stderr, quiet.
+            "log_dest stderr\n"
+            "log_type error\n"
+        )
+        self._proc = subprocess.Popen(
+            [binary, "-c", str(cfg_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # Probe the port until it accepts connections or we time out.
+        deadline = time.time() + self.MOSQUITTO_STARTUP_TIMEOUT
+        while time.time() < deadline:
+            s = socket.socket()
+            s.settimeout(0.2)
+            try:
+                s.connect((self.host, self.port))
+                s.close()
+                return
+            except (ConnectionRefusedError, socket.timeout):
+                time.sleep(0.05)
+            finally:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        self.stop()
+        raise RuntimeError(
+            f"mosquitto did not accept connections on "
+            f"{self.host}:{self.port} within "
+            f"{self.MOSQUITTO_STARTUP_TIMEOUT}s"
+        )
 
     def stop(self, timeout: float = 2.0) -> None:
-        """Signal the background thread to shut down and join."""
-        if self._thread is None:
-            return
-        self._stop_requested.set()
-        self._thread.join(timeout=timeout)
-        self._thread = None
+        if self._proc is not None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self._proc.wait(timeout=1.0)
+            self._proc = None
+        if self._config_dir is not None:
+            self._config_dir.cleanup()
+            self._config_dir = None
 
 
 # ===== Publisher =====
