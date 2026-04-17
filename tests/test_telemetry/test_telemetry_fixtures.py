@@ -31,6 +31,7 @@ ALL_FIXTURES = [
     ("bambu-h2d-failure", "bambu-h2d"),
     ("bambu-h2d-failure-arc", "bambu-h2d"),
     ("bambu-h2d-recovery", "bambu-h2d"),
+    ("bambu-x1c-ams-swap", "bambu-x1c"),
 ]
 
 

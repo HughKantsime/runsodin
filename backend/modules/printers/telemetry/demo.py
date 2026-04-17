@@ -47,6 +47,21 @@ from backend.modules.printers.telemetry.live_replay import (
 
 logger = logging.getLogger(__name__)
 
+def _find_iso_index(events: list, target_iso: str) -> Optional[int]:
+    """Binary search for first event with iso >= target. Events are
+    pre-sorted by capture order which equals iso order."""
+    if not events:
+        return None
+    lo, hi = 0, len(events)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if events[mid][0] < target_iso:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo if lo < len(events) else None
+
+
 SCENARIOS_DIR = Path(__file__).parent.parent.parent.parent / "demo_scenarios"
 # Falls back to committed fixtures dir for fixture lookup.
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "tests" / "fixtures" / "telemetry"
@@ -98,11 +113,17 @@ class DemoState:
 
     Threads check `paused` before each publish; `speed` is read at
     each event's pacing delay; `stop_requested` lets them exit cleanly.
+    `seek_to_iso` is picked up once per loop iteration and cleared.
+    `loop_window` is a (start_iso, end_iso) pair that, when set,
+    causes publishers to rewind to `start_iso` whenever they cross
+    `end_iso` — repeated until cleared or `stop()`.
     """
 
     paused: threading.Event = field(default_factory=threading.Event)
     stop_requested: threading.Event = field(default_factory=threading.Event)
     speed: float = 1.0
+    seek_to_iso: Optional[str] = None
+    loop_window: Optional[tuple[str, str]] = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def set_speed(self, speed: float) -> None:
@@ -110,6 +131,28 @@ class DemoState:
             raise ValueError(f"speed must be > 0, got {speed}")
         with self._lock:
             self.speed = speed
+
+    def request_seek(self, iso: str) -> None:
+        """Request that publishers jump to the first event at or after `iso`."""
+        with self._lock:
+            self.seek_to_iso = iso
+
+    def consume_seek(self) -> Optional[str]:
+        """Publisher reads + clears the seek request. Thread-safe."""
+        with self._lock:
+            target = self.seek_to_iso
+            self.seek_to_iso = None
+            return target
+
+    def set_loop(self, start_iso: str, end_iso: str) -> None:
+        if start_iso >= end_iso:
+            raise ValueError(f"loop window reversed: {start_iso} >= {end_iso}")
+        with self._lock:
+            self.loop_window = (start_iso, end_iso)
+
+    def clear_loop(self) -> None:
+        with self._lock:
+            self.loop_window = None
 
 
 class DemoEngine:
@@ -173,63 +216,110 @@ class DemoEngine:
     def _publish_loop(self, printer: DemoPrinter, fixture_path: Path) -> None:
         """One printer's publisher — runs in its own thread.
 
-        Honors the shared DemoState for pause + speed + stop. Uses
-        `publish_fixture` under the hood but with a periodic pause-check
-        wrapper (publish_fixture itself doesn't know about DemoState).
+        Honors the shared DemoState for pause/speed/stop/seek/loop.
+        Seek and loop require rewinding the file, so we load the
+        fixture into memory up front (tens of MB max — acceptable).
         """
-        # We re-implement the pacing loop inline here because we need
-        # to poll state.paused and state.stop_requested between events.
         import json
         import paho.mqtt.client as mqtt
 
         if self._broker is None:
             return
 
+        # Load + pre-filter in memory for O(1) seek
+        events: list[tuple[str, float, dict]] = []
+        with fixture_path.open() as f:
+            for raw in f:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if parsed.get("direction") != "recv":
+                    continue
+                payload = parsed.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                iso = parsed.get("iso") or ""
+                ts = float(parsed.get("ts", 0))
+                events.append((iso, ts, payload))
+
         topic = printer.topic_report
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv311)
         client.connect(self._broker.host, self._broker.port, keepalive=30)
         client.loop_start()
         try:
+            cursor = 0
             prev_ts: Optional[float] = None
-            with fixture_path.open() as f:
-                for raw in f:
+            while cursor < len(events):
+                if self.state.stop_requested.is_set():
+                    break
+
+                # pause gate
+                while self.state.paused.is_set():
                     if self.state.stop_requested.is_set():
                         break
-                    while self.state.paused.is_set():
-                        if self.state.stop_requested.is_set():
-                            break
-                        time.sleep(0.05)
-                    try:
-                        parsed = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if parsed.get("direction") != "recv":
-                        continue
-                    payload = parsed.get("payload")
-                    if not isinstance(payload, dict):
-                        continue
+                    time.sleep(0.05)
+                if self.state.stop_requested.is_set():
+                    break
 
-                    ts = float(parsed.get("ts", 0))
-                    if prev_ts is not None:
-                        gap = ts - prev_ts
-                        if gap > 300.0:
-                            gap = 300.0
-                        wait = gap / max(self.state.speed, 0.001)
-                        if wait > 0:
-                            # sleep in small ticks so pause/stop respond quickly
-                            end = time.time() + wait
-                            while time.time() < end:
-                                if self.state.stop_requested.is_set():
-                                    break
-                                remaining = end - time.time()
-                                if remaining <= 0:
-                                    break
-                                time.sleep(min(0.05, remaining))
-                    prev_ts = ts
-                    client.publish(topic, json.dumps(payload), qos=0)
+                # seek request: jump cursor to first event at/after target iso
+                seek_target = self.state.consume_seek()
+                if seek_target is not None:
+                    new_cursor = _find_iso_index(events, seek_target)
+                    if new_cursor is not None:
+                        cursor = new_cursor
+                        prev_ts = None  # reset pacing after seek
+
+                iso, ts, payload = events[cursor]
+
+                # loop window: if we've crossed end_iso, rewind to start_iso
+                with self.state._lock:
+                    window = self.state.loop_window
+                if window is not None and iso >= window[1]:
+                    new_cursor = _find_iso_index(events, window[0])
+                    if new_cursor is not None:
+                        cursor = new_cursor
+                        prev_ts = None
+                        continue  # re-read event at new cursor
+
+                # pacing based on ts delta
+                if prev_ts is not None:
+                    gap = ts - prev_ts
+                    if gap > 300.0:
+                        gap = 300.0
+                    wait = gap / max(self.state.speed, 0.001)
+                    if wait > 0:
+                        end = time.time() + wait
+                        while time.time() < end:
+                            if self.state.stop_requested.is_set():
+                                break
+                            if self.state.consume_seek() is not None:
+                                # a seek during a sleep — break out; next loop
+                                # iteration will handle it (we consumed it, but
+                                # also need to not advance cursor)
+                                break
+                            remaining = end - time.time()
+                            if remaining <= 0:
+                                break
+                            time.sleep(min(0.05, remaining))
+                prev_ts = ts
+
+                client.publish(topic, json.dumps(payload), qos=0)
+                cursor += 1
         finally:
             client.loop_stop()
             client.disconnect()
+
+    def seek_to(self, iso: str) -> None:
+        """Jump all publishers to the first event at or after `iso`."""
+        self.state.request_seek(iso)
+
+    def set_loop(self, start_iso: str, end_iso: str) -> None:
+        """Publishers rewind to `start_iso` whenever they cross `end_iso`."""
+        self.state.set_loop(start_iso, end_iso)
+
+    def clear_loop(self) -> None:
+        self.state.clear_loop()
 
     def pause(self) -> None:
         self.state.paused.set()

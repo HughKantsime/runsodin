@@ -1,0 +1,13 @@
+name: ams-swap
+description: |
+  X1C mid-print with an AMS tray transition (tray_now: 2 → 255 → 0).
+  Demonstrates real AMS state change visibility — the kind of
+  detail the V2 pipeline surfaces that legacy adapter data paths
+  never did.
+
+printers:
+  - id: x1c-01
+    display_name: "Workshop — X1C"
+    serial: "00M09D4B1600284"
+    fixture: bambu-x1c-ams-swap.jsonl
+    model: X1C

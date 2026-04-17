@@ -1,0 +1,14 @@
+scenario: ams-swap
+
+questions:
+  - q: "What was the initial AMS tray selection on this X1C?"
+    a: "tray_now = '2' (third slot, 0-indexed)"
+    verified_against: "first ams payload in bambu-x1c-ams-swap.jsonl"
+
+  - q: "Did the AMS cycle through a between-trays state during this window?"
+    a: "Yes — tray_now transitioned 2 → 255 → 0 in two seconds (14:58:31 to 14:58:33). 255 is the idle/between-trays sentinel."
+    verified_against: "x1c capture tray_now changes"
+
+  - q: "What state was the printer in during the tray change?"
+    a: "PRINTING — the transition happens mid-print."
+    verified_against: "bambu-x1c-ams-swap.expected.json final_state"

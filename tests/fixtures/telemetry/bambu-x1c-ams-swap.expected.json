@@ -1,0 +1,15 @@
+{
+  "fixture": "bambu-x1c-ams-swap.jsonl",
+  "printer_id": "bambu-x1c",
+  "event_count": 54,
+  "degraded_count": 0,
+  "final_state": "printing",
+  "transitions": [
+    {
+      "ts": 1776351480.775056,
+      "from_state": "offline",
+      "to_state": "printing",
+      "reason": "gcode_state=RUNNING"
+    }
+  ]
+}

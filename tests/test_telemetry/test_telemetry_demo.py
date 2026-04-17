@@ -148,6 +148,79 @@ class TestDemoEngineControls:
             engine.stop()
 
 
+class TestSeekAndLoop:
+    """Runtime seek + loop controls on DemoEngine (T6.4 + T6.6)."""
+
+    def test_seek_state(self):
+        state = DemoState()
+        assert state.consume_seek() is None
+        state.request_seek("2026-04-16T14:50:00Z")
+        # first read consumes it
+        assert state.consume_seek() == "2026-04-16T14:50:00Z"
+        # second read is cleared
+        assert state.consume_seek() is None
+
+    def test_loop_window_validation(self):
+        state = DemoState()
+        with pytest.raises(ValueError, match="reversed"):
+            state.set_loop("2026-04-16T15:00:00Z", "2026-04-16T14:00:00Z")
+
+    def test_loop_window_set_and_clear(self):
+        state = DemoState()
+        assert state.loop_window is None
+        state.set_loop("2026-04-16T14:00:00Z", "2026-04-16T15:00:00Z")
+        assert state.loop_window == (
+            "2026-04-16T14:00:00Z",
+            "2026-04-16T15:00:00Z",
+        )
+        state.clear_loop()
+        assert state.loop_window is None
+
+    def test_binary_search_finds_iso(self):
+        from backend.modules.printers.telemetry.demo import _find_iso_index
+        events = [
+            ("2026-04-16T14:00:00Z", 1.0, {}),
+            ("2026-04-16T14:30:00Z", 2.0, {}),
+            ("2026-04-16T15:00:00Z", 3.0, {}),
+            ("2026-04-16T15:30:00Z", 4.0, {}),
+        ]
+        assert _find_iso_index(events, "2026-04-16T14:00:00Z") == 0
+        assert _find_iso_index(events, "2026-04-16T14:15:00Z") == 1  # first at/after
+        assert _find_iso_index(events, "2026-04-16T15:00:00Z") == 2
+        assert _find_iso_index(events, "2026-04-16T16:00:00Z") is None  # past end
+        assert _find_iso_index([], "any") is None
+
+    def test_engine_seek_to_api(self):
+        engine = DemoEngine.from_scenario(
+            "print-complete",
+            scenarios_dir=SCENARIOS_DIR,
+            fixtures_dir=FIXTURES_DIR,
+            speed=1000.0,
+        )
+        engine.start()
+        try:
+            engine.seek_to("2026-04-16T14:45:00Z")
+            # state records the request until a publisher consumes it
+            assert engine.state.seek_to_iso == "2026-04-16T14:45:00Z" or engine.state.seek_to_iso is None
+            done = engine.wait_until_done(timeout=30)
+            assert done
+        finally:
+            engine.stop()
+
+    def test_engine_set_and_clear_loop(self):
+        engine = DemoEngine.from_scenario(
+            "print-complete",
+            scenarios_dir=SCENARIOS_DIR,
+            fixtures_dir=FIXTURES_DIR,
+            speed=1000.0,
+        )
+        # set + clear should not require engine to be started
+        engine.set_loop("2026-04-16T14:43:30Z", "2026-04-16T14:44:00Z")
+        assert engine.state.loop_window is not None
+        engine.clear_loop()
+        assert engine.state.loop_window is None
+
+
 class TestQAFiles:
     """Every scenario with a qa.yaml must have valid parseable YAML."""
 
