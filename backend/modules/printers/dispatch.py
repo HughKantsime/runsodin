@@ -195,6 +195,40 @@ def _load_job(job_id: int) -> Optional[dict]:
 
 def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
     """Dispatch to a Bambu printer: implicit FTPS upload + MQTT project_file."""
+    from modules.printers.telemetry.feature_flag import is_v2_enabled
+
+    if is_v2_enabled():
+        return _dispatch_bambu_v2(job_id, stored_path, remote_filename, creds)
+    return _dispatch_bambu_legacy(job_id, stored_path, remote_filename, creds)
+
+
+def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+    """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
+    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.ftp_upload import upload_file
+    from modules.printers.telemetry.bambu.session import run_command
+
+    _ws(job_id, "uploading", f"Uploading {remote_filename} to printer via FTP...")
+    log.info(f"[dispatch] Bambu V2 FTPS upload: {remote_filename}")
+    if not upload_file(creds["ip"], creds["access_code"], stored_path, remote_filename):
+        return False, "FTPS upload failed — check printer IP, access code, and network"
+
+    _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
+    config = BambuAdapterConfig(
+        printer_id=f"dispatch-{creds['serial']}",
+        serial=creds["serial"],
+        host=creds["ip"],
+        access_code=creds["access_code"],
+    )
+    log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
+    ok = run_command(config, "start_print", remote_filename)
+    if not ok:
+        return False, "MQTT print command failed (file uploaded OK)"
+    return True, "Print started"
+
+
+def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+    """Legacy dispatch — unchanged."""
     from modules.printers.adapters.bambu import BambuPrinter
 
     printer = BambuPrinter(
