@@ -1,0 +1,12 @@
+name: print-complete
+description: |
+  Clean run-to-completion on bambu-a1. Starts IDLE, progresses
+  through PREPARE → RUNNING → FINISHED. Final state is FINISHED
+  (not IDLE — V2 distinguishes; legacy collapsed).
+
+printers:
+  - id: a1-01
+    display_name: "Workshop — A1"
+    serial: "03919D4B3003552"
+    fixture: bambu-a1-happy-path.jsonl
+    model: A1

@@ -1,0 +1,22 @@
+# Agent-demo ground-truth Q&A derived from the dramatic-failure
+# scenario. Each question has a single unambiguous answer derivable
+# from the fixture. Used to score agent responses on camera.
+
+scenario: dramatic-failure
+
+questions:
+  - q: "What state did the H2D printer end in?"
+    a: "Error — print_error was overlaid on the state mid-print."
+    verified_against: "PrinterStatus.state == ERROR in the fixture's expected.json"
+
+  - q: "Did the H2D have any HMS warnings during this session?"
+    a: "Yes — 5 active HMS codes throughout (h2d ran with persistent warnings)."
+    verified_against: "active_errors list in final PrinterStatus"
+
+  - q: "How many state transitions did this session go through?"
+    a: "5"
+    verified_against: "transitions array length in bambu-h2d-failure-arc.expected.json"
+
+  - q: "What was the first gcode_state the printer emitted?"
+    a: "FINISH (prior print had just completed)."
+    verified_against: "first transition: offline → finished"

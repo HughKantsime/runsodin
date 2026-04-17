@@ -1,0 +1,28 @@
+name: happy-farm
+description: |
+  Multi-printer hero shot — all 4 Bambus simultaneously in various
+  states. A1 doing a clean run, H2D handling a failure + recovery,
+  P1S + X1C running normally. The dashboard-overview money shot.
+
+  Note: printers use different duration fixtures; at speed=1 they
+  end at different wall-clock times. For synchronized-ending demos,
+  pick fixtures of similar length or use speed adjustments.
+
+printers:
+  - id: a1-01
+    display_name: "A1 — Benchmark"
+    serial: "03919D4B3003552"
+    fixture: bambu-a1-happy-path.jsonl
+    model: A1
+
+  - id: h2d-01
+    display_name: "H2D — Failure Demo"
+    serial: "0948AD561201838"
+    fixture: bambu-h2d-failure-arc.jsonl
+    model: H2D
+
+  - id: h2d-02
+    display_name: "H2D — Recovery Demo"
+    serial: "0948AD561201839"
+    fixture: bambu-h2d-recovery.jsonl
+    model: H2D

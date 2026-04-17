@@ -1,0 +1,18 @@
+scenario: print-complete
+
+questions:
+  - q: "Did the A1 complete its print successfully?"
+    a: "Yes — final state is FINISHED."
+    verified_against: "bambu-a1-happy-path.expected.json final_state: finished"
+
+  - q: "How many total events were in this session?"
+    a: "4797"
+    verified_against: "event_count in expected.json"
+
+  - q: "Did the A1 experience any errors?"
+    a: "No — zero HMS active errors, zero print_error."
+    verified_against: "active_errors is empty in final status"
+
+  - q: "How many state transitions did the A1 go through to reach FINISHED?"
+    a: "6"
+    verified_against: "transitions array length in expected.json"

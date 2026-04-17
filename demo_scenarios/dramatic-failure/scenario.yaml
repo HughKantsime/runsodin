@@ -1,0 +1,13 @@
+name: dramatic-failure
+description: |
+  H2D mid-print leading to a failure, then ERROR state surfaced via
+  print_error overlay. Demonstrates the V2 headline fix: failure is
+  visible instantly (not silently collapsed to IDLE like legacy).
+  HMS warnings tick throughout — also visible.
+
+printers:
+  - id: h2d-01
+    display_name: "Workshop — H2D"
+    serial: "0948AD561201838"
+    fixture: bambu-h2d-failure-arc.jsonl
+    model: H2D
