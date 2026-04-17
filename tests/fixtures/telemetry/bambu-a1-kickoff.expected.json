@@ -1,0 +1,27 @@
+{
+  "fixture": "bambu-a1-kickoff.jsonl",
+  "printer_id": "bambu-a1",
+  "event_count": 34,
+  "degraded_count": 0,
+  "final_state": "printing",
+  "transitions": [
+    {
+      "ts": 1776350613.55649,
+      "from_state": "offline",
+      "to_state": "idle",
+      "reason": "gcode_state=IDLE"
+    },
+    {
+      "ts": 1776350616.687692,
+      "from_state": "idle",
+      "to_state": "preparing",
+      "reason": "gcode_state=PREPARE"
+    },
+    {
+      "ts": 1776350620.77057,
+      "from_state": "preparing",
+      "to_state": "printing",
+      "reason": "gcode_state=RUNNING"
+    }
+  ]
+}

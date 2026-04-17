@@ -1,0 +1,21 @@
+{
+  "fixture": "bambu-h2d-failure.jsonl",
+  "printer_id": "bambu-h2d",
+  "event_count": 47,
+  "degraded_count": 0,
+  "final_state": "error",
+  "transitions": [
+    {
+      "ts": 1776351720.554246,
+      "from_state": "offline",
+      "to_state": "printing",
+      "reason": "gcode_state=RUNNING"
+    },
+    {
+      "ts": 1776351735.5224278,
+      "from_state": "printing",
+      "to_state": "error",
+      "reason": "gcode_state=PAUSE, print_error=83918929"
+    }
+  ]
+}
