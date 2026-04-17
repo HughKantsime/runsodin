@@ -170,6 +170,72 @@ def setup_create_admin(request: SetupAdminRequest, db: Session = Depends(get_db)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+def _test_bambu_legacy(request) -> dict:
+    try:
+        from modules.printers.adapters.bambu import BambuPrinter
+        import time
+        bambu = BambuPrinter(ip=request.api_host, serial=request.serial, access_code=request.access_code)
+        if not bambu.connect():
+            return {"success": False, "error": "Failed to connect. Check IP, serial, and access code."}
+        time.sleep(2)
+        bambu_status = bambu.get_status()
+        bambu.disconnect()
+        try:
+            from modules.printers.printer_models import normalize_model_name
+            detected_model = normalize_model_name("bambu", bambu_status.printer_type)
+        except Exception:
+            detected_model = None
+        return {
+            "success": True, "state": bambu_status.state.value,
+            "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
+            "ams_slots": len(bambu_status.ams_slots), "model": detected_model,
+        }
+    except ImportError:
+        raise HTTPException(status_code=500, detail="bambu_adapter not installed")
+    except Exception as e:
+        log.warning("Setup Bambu test-connection failed: %s", e)
+        return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
+
+
+def _test_bambu_v2(request) -> dict:
+    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.session import read_status_once
+    from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
+
+    config = BambuAdapterConfig(
+        printer_id="setup-test",
+        serial=request.serial,
+        host=request.api_host,
+        access_code=request.access_code,
+    )
+    try:
+        result = read_status_once(config, timeout=8.0)
+    except Exception as e:
+        log.warning("Setup Bambu V2 test-connection failed: %s", e)
+        return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
+
+    if not result.success:
+        return {"success": False, "error": result.error or "Failed to connect."}
+
+    view = result.view
+    section = result.section
+    ams_slots = ams_slots_from_section(section) if section else []
+    # Model detection: V2 exposes printer_type via info events; may be empty here.
+    try:
+        from modules.printers.printer_models import normalize_model_name
+        detected_model = normalize_model_name("bambu", view.printer_type)
+    except Exception:
+        detected_model = None
+    return {
+        "success": True,
+        "state": view.state,                     # legacy-shaped enum string
+        "bed_temp": view.bed_temp,
+        "nozzle_temp": view.nozzle_temp,
+        "ams_slots": len(ams_slots),
+        "model": detected_model,
+    }
+
+
 @router.post("/setup/test-printer", tags=["Setup"])
 def setup_test_printer(
     request: SetupTestPrinterRequest,
@@ -198,30 +264,11 @@ def setup_test_printer(
     if request.api_type.lower() == "bambu":
         if not request.serial or not request.access_code:
             raise HTTPException(status_code=400, detail="Serial and access_code required for Bambu printers")
-        try:
-            from modules.printers.adapters.bambu import BambuPrinter
-            import time
-            bambu = BambuPrinter(ip=request.api_host, serial=request.serial, access_code=request.access_code)
-            if not bambu.connect():
-                return {"success": False, "error": "Failed to connect. Check IP, serial, and access code."}
-            time.sleep(2)
-            bambu_status = bambu.get_status()
-            bambu.disconnect()
-            try:
-                from modules.printers.printer_models import normalize_model_name
-                detected_model = normalize_model_name("bambu", bambu_status.printer_type)
-            except Exception:
-                detected_model = None
-            return {
-                "success": True, "state": bambu_status.state.value,
-                "bed_temp": bambu_status.bed_temp, "nozzle_temp": bambu_status.nozzle_temp,
-                "ams_slots": len(bambu_status.ams_slots), "model": detected_model,
-            }
-        except ImportError:
-            raise HTTPException(status_code=500, detail="bambu_adapter not installed")
-        except Exception as e:
-            log.warning("Setup Bambu test-connection failed: %s", e)
-            return {"success": False, "error": "Connection failed. Check IP, serial, and access code."}
+
+        from modules.printers.telemetry.feature_flag import is_v2_enabled
+        if is_v2_enabled():
+            return _test_bambu_v2(request)
+        return _test_bambu_legacy(request)
 
     elif request.api_type.lower() == "moonraker":
         import httpx as httpx_client
