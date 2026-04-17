@@ -285,3 +285,69 @@ class BambuPrintSection(_StrictBase):
     ver: Optional[str] = None
     state: Optional[int] = None                     # low-level state; gcode_state is canonical
 
+
+# ===== The `info` section (firmware/module identity) =====
+
+class BambuInfoModule(_StrictBase):
+    """One module's firmware record — e.g. `ota`, `mc`, `ams`, `extruder_0`.
+
+    Empirical basis: bambu-a1 has 5 modules, p1s has 6, x1c has 8, h2d
+    has 11. Each module reports its software/hardware version and serial.
+    """
+
+    name: str                                       # "ota", "mc", "ams", "extruder_0", "esp32", etc.
+    sw_ver: str                                     # "01.07.00.00"
+    hw_ver: Optional[str] = None                    # "OTA", "N/A", "v1.0"
+    loader_ver: Optional[str] = None                # "00.00.00.00"
+    sn: Optional[str] = None                        # module serial (often matches printer serial on ota)
+    product_name: Optional[str] = None              # Only on some modules (e.g. "Bambu Lab A1")
+    visible: Optional[bool] = None
+    flag: Optional[int] = None                      # status bitflag; semantics TBD
+    new_ver: Optional[str] = None                   # present when firmware update available (p1s case)
+
+
+class BambuInfoSection(_StrictBase):
+    """The `info` object — printer/module identity + firmware.
+
+    Sent in response to a `get_version` command; also periodically by some
+    models. Much less frequent than `print` reports.
+    """
+
+    command: str                                    # "get_version"
+    sequence_id: Optional[str] = None
+    module: list[BambuInfoModule] = Field(default_factory=list)
+
+    # a1/p1s also include these two — ACK envelope from cloud
+    reason: Optional[str] = None
+    result: Optional[str] = None
+
+
+# ===== Top-level envelope =====
+
+class InvalidBambuReport(ValueError):
+    """Raised when a Bambu MQTT payload has neither `print` nor `info` — fail loud."""
+
+
+class BambuReport(_StrictBase):
+    """Top-level envelope of a Bambu MQTT report.
+
+    A Bambu printer's MQTT topic `device/<serial>/report` emits messages
+    that have either a `print` key (status reports, the 99% case), an
+    `info` key (module firmware identity, ~15 samples per session), or
+    both.
+
+    If a message has neither, it is an unknown envelope — raise
+    `InvalidBambuReport` so the adapter can log + surface DEGRADED state
+    instead of silently dropping.
+    """
+
+    print: Optional[BambuPrintSection] = None
+    info: Optional[BambuInfoSection] = None
+
+    def model_post_init(self, __context) -> None:
+        if self.print is None and self.info is None:
+            raise InvalidBambuReport(
+                "Bambu report has neither `print` nor `info` section. "
+                f"Keys present: {list(self.model_extra or {})}"
+            )
+
