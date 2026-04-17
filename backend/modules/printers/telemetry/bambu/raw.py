@@ -25,6 +25,7 @@ from typing import Annotated, Optional
 from pydantic import BeforeValidator, Field
 
 from backend.modules.printers.telemetry.base import _StrictBase
+from backend.modules.printers.telemetry.bambu.enums import BambuGcodeState
 from backend.modules.printers.telemetry.bambu.hms import BambuHMSEvent
 from backend.modules.printers.telemetry.validators import coerce_int_or_raise
 
@@ -203,9 +204,10 @@ class BambuPrintSection(_StrictBase):
     msg: Optional[int] = None                       # sequence counter
 
     # ---- lifecycle / state ----
-    # gcode_state handled via the BambuGcodeState enum in T1.8; keep str here
-    # so raw.py has no enum dependency. The enum is applied in the adapter layer.
-    gcode_state: Optional[str] = None
+    # Strict enum — unknown values raise ValidationError. The adapter
+    # catches that as DEGRADED state + loud log + observer ping, instead
+    # of the legacy silent-map-to-IDLE-UNKNOWN.
+    gcode_state: Optional[BambuGcodeState] = None
 
     # stg_cur is polymorphic — int OR str-of-int. Normalize to int or raise.
     stg_cur: IntLoose = None
