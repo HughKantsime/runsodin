@@ -33,7 +33,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 try:
     import yaml
@@ -83,12 +83,26 @@ class DemoPrinter:
 
 
 @dataclass
+class DemoMarker:
+    """One narration cue in a scenario — attached to an ISO timestamp."""
+
+    at_iso: str
+    label: str
+
+
+@dataclass
 class DemoScenario:
-    """A named collection of printers + fixtures to replay together."""
+    """A named collection of printers + fixtures to replay together.
+
+    Optional `markers` list provides narration cues that fire as the
+    scenario crosses each `at_iso`. Consumers (SSE, CLI, recording
+    overlay, etc.) subscribe via `DemoEngine(on_marker=...)`.
+    """
 
     name: str
     description: str
     printers: list[DemoPrinter]
+    markers: list[DemoMarker] = field(default_factory=list)
 
     @classmethod
     def load(cls, scenarios_dir: Path, name: str) -> "DemoScenario":
@@ -100,10 +114,23 @@ class DemoScenario:
         if not path.exists():
             raise FileNotFoundError(f"scenario not found: {path}")
         data = yaml.safe_load(path.read_text())
+
+        # Markers can live in the scenario.yaml OR in a sibling markers.yaml.
+        markers: list[DemoMarker] = [
+            DemoMarker(**m) for m in data.get("markers", [])
+        ]
+        markers_path = scenarios_dir / name / "markers.yaml"
+        if markers_path.exists():
+            mdata = yaml.safe_load(markers_path.read_text()) or {}
+            markers.extend(
+                DemoMarker(**m) for m in mdata.get("markers", [])
+            )
+
         return cls(
             name=data["name"],
             description=data["description"],
             printers=[DemoPrinter(**p) for p in data["printers"]],
+            markers=markers,
         )
 
 
@@ -156,19 +183,28 @@ class DemoState:
 
 
 class DemoEngine:
-    """Orchestrates broker + multi-publisher threads for one scenario."""
+    """Orchestrates broker + multi-publisher threads for one scenario.
+
+    Optional `on_marker` callback fires when a publisher crosses a
+    marker's at_iso timestamp. Use cases: print captions to stdout,
+    push to an SSE stream, write to a recording log.
+    """
 
     def __init__(
         self,
         scenario: DemoScenario,
         fixtures_dir: Path = FIXTURES_DIR,
         speed: float = 1.0,
+        on_marker: Optional[Callable[[DemoMarker], None]] = None,
     ):
         self.scenario = scenario
         self.fixtures_dir = fixtures_dir
         self.state = DemoState(speed=speed)
         self._broker: Optional[LocalBroker] = None
         self._threads: list[threading.Thread] = []
+        self._on_marker = on_marker
+        self._fired_markers: set[str] = set()
+        self._fired_markers_lock = threading.Lock()
 
     @classmethod
     def from_scenario(
@@ -177,9 +213,27 @@ class DemoEngine:
         scenarios_dir: Path = SCENARIOS_DIR,
         fixtures_dir: Path = FIXTURES_DIR,
         speed: float = 1.0,
+        on_marker: Optional[Callable[[DemoMarker], None]] = None,
     ) -> "DemoEngine":
         scenario = DemoScenario.load(scenarios_dir, name)
-        return cls(scenario, fixtures_dir=fixtures_dir, speed=speed)
+        return cls(scenario, fixtures_dir=fixtures_dir, speed=speed, on_marker=on_marker)
+
+    def _maybe_fire_marker(self, current_iso: str) -> None:
+        """Called from publish_loop whenever an event's iso advances.
+        Fires each marker at most once (dedup across publishers)."""
+        if not self._on_marker or not self.scenario.markers:
+            return
+        for marker in self.scenario.markers:
+            if marker.at_iso > current_iso:
+                continue  # not yet
+            with self._fired_markers_lock:
+                if marker.at_iso in self._fired_markers:
+                    continue
+                self._fired_markers.add(marker.at_iso)
+            try:
+                self._on_marker(marker)
+            except Exception:
+                logger.exception("on_marker callback raised; continuing")
 
     @property
     def broker_url(self) -> str:
@@ -305,6 +359,7 @@ class DemoEngine:
                 prev_ts = ts
 
                 client.publish(topic, json.dumps(payload), qos=0)
+                self._maybe_fire_marker(iso)
                 cursor += 1
         finally:
             client.loop_stop()

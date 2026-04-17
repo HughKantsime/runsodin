@@ -1,0 +1,23 @@
+# Narration cues for the dramatic-failure scenario. DemoEngine's
+# on_marker callback fires at each at_iso — consumers render captions,
+# log lines, SSE events, etc.
+#
+# Timestamps were chosen from the bambu-h2d-failure-arc capture to
+# highlight the state transitions that make the V2 adapter visibly
+# better than legacy.
+
+markers:
+  - at_iso: "2026-04-16T14:47:48Z"
+    label: "H2D transitions from FINISH → PREPARE — new print starting"
+
+  - at_iso: "2026-04-16T14:47:49Z"
+    label: "Printer enters RUNNING (legacy would render this as 'printing' too)"
+
+  - at_iso: "2026-04-16T14:48:55Z"
+    label: "Printer PAUSES — filament issue detected"
+
+  - at_iso: "2026-04-16T15:02:15Z"
+    label: "Running briefly, then pausing again (retry attempt)"
+
+  - at_iso: "2026-04-16T15:02:28Z"
+    label: "FAILED state entered. V2 surfaces this; legacy collapses to IDLE."

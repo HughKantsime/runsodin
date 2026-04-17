@@ -8,6 +8,7 @@ import pytest
 
 from backend.modules.printers.telemetry.demo import (
     DemoEngine,
+    DemoMarker,
     DemoPrinter,
     DemoScenario,
     DemoState,
@@ -219,6 +220,66 @@ class TestSeekAndLoop:
         assert engine.state.loop_window is not None
         engine.clear_loop()
         assert engine.state.loop_window is None
+
+
+class TestMarkers:
+    """T6.8 — markers fire when scenario crosses their at_iso (no UI needed)."""
+
+    def test_load_dramatic_failure_markers(self):
+        """dramatic-failure has a markers.yaml with 5 cues."""
+        scenario = DemoScenario.load(SCENARIOS_DIR, "dramatic-failure")
+        assert len(scenario.markers) >= 5
+        assert all(isinstance(m, DemoMarker) for m in scenario.markers)
+        # sanity on first marker content
+        first = scenario.markers[0]
+        assert first.at_iso.startswith("2026-04-16T14:")
+        assert "PREPARE" in first.label or "FINISH" in first.label
+
+    def test_no_markers_file_is_ok(self):
+        """Scenarios without markers.yaml load cleanly with empty markers."""
+        scenario = DemoScenario.load(SCENARIOS_DIR, "ams-swap")
+        assert scenario.markers == []
+
+    def test_marker_callback_fires_when_crossed(self):
+        """Playing dramatic-failure at high speed must fire every marker once."""
+        fired: list[DemoMarker] = []
+        engine = DemoEngine.from_scenario(
+            "dramatic-failure",
+            scenarios_dir=SCENARIOS_DIR,
+            fixtures_dir=FIXTURES_DIR,
+            speed=10000.0,  # very fast
+            on_marker=fired.append,
+        )
+        engine.start()
+        try:
+            done = engine.wait_until_done(timeout=60)
+            assert done
+        finally:
+            engine.stop()
+
+        # all 5+ markers should have fired (each at most once)
+        assert len(fired) == len(engine.scenario.markers)
+        # unique
+        assert len({m.at_iso for m in fired}) == len(fired)
+
+    def test_marker_callback_raises_does_not_crash(self):
+        """Callback exceptions must be swallowed + logged."""
+        def bad_callback(m):
+            raise RuntimeError("boom")
+
+        engine = DemoEngine.from_scenario(
+            "dramatic-failure",
+            scenarios_dir=SCENARIOS_DIR,
+            fixtures_dir=FIXTURES_DIR,
+            speed=10000.0,
+            on_marker=bad_callback,
+        )
+        engine.start()
+        try:
+            done = engine.wait_until_done(timeout=60)
+            assert done  # engine completes despite callback crashes
+        finally:
+            engine.stop()
 
 
 class TestQAFiles:
