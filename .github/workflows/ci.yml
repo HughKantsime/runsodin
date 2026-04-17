@@ -48,7 +48,7 @@ jobs:
         run: pip3.11 install --break-system-packages pytest && pip3.11 install --break-system-packages -r backend/requirements.txt
 
       - name: Run telemetry contract tests
-        run: python3.11 -m pytest tests/test_telemetry/ -v --tb=short
+        run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3.11 -m pytest tests/test_telemetry/ -v --tb=short
 
   # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning

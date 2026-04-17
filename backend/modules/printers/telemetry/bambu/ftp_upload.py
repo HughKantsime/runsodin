@@ -9,7 +9,10 @@ method so dispatch.py can migrate without behavior change.
 """
 from __future__ import annotations
 
-import ftplib
+# nosec B402 — FTPS (implicit TLS on port 990) is Bambu's published
+# LAN file-transfer protocol. This is the same suppression the legacy
+# adapter uses (backend/modules/printers/adapters/bambu.py).
+import ftplib  # nosec B402
 import logging
 import os
 import ssl
