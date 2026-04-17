@@ -58,6 +58,15 @@ ALLOWED_PATTERNS = [
     #   - system/routes_setup.py  (test-connection during setup wizard)
     ".adapters.",
 
+    # V2 telemetry pipeline — successor to .adapters.bambu. Same
+    # hardware-driver role (reads MQTT, sends commands), sanctioned
+    # to be imported from cross-module callsites. Gates on the
+    # ODIN_TELEMETRY_V2 flag; see backend/modules/printers/telemetry/
+    # README.md + CUTOVER.md.
+    ".telemetry.",
+    ".telemetry import",
+    ".feature_flag",
+
     # The event dispatcher and MQTT republish bridge are the notification
     # integration layer. Monitors publish events through these — this is
     # the intended architecture for cross-module communication.
