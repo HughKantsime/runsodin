@@ -38,6 +38,55 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
     except Exception:
         return {"error": "Could not decrypt credentials"}
 
+    # Route through V2 when ODIN_TELEMETRY_V2=1; legacy path otherwise.
+    from modules.printers.telemetry.feature_flag import is_v2_enabled
+    if is_v2_enabled():
+        return _fetch_live_status_v2(printer_id, printer, serial, access_code)
+    return _fetch_live_status_legacy(printer_id, printer, serial, access_code)
+
+
+def _fetch_live_status_v2(printer_id, printer, serial, access_code) -> dict:
+    """V2 path — uses BambuTelemetryAdapter via read_status_once."""
+    from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.session import read_status_once
+
+    config = BambuAdapterConfig(
+        printer_id=f"legacy-route-{printer.id}",
+        serial=serial,
+        host=printer.api_host,
+        access_code=access_code,
+    )
+    try:
+        result = read_status_once(config, timeout=5.0)
+    except Exception as e:
+        log.debug("V2 live status fetch error for printer %s: %s", printer_id, e, exc_info=True)
+        return {"error": "Unable to fetch live status"}
+
+    if not result.success:
+        return {"error": result.error or "Connection failed"}
+    if result.section is None:
+        return {"error": "Timeout waiting for status"}
+
+    s = result.section
+    return {
+        "printer_id": printer_id,
+        "printer_name": printer.name,
+        "gcode_state": s.gcode_state.value if s.gcode_state else None,
+        "job_name": s.subtask_name,
+        "progress": s.mc_percent,
+        "layer": s.layer_num,
+        "total_layers": s.total_layer_num,
+        "time_remaining": s.mc_remaining_time,
+        "bed_temp": s.bed_temper,
+        "bed_target": s.bed_target_temper,
+        "nozzle_temp": s.nozzle_temper,
+        "nozzle_target": s.nozzle_target_temper,
+        "wifi_signal": s.wifi_signal,
+    }
+
+
+def _fetch_live_status_legacy(printer_id, printer, serial, access_code) -> dict:
+    """Legacy path — unchanged behavior for ODIN_TELEMETRY_V2=0."""
     from modules.printers.adapters.bambu import BambuPrinter
 
     status_data = {}
