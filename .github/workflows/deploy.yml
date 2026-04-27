@@ -270,22 +270,13 @@ jobs:
       - name: Add Homebrew to PATH
         run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
-      - name: Poll prod version endpoint
+      - uses: actions/checkout@v4
+
+      - name: Verify prod version and readiness
         id: verify
         run: |
           VER="${{ needs.tag.outputs.version }}"
-          VER="${VER#v}"
-          for i in $(seq 1 20); do
-            sleep 30
-            RESPONSE=$(curl -sf https://odin.subsystem.app/health 2>/dev/null || echo "FETCH_FAILED")
-            if echo "$RESPONSE" | grep -q "\"version\":\"$VER\""; then
-              echo "Prod is running v$VER — health check passed"
-              exit 0
-            fi
-            echo "Poll $i/20: waiting for v$VER on prod..."
-          done
-          echo "::error::Prod did not update to v$VER within 10 minutes"
-          exit 1
+          ops/prod_verify_public.sh "$VER"
 
   # ── Phase 6: Notification ──
   notify:
