@@ -1,6 +1,6 @@
 """O.D.I.N. — Print File Upload and Management."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from core.rate_limit import limiter
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -12,11 +12,16 @@ import re
 import tempfile
 
 from core.db import get_db
-from core.rbac import require_role
+from core.errors import ErrorCode, OdinError
+from core.middleware.dry_run import dry_run_preview, is_dry_run
+from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role
+from core.responses import build_next_actions, next_action
 
 log = logging.getLogger("odin.api")
 
 router = APIRouter(tags=["Print Files"])
+
+ALLOWED_PRINT_FILE_EXTENSIONS = {".3mf", ".gcode", ".bgcode"}
 
 
 def _normalize_model_name(name: str) -> str:
@@ -29,6 +34,72 @@ def _normalize_model_name(name: str) -> str:
     for p in patterns:
         result = re.sub(p, '', result, flags=re.IGNORECASE)
     return result.strip()
+
+
+def _parse_studio_profile_metadata(raw: Optional[str]) -> Optional[dict]:
+    """Parse Studio's JSON profile_metadata multipart field."""
+    if raw in (None, ""):
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise OdinError(
+            ErrorCode.validation_failed,
+            f"profile_metadata must be valid JSON: {exc.msg}",
+            status=400,
+            retriable=False,
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise OdinError(
+            ErrorCode.validation_failed,
+            "profile_metadata must be a JSON object",
+            status=400,
+            retriable=False,
+        )
+    return parsed
+
+
+def _validate_studio_print_file_name(filename: str) -> str:
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext not in ALLOWED_PRINT_FILE_EXTENSIONS:
+        raise OdinError(
+            ErrorCode.validation_failed,
+            "Only .3mf, .gcode, and .bgcode files are supported",
+            status=400,
+            retriable=False,
+        )
+    return ext
+
+
+def _get_accessible_printer(db: Session, printer_id: int, current_user: dict):
+    printer = db.execute(
+        text("SELECT id, name, org_id, api_type, machine_type FROM printers WHERE id = :id"),
+        {"id": printer_id},
+    ).fetchone()
+    if not printer:
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {printer_id} not found",
+            status=404,
+            retriable=False,
+        )
+    if not check_org_access(current_user, printer._mapping.get("org_id")):
+        raise OdinError(
+            ErrorCode.printer_not_found,
+            f"Printer {printer_id} not found",
+            status=404,
+            retriable=False,
+        )
+    return printer
+
+
+def _studio_print_notes(note: Optional[str], profile_metadata: Optional[dict]) -> Optional[str]:
+    pieces = []
+    if note:
+        pieces.append(note)
+    if profile_metadata:
+        pieces.append("ODIN Studio profile_metadata: " + json.dumps(profile_metadata, sort_keys=True))
+    return "\n\n".join(pieces) if pieces else None
 
 
 # ──────────────────────────────────────────────
@@ -48,8 +119,7 @@ async def upload_3mf(
     fname = file.filename or ""
     ext = os.path.splitext(fname)[1].lower()
 
-    ALLOWED_EXTENSIONS = {".3mf", ".gcode", ".bgcode"}
-    if ext not in ALLOWED_EXTENSIONS:
+    if ext not in ALLOWED_PRINT_FILE_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Only .3mf, .gcode, and .bgcode files are supported")
 
     # Enforce upload size limit (100 MB)
@@ -324,6 +394,119 @@ async def upload_3mf(
     finally:
         # Clean up temp file
         os.unlink(tmp_path)
+
+
+@router.post("/prints", status_code=status.HTTP_201_CREATED, tags=["Studio"])
+async def submit_studio_print(
+    request: Request,
+    file: UploadFile = File(...),
+    target_printer_id: int = Form(...),
+    profile_metadata: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
+    current_user: dict = Depends(require_role("operator")),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    db: Session = Depends(get_db),
+):
+    """Queue an ODIN Studio sliced file without starting printer hardware.
+
+    Studio sends multipart `file`, `target_printer_id`, optional
+    `profile_metadata`, and optional `note`. This endpoint deliberately queues
+    only: it creates a pending job linked to the uploaded print file and never
+    calls dispatch/MQTT/FTP printer-start code.
+    """
+    filename = file.filename or ""
+    _validate_studio_print_file_name(filename)
+    parsed_profile_metadata = _parse_studio_profile_metadata(profile_metadata)
+    printer = _get_accessible_printer(db, target_printer_id, current_user)
+
+    if is_dry_run(request):
+        return dry_run_preview(
+            would_execute={
+                "action": "queue_studio_print",
+                "filename": filename,
+                "target_printer_id": target_printer_id,
+                "profile_metadata": parsed_profile_metadata,
+                "note": note,
+                "start_mode": "queue_only",
+                "dispatch_required": True,
+            },
+            next_actions=[
+                next_action(
+                    "submit_print",
+                    {"target_printer_id": target_printer_id, "dry_run": False},
+                    "queue the sliced file after preview",
+                ),
+            ],
+            notes=(
+                "Would persist the uploaded file, create a pending job linked "
+                "to it, and assign the target printer. No DB, filesystem, or "
+                "printer side effects run on dry-run."
+            ),
+        )
+
+    uploaded = await upload_3mf(
+        request=request,
+        file=file,
+        current_user=current_user,
+        db=db,
+    )
+    file_id = uploaded["id"]
+    filaments = uploaded.get("filaments") or []
+    colors = [f.get("color") for f in filaments if f.get("color")]
+    duration_seconds = uploaded.get("print_time_seconds") or 0
+    duration_hours = duration_seconds / 3600.0 if duration_seconds else 0
+    notes = _studio_print_notes(note, parsed_profile_metadata)
+
+    job_result = db.execute(text("""
+        INSERT INTO jobs (
+            item_name, model_id, duration_hours, colors_required, quantity,
+            priority, status, printer_id, hold, is_locked, notes,
+            charged_to_user_id, charged_to_org_id, target_type
+        ) VALUES (
+            :item_name, :model_id, :duration_hours, :colors_required, 1,
+            5, 'pending', :printer_id, 0, 0, :notes,
+            :charged_to_user_id, :charged_to_org_id, 'specific'
+        )
+    """), {
+        "item_name": uploaded.get("project_name") or filename,
+        "model_id": uploaded.get("model_id"),
+        "duration_hours": duration_hours,
+        "colors_required": ",".join(colors),
+        "printer_id": target_printer_id,
+        "notes": notes,
+        "charged_to_user_id": current_user.get("id") if current_user else None,
+        "charged_to_org_id": current_user.get("group_id") if current_user else None,
+    })
+    db.commit()
+    job_id = job_result.lastrowid
+
+    db.execute(
+        text("UPDATE print_files SET job_id = :job_id WHERE id = :id"),
+        {"job_id": job_id, "id": file_id},
+    )
+    db.commit()
+
+    queued_position = db.execute(
+        text("SELECT COUNT(*) FROM jobs WHERE status IN ('pending', 'scheduled') AND id <= :id"),
+        {"id": job_id},
+    ).scalar()
+
+    return {
+        "id": str(job_id),
+        "status": "queued",
+        "queued_position": queued_position,
+        "job_id": job_id,
+        "file_id": file_id,
+        "target_printer_id": target_printer_id,
+        "target_printer_name": printer._mapping.get("name"),
+        "project_name": uploaded.get("project_name"),
+        "dispatch_required": True,
+        "start_mode": "queue_only",
+        "next_actions": build_next_actions(
+            next_action("get_job", {"id": job_id}, "confirm the queued Studio job"),
+            next_action("dispatch_job", {"job_id": job_id}, "start the physical print only after operator approval"),
+        ),
+    }
 
 
 @router.get("/print-files")

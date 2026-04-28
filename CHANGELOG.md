@@ -54,6 +54,24 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.4] - 2026-04-28
+
+### Added
+
+- `POST /api/v1/prints` for ODIN Studio sliced-file submission. The
+  endpoint accepts multipart sliced files plus a target printer, creates
+  a pending queue job, and deliberately stays queue-only so printer
+  hardware is not started by submission.
+- Dry-run support for the Studio print contract. `X-Dry-Run: true`
+  previews `queue_studio_print` with `start_mode: queue_only` and no DB,
+  filesystem, dispatch, MQTT, or FTPS side effects.
+
+### Fixed
+
+- Production deployment gate now verifies the public backend version and
+  readiness after GHCR publishes `:latest`, so ODIN Studio smoke testing
+  can wait for the backend contract before running.
+
 ## [1.9.3] - 2026-04-16
 
 ### Fixed — scoped-token auth was broken against live traffic

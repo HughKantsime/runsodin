@@ -238,6 +238,7 @@ DRY_RUN_SUPPORTED_ROUTES: tuple[tuple[str, str], ...] = (
     ("POST", "/api/v1/jobs/{job_id}/cancel"),
     ("POST", "/api/v1/jobs/{job_id}/approve"),
     ("POST", "/api/v1/jobs/{job_id}/reject"),
+    ("POST", "/api/v1/prints"),
     ("POST", "/api/v1/spools/{spool_id}/use"),
     ("PATCH", "/api/v1/spools/{spool_id}/use"),
     ("POST", "/api/v1/filament-slots"),
