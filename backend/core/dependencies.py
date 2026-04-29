@@ -245,74 +245,72 @@ async def get_current_user(
                 text("SELECT * FROM api_tokens WHERE token_prefix = :prefix"),
                 {"prefix": prefix},
             ).fetchall()
+            # Constant-time multi-entry compare: verify_password() runs for
+            # every candidate, and we only commit to a match AFTER iterating
+            # the full list. Folding the expiry check into the per-candidate
+            # `usable` flag means an expired token still consumes the same
+            # bcrypt time as a valid one. Without this, the first-prefix-
+            # match-wins shape made it possible to map prefix density across
+            # the token store from the outside via response timing.
+            #
+            # Historical (v1.9.1 prod incident 2026-04-16): the expiry parse
+            # block previously imported `dateutil.parser.parse` which isn't
+            # in requirements.txt. The ModuleNotFoundError raised on EVERY
+            # scoped-token auth. Switched to stdlib `datetime.fromisoformat`.
+            matched_candidate = None
             for candidate in candidates:
-                if verify_password(api_key, candidate.token_hash):
-                    # Check expiry.
-                    #
-                    # Historical (v1.9.1 prod incident 2026-04-16): this
-                    # block previously imported `dateutil.parser.parse` which
-                    # isn't in requirements.txt. The ModuleNotFoundError
-                    # raised on EVERY scoped-token auth, returning 500 on
-                    # every agent-surface call. Silent for ~days because no
-                    # end-to-end test exercised the X-API-Key path against
-                    # a real container. Switched to stdlib
-                    # `datetime.fromisoformat` which Python 3.11 supports
-                    # natively for the shapes SQLAlchemy emits here
-                    # (tz-aware ISO-8601 with offset, or tz-naive which we
-                    # coerce to UTC before comparing).
-                    if candidate.expires_at:
-                        try:
-                            raw = candidate.expires_at
-                            if isinstance(raw, str):
-                                exp = datetime.fromisoformat(raw)
-                            else:
-                                exp = raw
-                            if exp.tzinfo is None:
-                                exp = exp.replace(tzinfo=timezone.utc)
-                            if exp < datetime.now(timezone.utc):
-                                continue
-                        except Exception:
-                            # Malformed expires_at — don't expire, let it
-                            # through. Worst case: a token that should have
-                            # expired keeps working; operator can revoke.
-                            pass
-                    # Update last_used_at — best effort. This is telemetry,
-                    # not part of the auth decision. If it races with another
-                    # writer (idempotency middleware, another auth call) and
-                    # SQLite returns `database is locked`, we must NOT fail
-                    # the auth — the agent would see a 500 on every scoped-
-                    # token call under any concurrent write load, which is
-                    # exactly what the v1.9.1 sweep 2026-04-16 surfaced.
+                byte_match = verify_password(api_key, candidate.token_hash)
+                expired = False
+                if candidate.expires_at:
                     try:
-                        db.execute(
-                            text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
-                            {"now": datetime.now(timezone.utc), "id": candidate.id},
-                        )
-                        db.commit()
-                    except Exception as exc:
-                        # Roll back the failed UPDATE so the session is
-                        # clean for the handler that runs next. Log at
-                        # debug — this race is expected under load; we
-                        # only care if it happens on EVERY call.
-                        try:
-                            db.rollback()
-                        except Exception:
-                            pass
-                        log.debug(
-                            "Best-effort api_tokens.last_used_at update failed "
-                            "(likely SQLite WAL contention): %s", exc,
-                        )
-                    # Fetch the user
-                    user = db.execute(
-                        text("SELECT * FROM users WHERE id = :id"),
-                        {"id": candidate.user_id},
-                    ).fetchone()
-                    if user:
-                        user_dict = dict(user._mapping)
-                        user_dict["_token_scopes"] = (
-                            json.loads(candidate.scopes) if candidate.scopes else []
-                        )
-                        return user_dict
+                        raw = candidate.expires_at
+                        exp = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+                        if exp.tzinfo is None:
+                            exp = exp.replace(tzinfo=timezone.utc)
+                        expired = exp < datetime.now(timezone.utc)
+                    except Exception:
+                        # Malformed expires_at — don't expire, let it
+                        # through. Worst case: a token that should have
+                        # expired keeps working; operator can revoke.
+                        expired = False
+                usable = not expired
+                if byte_match and usable and matched_candidate is None:
+                    matched_candidate = candidate
+            if matched_candidate is not None:
+                candidate = matched_candidate
+                # Update last_used_at — best effort. This is telemetry,
+                # not part of the auth decision. If it races with another
+                # writer (idempotency middleware, another auth call) and
+                # SQLite returns `database is locked`, we must NOT fail
+                # the auth — the agent would see a 500 on every scoped-
+                # token call under any concurrent write load, which is
+                # exactly what the v1.9.1 sweep 2026-04-16 surfaced.
+                try:
+                    db.execute(
+                        text("UPDATE api_tokens SET last_used_at = :now WHERE id = :id"),
+                        {"now": datetime.now(timezone.utc), "id": candidate.id},
+                    )
+                    db.commit()
+                except Exception as exc:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    log.debug(
+                        "Best-effort api_tokens.last_used_at update failed "
+                        "(likely SQLite WAL contention): %s", exc,
+                    )
+                # Fetch the user
+                user = db.execute(
+                    text("SELECT * FROM users WHERE id = :id"),
+                    {"id": candidate.user_id},
+                ).fetchone()
+                if user:
+                    user_dict = dict(user._mapping)
+                    user_dict["_token_scopes"] = (
+                        json.loads(candidate.scopes) if candidate.scopes else []
+                    )
+                    return user_dict
 
     return None
 
