@@ -1,0 +1,87 @@
+# Makefile for the demo.subsystem.app App Review reviewer stack.
+#
+# Run from anywhere — paths are resolved relative to this Makefile:
+#   make -f ops/demo/Makefile.demo demo-up
+#   cd ops/demo && make -f Makefile.demo demo-up
+
+.PHONY: help demo-build demo-up demo-down demo-reset demo-logs demo-probe demo-probe-public demo-scrub-fixture demo-rotate-password demo-write-credentials
+
+# Anchor every path to this Makefile's location, so behaviour is
+# identical regardless of the caller's $PWD.
+HERE      := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT := $(abspath $(HERE)/../..)
+COMPOSE   := $(HERE)/docker-compose.demo.yml
+DC        := docker compose -f $(COMPOSE) -p odin-demo
+
+REVIEWER_EMAIL := appreview@demo.subsystem.app
+CREDS_FILE     := $(HERE)/.reviewer-credentials.txt
+DATA_DIR       := $(HERE)/odin-demo-data
+HEARTBEAT_DIR  := $(HERE)/heartbeat
+
+help: ## Show targets
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+
+demo-scrub-fixture: ## Re-emit the scrubbed AMS-swap fixture (idempotent)
+	cd $(REPO_ROOT) && python3 ops/demo/scrub_fixture.py --write
+
+demo-build: ## Pull/build the demo stack (no-op if image is current)
+	$(DC) pull
+	$(DC) build --pull
+
+demo-up: ## Start the isolated demo stack
+	$(DC) up -d
+	$(DC) ps
+
+demo-down: ## Stop the demo stack (preserve volumes)
+	$(DC) down
+
+demo-reset: ## Wipe demo data, rotate reviewer password, restart publisher (target: ≤60s)
+	@echo "[demo-reset] tearing down..."
+	-$(DC) down
+	@echo "[demo-reset] wiping demo data + heartbeat..."
+	rm -rf $(DATA_DIR) $(HEARTBEAT_DIR)
+	mkdir -p $(DATA_DIR) $(HEARTBEAT_DIR)
+	@echo "[demo-reset] rotating reviewer password..."
+	$(MAKE) -f $(lastword $(MAKEFILE_LIST)) demo-rotate-password
+	@echo "[demo-reset] starting stack..."
+	$(DC) up -d
+	@echo "[demo-reset] OK — credentials at $(CREDS_FILE)"
+
+demo-rotate-password: ## Generate a new 12-char password, write to credentials file (no MFA)
+	@python3 -c "import secrets, string, pathlib, datetime; \
+		alphabet = string.ascii_letters + string.digits; \
+		pw = ''.join(secrets.choice(alphabet) for _ in range(12)); \
+		pathlib.Path('$(CREDS_FILE)').write_text( \
+		  f'# demo.subsystem.app reviewer credentials\\n' \
+		  f'# rotated: {datetime.datetime.utcnow().isoformat()}Z\\n' \
+		  f'email: $(REVIEWER_EMAIL)\\n' \
+		  f'password: {pw}\\n' \
+		  f'mfa: disabled (App Review requirement)\\n' \
+		  f'scope: demo printer only — no admin, no instance creation, no API key generation\\n' \
+		); print(f'rotated; new password written to $(CREDS_FILE)')"
+
+demo-write-credentials: ## Apply the rotated password to the demo backend's reviewer account
+	@if [ ! -f "$(CREDS_FILE)" ]; then \
+		echo "no credentials file — run demo-rotate-password first"; exit 1; \
+	fi
+	@PW=$$(awk '/^password:/ {print $$2}' "$(CREDS_FILE)"); \
+	$(DC) exec -T odin python3 -m backend.scripts.demo_seed_reviewer \
+		--email "$(REVIEWER_EMAIL)" --password "$$PW" --no-mfa --read-only-printer x1c-demo
+
+demo-logs: ## Tail logs across all demo services
+	$(DC) logs -f --tail=200
+
+demo-probe: ## Run health probe against the local stack (no DNS required)
+	cd $(REPO_ROOT) && python3 ops/demo/health_probe.py \
+		--base-url http://127.0.0.1:8000 \
+		--broker-host 127.0.0.1 --broker-port 1883 \
+		--heartbeat-path $(HEARTBEAT_DIR)/publisher.heartbeat
+
+# Public probe — runs against the deployed env. Wire into ntfy via
+# ops/demo/probe_ntfy.sh (caller-provided wrapper).
+demo-probe-public: ## Run health probe against demo.subsystem.app
+	cd $(REPO_ROOT) && python3 ops/demo/health_probe.py \
+		--base-url https://demo.subsystem.app \
+		--broker-host 127.0.0.1 --broker-port 1883 \
+		--heartbeat-path $(HEARTBEAT_DIR)/publisher.heartbeat \
+		--json

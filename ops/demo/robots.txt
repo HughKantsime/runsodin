@@ -1,0 +1,27 @@
+# demo.subsystem.app — App Review reviewer environment only.
+# This origin must NOT appear in search engines, AI indexers, or
+# scrapers. The data here is synthetic but the URL is given out
+# only to App Review reviewers and on the ASC paste-block.
+
+User-agent: *
+Disallow: /
+
+# Explicit blocks for the loud crawlers, in case any decide to
+# ignore the wildcard above.
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /

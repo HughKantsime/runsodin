@@ -1,0 +1,116 @@
+# ============================================================
+# O.D.I.N. — demo.subsystem.app App Review reviewer stack
+#
+# ISOLATED from prod ODIN. Separate compose project name, separate
+# volume, separate broker, NO shared persistence with prod.
+#
+# Required env (write to ops/demo/.env, NEVER share with prod):
+#   ODIN_DEMO_ENCRYPTION_KEY      Fernet key (regenerated per env)
+#   ODIN_DEMO_JWT_SECRET_KEY      ≥32-byte secret
+#   ODIN_DEMO_API_KEY             API key for frontend-to-backend (random)
+#   ODIN_DEMO_HOST_IP             host LAN IP for go2rtc ICE (compose host)
+#   ODIN_DEMO_PUBLIC_URL          https://demo.subsystem.app
+#
+# Bring up:
+#   make -f ops/demo/Makefile.demo demo-up
+#
+# Reset (wipe volume, rotate password, restart publisher):
+#   make -f ops/demo/Makefile.demo demo-reset
+# ============================================================
+
+name: odin-demo
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: odin-demo-mosquitto
+    restart: unless-stopped
+    networks: [demo]
+    expose:
+      - "1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "127.0.0.1", "-p", "1883", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      odin_env: demo
+      prom_job: odin_demo
+
+  odin:
+    # Reuse the existing prod image; no new application code.
+    image: ${ODIN_DEMO_IMAGE:-ghcr.io/hughkantsime/odin:latest}
+    container_name: odin-demo-app
+    restart: unless-stopped
+    networks: [demo]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    ports:
+      # Bound to localhost; perimeter (Caddy/Traefik) terminates TLS and proxies in.
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8555:8555"
+    volumes:
+      - ./odin-demo-data:/data
+      - ./odin-demo-data/go2rtc:/app/go2rtc
+      # Make the scrubbed fixture readable inside the container so the
+      # publisher sidecar can serve the same file ODIN parses.
+      - ../../tests/fixtures/telemetry:/opt/odin-demo/fixtures:ro
+    environment:
+      - ENCRYPTION_KEY=${ODIN_DEMO_ENCRYPTION_KEY:?ODIN_DEMO_ENCRYPTION_KEY required}
+      - JWT_SECRET_KEY=${ODIN_DEMO_JWT_SECRET_KEY:?ODIN_DEMO_JWT_SECRET_KEY required}
+      - API_KEY=${ODIN_DEMO_API_KEY:-}
+      - DATABASE_URL=sqlite:////data/odin.db
+      - CORS_ORIGINS=${ODIN_DEMO_PUBLIC_URL:-https://demo.subsystem.app}
+      - ODIN_HOST_IP=${ODIN_DEMO_HOST_IP:-}
+      - ODIN_BAMBU_BROKER_URL=mqtt://mosquitto:1883
+      - ODIN_PUBLIC_URL=${ODIN_DEMO_PUBLIC_URL:-https://demo.subsystem.app}
+      - ODIN_DEMO_MODE=1
+      - TZ=${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      odin_env: demo
+      prom_job: odin_demo
+
+  publisher:
+    # Reuses the same image — same Python env, same backend module path.
+    image: ${ODIN_DEMO_IMAGE:-ghcr.io/hughkantsime/odin:latest}
+    container_name: odin-demo-publisher
+    restart: unless-stopped
+    networks: [demo]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    volumes:
+      - ./heartbeat:/var/run/odin-demo
+      - ../../ops/demo/demo_publisher.py:/opt/odin-demo/demo_publisher.py:ro
+      - ../../tests/fixtures/telemetry:/app/tests/fixtures/telemetry:ro
+      - ../../backend:/app/backend:ro
+      - ../../demo_scenarios:/app/demo_scenarios:ro
+    working_dir: /app
+    command: ["python", "/opt/odin-demo/demo_publisher.py"]
+    environment:
+      - ODIN_DEMO_BROKER_HOST=mosquitto
+      - ODIN_DEMO_BROKER_PORT=1883
+      - ODIN_DEMO_PRINTER_SERIAL=00M09D4B1600284
+      - ODIN_DEMO_FIXTURE=tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl
+      - ODIN_DEMO_SPEED=1.0
+      - ODIN_DEMO_LOOP_GAP_SEC=2.0
+      - ODIN_DEMO_HEARTBEAT_PATH=/var/run/odin-demo/publisher.heartbeat
+    labels:
+      odin_env: demo
+      prom_job: odin_demo
+
+networks:
+  demo:
+    driver: bridge
+
+# Volumes are bind-mounts (./odin-demo-data, ./heartbeat) so a `demo-reset`
+# rm -rf can wipe them without touching named-volume metadata.

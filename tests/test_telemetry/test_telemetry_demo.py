@@ -59,6 +59,21 @@ class TestDemoScenarioLoad:
         with pytest.raises(FileNotFoundError):
             DemoScenario.load(SCENARIOS_DIR, "nonexistent")
 
+    def test_loop_defaults_false(self):
+        # Existing scenarios omit `loop:`, so the default must be False
+        # to preserve one-shot playback for marketing/QA recordings.
+        scenario = DemoScenario.load(SCENARIOS_DIR, "dramatic-failure")
+        assert scenario.loop is False
+
+    def test_load_ams_swap_loop_sets_loop_true(self):
+        # demo.subsystem.app reviewer scenario per ODIN-128.
+        scenario = DemoScenario.load(SCENARIOS_DIR, "ams-swap-loop")
+        assert scenario.name == "ams-swap-loop"
+        assert scenario.loop is True
+        assert len(scenario.printers) == 1
+        # Must use the scrubbed fixture, never the raw capture.
+        assert scenario.printers[0].fixture == "bambu-x1c-ams-swap.demo.jsonl"
+
 
 class TestDemoPrinterTopic:
     def test_topic_derived(self):

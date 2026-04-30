@@ -97,12 +97,18 @@ class DemoScenario:
     Optional `markers` list provides narration cues that fire as the
     scenario crosses each `at_iso`. Consumers (SSE, CLI, recording
     overlay, etc.) subscribe via `DemoEngine(on_marker=...)`.
+
+    Set `loop: true` in scenario.yaml for a fixture that should restart
+    from the first event after EOF — used by the long-running App Review
+    demo at demo.subsystem.app, where the printer must remain visibly
+    "live" across reviewer sessions.
     """
 
     name: str
     description: str
     printers: list[DemoPrinter]
     markers: list[DemoMarker] = field(default_factory=list)
+    loop: bool = False
 
     @classmethod
     def load(cls, scenarios_dir: Path, name: str) -> "DemoScenario":
@@ -131,6 +137,7 @@ class DemoScenario:
             description=data["description"],
             printers=[DemoPrinter(**p) for p in data["printers"]],
             markers=markers,
+            loop=bool(data.get("loop", False)),
         )
 
 
@@ -361,6 +368,15 @@ class DemoEngine:
                 client.publish(topic, json.dumps(payload), qos=0)
                 self._maybe_fire_marker(iso)
                 cursor += 1
+
+                # EOF restart for long-running demos. Markers re-fire each
+                # cycle; pacing resets so the first publish after rewind
+                # doesn't replay the trailing inter-line gap.
+                if cursor >= len(events) and self.scenario.loop:
+                    cursor = 0
+                    prev_ts = None
+                    with self._fired_markers_lock:
+                        self._fired_markers.clear()
         finally:
             client.loop_stop()
             client.disconnect()

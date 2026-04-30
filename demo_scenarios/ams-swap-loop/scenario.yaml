@@ -1,0 +1,20 @@
+name: ams-swap-loop
+description: |
+  AMS-swap fixture replayed in an infinite loop for the
+  demo.subsystem.app App Review reviewer environment.
+
+  Reuses the existing scrubbed bambu-x1c-ams-swap.demo.jsonl fixture
+  (real LAN IP and customer print-job name removed; see
+  ops/demo/scrub_fixture.py). loop: true makes the publisher rewind
+  to the first event after EOF so reviewers always see a "live"
+  printer.
+
+# Restart on EOF — wires the existing publisher to a continuous demo.
+loop: true
+
+printers:
+  - id: x1c-demo
+    display_name: "Demo — X1C"
+    serial: "00M09D4B1600284"
+    fixture: bambu-x1c-ams-swap.demo.jsonl
+    model: X1C
