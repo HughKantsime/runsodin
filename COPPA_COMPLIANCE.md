@@ -6,7 +6,7 @@
 **Date:** February 2026
 **Contact:** sublab3dp@gmail.com
 
-> **[ATTORNEY REVIEW RECOMMENDED]** This document is provided as a technical reference for K-12 schools evaluating O.D.I.N. for COPPA compliance. It does not constitute legal advice. Schools should consult qualified legal counsel to confirm compliance with their specific obligations under COPPA (15 U.S.C. §§ 6501-6506; 16 CFR Part 312).
+> This document is provided as a technical reference for K-12 schools evaluating O.D.I.N. for COPPA compliance. It does not constitute legal advice. Schools should consult qualified legal counsel to confirm compliance with their specific obligations under COPPA (15 U.S.C. §§ 6501-6506; 16 CFR Part 312).
 
 ---
 
@@ -27,7 +27,7 @@ This document explains how O.D.I.N.'s architecture and data handling practices s
 
 Under COPPA, the school acts as the operator and may provide consent on behalf of parents/guardians for the collection of student information in the school context, consistent with the FTC's guidance on school authorization (16 CFR § 312.5(c)(1)).
 
-**[ATTORNEY REVIEW RECOMMENDED]** Schools should confirm that their use of O.D.I.N. falls within the "school authorization" exception and that their consent practices comply with COPPA requirements. The FTC has stated that schools may consent on behalf of parents when the information is used solely for school-authorized educational purposes.
+Schools should confirm that their use of O.D.I.N. falls within the "school authorization" exception and that their consent practices comply with COPPA requirements. The FTC has stated that schools may consent on behalf of parents when the information is used solely for school-authorized educational purposes.
 
 ---
 
@@ -88,7 +88,7 @@ Because the school is the operator under COPPA:
 - The school should include O.D.I.N. in its technology consent disclosures to parents
 - Parents retain the right to review their child's information and request deletion — the school can fulfill these requests using O.D.I.N.'s data export and erasure endpoints
 
-**[ATTORNEY REVIEW RECOMMENDED]** Schools should verify that their existing parental consent processes cover the use of O.D.I.N. and that parents are informed about the system's data practices. The FTC requires that the school's consent be based on the operator's data collection practices.
+Schools should verify that their existing parental consent processes cover the use of O.D.I.N. and that parents are informed about the system's data practices. The FTC requires that the school's consent be based on the operator's data collection practices.
 
 ---
 
@@ -134,7 +134,7 @@ O.D.I.N. protects stored data with:
 | Session management | Active session tracking, token blacklisting |
 | Audit logging | All user actions logged |
 
-**[ATTORNEY REVIEW RECOMMENDED]** Schools should deploy O.D.I.N. behind a TLS-terminating reverse proxy (nginx, Traefik, etc.) to encrypt data in transit. O.D.I.N. does not provide native TLS. This is important for protecting children's information in transit on the network.
+Schools should deploy O.D.I.N. behind a TLS-terminating reverse proxy (nginx, Traefik, etc.) to encrypt data in transit. O.D.I.N. does not provide native TLS. This is important for protecting children's information in transit on the network.
 
 ---
 
@@ -170,7 +170,7 @@ Sublab 3DP attests that:
 4. O.D.I.N.'s license validation is air-gap compatible and does not require data exchange
 5. Sublab 3DP has no access to any deployed O.D.I.N. instance
 
-**[ATTORNEY REVIEW RECOMMENDED]** Schools should maintain a copy of this attestation and any supplementary agreements with Sublab 3DP as part of their COPPA compliance documentation.
+Schools should maintain a copy of this attestation and any supplementary agreements with Sublab 3DP as part of their COPPA compliance documentation.
 
 ---
 
@@ -178,4 +178,4 @@ Sublab 3DP attests that:
 
 O.D.I.N. is self-hosted software that operates entirely under the school's control. Sublab 3DP does not collect, access, or process children's personal information. Schools can configure O.D.I.N. to minimize data collection through anonymized usernames, disabled email fields, and restricted roles — supporting COPPA compliance by design.
 
-**[ATTORNEY REVIEW RECOMMENDED]** Schools should have their legal counsel review this document and confirm that their deployment configuration and consent practices satisfy COPPA requirements before deploying O.D.I.N. for students under 13.
+Schools should have their legal counsel review this document and confirm that their deployment configuration and consent practices satisfy COPPA requirements before deploying O.D.I.N. for students under 13.

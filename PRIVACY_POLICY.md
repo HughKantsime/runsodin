@@ -129,8 +129,6 @@ Our marketing website may use:
 - **Essential cookies:** Session management for contact forms (if applicable)
 - **No tracking cookies:** We do not use advertising, retargeting, or third-party tracking cookies
 
-[ATTORNEY REVIEW RECOMMENDED: If any analytics service is added to the marketing site that uses cookies, a cookie consent banner will be required under GDPR/ePrivacy Directive.]
-
 ---
 
 ## 4. Data Processing Relationship
@@ -195,8 +193,6 @@ No request to Sublab 3DP is needed — you control the server.
 
 If you are located in the European Economic Area, you have the right to lodge a complaint with your local data protection supervisory authority.
 
-[ATTORNEY REVIEW RECOMMENDED: Identify the lead supervisory authority if the company has EU customers. Consider whether an EU representative is needed under GDPR Article 27.]
-
 ---
 
 ## 6. Children's Privacy
@@ -223,8 +219,6 @@ When O.D.I.N. is used in educational settings (K-12 schools) under the Education
 
 Because O.D.I.N. is self-hosted and no student data is transmitted to Sublab 3DP, the Software is designed to support FERPA and COPPA compliance by default. However, the school remains responsible for its own compliance obligations.
 
-[ATTORNEY REVIEW RECOMMENDED: COPPA and FERPA compliance should be validated by counsel familiar with education privacy law, particularly regarding the school consent exception under COPPA.]
-
 ---
 
 ## 7. International Data Transfers
@@ -239,8 +233,6 @@ Sublab 3DP is based in the United States. If you are located outside the United 
 
 - Standard Contractual Clauses (SCCs) where required
 - Our legitimate interest in providing the contracted services
-
-[ATTORNEY REVIEW RECOMMENDED: If serving EU customers, consider implementing Standard Contractual Clauses or confirming applicability of a transfer mechanism.]
 
 ---
 
@@ -328,9 +320,3 @@ Shane Smith, Principal
 Email: sublab3dp@gmail.com
 
 We aim to respond to all privacy inquiries within 30 days.
-
----
-
-*[ATTORNEY REVIEW RECOMMENDED: This Privacy Policy should be reviewed by a qualified attorney, particularly regarding GDPR compliance (EU representative requirement, DPIA obligations, transfer mechanisms), COPPA/FERPA compliance for educational use, and CCPA requirements if California consumers are served.]*
-
-*This document is provided as a template and does not constitute legal advice.*

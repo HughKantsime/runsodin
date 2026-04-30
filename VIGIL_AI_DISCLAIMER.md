@@ -121,8 +121,6 @@ By enabling and using Vigil AI, you acknowledge and agree that:
 
 **THIS APPLIES WHETHER OR NOT SUBLAB 3DP WAS ADVISED OF THE POSSIBILITY OF SUCH DAMAGES AND REGARDLESS OF THE THEORY OF LIABILITY (CONTRACT, TORT, NEGLIGENCE, STRICT LIABILITY, PRODUCT LIABILITY, OR OTHERWISE).**
 
-[ATTORNEY REVIEW RECOMMENDED: Enforceability of broad liability exclusions varies by jurisdiction. Some jurisdictions limit exclusion of liability for personal injury or do not allow exclusion of implied warranties for consumer products.]
-
 ---
 
 ## 7. Recommended Safety Practices
@@ -217,9 +215,3 @@ Email: sublab3dp@gmail.com
 ---
 
 **BY ENABLING VIGIL AI, YOU ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTOOD, AND AGREE TO THIS DISCLAIMER. IF YOU DO NOT AGREE, DISABLE VIGIL AI IN YOUR O.D.I.N. SETTINGS.**
-
----
-
-*[ATTORNEY REVIEW RECOMMENDED: This disclaimer should be reviewed by a qualified attorney with experience in product liability and software disclaimers. Key areas: enforceability of broad liability exclusions for physical harm, jurisdictional limitations on warranty disclaimers, and whether in-app presentation of this disclaimer is legally sufficient to establish acceptance.]*
-
-*This document is provided as a template and does not constitute legal advice.*

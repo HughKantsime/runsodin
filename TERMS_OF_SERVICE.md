@@ -109,8 +109,6 @@ Paid licenses are billed annually by default. Monthly billing is available for t
 
 We accept credit card payments for Pro and Education tiers. **Purchase orders (POs) are accepted for Education and Enterprise tiers** with Net-30 payment terms.
 
-[ATTORNEY REVIEW RECOMMENDED: Payment processing terms, including processor identification and PCI compliance obligations.]
-
 ### 5.4 Taxes
 
 Prices do not include applicable taxes. You are responsible for all taxes, duties, and levies associated with your purchase, excluding taxes based on our net income.
@@ -129,8 +127,6 @@ Paid licenses automatically renew for successive periods of equal length unless:
 ### 5.7 Refunds
 
 Annual licenses may be refunded within 30 days of initial purchase if you have not deployed the Software in a production environment. Monthly Pro licenses are non-refundable. Contact sublab3dp@gmail.com for refund requests.
-
-[ATTORNEY REVIEW RECOMMENDED: Refund policy compliance with applicable consumer protection laws, particularly EU cooling-off period requirements.]
 
 ---
 
@@ -219,8 +215,6 @@ We do not warrant that:
 
 ## 11. Limitation of Liability
 
-[ATTORNEY REVIEW RECOMMENDED: This entire section should be reviewed for enforceability in your jurisdiction.]
-
 ### 11.1 Liability Cap
 
 **TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, OUR TOTAL AGGREGATE LIABILITY ARISING OUT OF OR RELATED TO THIS AGREEMENT SHALL NOT EXCEED THE TOTAL FEES PAID BY YOU TO US IN THE TWELVE (12) MONTHS IMMEDIATELY PRECEDING THE EVENT GIVING RISE TO THE CLAIM.**
@@ -306,15 +300,11 @@ Upon termination:
 
 ### 15.1 Governing Law
 
-[ATTORNEY REVIEW RECOMMENDED: Specify state jurisdiction based on company registration.]
-
 This Agreement is governed by the laws of the United States and the State of Delaware, without regard to conflict of law principles. Any disputes arising under this Agreement shall be resolved in the state or federal courts located in New Castle County, Delaware.
 
 ### 15.2 Export Compliance
 
 The Software may include encryption technology subject to U.S. export control laws (EAR). You agree to comply with all applicable export and re-export restrictions. You represent that you are not located in, or a national or resident of, any country subject to U.S. trade sanctions (currently Cuba, Iran, North Korea, Syria, and the Crimea, Donetsk, and Luhansk regions of Ukraine), and that you are not on any U.S. government restricted party list.
-
-[ATTORNEY REVIEW RECOMMENDED: Confirm BIS classification (likely EAR99 or 5D002) and whether encryption notification has been filed.]
 
 ### 15.3 Modifications to Terms
 
@@ -351,9 +341,3 @@ Shane Smith, Principal
 Email: sublab3dp@gmail.com
 
 For license inquiries, support, or legal questions, contact us at sublab3dp@gmail.com.
-
----
-
-*[ATTORNEY REVIEW RECOMMENDED: This entire document should be reviewed by a qualified attorney licensed in your jurisdiction before commercial use. Pay particular attention to the governing law clause (Section 15.1), limitation of liability (Section 11), Vigil AI safety disclaimers (Section 7), and consumer protection compliance for refund policies.]*
-
-*This document is provided as a template and does not constitute legal advice.*

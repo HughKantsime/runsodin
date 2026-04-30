@@ -6,7 +6,7 @@
 **Date:** February 2026
 **Contact:** sublab3dp@gmail.com
 
-> **[ATTORNEY REVIEW RECOMMENDED]** This document is provided as a technical reference for institutions evaluating O.D.I.N. for FERPA compliance. It does not constitute legal advice. Institutions should consult qualified legal counsel to confirm compliance with their specific obligations under FERPA (20 U.S.C. § 1232g; 34 CFR Part 99).
+> This document is provided as a technical reference for institutions evaluating O.D.I.N. for FERPA compliance. It does not constitute legal advice. Institutions should consult qualified legal counsel to confirm compliance with their specific obligations under FERPA (20 U.S.C. § 1232g; 34 CFR Part 99).
 
 ---
 
@@ -65,7 +65,7 @@ O.D.I.N. stores only operational data necessary for 3D printer fleet management.
 - Health records
 - Biometric data
 
-**[ATTORNEY REVIEW RECOMMENDED]** Institutions should evaluate whether print job metadata (e.g., filenames, timestamps, assignment-related model names) could constitute "education records" under their specific FERPA interpretation, particularly if print jobs are linked to graded coursework.
+Institutions should evaluate whether print job metadata (e.g., filenames, timestamps, assignment-related model names) could constitute "education records" under their specific FERPA interpretation, particularly if print jobs are linked to graded coursework.
 
 ---
 
@@ -83,7 +83,7 @@ Sublab 3DP distributes O.D.I.N. as software. Once deployed, the institution is t
 - Has no remote access, backdoor, or telemetry capability
 - Does not act as a "school official" under FERPA
 
-**[ATTORNEY REVIEW RECOMMENDED]** Because Sublab 3DP has no access to institutional data, it is unlikely that a "school official" exception or data processing agreement is required. However, institutions should confirm this with counsel, particularly if Sublab 3DP provides on-site support or consulting services that involve access to the system.
+Because Sublab 3DP has no access to institutional data, it is unlikely that a "school official" exception or data processing agreement is required. However, institutions should confirm this with counsel, particularly if Sublab 3DP provides on-site support or consulting services that involve access to the system.
 
 ---
 
@@ -124,7 +124,7 @@ These endpoints enable institutions to:
 - Delete user data when students leave the institution
 - Export data for transfer to another system
 
-**[ATTORNEY REVIEW RECOMMENDED]** Institutions should establish internal procedures for handling FERPA access and amendment requests and determine whether O.D.I.N.'s export/erasure endpoints satisfy their procedural requirements.
+Institutions should establish internal procedures for handling FERPA access and amendment requests and determine whether O.D.I.N.'s export/erasure endpoints satisfy their procedural requirements.
 
 ---
 
@@ -164,7 +164,7 @@ Audit logs are stored locally in the SQLite database and are accessible to admin
 | JWT tokens | HS256 signing |
 | Secrets | Auto-generated on first run, stored in `/data/` |
 
-**[ATTORNEY REVIEW RECOMMENDED]** O.D.I.N. does not provide TLS termination natively. Institutions should deploy O.D.I.N. behind a reverse proxy (e.g., nginx, Traefik) with TLS certificates to encrypt data in transit. This is critical for FERPA compliance if the system is accessible beyond localhost.
+O.D.I.N. does not provide TLS termination natively. Institutions should deploy O.D.I.N. behind a reverse proxy (e.g., nginx, Traefik) with TLS certificates to encrypt data in transit. This is critical for FERPA compliance if the system is accessible beyond localhost.
 
 ---
 
@@ -212,4 +212,4 @@ Sublab 3DP provides security patches and updates via new Docker image releases. 
 
 O.D.I.N.'s self-hosted, air-gapped architecture places it firmly under institutional control. Sublab 3DP never accesses, processes, or stores institutional data. The system collects only operational data necessary for printer fleet management — not education records as defined by FERPA.
 
-**[ATTORNEY REVIEW RECOMMENDED]** Institutions should have their legal counsel review this document and O.D.I.N.'s data handling practices to confirm compliance with their FERPA obligations before deployment.
+Institutions should have their legal counsel review this document and O.D.I.N.'s data handling practices to confirm compliance with their FERPA obligations before deployment.
