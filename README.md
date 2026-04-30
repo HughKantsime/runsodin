@@ -17,11 +17,11 @@
 
 ---
 
-The only platform that combines multi-protocol printer support, AI failure detection, and full business operations in a single self-hosted container. No cloud dependency. No per-printer fees. Your data stays on your network.
+Self-hosted print farm management that combines multi-protocol printer support, AI failure detection, and business operations in a single container. No cloud dependency. No per-printer fees. Your data stays on your network.
 
 ## Key Features
 
-- **Multi-Protocol Fleet** — Bambu MQTT (X1C, P1S, A1, H2D), Klipper/Moonraker, PrusaLink, and Elegoo SDCP from one dashboard
+- **Multi-Protocol Fleet** — Klipper/Moonraker, PrusaLink, Bambu MQTT (X1C, P1S, A1, H2D), and Elegoo SDCP from one dashboard
 - **Vigil AI Failure Detection** — ONNX-based spaghetti/detachment/first-layer detection with auto-pause
 - **Smart Job Scheduling** — Color-match scoring, time-window matching, drag-and-drop queue
 - **Mid-Print Controls** — Skip objects, adjust speed (25%–200%), and clear HMS errors during active prints
@@ -64,7 +64,7 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 ## Screenshots
 
 ### Fleet Overview
-![Printers page showing Bambu, Klipper, and Elegoo printers with AMS filament slots, temperatures, and status](docs/screenshots/dashboard.png)
+![Printers page showing Klipper, Bambu, and Elegoo printers with spool inventory, temperatures, and status](docs/screenshots/dashboard.png)
 
 ### Camera Streaming
 ![Camera grid with live WebRTC feeds, Control Room and TV Mode buttons](docs/screenshots/cameras.png)
@@ -92,7 +92,7 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 
 ## Agents (v1.8.9+)
 
-O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with idempotent retries, dry-run previews, structured error codes, and a CMMC/ITAR-compatible local-LLM deployment path.
+O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) natively. Drive the farm from Claude Desktop, Claude Code, OpenClaw, or any MCP-compatible client — with idempotent retries, dry-run previews, structured error codes, and a local-LLM deployment path designed for ITAR/CMMC environments.
 
 - **[odin-print-farm-mcp](https://github.com/HughKantsime/odin-mcp)** (npm: `odin-print-farm-mcp@2`) — 26 tools covering queue, printers, jobs, inventory, alerts, maintenance.
 - **[MCP integration docs](https://docs.runsodin.com/integrations/mcp-server)** — Quick start, tool catalog, agent primitives, error codes.
