@@ -4,7 +4,8 @@
 #   make -f ops/demo/Makefile.demo demo-up
 #   cd ops/demo && make -f Makefile.demo demo-up
 
-.PHONY: help demo-build demo-up demo-down demo-reset demo-logs demo-probe demo-probe-public demo-scrub-fixture demo-rotate-password demo-write-credentials
+.PHONY: help demo-build demo-up demo-down demo-reset demo-logs demo-probe demo-probe-public demo-scrub-fixture demo-rotate-password demo-write-credentials \
+	demo-k8s-secrets demo-k8s-configmaps demo-k8s-up demo-k8s-down demo-k8s-status demo-k8s-logs demo-k8s-probe demo-k8s-write-credentials demo-k8s-rotate-password
 
 # Anchor every path to this Makefile's location, so behaviour is
 # identical regardless of the caller's $PWD.
@@ -19,7 +20,7 @@ DATA_DIR       := $(HERE)/odin-demo-data
 HEARTBEAT_DIR  := $(HERE)/heartbeat
 
 help: ## Show targets
-	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2}'
 
 demo-scrub-fixture: ## Re-emit the scrubbed AMS-swap fixture (idempotent)
 	cd $(REPO_ROOT) && python3 ops/demo/scrub_fixture.py --write
@@ -85,3 +86,92 @@ demo-probe-public: ## Run health probe against demo.subsystem.app
 		--broker-host 127.0.0.1 --broker-port 1883 \
 		--heartbeat-path $(HEARTBEAT_DIR)/publisher.heartbeat \
 		--json
+
+# ──────────────────────────────────────────────────────────────────────
+# K3s deploy targets — `odin-demo` namespace on the M4 cluster.
+# Pattern doc: ops/demo/k8s/README.md
+# ──────────────────────────────────────────────────────────────────────
+
+K8S_DIR        := $(HERE)/k8s
+K8S_NAMESPACE  := odin-demo
+
+demo-k8s-secrets: ## Generate fresh ops/demo/k8s/05-secrets.yaml (gitignored). Re-run only on rotation.
+	@python3 -c "import secrets, string, datetime, pathlib; \
+		from cryptography.fernet import Fernet; \
+		enc = Fernet.generate_key().decode(); \
+		jwt = secrets.token_urlsafe(32); \
+		api = secrets.token_urlsafe(24); \
+		pw = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)); \
+		now = datetime.datetime.utcnow().isoformat() + 'Z'; \
+		out = pathlib.Path('$(K8S_DIR)/05-secrets.yaml'); \
+		out.write_text( \
+		  '# Generated ' + now + ' — DO NOT COMMIT.\n' \
+		  '# Fresh per-deploy. Re-run \`make -f ops/demo/Makefile.demo demo-k8s-secrets\` only on rotation.\n' \
+		  'apiVersion: v1\nkind: Secret\nmetadata:\n  name: odin-demo-secrets\n  namespace: $(K8S_NAMESPACE)\n' \
+		  'type: Opaque\nstringData:\n' \
+		  '  encryption_key: \"' + enc + '\"\n' \
+		  '  jwt_secret_key: \"' + jwt + '\"\n' \
+		  '  api_key: \"' + api + '\"\n' \
+		  '---\n' \
+		  'apiVersion: v1\nkind: Secret\nmetadata:\n  name: demo-reviewer-credentials\n  namespace: $(K8S_NAMESPACE)\n' \
+		  'type: Opaque\nstringData:\n' \
+		  '  email: \"$(REVIEWER_EMAIL)\"\n' \
+		  '  password: \"' + pw + '\"\n' \
+		  '  rotated_at: \"' + now + '\"\n'); \
+		print('wrote', out, 'reviewer-pw=' + pw)"
+
+demo-k8s-configmaps: ## Re-build odin-demo-fixture + odin-demo-publisher-script from in-repo files
+	kubectl create configmap odin-demo-publisher-script -n $(K8S_NAMESPACE) \
+		--from-file=demo_publisher.py=$(HERE)/demo_publisher.py \
+		--dry-run=client -o yaml | kubectl apply -f -
+	# Fixture is too large for kubectl apply (annotation budget); use create with replace.
+	kubectl delete configmap odin-demo-fixture -n $(K8S_NAMESPACE) --ignore-not-found
+	kubectl create configmap odin-demo-fixture -n $(K8S_NAMESPACE) \
+		--from-file=bambu-x1c-ams-swap.demo.jsonl=$(REPO_ROOT)/tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl
+
+demo-k8s-up: ## Apply all manifests to the K3s cluster (idempotent)
+	@if [ ! -f $(K8S_DIR)/05-secrets.yaml ]; then \
+		echo "no $(K8S_DIR)/05-secrets.yaml — run \`make -f ops/demo/Makefile.demo demo-k8s-secrets\` first"; exit 1; \
+	fi
+	kubectl apply -f $(K8S_DIR)/00-namespace.yaml
+	kubectl apply -f $(K8S_DIR)/05-secrets.yaml
+	$(MAKE) -f $(lastword $(MAKEFILE_LIST)) demo-k8s-configmaps
+	kubectl apply -f $(K8S_DIR)/10-mosquitto.yaml
+	kubectl apply -f $(K8S_DIR)/20-odin-pvc.yaml
+	kubectl apply -f $(K8S_DIR)/40-odin.yaml
+	kubectl apply -f $(K8S_DIR)/50-publisher.yaml
+	kubectl apply -f $(K8S_DIR)/60-ingress.yaml
+	kubectl apply -f $(K8S_DIR)/70-networkpolicy.yaml
+	kubectl apply -f $(K8S_DIR)/80-cronjob-reset.yaml
+
+demo-k8s-down: ## Tear down odin-demo namespace (drops PVCs — DESTRUCTIVE)
+	kubectl delete namespace $(K8S_NAMESPACE) --ignore-not-found
+
+demo-k8s-status: ## Pods + cert + ingress + cronjob
+	kubectl -n $(K8S_NAMESPACE) get pods,svc,ingress,certificate,cronjob
+
+demo-k8s-logs: ## Tail logs across all odin-demo deployments
+	kubectl -n $(K8S_NAMESPACE) logs -f -l odin_env=demo --all-containers --tail=100
+
+demo-k8s-probe: ## Internal probe via traefik (bypasses CF tunnel — bypasses public path)
+	curl -sf -m 10 --resolve demo.subsystem.app:443:192.168.68.201 -k \
+		https://demo.subsystem.app/health
+	@echo
+
+demo-k8s-rotate-password: ## Mint new reviewer password, patch demo-reviewer-credentials secret
+	@PW=$$(python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)))"); \
+	NOW=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	kubectl -n $(K8S_NAMESPACE) patch secret demo-reviewer-credentials \
+		--type=merge -p "{\"stringData\":{\"password\":\"$$PW\",\"rotated_at\":\"$$NOW\"}}"; \
+	echo "rotated; new password=$$PW"
+
+demo-k8s-write-credentials: ## Apply the rotated password to the demo backend's reviewer account
+	# The published GHCR image lags HEAD until the next build, so the
+	# `backend.scripts.demo_seed_reviewer` module may not be importable
+	# inside the running container. We `kubectl cp` the script in from
+	# the working tree and run it as a script, not as a module.
+	@POD=$$(kubectl -n $(K8S_NAMESPACE) get pod -l app=odin -o jsonpath='{.items[0].metadata.name}'); \
+	PW=$$(kubectl -n $(K8S_NAMESPACE) get secret demo-reviewer-credentials -o jsonpath='{.data.password}' | base64 -d); \
+	kubectl -n $(K8S_NAMESPACE) cp $(REPO_ROOT)/backend/scripts/demo_seed_reviewer.py $(K8S_NAMESPACE)/$$POD:/tmp/demo_seed_reviewer.py; \
+	kubectl -n $(K8S_NAMESPACE) exec deploy/odin -- python3 /tmp/demo_seed_reviewer.py \
+		--email "$(REVIEWER_EMAIL)" --password "$$PW" --no-mfa --read-only-printer x1c-demo

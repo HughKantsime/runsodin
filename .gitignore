@@ -131,3 +131,6 @@ ops/demo/.env
 ops/demo/.reviewer-credentials.txt
 ops/demo/odin-demo-data/
 ops/demo/heartbeat/
+
+# odin-demo k3s secrets — never commit, regenerate per env
+ops/demo/k8s/05-secrets.yaml

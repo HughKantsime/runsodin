@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odin
+  namespace: odin-demo
+  labels:
+    app: odin
+    odin_env: demo
+  annotations:
+    odin/issue: ODIN-128
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: odin
+  template:
+    metadata:
+      labels:
+        app: odin
+        odin_env: demo
+    spec:
+      containers:
+      - name: odin
+        image: ghcr.io/hughkantsime/odin:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: odin-demo-secrets
+              key: encryption_key
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: odin-demo-secrets
+              key: jwt_secret_key
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: odin-demo-secrets
+              key: api_key
+        - name: DATABASE_URL
+          value: sqlite:////data/odin.db
+        - name: CORS_ORIGINS
+          value: https://demo.subsystem.app
+        - name: ODIN_BAMBU_BROKER_URL
+          value: mqtt://mosquitto:1883
+        - name: ODIN_PUBLIC_URL
+          value: https://demo.subsystem.app
+        - name: ODIN_DEMO_MODE
+          value: "1"
+        - name: TZ
+          value: UTC
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 5
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 384Mi
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: odin-demo-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odin
+  namespace: odin-demo
+  labels:
+    app: odin
+spec:
+  type: ClusterIP
+  selector:
+    app: odin
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000

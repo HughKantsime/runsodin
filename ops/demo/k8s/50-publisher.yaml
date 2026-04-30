@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher
+  namespace: odin-demo
+  labels:
+    app: publisher
+    odin_env: demo
+  annotations:
+    # ConfigMaps `odin-demo-fixture` and `odin-demo-publisher-script`
+    # are generated from the in-repo files by `make -f ops/demo/Makefile.demo
+    # demo-k8s-configmaps` and applied before this Deployment.
+    odin/issue: ODIN-128
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: publisher
+  template:
+    metadata:
+      labels:
+        app: publisher
+        odin_env: demo
+    spec:
+      containers:
+      - name: publisher
+        image: ghcr.io/hughkantsime/odin:latest
+        imagePullPolicy: Always
+        workingDir: /app
+        command: ["python", "/opt/odin-demo/demo_publisher.py"]
+        env:
+        - name: PYTHONPATH
+          value: /app
+        - name: ODIN_DEMO_BROKER_HOST
+          value: mosquitto
+        - name: ODIN_DEMO_BROKER_PORT
+          value: "1883"
+        - name: ODIN_DEMO_PRINTER_SERIAL
+          value: 00M09D4B1600284
+        - name: ODIN_DEMO_FIXTURE
+          value: /app/tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl
+        - name: ODIN_DEMO_SPEED
+          value: "1.0"
+        - name: ODIN_DEMO_LOOP_GAP_SEC
+          value: "2.0"
+        - name: ODIN_DEMO_HEARTBEAT_PATH
+          value: /var/run/odin-demo/publisher.heartbeat
+        volumeMounts:
+        - name: heartbeat
+          mountPath: /var/run/odin-demo
+        - name: publisher-script
+          mountPath: /opt/odin-demo
+          readOnly: true
+        - name: fixture
+          mountPath: /app/tests/fixtures/telemetry
+          readOnly: true
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+      volumes:
+      - name: heartbeat
+        persistentVolumeClaim:
+          claimName: odin-demo-heartbeat
+      - name: publisher-script
+        configMap:
+          name: odin-demo-publisher-script
+          defaultMode: 0755
+      - name: fixture
+        configMap:
+          name: odin-demo-fixture

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odin-demo
+  labels:
+    odin_env: demo
+    purpose: app-review-reviewer-stack
+  annotations:
+    odin/issue: ODIN-128
+    odin/owner: ODIN Lead
+    odin/scope: read-only public surface for Apple App Review reviewer account; no shared secrets/data with prod
