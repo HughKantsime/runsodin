@@ -137,12 +137,83 @@ Cannot be done from this seat without account access:
 
 - [ ] Cloudflare DNS: `demo.subsystem.app` → host IP (and AAAA if v6).
 - [ ] TLS cert (Cloudflare Universal SSL or `caddy` automatic-HTTPS).
-- [ ] Perimeter proxy (Caddy / Traefik) terminating TLS, proxying to
-      `127.0.0.1:8000` on the chosen host (M4 or VPS).
 - [ ] Hosting decision: M4 separate compose project (preferred per
-      issue) or ≤US$10/mo VPS.
+      issue) or ≤US$10/mo VPS — see "Hosting variants" below.
+- [ ] Perimeter proxy: `ops/demo/Caddyfile` is staged. Once a host is
+      named, ODIN Lead can run it (host-installed Caddy on M4, or a
+      sidecar container on a VPS).
 - [ ] First deploy: `cp env.example .env; edit; make demo-up`.
 
 When DNS resolves and `make demo-probe-public` is green, comment back on
 ODIN-128 and ODIN-125 with the verified URL + current contents of
 `ops/demo/.reviewer-credentials.txt`.
+
+## Hosting variants
+
+Both are supported by the same `docker-compose.demo.yml` and the same
+`Caddyfile`. Differences are which host runs Caddy and which `.env`
+overrides ship.
+
+### Variant A — M4 separate compose project (preferred)
+
+Pros: shares the existing Watchtower-pull lane, no new spend, no new
+host posture decisions.
+
+Cons: prod ODIN already binds host ports `8000` and `8555` on the M4.
+Demo MUST override with `ODIN_DEMO_HTTP_PORT` and `ODIN_DEMO_WEBRTC_PORT`
+in `ops/demo/.env` to avoid collision. Recommended:
+
+```env
+ODIN_DEMO_HTTP_PORT=8001
+ODIN_DEMO_WEBRTC_PORT=8556
+```
+
+Caddy install on the M4:
+
+```sh
+brew install caddy
+sudo mkdir -p /opt/odin-demo /var/log/caddy
+sudo cp ops/demo/Caddyfile /opt/odin-demo/Caddyfile
+sudo cp ops/demo/robots.txt /opt/odin-demo/robots.txt
+sudo ODIN_DEMO_HTTP_PORT=8001 caddy run --config /opt/odin-demo/Caddyfile --adapter caddyfile
+```
+
+(Wrap in launchd for restart-on-boot once the dry-run is green.)
+
+### Variant B — ≤US$10/mo VPS
+
+Pros: clean blast-radius isolation, simpler firewall story.
+
+Cons: small monthly spend, one more host to keep patched.
+
+Default ports are fine; no `.env` overrides needed. Caddy can run as a
+sidecar container alongside the demo stack:
+
+```yaml
+# Add to docker-compose.demo.yml on the VPS only
+caddy:
+  image: caddy:2-alpine
+  ports: ["80:80", "443:443"]
+  volumes:
+    - ../../ops/demo/Caddyfile:/etc/caddy/Caddyfile:ro
+    - ../../ops/demo/robots.txt:/opt/odin-demo/robots.txt:ro
+    - ./caddy-data:/data
+    - ./caddy-config:/config
+  environment:
+    - ODIN_DEMO_HTTP_PORT=8000
+    - ODIN_DEMO_ROOT=/opt/odin-demo
+```
+
+Don't commit that block to the shared compose — only the VPS host runs
+Caddy as a container. The committed compose stays minimal so the M4
+path doesn't accidentally start a port-80 binder.
+
+### TLS strategy (both variants)
+
+Caddy issues real certs via ACME (HTTP-01 / TLS-ALPN) by default. The
+Caddyfile's ACME email defaults to `hugh@subsystem.app`; override via
+`CADDY_ACME_EMAIL` in the host env if needed.
+
+If Cloudflare's orange-cloud (proxied) mode is enabled and you want to
+keep it that way without exposing 80/443 directly, switch to a DNS-01
+ACME flow — that variant is not committed yet; ask if needed.

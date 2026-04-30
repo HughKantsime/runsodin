@@ -1,0 +1,89 @@
+# ============================================================
+# O.D.I.N. demo perimeter — Caddy
+#
+# Terminates TLS for demo.subsystem.app and proxies to the
+# isolated demo compose stack on the same host.
+#
+# Works for both deployment targets:
+#   - M4 separate compose project (ODIN_DEMO_HTTP_PORT in .env, e.g. 8001)
+#   - ≤US$10/mo VPS (defaults to 8000 — no prod collision on the host)
+#
+# TLS strategy:
+#   - If Cloudflare orange-cloud is on, Caddy can still issue a real
+#     edge cert via HTTP-01 / TLS-ALPN; just point the Cloudflare
+#     A record at the host and keep ports 80/443 open inbound.
+#   - For Cloudflare-proxied with strict TLS where ports 80/443 are
+#     not directly reachable, switch to the DNS-01 variant in
+#     Caddyfile.cloudflare-dns (not yet committed; add only if
+#     Hugh chooses that path).
+#
+# Install:
+#   - Host-installed Caddy (recommended on M4):
+#       brew install caddy        # macOS
+#       sudo caddy run --config /opt/odin-demo/Caddyfile --adapter caddyfile
+#     Or via launchd / systemd unit pointing at this file.
+#   - Containerized Caddy is fine on a VPS; mount this file at
+#     /etc/caddy/Caddyfile and bind 80/443 on the host.
+#
+# Required env:
+#   ODIN_DEMO_HTTP_PORT  default 8000 — must match docker-compose.demo.yml
+#   ODIN_DEMO_ROOT       default /opt/odin-demo — directory holding robots.txt
+#
+# Reload after edits:
+#   caddy reload --config /opt/odin-demo/Caddyfile
+# ============================================================
+
+{
+	# Email used for ACME registration. Override via CADDY_ACME_EMAIL
+	# in the host environment if a different account is preferred.
+	email {$CADDY_ACME_EMAIL:hugh@subsystem.app}
+}
+
+demo.subsystem.app {
+	encode zstd gzip
+
+	# Static robots.txt (noindex). Served before any proxy hop so
+	# crawlers can't get a 200 from the upstream by accident.
+	handle /robots.txt {
+		root * {$ODIN_DEMO_ROOT:/opt/odin-demo}
+		try_files /robots.txt =404
+		header Content-Type "text/plain; charset=utf-8"
+		header X-Robots-Tag "noindex, nofollow"
+	}
+
+	# Block all known LLM / AI scrapers at the edge as a belt to the
+	# robots.txt suspenders. Reviewers use real browsers, so this
+	# only ever rejects bots.
+	@bots header_regexp User-Agent "(?i)(GPTBot|ClaudeBot|Google-Extended|PerplexityBot|CCBot|Bytespider|anthropic-ai|cohere-ai)"
+	respond @bots 403
+
+	# Everything else proxies into the demo compose stack.
+	reverse_proxy 127.0.0.1:{$ODIN_DEMO_HTTP_PORT:8000} {
+		# Pass the original host so ODIN's CORS / public-URL logic
+		# resolves to demo.subsystem.app, not 127.0.0.1.
+		header_up Host {host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	header {
+		# noindex at the response layer too.
+		X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
+		# Standard hardening.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Don't leak the upstream.
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/demo.subsystem.app.access.log {
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format json
+	}
+}

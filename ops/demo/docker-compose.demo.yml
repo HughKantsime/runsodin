@@ -50,8 +50,11 @@ services:
         condition: service_healthy
     ports:
       # Bound to localhost; perimeter (Caddy/Traefik) terminates TLS and proxies in.
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:8555:8555"
+      # Host ports are parameterized so the demo can co-locate on the M4
+      # alongside prod ODIN (which already owns 8000 / 8555). VPS deploys
+      # can leave the defaults.
+      - "127.0.0.1:${ODIN_DEMO_HTTP_PORT:-8000}:8000"
+      - "127.0.0.1:${ODIN_DEMO_WEBRTC_PORT:-8555}:8555"
     volumes:
       - ./odin-demo-data:/data
       - ./odin-demo-data/go2rtc:/app/go2rtc
