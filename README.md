@@ -7,9 +7,9 @@
 [![Version](https://img.shields.io/github/v/release/HughKantsime/runsodin)](https://github.com/HughKantsime/runsodin/releases)
 [![License](https://img.shields.io/badge/license-BSL%201.1-orange)](LICENSE)
 [![CI](https://github.com/HughKantsime/runsodin/actions/workflows/ci.yml/badge.svg)](https://github.com/HughKantsime/runsodin/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/github/actions/workflow/status/HughKantsime/runsodin/ci.yml?label=tests)](#)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED)](https://github.com/HughKantsime/runsodin/pkgs/container/odin)
 [![Website](https://img.shields.io/badge/web-runsodin.com-black)](https://runsodin.com)
+[![Stars](https://img.shields.io/github/stars/HughKantsime/runsodin?style=social)](https://github.com/HughKantsime/runsodin/stargazers)
 
 [Website](https://runsodin.com) · [Install](https://runsodin.com/install) · [Features](https://runsodin.com/features) · [Pricing](https://runsodin.com/pricing)
 
@@ -40,13 +40,13 @@ The only platform that combines multi-protocol printer support, AI failure detec
 **Linux / macOS:**
 
 ```bash
-curl -fsSL https://get.runsodin.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/HughKantsime/runsodin/main/install/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/install.ps1 | iex
+irm https://raw.githubusercontent.com/HughKantsime/runsodin/main/install/install.ps1 | iex
 ```
 
 See [Windows Installation Guide](install/WINDOWS_INSTALL.md) for detailed instructions.
@@ -55,7 +55,7 @@ See [Windows Installation Guide](install/WINDOWS_INSTALL.md) for detailed instru
 
 ```bash
 mkdir odin && cd odin
-curl -O https://raw.githubusercontent.com/HughKantsime/runsodin/master/install/docker-compose.yml
+curl -O https://raw.githubusercontent.com/HughKantsime/runsodin/main/install/docker-compose.yml
 docker compose up -d
 ```
 
@@ -113,6 +113,18 @@ O.D.I.N. speaks [Model Context Protocol](https://modelcontextprotocol.io) native
 - [Discord](https://discord.gg/odin-community) — Support and discussion
 - [GitHub Issues](https://github.com/HughKantsime/runsodin/issues) — Bug reports and feature requests
 - [runsodin.com](https://runsodin.com) — Website and documentation
+
+## Contributing
+
+Contributions are welcome — bug reports, feature requests, docs fixes, and PRs. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+- **File a bug** — open a [GitHub issue](https://github.com/HughKantsime/runsodin/issues/new) with steps to reproduce
+- **Request a feature** — describe the problem first, then your proposed solution
+- **Submit a PR** — fork, branch off `main`, run tests, and open the PR
+- **Help others** — answer questions on [Discord](https://discord.gg/odin-community) or in GitHub issues
+- **Star the repo** — it helps new operators find the project
+
+For security vulnerabilities, please follow the disclosure process in [SECURITY.md](SECURITY.md).
 
 ## License
 
