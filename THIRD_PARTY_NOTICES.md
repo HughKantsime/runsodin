@@ -22,7 +22,7 @@ This file lists third-party software packages used by O.D.I.N. and their respect
 | pydantic-settings | 2.7.1 | MIT |
 | httpx | 0.28.1 | BSD-3-Clause |
 | paho-mqtt | 2.1.0 | EPL-2.0 / EDL-1.0 |
-| lxml | 5.3.0 | BSD-3-Clause |
+| lxml | 6.1.0 | BSD-3-Clause |
 | pywebpush | 2.0.1 | MPL-2.0 |
 | Authlib | 1.4.1 | BSD-3-Clause |
 | PyOTP | 2.9.0 | MIT |
