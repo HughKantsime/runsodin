@@ -46,6 +46,17 @@ Default behavior is unchanged until the operator flips to `1`:
   `DeprecationWarning` on import. Scheduled for deletion per
   `backend/modules/printers/telemetry/CUTOVER.md`.
 
+### Fixed (unrelated to telemetry V2)
+
+- **Security: HSTS header now emitted unconditionally.** The
+  `security_headers` middleware previously gated `Strict-Transport-
+  Security` on `request.url.scheme == "https"`, which suppressed the
+  header in production because openresty/NPM on LXC 112 terminates
+  TLS and forwards plain HTTP to FastAPI. RFC 6797 §7.2 requires UAs
+  to ignore HSTS over plain HTTP, so unconditional emission is safe
+  and removes the proxy-trust dependency. Contract pinned by
+  `tests/test_contracts/test_security_headers_hsts.py`. (ODIN-136)
+
 ### Operator action remaining
 
 Before legacy deletion can happen:

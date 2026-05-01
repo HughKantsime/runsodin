@@ -384,10 +384,12 @@ def _register_http_middleware(app: FastAPI) -> None:
         response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        if request.url.scheme == "https":
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=63072000; includeSubDomains; preload"
-            )
+        # HSTS emitted unconditionally: RFC 6797 §7.2 requires UAs to ignore the
+        # header over plain HTTP, so this is safe behind a TLS-terminating proxy
+        # (openresty/NPM on the LAN edge) where request.url.scheme is "http".
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=63072000; includeSubDomains; preload"
+        )
         return response
 
     # v1.8.9 (post-codex-fix-1): dry-run + idempotency registered BEFORE
