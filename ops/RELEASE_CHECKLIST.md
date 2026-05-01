@@ -29,12 +29,19 @@
 
 ## Rollback (if needed)
 
+**Canonical procedure: `ops/RUNBOOK.md` §4.4.** That is the source of
+truth — patch the runbook (and run the §4.6 drill) rather than this
+checklist if the rollback path drifts.
+
 ```bash
-# On prod — pull previous known-good tag
-docker pull ghcr.io/hughkantsime/odin:v1.3.PREVIOUS
-sed -i 's|image: ghcr.io/hughkantsime/odin:.*|image: ghcr.io/hughkantsime/odin:v1.3.PREVIOUS|' \
-    /opt/odin/runsodin/runsodin/docker-compose.yml
-cd /opt/odin/runsodin/runsodin && docker compose down && docker compose up -d
+# On prod — pin to the previous-known-good semver tag (e.g., v1.9.3).
+# Path is the directory containing your install/docker-compose.yml.
+GOOD_TAG=v1.9.3
+docker pull ghcr.io/hughkantsime/odin:${GOOD_TAG}
+sed -i "s|image: ghcr.io/hughkantsime/odin:.*|image: ghcr.io/hughkantsime/odin:${GOOD_TAG}|" \
+    docker-compose.yml
+docker compose down && docker compose up -d
+curl -fsS http://localhost:8000/health    # confirm rolled-back version
 ```
 
 ## Known Gotchas
