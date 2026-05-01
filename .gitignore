@@ -134,3 +134,7 @@ ops/demo/heartbeat/
 
 # odin-demo k3s secrets — never commit, regenerate per env
 ops/demo/k8s/05-secrets.yaml
+
+# odin_capture pipeline outputs (ODIN-142) — raw PNGs/MP4s/GIFs, never commit.
+# Curated final assets are copied into odin-site/ or referenced via manifests.
+captures/out/

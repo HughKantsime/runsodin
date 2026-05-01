@@ -1,0 +1,12 @@
+# odin_capture pipeline dependencies (ODIN-142).
+# Installed with: pip install -r scripts/capture/requirements.txt
+# Then: playwright install chromium
+
+playwright>=1.42
+pydantic>=2.5
+pyyaml>=6.0
+python-dotenv>=1.0
+
+# Optional — typed ffmpeg builder API. ffmpeg.py works with subprocess by
+# default; uncomment if you prefer ffmpeg-python's wrapper API.
+# ffmpeg-python>=0.2.0
