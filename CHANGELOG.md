@@ -54,6 +54,77 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.5] - 2026-04-30
+
+App Review reviewer demo stack, two security fixes, legal/docs polish.
+No breaking changes. Telemetry V2 unchanged from v1.9.4 (still
+flag-gated, default off — see [Unreleased] above).
+
+### Added
+
+- App Review reviewer demo stack (`ops/demo/`). Self-contained
+  `docker-compose.demo.yml` + Caddy perimeter + mosquitto + fixture
+  publisher that lets Apple App Reviewers exercise ODIN Studio against
+  a sandboxed backend without any real homelab or printer access.
+  Includes scrubbed Bambu X1C AMS-swap fixture, health probe, fixture
+  scrubber, and a reviewer seed script. (ODIN-128, ODIN-129)
+- K3s `odin-demo` namespace for `demo.subsystem.app` — namespace,
+  mosquitto, ODIN deployment + PVC, NodePort ingress, NetworkPolicy,
+  and a CronJob that resets the demo state on a schedule. Cloudflare
+  Tunnel route doc included. (ODIN-129)
+- `backend/modules/printers/telemetry/demo.py` + telemetry-demo test
+  surface so the reviewer stack runs the V2 pipeline against fixture
+  replay rather than live MQTT.
+- `ops/MONITORING.md` — post-launch monitoring runbook covering the
+  metrics/alerts/dashboards an operator needs after a release. (ODIN-95)
+
+### Fixed
+
+- **Security: timing leak in scoped-token allowlist match.**
+  `core/dependencies.py` now uses constant-time comparison for the
+  scoped-token allowlist match path so per-character timing differences
+  cannot be used to enumerate token prefixes.
+- **Security: lxml CVE-2026-41066.** Bumped `lxml` 5.3.0 → 6.1.0 in
+  `backend/requirements.txt` and updated `THIRD_PARTY_NOTICES.md`.
+- README install URLs corrected for launch-day; brand-voice + claims
+  pass per the ODIN charter; contributor invite added. (ODIN-85)
+- Stripped `[ATTORNEY REVIEW: ...]` placeholder markers from
+  `COPPA_COMPLIANCE.md`, `FERPA_COMPLIANCE.md`, `PRIVACY_POLICY.md`,
+  `TERMS_OF_SERVICE.md`, and `VIGIL_AI_DISCLAIMER.md` so the published
+  legal docs no longer leak internal review tags. (ODIN-134)
+
+### Telemetry V2 status
+
+Unchanged from v1.9.4. `ODIN_TELEMETRY_V2` remains the gate; default is
+`0` (legacy adapter). The reviewer demo stack (`ops/demo/`) is the
+first surface that runs the V2 pipeline by default, but only against
+fixture replay — production routing is still legacy until the operator
+follows `backend/modules/printers/telemetry/CUTOVER.md`.
+
+### What this release supports
+
+- ODIN core platform on `odin.subsystem.app` (production) — unchanged.
+- ODIN Studio v1.0 print submission via `POST /api/v1/prints`
+  (queue-only, dry-run via `X-Dry-Run: true`).
+- Apple App Review reviewer flow against `demo.subsystem.app` using
+  the `ops/demo/` stack with scrubbed fixture data.
+
+### What this release does NOT support
+
+- Telemetry V2 in production traffic. Still flag-gated; do not flip
+  `ODIN_TELEMETRY_V2=1` in production without completing the
+  staging soak documented in CUTOVER.md.
+- Public multi-tenant access to `demo.subsystem.app`. The reviewer
+  stack is intentionally narrow — single demo tenant, scrubbed
+  fixture, scheduled reset, robots.txt blocks indexing.
+- Real printer control from the reviewer demo. `backend/modules/
+  printers/telemetry/demo.py` replays a fixture; no MQTT/FTPS calls
+  reach a real printer from the demo namespace.
+
+### Breaking changes
+
+None.
+
 ## [1.9.4] - 2026-04-28
 
 ### Added
