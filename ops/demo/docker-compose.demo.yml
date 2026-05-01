@@ -104,9 +104,14 @@ services:
       - ODIN_DEMO_BROKER_PORT=1883
       - ODIN_DEMO_PRINTER_SERIAL=00M09D4B1600284
       - ODIN_DEMO_FIXTURE=tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl
-      - ODIN_DEMO_SPEED=1.0
+      - ODIN_DEMO_SPEED=${ODIN_DEMO_SPEED:-1.0}
       - ODIN_DEMO_LOOP_GAP_SEC=2.0
       - ODIN_DEMO_HEARTBEAT_PATH=/var/run/odin-demo/publisher.heartbeat
+      # ODIN-142 Wake 2: opt into multi-printer mode by setting this. When
+      # set, the publisher loads `demo_scenarios/<name>/scenario.yaml` and
+      # spawns one publish-loop thread per printer. Empty = App Review's
+      # single-printer default (matches what reviewers see).
+      - ODIN_DEMO_SCENARIO=${ODIN_DEMO_SCENARIO:-}
     labels:
       odin_env: demo
       prom_job: odin_demo

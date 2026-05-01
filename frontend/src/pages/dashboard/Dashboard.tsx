@@ -502,7 +502,7 @@ export default function Dashboard() {
         <SectionErrorBoundary>
           <div>
             <h2 className="font-semibold text-sm text-[var(--brand-text-primary)] mb-4">Printers</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div data-capture="fleet-grid" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {printersData?.map((printer) => (
                 <PrinterCard
                   key={printer.id}

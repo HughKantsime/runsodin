@@ -1,0 +1,20 @@
+id: fleet-overview
+title: Fleet overview dashboard
+target_route: /
+scenario: happy-farm
+fixture_mode: demo-scenario
+viewport:
+  width: 1440
+  height: 1100
+theme: dark
+replay:
+  speed: 20
+wait_for:
+  selector: '[data-capture="fleet-grid"]'
+  min_visible_printers: 3
+captures:
+  - name: dashboard
+    kind: screenshot
+    full_page: false
+formats:
+  - png
