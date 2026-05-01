@@ -46,17 +46,6 @@ Default behavior is unchanged until the operator flips to `1`:
   `DeprecationWarning` on import. Scheduled for deletion per
   `backend/modules/printers/telemetry/CUTOVER.md`.
 
-### Fixed (unrelated to telemetry V2)
-
-- **Security: HSTS header now emitted unconditionally.** The
-  `security_headers` middleware previously gated `Strict-Transport-
-  Security` on `request.url.scheme == "https"`, which suppressed the
-  header in production because openresty/NPM on LXC 112 terminates
-  TLS and forwards plain HTTP to FastAPI. RFC 6797 §7.2 requires UAs
-  to ignore HSTS over plain HTTP, so unconditional emission is safe
-  and removes the proxy-trust dependency. Contract pinned by
-  `tests/test_contracts/test_security_headers_hsts.py`. (ODIN-136)
-
 ### Operator action remaining
 
 Before legacy deletion can happen:
@@ -97,6 +86,15 @@ flag-gated, default off — see [Unreleased] above).
   cannot be used to enumerate token prefixes.
 - **Security: lxml CVE-2026-41066.** Bumped `lxml` 5.3.0 → 6.1.0 in
   `backend/requirements.txt` and updated `THIRD_PARTY_NOTICES.md`.
+- **Security: HSTS header emitted unconditionally.** The
+  `security_headers` middleware previously gated `Strict-Transport-
+  Security` on `request.url.scheme == "https"`, which suppressed the
+  header in production because openresty/NPM on LXC 112 terminates
+  TLS and forwards plain HTTP to FastAPI. RFC 6797 §7.2 requires UAs
+  to ignore HSTS over plain HTTP, so unconditional emission is safe
+  and removes the proxy-trust dependency. Header now ships as
+  `max-age=63072000; includeSubDomains; preload`. Contract pinned by
+  `tests/test_contracts/test_security_headers_hsts.py`. (ODIN-136)
 - README install URLs corrected for launch-day; brand-voice + claims
   pass per the ODIN charter; contributor invite added. (ODIN-85)
 - Stripped `[ATTORNEY REVIEW: ...]` placeholder markers from
