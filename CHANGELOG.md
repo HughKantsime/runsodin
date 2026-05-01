@@ -54,6 +54,34 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.6] - 2026-05-01
+
+Hotfix: completes the ODIN-136 HSTS work. v1.9.5 dropped the
+`request.url.scheme == "https"` gate but `security_headers` was still
+the innermost middleware, so 401/403 short-circuits from
+`authenticate_request` (which returns `JSONResponse` directly without
+calling `call_next`) skipped it entirely — including the issue's
+acceptance probe `curl -sI https://odin.subsystem.app/api/health`.
+
+### Fixed
+
+- **Security: HSTS/CSP/etc. now emitted on auth-rejected responses.**
+  `_register_http_middleware` reordered so `security_headers` is
+  registered LAST (outermost). It now wraps `authenticate_request` and
+  attaches all security headers to every response, including 401/403
+  short-circuits from auth that previously bypassed the middleware.
+  No auth-bypass risk introduced — `security_headers` is purely a
+  response-side decorator (no caching, no replay, no skip). Contract
+  pinned by the new `test_hsts_emitted_on_auth_rejected_response` case
+  in `tests/test_contracts/test_security_headers_hsts.py`. (ODIN-136)
+
+### Acceptance
+
+```
+$ curl -sI https://odin.subsystem.app/api/health | grep -i strict
+strict-transport-security: max-age=63072000; includeSubDomains; preload
+```
+
 ## [1.9.5] - 2026-04-30
 
 App Review reviewer demo stack, two security fixes, legal/docs polish.

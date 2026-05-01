@@ -347,11 +347,21 @@ def _register_http_middleware(app: FastAPI) -> None:
     the prior ordering: the idempotency middleware was registered
     outermost so cached replays could short-circuit BEFORE auth ran.
     An expired/revoked token could keep replaying 2xx responses
-    forever. The ordering below puts `authenticate_request` outermost
-    so every request — cache hit, cache miss, pending, or conflict —
-    first passes the live auth chain (JWT expiry, token expiry,
-    is_active, blacklist, session cookie). The idempotency and
-    dry-run layers sit inside, only reached by authorized callers.
+    forever. The ordering below puts `authenticate_request` outside
+    idempotency/dry-run so every request — cache hit, cache miss,
+    pending, or conflict — first passes the live auth chain (JWT
+    expiry, token expiry, is_active, blacklist, session cookie). The
+    idempotency and dry-run layers sit inside, only reached by
+    authorized callers.
+
+    `security_headers` is registered LAST and is therefore the
+    OUTERMOST wrapper. It must wrap auth: when auth returns 401/403
+    via JSONResponse without calling call_next, those early responses
+    still need CSP/HSTS/etc. (ODIN-136 root cause: HSTS missing on
+    `/api/health` 401 because security_headers was previously
+    innermost and never ran on auth-rejected responses.) The
+    middleware is purely additive on the response side — it does not
+    short-circuit requests, so wrapping auth introduces no bypass.
     """
     from core.config import settings
     from core.middleware.dry_run import dry_run_middleware
@@ -372,25 +382,6 @@ def _register_http_middleware(app: FastAPI) -> None:
         "object-src 'none'",
         "base-uri 'self'",
     ])
-
-    @app.middleware("http")
-    async def security_headers(request: Request, call_next):
-        """Attach CSP and other security headers to every response."""
-        response = await call_next(request)
-        if not any(request.url.path.startswith(p) for p in _CSP_SKIP_PREFIXES):
-            response.headers["Content-Security-Policy"] = _CSP_DIRECTIVES
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "0"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # HSTS emitted unconditionally: RFC 6797 §7.2 requires UAs to ignore the
-        # header over plain HTTP, so this is safe behind a TLS-terminating proxy
-        # (openresty/NPM on the LAN edge) where request.url.scheme is "http".
-        response.headers["Strict-Transport-Security"] = (
-            "max-age=63072000; includeSubDomains; preload"
-        )
-        return response
 
     # v1.8.9 (post-codex-fix-1): dry-run + idempotency registered BEFORE
     # authenticate_request so auth wraps them on the inbound path.
@@ -502,6 +493,30 @@ def _register_http_middleware(app: FastAPI) -> None:
             status_code=401,
             content={"detail": "Invalid or missing API key"},
         )
+
+    # security_headers must be the OUTERMOST middleware so it runs on every
+    # response — including 401/403/503 short-circuits from authenticate_request
+    # that never reach inner middleware. ODIN-136: prior ordering (innermost)
+    # left HSTS/CSP/etc. missing on auth-rejected responses like
+    # `curl -sI https://odin.subsystem.app/api/health`.
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        """Attach CSP and other security headers to every response."""
+        response = await call_next(request)
+        if not any(request.url.path.startswith(p) for p in _CSP_SKIP_PREFIXES):
+            response.headers["Content-Security-Policy"] = _CSP_DIRECTIVES
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "0"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # HSTS emitted unconditionally: RFC 6797 §7.2 requires UAs to ignore the
+        # header over plain HTTP, so this is safe behind a TLS-terminating proxy
+        # (openresty/NPM on the LAN edge) where request.url.scheme is "http".
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=63072000; includeSubDomains; preload"
+        )
+        return response
 
 
 # ---------------------------------------------------------------------------
