@@ -342,11 +342,17 @@ class PrinterVisionThread(threading.Thread):
                 serial, access_code = creds.split('|', 1)
                 if is_v2_enabled():
                     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+                    from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
                     from modules.printers.telemetry.bambu.session import run_command
+                    endpoint = resolve_bambu_broker_config(
+                        api_host, printer_id=f"vision-pause-{self.printer_id}",
+                    )
                     config = BambuAdapterConfig(
                         printer_id=f"vision-pause-{self.printer_id}",
                         serial=serial,
-                        host=api_host,
+                        host=endpoint.host,
+                        port=endpoint.port,
+                        use_tls=endpoint.use_tls,
                         access_code=access_code,
                     )
                     success = run_command(config, "pause_print")

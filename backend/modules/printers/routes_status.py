@@ -48,12 +48,18 @@ def _fetch_printer_live_status(printer_id: int, db: Session) -> dict:
 def _fetch_live_status_v2(printer_id, printer, serial, access_code) -> dict:
     """V2 path — uses BambuTelemetryAdapter via read_status_once."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
     from modules.printers.telemetry.bambu.session import read_status_once
 
+    endpoint = resolve_bambu_broker_config(
+        printer.api_host, printer_id=f"legacy-route-{printer.id}",
+    )
     config = BambuAdapterConfig(
         printer_id=f"legacy-route-{printer.id}",
         serial=serial,
-        host=printer.api_host,
+        host=endpoint.host,
+        port=endpoint.port,
+        use_tls=endpoint.use_tls,
         access_code=access_code,
     )
     try:

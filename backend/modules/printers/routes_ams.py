@@ -177,13 +177,19 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
 
     if is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+        from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
         from modules.printers.telemetry.bambu.session import read_status_once
         from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
 
+        endpoint = resolve_bambu_broker_config(
+            printer.api_host, printer_id=f"ams-sync-{printer_id}",
+        )
         config = BambuAdapterConfig(
             printer_id=f"ams-sync-{printer_id}",
             serial=serial,
-            host=printer.api_host,
+            host=endpoint.host,
+            port=endpoint.port,
+            use_tls=endpoint.use_tls,
             access_code=access_code,
         )
         # Printers take 5-10s to emit their first MQTT report.

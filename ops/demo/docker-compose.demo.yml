@@ -69,6 +69,14 @@ services:
       - CORS_ORIGINS=${ODIN_DEMO_PUBLIC_URL:-https://demo.subsystem.app}
       - ODIN_HOST_IP=${ODIN_DEMO_HOST_IP:-}
       - ODIN_BAMBU_BROKER_URL=mqtt://mosquitto:1883
+      # ODIN-142 Wake 2b: Bambu broker policy resolver allowlist. The demo
+      # stack subscribes to plaintext mosquitto:1883 inside the compose
+      # network. Without these gates, ODIN forces TLS:8883 and would
+      # silently fail to ingest the publisher's traffic. See
+      # backend/modules/printers/telemetry/bambu/broker_policy.py.
+      - ODIN_ALLOW_INSECURE_BAMBU_BROKER=1
+      - ODIN_BAMBU_INSECURE_BROKER_HOSTS=mosquitto,localhost,127.0.0.1
+      - ODIN_BAMBU_INSECURE_BROKER_PORT=1883
       - ODIN_PUBLIC_URL=${ODIN_DEMO_PUBLIC_URL:-https://demo.subsystem.app}
       - ODIN_DEMO_MODE=1
       - TZ=${TZ:-UTC}

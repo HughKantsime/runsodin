@@ -428,13 +428,17 @@ def test_printer_connection(request: TestConnectionRequest, current_user: dict =
         from modules.printers.telemetry.feature_flag import is_v2_enabled
         if is_v2_enabled():
             from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+            from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
             from modules.printers.telemetry.bambu.session import read_status_once
             from modules.printers.telemetry.bambu.status_view import ams_slots_from_section
 
+            endpoint = resolve_bambu_broker_config(request.api_host, printer_id="crud-test")
             config = BambuAdapterConfig(
                 printer_id="crud-test",
                 serial=request.serial,
-                host=request.api_host,
+                host=endpoint.host,
+                port=endpoint.port,
+                use_tls=endpoint.use_tls,
                 access_code=request.access_code,
             )
             try:

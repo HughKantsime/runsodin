@@ -205,6 +205,7 @@ def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: 
 def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
     """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
     from modules.printers.telemetry.bambu.ftp_upload import upload_file
     from modules.printers.telemetry.bambu.session import run_command
 
@@ -214,10 +215,15 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         return False, "FTPS upload failed — check printer IP, access code, and network"
 
     _ws(job_id, "starting", "File uploaded, connecting MQTT to start print...")
+    endpoint = resolve_bambu_broker_config(
+        creds["ip"], printer_id=f"dispatch-{creds['serial']}",
+    )
     config = BambuAdapterConfig(
         printer_id=f"dispatch-{creds['serial']}",
         serial=creds["serial"],
-        host=creds["ip"],
+        host=endpoint.host,
+        port=endpoint.port,
+        use_tls=endpoint.use_tls,
         access_code=creds["access_code"],
     )
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")

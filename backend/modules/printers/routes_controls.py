@@ -344,11 +344,17 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
 
     if is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+        from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
         from modules.printers.telemetry.bambu.session import run_command
+        endpoint = resolve_bambu_broker_config(
+            printer.api_host, printer_id=f"lights-{printer_id}",
+        )
         config = BambuAdapterConfig(
             printer_id=f"lights-{printer_id}",
             serial=serial,
-            host=printer.api_host,
+            host=endpoint.host,
+            port=endpoint.port,
+            use_tls=endpoint.use_tls,
             access_code=access_code,
         )
         success = run_command(config, "set_chamber_light", turn_on)

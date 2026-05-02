@@ -329,14 +329,20 @@ def _bambu_command(printer, action: str) -> bool:
 
 def _bambu_command_v2(printer, action: str) -> bool:
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+    from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
     from modules.printers.telemetry.bambu.session import run_command
     try:
         creds = crypto.decrypt(printer.api_key)
         serial, access_code = creds.split("|", 1)
+        endpoint = resolve_bambu_broker_config(
+            printer.api_host, printer_id=f"cmd-{printer.id}",
+        )
         config = BambuAdapterConfig(
             printer_id=f"cmd-{printer.id}",
             serial=serial,
-            host=printer.api_host,
+            host=endpoint.host,
+            port=endpoint.port,
+            use_tls=endpoint.use_tls,
             access_code=access_code,
         )
         # V2's command adapter supports the same allowlisted methods.
@@ -424,14 +430,20 @@ def _bambu_command_direct(printer, method_name: str, *args, **kwargs) -> bool:
 
     if is_v2_enabled():
         from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+        from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
         from modules.printers.telemetry.bambu.session import run_command
         try:
             creds = crypto.decrypt(printer.api_key)
             serial, access_code = creds.split("|", 1)
+            endpoint = resolve_bambu_broker_config(
+                printer.api_host, printer_id=f"cmd-direct-{printer.id}",
+            )
             config = BambuAdapterConfig(
                 printer_id=f"cmd-direct-{printer.id}",
                 serial=serial,
-                host=printer.api_host,
+                host=endpoint.host,
+                port=endpoint.port,
+                use_tls=endpoint.use_tls,
                 access_code=access_code,
             )
             return run_command(config, method_name, *args, **kwargs)

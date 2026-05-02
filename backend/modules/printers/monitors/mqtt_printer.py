@@ -106,6 +106,9 @@ class PrinterMonitor:
             BambuAdapterConfig,
             BambuTelemetryAdapter,
         )
+        from modules.printers.telemetry.bambu.broker_policy import (
+            resolve_bambu_broker_config,
+        )
         from modules.printers.telemetry.events import BambuReportEvent
 
         class _LegacyStatusShim:
@@ -121,10 +124,15 @@ class PrinterMonitor:
                 section_dict = item.section.model_dump(exclude_none=False)
                 on_status(_LegacyStatusShim(section_dict))
 
+        endpoint = resolve_bambu_broker_config(
+            self.ip, printer_id=f"monitor-{self.printer_id}",
+        )
         config = BambuAdapterConfig(
             printer_id=f"monitor-{self.printer_id}",
             serial=self.serial,
-            host=self.ip,
+            host=endpoint.host,
+            port=endpoint.port,
+            use_tls=endpoint.use_tls,
             access_code=self.access_code,
         )
         self._v2_adapter = BambuTelemetryAdapter(config, emitter=emit)

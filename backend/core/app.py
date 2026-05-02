@@ -567,6 +567,18 @@ def create_app() -> FastAPI:
         ])
 
     # -----------------------------------------------------------------------
+    # ODIN-142 Wake 2b: Bambu MQTT broker policy boot audit.
+    # Refuses to start if `ODIN_ALLOW_INSECURE_BAMBU_BROKER` is set
+    # together with `ODIN_ITAR_MODE=1`, or if the insecure-broker port
+    # is unparsable, or if the allowlist contains a public IP literal.
+    # No-op on production deploys (no env vars set).
+    # -----------------------------------------------------------------------
+    from modules.printers.telemetry.bambu.broker_policy import (
+        enforce_boot_audit as _bambu_broker_boot_audit,
+    )
+    _bambu_broker_boot_audit()
+
+    # -----------------------------------------------------------------------
     # Module discovery and registry (at import time, not in lifespan)
     # -----------------------------------------------------------------------
     pkg_names = _discover_modules()
