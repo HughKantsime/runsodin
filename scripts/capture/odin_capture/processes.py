@@ -7,7 +7,7 @@ odin + replay publisher). Scenario selection is honored by setting
 flips `ops/demo/demo_publisher.py` from single-printer mode (the App
 Reviewer default) into scenario mode (multi-printer fan-out).
 
-## What this module does (and doesn't)
+## What this module does
 
 * `start_local_stack(scenario)` — runs `docker compose up -d` against the
   demo compose file with `ODIN_DEMO_SCENARIO` injected, then polls
@@ -16,26 +16,10 @@ Reviewer default) into scenario mode (multi-printer fan-out).
   are preserved across runs (faster re-capture); pass `wipe_volumes=True`
   on the handle to teardown clean.
 * `wait_for_health(url, timeout)` — polls a URL until it returns 200.
-* `bootstrap_scenario_printers(...)` — **deliberately unimplemented**. See
-  the docstring for the gap and the path forward.
-
-## The bootstrap gap
-
-ODIN does not auto-register printers from MQTT telemetry — the dashboard
-only renders printers that already have a row in the `printers` table.
-The App Reviewer demo solves this by shipping a pre-baked SQLite DB on a
-PVC. For capture-pipeline `--target local` we need either:
-
-  (a) **A scenario-seed script** that POSTs each printer via
-      `/api/printers` (preferred — keeps every dependency in code).
-  (b) **MQTT auto-registration** added to `ingest.py` (broader feature,
-      lands separately).
-  (c) **Per-scenario pre-baked DBs** dropped into the volume mount
-      (fragile — drifts with schema).
-
-Wake 2 ships (a)'s plumbing as `bootstrap_scenario_printers` but leaves
-the body for the next heartbeat. The CLI surfaces the gap loudly when
-`scene` is invoked against `--target local`, naming the unblock.
+* `bootstrap_scenario_printers(base_url, scenario_name, access_token)` —
+  POSTs each scenario printer to `/api/printers` so the backend has rows
+  for the publisher's MQTT topics to bind against. Idempotent: 400 with
+  "already exists" is treated as success.
 """
 
 from __future__ import annotations
@@ -228,24 +212,137 @@ def wait_for_health(url: str = HEALTH_URL_LOCAL, *, timeout: int = 60) -> bool:
     return False
 
 
-def bootstrap_scenario_printers(base_url: str, scenario_name: str, *, access_token: str) -> int:
+def _load_scenario_printers(scenario_name: str) -> list[dict]:
+    """Parse `demo_scenarios/<name>/scenario.yaml` directly with PyYAML.
+
+    Bypasses `backend.modules.printers.telemetry.demo` (which transitively
+    imports `paho.mqtt.client` via `live_replay.py`) so the capture
+    pipeline doesn't pick up backend-runtime dependencies just to read
+    the scenario manifest.
+    """
+    import yaml  # PyYAML, declared in scripts/capture/requirements.txt
+    path = REPO_ROOT / "demo_scenarios" / scenario_name / "scenario.yaml"
+    if not path.exists():
+        raise StackError(f"scenario manifest missing: {path}")
+    raw = yaml.safe_load(path.read_text())
+    printers = raw.get("printers") or []
+    if not printers:
+        raise StackError(f"scenario {scenario_name!r} has no printers")
+    # Sanity-check the keys the bootstrap step depends on. If a future
+    # scenario YAML drops one of these, we want to halt early with a
+    # clear message rather than POST a malformed body.
+    required_keys = {"id", "serial", "model"}
+    for p in printers:
+        missing = required_keys - p.keys()
+        if missing:
+            raise StackError(
+                f"scenario {scenario_name!r} printer {p.get('id', '?')!r} "
+                f"missing required keys: {sorted(missing)}. The capture "
+                f"pipeline needs id+serial+model to build the /api/printers "
+                f"POST body."
+            )
+    return printers
+
+
+def bootstrap_scenario_printers(
+    base_url: str,
+    scenario_name: str,
+    *,
+    access_token: str,
+    timeout: float = 10.0,
+) -> int:
     """Seed each scenario printer into ODIN's `printers` table via REST.
 
-    **Wake 2 status: deliberately unimplemented.** See module docstring
-    for the gap. The signature is locked in so Wake 2b can drop in the
-    body without touching callers. Preferred path (see option (a)):
+    For each printer entry in `demo_scenarios/<name>/scenario.yaml`, POSTs
+    to `/api/printers` with:
+      * `name`         — `printer.id` (e.g. `a1-01`)
+      * `model`        — `printer.model` (e.g. `A1`, `H2D`)
+      * `api_type`     — `"bambu"`
+      * `api_host`     — `"mqtt-publisher-internal"` (placeholder; ODIN's
+                         MQTT consumer routes by serial via the topic
+                         `device/<serial>/report`, not by host. The publisher
+                         publishes against the same in-cluster mosquitto
+                         service, so the host string is documentation-only)
+      * `api_key`      — `<serial>|<placeholder-access-code>` plaintext —
+                         the backend encrypts via `crypto.encrypt` and
+                         later splits on `|` to get serial + access code.
+                         For fixture replay, access code isn't validated
+                         (mosquitto.conf has `allow_anonymous true`).
+      * `slot_count`   — `4` (default)
 
-    1. Load `DemoScenario` for `scenario_name`
-    2. For each printer, POST to `/api/printers` with
-       `{name: printer.id, model: printer.model, api_type: "bambu",
-         api_host: "0.0.0.0", slot_count: 4}` — telemetry by-serial then
-       hydrates the row.
-    3. Verify each by `GET /api/printers/{id}`.
+    Idempotency: a 400 with `"already exists"` in the body is treated as
+    success (re-running the capture pipeline against an existing volume
+    shouldn't fail). Any other 4xx/5xx halts with the response envelope.
 
-    Returns the number of printers seeded. Raises StackError on failure.
+    Returns the number of printers successfully seeded (newly-created or
+    already-existing).
     """
-    raise StackError(
-        "bootstrap_scenario_printers: Wake 2b deliverable. The capture "
-        "pipeline cannot run end-to-end against `--target local` until "
-        "scenario printers are seeded into the ODIN DB. Tracking: ODIN-142."
+    printers = _load_scenario_printers(scenario_name)
+    seeded = 0
+    for p in printers:
+        body = {
+            "name": p["id"],
+            "model": p["model"],
+            "api_type": "bambu",
+            "api_host": "mqtt-publisher-internal",
+            "api_key": f"{p['serial']}|capture-pipeline-placeholder",
+            "slot_count": 4,
+            "is_active": True,
+        }
+        ok = _post_printer(base_url, body, access_token=access_token, timeout=timeout)
+        if ok:
+            seeded += 1
+            logger.info(
+                "seeded printer name=%s serial=%s model=%s",
+                p["id"], p["serial"], p["model"],
+            )
+    if seeded != len(printers):
+        # Should never hit — _post_printer raises on hard fail. Keep the
+        # invariant so a future code change doesn't silently under-seed.
+        raise StackError(
+            f"seeded {seeded}/{len(printers)} printers — partial bootstrap "
+            f"is a hard halt to avoid producing a half-empty fleet capture."
+        )
+    return seeded
+
+
+def _post_printer(
+    base_url: str,
+    body: dict,
+    *,
+    access_token: str,
+    timeout: float,
+) -> bool:
+    """POST one printer to /api/printers. Returns True on 201 or
+    already-exists 400. Raises StackError on any other failure."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = f"{base_url.rstrip('/')}/api/printers"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}",
+        },
+        method="POST",
     )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if 200 <= resp.status < 300:
+                return True
+            raise StackError(
+                f"POST {url} unexpected status {resp.status} "
+                f"for printer={body['name']!r}"
+            )
+    except urllib.error.HTTPError as e:
+        envelope = e.read().decode("utf-8", "replace")
+        if e.code == 400 and "already exists" in envelope.lower():
+            logger.info("printer %s already exists — idempotent re-seed", body["name"])
+            return True
+        raise StackError(
+            f"POST {url} failed for printer={body['name']!r}: "
+            f"HTTP {e.code} {envelope[:300]}"
+        )

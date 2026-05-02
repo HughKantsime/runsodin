@@ -59,6 +59,14 @@ class SessionCookie:
         }
 
 
+@dataclass
+class AuthSession:
+    """Login result — both the cookie (for Playwright) and the access token
+    (for direct API calls like `bootstrap_scenario_printers`)."""
+    cookie: SessionCookie
+    access_token: str
+
+
 class AuthError(RuntimeError):
     """Raised when setup-admin or login fails."""
 
@@ -153,8 +161,11 @@ def login(
     base_url: str,
     username: str = DEFAULT_CAPTURE_USERNAME,
     password: str = DEFAULT_CAPTURE_PASSWORD,
-) -> SessionCookie:
-    """Login via `POST /api/auth/login` (form-encoded). Returns session cookie."""
+) -> AuthSession:
+    """Login via `POST /api/auth/login` (form-encoded). Returns an
+    AuthSession containing both the `session` cookie (for Playwright) and
+    the access_token (for direct API calls like printer bootstrap).
+    """
     payload, set_cookies = _post_form(
         f"{base_url}/api/auth/login",
         {"username": username, "password": password},
@@ -169,7 +180,7 @@ def login(
         # frontend would never authenticate either.
         raise AuthError("login succeeded but no `session` cookie returned")
     logger.info("logged in user=%s on %s", username, base_url)
-    return cookie
+    return AuthSession(cookie=cookie, access_token=token)
 
 
 def bootstrap_or_login(
@@ -177,7 +188,7 @@ def bootstrap_or_login(
     username: str = DEFAULT_CAPTURE_USERNAME,
     email: str = DEFAULT_CAPTURE_EMAIL,
     password: str = DEFAULT_CAPTURE_PASSWORD,
-) -> SessionCookie:
+) -> AuthSession:
     """Provision the admin if the stack is fresh, then login. Idempotent."""
     status = _get_json(f"{base_url}/api/setup/status")
     if status.get("needs_setup", False):

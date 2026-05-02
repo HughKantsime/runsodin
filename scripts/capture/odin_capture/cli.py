@@ -121,23 +121,34 @@ def _run_local(scene, scenario, base_url, viewport, out_dir) -> int:
     handle = None
     try:
         handle = start_local_stack(scenario)
-        # Wake 2b lands the printer-seeding step. Until then this raises
-        # StackError with a clear pointer at ODIN-142.
-        bootstrap_scenario_printers(base_url, scenario, access_token="")
-        cookie = bootstrap_or_login(base_url)
+        session = bootstrap_or_login(base_url)
+        seeded = bootstrap_scenario_printers(
+            base_url, scenario, access_token=session.access_token,
+        )
+        if seeded < (scene.wait_for.min_visible_printers or 0):
+            raise SystemExit(
+                f"error: seeded {seeded} printers but scene needs ≥ "
+                f"{scene.wait_for.min_visible_printers}. Scenario manifest "
+                f"under-defined for this scene."
+            )
 
-        out_path = out_dir / scene.id / f"{scene.id}.png"
+        out_path = out_dir / scene.id / f"{scene.id}-dashboard.png"
         capture_screenshot(
             base_url=base_url,
             route=scene.target_route,
             viewport=viewport,
-            cookie=cookie,
+            cookie=session.cookie,
             wait_selector=scene.wait_for.selector,
             out_path=out_path,
             full_page=any(c.full_page for c in scene.captures if c.kind == "screenshot"),
             min_visible_printers=scene.wait_for.min_visible_printers,
         )
+        manifest_path = _write_manifest(
+            scene=scene, scenario=scenario, target="local", base_url=base_url,
+            viewport=viewport, output_path=out_path, seeded_printers=seeded,
+        )
         print(str(out_path))
+        print(str(manifest_path))
         return 0
     except StackError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -148,6 +159,53 @@ def _run_local(scene, scenario, base_url, viewport, out_dir) -> int:
     finally:
         if handle is not None:
             stop_local_stack(handle)
+
+
+def _write_manifest(
+    *,
+    scene,
+    scenario: str,
+    target: str,
+    base_url: str,
+    viewport,
+    output_path: Path,
+    seeded_printers: int,
+) -> Path:
+    """Emit a sibling JSON manifest documenting what was captured.
+
+    Hugh's Wake 2b directive calls for `<scene>.png` + sibling `<scene>.json`
+    in the same `--out` directory. Wake 3 will extend this to cover MP4/GIF
+    captures.
+    """
+    import json
+    import subprocess
+
+    manifest_path = output_path.with_suffix(".json")
+    git_sha = "unknown"
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
+        )
+        if proc.returncode == 0:
+            git_sha = proc.stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    manifest = {
+        "scene_id": scene.id,
+        "scene_title": scene.title,
+        "scenario": scenario,
+        "target": target,
+        "base_url": base_url,
+        "viewport": {"width": viewport.width, "height": viewport.height},
+        "git_sha": git_sha,
+        "captured_at_iso": datetime.now(timezone.utc).isoformat(),
+        "seeded_printers": seeded_printers,
+        "outputs": [output_path.name],
+        "wake": "2b",
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return manifest_path
 
 
 def _run_demo(scene, scenario, base_url, viewport, out_dir) -> int:
