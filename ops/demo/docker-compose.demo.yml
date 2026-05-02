@@ -106,6 +106,13 @@ services:
       - ../../backend:/app/backend:ro
       - ../../demo_scenarios:/app/demo_scenarios:ro
     working_dir: /app
+    # The base image's `ENTRYPOINT ["/app/entrypoint.sh"]` (Dockerfile L96)
+    # boots the ODIN backend (uvicorn + supervisord). Compose `command:`
+    # only appends CMD args to that entrypoint — without clearing the
+    # entrypoint here the publisher container loops on the ODIN backend
+    # banner instead of running demo_publisher.py. (K3s 50-publisher.yaml
+    # is unaffected: Kubernetes `command:` natively replaces ENTRYPOINT.)
+    entrypoint: []
     command: ["python", "/opt/odin-demo/demo_publisher.py"]
     environment:
       - ODIN_DEMO_BROKER_HOST=mosquitto
