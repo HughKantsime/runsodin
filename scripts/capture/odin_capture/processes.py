@@ -258,11 +258,12 @@ def bootstrap_scenario_printers(
       * `name`         — `printer.id` (e.g. `a1-01`)
       * `model`        — `printer.model` (e.g. `A1`, `H2D`)
       * `api_type`     — `"bambu"`
-      * `api_host`     — `"mqtt-publisher-internal"` (placeholder; ODIN's
-                         MQTT consumer routes by serial via the topic
-                         `device/<serial>/report`, not by host. The publisher
-                         publishes against the same in-cluster mosquitto
-                         service, so the host string is documentation-only)
+      * `api_host`     — `"mosquitto"` — the in-cluster compose service
+                         the publisher publishes to. ODIN's broker policy
+                         resolver (broker_policy.py) sees this hostname
+                         in `ODIN_BAMBU_INSECURE_BROKER_HOSTS` and
+                         downgrades to plain:1883 instead of TLS:8883.
+                         For real Bambu printers this would be the LAN IP.
       * `api_key`      — `<serial>|<placeholder-access-code>` plaintext —
                          the backend encrypts via `crypto.encrypt` and
                          later splits on `|` to get serial + access code.
@@ -284,7 +285,10 @@ def bootstrap_scenario_printers(
             "name": p["id"],
             "model": p["model"],
             "api_type": "bambu",
-            "api_host": "mqtt-publisher-internal",
+            # Must match an entry in `ODIN_BAMBU_INSECURE_BROKER_HOSTS`
+            # so the broker_policy resolver downgrades to plain:1883 for
+            # this printer. The compose stack publishes to `mosquitto:1883`.
+            "api_host": "mosquitto",
             "api_key": f"{p['serial']}|capture-pipeline-placeholder",
             "slot_count": 4,
             "is_active": True,
