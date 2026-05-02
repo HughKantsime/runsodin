@@ -318,17 +318,26 @@ def _post_printer(
     timeout: float,
 ) -> bool:
     """POST one printer to /api/printers. Returns True on 201 or
-    already-exists 400. Raises StackError on any other failure."""
+    already-exists 400. Raises StackError on any other failure.
+
+    `/api/printers` requires the X-API-Key header (not JWT bearer).
+    The compose stack injects ODIN_DEMO_API_KEY into the backend's
+    API_KEY env var; we read the same value here so the bootstrap
+    posts hit the auth-allowed path instead of 401.
+    """
     import json
+    import os
     import urllib.error
     import urllib.request
 
+    api_key = os.environ.get("ODIN_DEMO_API_KEY") or "capture-pipeline-local"
     url = f"{base_url.rstrip('/')}/api/printers"
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
+            "X-API-Key": api_key,
             "Authorization": f"Bearer {access_token}",
         },
         method="POST",
