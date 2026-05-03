@@ -138,3 +138,12 @@ ops/demo/k8s/05-secrets.yaml
 # odin_capture pipeline outputs (ODIN-142) — raw PNGs/MP4s/GIFs, never commit.
 # Curated final assets are copied into odin-site/ or referenced via manifests.
 captures/out/
+
+# Stress-test artifacts (tests/stress/mqtt/)
+odin_stress.db*
+stress-out/smoke/
+stress-out/sweep-*/n*-sqlite-v2/backend.log
+stress-out/sweep-*/n*-sqlite-v2/mqtt_monitor.log
+stress-out/sweep-*/n*-sqlite-v2/migrate.log
+stress-out/sweep-*/n*-sqlite-v2/bootstrap.log
+stress-out/sweep-*/n*-sqlite-v2/publisher.log

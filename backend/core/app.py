@@ -578,6 +578,17 @@ def create_app() -> FastAPI:
     )
     _bambu_broker_boot_audit()
 
+    # Opt-in stress-test instrumentation. Env-gated so production code path
+    # is byte-identical when unset. See tests/stress/mqtt/instrument.py.
+    _stress_dir = os.environ.get("ODIN_STRESS_INSTRUMENTATION")
+    if _stress_dir:
+        try:
+            from tests.stress.mqtt.instrument import install as _install_stress
+            _install_stress(_stress_dir)
+            log.warning("ODIN_STRESS_INSTRUMENTATION active — wrote to %s", _stress_dir)
+        except Exception as _e:
+            log.error("stress instrumentation install failed: %s", _e)
+
     # -----------------------------------------------------------------------
     # Module discovery and registry (at import time, not in lifespan)
     # -----------------------------------------------------------------------
