@@ -1,0 +1,69 @@
+{
+  "requested": 10,
+  "succeeded": 10,
+  "failed": 0,
+  "elapsed_s": 0.072,
+  "base_url": "http://127.0.0.1:8000",
+  "results": [
+    {
+      "index": 0,
+      "serial": "00M00A450000000",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 1,
+      "serial": "00M00A450000001",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 2,
+      "serial": "00M00A450000002",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 3,
+      "serial": "00M00A450000003",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 4,
+      "serial": "00M00A450000004",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 5,
+      "serial": "00M00A450000005",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 6,
+      "serial": "00M00A450000006",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 7,
+      "serial": "00M00A450000007",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 8,
+      "serial": "00M00A450000008",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 9,
+      "serial": "00M00A450000009",
+      "ok": true,
+      "msg": "201"
+    }
+  ]
+}

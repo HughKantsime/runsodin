@@ -1,0 +1,309 @@
+{
+  "requested": 50,
+  "succeeded": 50,
+  "failed": 0,
+  "elapsed_s": 0.288,
+  "base_url": "http://127.0.0.1:8000",
+  "results": [
+    {
+      "index": 0,
+      "serial": "00M00A450000000",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 1,
+      "serial": "00M00A450000001",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 2,
+      "serial": "00M00A450000002",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 3,
+      "serial": "00M00A450000003",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 4,
+      "serial": "00M00A450000004",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 5,
+      "serial": "00M00A450000005",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 6,
+      "serial": "00M00A450000006",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 7,
+      "serial": "00M00A450000007",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 8,
+      "serial": "00M00A450000008",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 9,
+      "serial": "00M00A450000009",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 10,
+      "serial": "00M00A450000010",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 11,
+      "serial": "00M00A450000011",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 12,
+      "serial": "00M00A450000012",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 13,
+      "serial": "00M00A450000013",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 14,
+      "serial": "00M00A450000014",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 15,
+      "serial": "00M00A450000015",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 16,
+      "serial": "00M00A450000016",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 17,
+      "serial": "00M00A450000017",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 18,
+      "serial": "00M00A450000018",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 19,
+      "serial": "00M00A450000019",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 20,
+      "serial": "00M00A450000020",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 21,
+      "serial": "00M00A450000021",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 22,
+      "serial": "00M00A450000022",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 23,
+      "serial": "00M00A450000023",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 24,
+      "serial": "00M00A450000024",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 25,
+      "serial": "00M00A450000025",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 26,
+      "serial": "00M00A450000026",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 27,
+      "serial": "00M00A450000027",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 28,
+      "serial": "00M00A450000028",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 29,
+      "serial": "00M00A450000029",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 30,
+      "serial": "00M00A450000030",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 31,
+      "serial": "00M00A450000031",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 32,
+      "serial": "00M00A450000032",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 33,
+      "serial": "00M00A450000033",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 34,
+      "serial": "00M00A450000034",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 35,
+      "serial": "00M00A450000035",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 36,
+      "serial": "00M00A450000036",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 37,
+      "serial": "00M00A450000037",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 38,
+      "serial": "00M00A450000038",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 39,
+      "serial": "00M00A450000039",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 40,
+      "serial": "00M00A450000040",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 41,
+      "serial": "00M00A450000041",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 42,
+      "serial": "00M00A450000042",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 43,
+      "serial": "00M00A450000043",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 44,
+      "serial": "00M00A450000044",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 45,
+      "serial": "00M00A450000045",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 46,
+      "serial": "00M00A450000046",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 47,
+      "serial": "00M00A450000047",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 48,
+      "serial": "00M00A450000048",
+      "ok": true,
+      "msg": "201"
+    },
+    {
+      "index": 49,
+      "serial": "00M00A450000049",
+      "ok": true,
+      "msg": "201"
+    }
+  ]
+}
