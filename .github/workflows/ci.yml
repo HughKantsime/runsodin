@@ -57,6 +57,36 @@ jobs:
         run: ADMIN_USERNAME=ci ADMIN_PASSWORD=ci python3.11 -m pytest tests/test_telemetry/ -v --tb=short
 
   # ─────────────────────────────────────────────────────────
+  # Job 0c: Telemetry V2 End-to-End Smoke
+  # Closes the gap Codex flagged in the V2-flip pre-flip review:
+  # no CI test runs the full app/monitor with ODIN_TELEMETRY_V2=1
+  # against a live broker. The flag-routing tests monkeypatch the
+  # flag check; this job runs the actual import path with the flag
+  # set, which is what would catch a regression of the silent-drop
+  # bug fixed in commit 18054a2.
+  # ─────────────────────────────────────────────────────────
+  telemetry-v2-smoke:
+    name: Telemetry V2 End-to-End Smoke
+    runs-on: mac-mini-runner
+    needs: telemetry-contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Homebrew to PATH
+        run: echo "$HOME/homebrew/bin:$HOME/homebrew/sbin:/opt/homebrew/bin:/opt/homebrew/sbin" | tr ':' '\n' >> $GITHUB_PATH
+
+      - name: Run V2=1 smoke
+        run: tests/stress/mqtt/run_ci_smoke.sh
+
+      - name: Upload cell artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-v2-smoke-cell
+          path: stress-out/ci-smoke-*/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────
   # Job 1: Secret Scanning
   # Catches credentials/keys committed to the repo.
   # Belt-and-suspenders over the pre-commit gitleaks hook.
