@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.modules.printers.telemetry.observability import (
+from modules.printers.telemetry.observability import (
     UnmappedFieldObserver,
     UnmappedFieldReport,
     _walk_leaves,
@@ -85,7 +85,7 @@ class TestLoggingDedup:
     def test_logs_once_per_key(self, obs, caplog):
         """Every (vendor, field) pair logs at WARN exactly once."""
         import logging
-        caplog.set_level(logging.WARNING, logger="backend.modules.printers.telemetry.observability")
+        caplog.set_level(logging.WARNING, logger="modules.printers.telemetry.observability")
 
         obs.observe("bambu", {"first": 1})
         obs.observe("bambu", {"first": 2})  # same field — no new log
@@ -112,7 +112,7 @@ class TestOverflow:
 
     def test_overflow_log_fires_once(self, obs, caplog):
         import logging
-        caplog.set_level(logging.ERROR, logger="backend.modules.printers.telemetry.observability")
+        caplog.set_level(logging.ERROR, logger="modules.printers.telemetry.observability")
         obs.MAX_UNIQUE_FIELDS = 1
         obs.observe("bambu", {"first": 1})
         obs.observe("bambu", {"second": 2})
@@ -172,7 +172,7 @@ class TestIntegrationWithPydantic:
     """Live integration: parse real extra fields via _StrictBase and observe them."""
 
     def test_model_extra_flows_to_observer(self, obs):
-        from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
+        from modules.printers.telemetry.bambu.raw import BambuPrintSection
         payload = {
             "gcode_state": "RUNNING",
             "mc_percent": 50,

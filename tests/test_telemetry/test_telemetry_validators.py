@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.modules.printers.telemetry.validators import (
+from modules.printers.telemetry.validators import (
     coerce_float_or_raise,
     coerce_int_or_raise,
 )

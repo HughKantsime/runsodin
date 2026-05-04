@@ -35,7 +35,7 @@ import sys
 import threading
 from pathlib import Path
 
-from backend.modules.printers.telemetry.demo import (
+from modules.printers.telemetry.demo import (
     DemoEngine,
     DemoMarker,
     SCENARIOS_DIR,

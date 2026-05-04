@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.modules.printers.telemetry.demo_cli import main
+from modules.printers.telemetry.demo_cli import main
 
 SCENARIOS_DIR = Path(__file__).parent.parent.parent / "demo_scenarios"
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "telemetry"

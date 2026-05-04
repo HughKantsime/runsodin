@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.live_shadow import (
+from modules.printers.telemetry.live_shadow import (
     LiveShadowResult,
     run_live_shadow,
 )

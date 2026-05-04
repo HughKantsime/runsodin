@@ -21,7 +21,7 @@ import os
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu import broker_policy as bp
+from modules.printers.telemetry.bambu import broker_policy as bp
 
 
 @pytest.fixture(autouse=True)

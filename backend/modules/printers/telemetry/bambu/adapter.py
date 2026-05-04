@@ -34,20 +34,20 @@ from typing import Callable, Optional
 
 import paho.mqtt.client as mqtt
 
-from backend.modules.printers.telemetry.bambu.raw import BambuReport
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.bambu.raw import BambuReport
+from modules.printers.telemetry.events import (
     BambuInfoEvent,
     BambuReportEvent,
     ConnectionEvent,
     DegradedEvent,
     TelemetryEvent,
 )
-from backend.modules.printers.telemetry.observability import observer
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.observability import observer
+from modules.printers.telemetry.state import (
     PrinterStatus,
     StateTransitionEvent,
 )
-from backend.modules.printers.telemetry.transition import transition
+from modules.printers.telemetry.transition import transition
 
 logger = logging.getLogger(__name__)
 

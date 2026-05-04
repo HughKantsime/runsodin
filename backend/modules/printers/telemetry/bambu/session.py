@@ -25,14 +25,14 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from backend.modules.printers.telemetry.bambu.adapter import (
+from modules.printers.telemetry.bambu.adapter import (
     BambuAdapterConfig,
     BambuTelemetryAdapter,
 )
-from backend.modules.printers.telemetry.bambu.commands import BambuCommandAdapter
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
-from backend.modules.printers.telemetry.bambu.status_view import BambuV2StatusView
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.bambu.status_view import BambuV2StatusView
+from modules.printers.telemetry.events import (
     BambuReportEvent,
     ConnectionEvent,
 )

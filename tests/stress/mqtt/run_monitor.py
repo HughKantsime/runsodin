@@ -26,25 +26,6 @@ def _patched_getaddrinfo(host, *args, **kwargs):
 
 socket.getaddrinfo = _patched_getaddrinfo
 
-# Latent ODIN bug: telemetry/* files import as `backend.modules.*` while
-# monitor entry imports as `modules.*`. With both paths on sys.path Python
-# loads the SAME source twice as two distinct modules → two BambuReportEvent
-# classes → V2's `isinstance(item, BambuReportEvent)` shim returns False →
-# emit silently drops everything, _on_status never fires, no telemetry.
-# Prod doesn't hit this because V2 is flag-gated off. Force-canonicalize.
-import sys as _sys
-import importlib as _importlib
-for _suffix in (
-    "modules.printers.telemetry.events",
-    "modules.printers.telemetry.bambu.adapter",
-    "modules.printers.telemetry.bambu.raw",
-    "modules.printers.telemetry.state",
-    "modules.printers.telemetry.transition",
-    "modules.printers.telemetry.observability",
-):
-    _mod = _importlib.import_module(_suffix)
-    _sys.modules[f"backend.{_suffix}"] = _mod
-
 # Mirror the backend's instrumentation hook so monitor-process callsites
 # (the actual hot path) get measured too.
 _stress_dir = os.environ.get("ODIN_STRESS_INSTRUMENTATION")

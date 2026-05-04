@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
-from backend.modules.printers.telemetry.bambu.commands import BambuCommandAdapter
+from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
 
 
 class FakeMqttClient:

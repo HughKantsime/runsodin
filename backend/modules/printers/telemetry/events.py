@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Union
 
-from backend.modules.printers.telemetry.bambu.raw import (
+from modules.printers.telemetry.bambu.raw import (
     BambuInfoSection,
     BambuPrintSection,
 )

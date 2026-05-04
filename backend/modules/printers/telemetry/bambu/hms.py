@@ -24,7 +24,7 @@ from typing import Literal
 
 from pydantic import computed_field
 
-from backend.modules.printers.telemetry.base import _StrictBase
+from modules.printers.telemetry.base import _StrictBase
 
 Severity = Literal["info", "warning", "error", "unknown"]
 

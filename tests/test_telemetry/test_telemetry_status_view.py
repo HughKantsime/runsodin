@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.status_view import (
+from modules.printers.telemetry.bambu.status_view import (
     AMSSlotCompat,
     BambuV2StatusView,
     ams_slots_from_section,
 )
-from backend.modules.printers.telemetry.replay import replay
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.replay import replay
+from modules.printers.telemetry.state import (
     ActiveError,
     PrinterState,
     PrinterStatus,
@@ -137,8 +137,8 @@ class TestAMSSlotsFromSection:
 
     def test_fixture_ams_projection(self):
         """Replay a fixture, grab the last BambuPrintSection, project its AMS."""
-        from backend.modules.printers.telemetry.replay import iter_events
-        from backend.modules.printers.telemetry.events import BambuReportEvent
+        from modules.printers.telemetry.replay import iter_events
+        from modules.printers.telemetry.events import BambuReportEvent
 
         last_section = None
         for event in iter_events(FIXTURES / "bambu-x1c-ams-swap.jsonl"):

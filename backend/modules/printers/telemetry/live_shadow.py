@@ -33,23 +33,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from backend.modules.printers.telemetry.bambu.adapter import (
+from modules.printers.telemetry.bambu.adapter import (
     BambuAdapterConfig,
     BambuTelemetryAdapter,
 )
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
-from backend.modules.printers.telemetry.live_replay import (
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.live_replay import (
     LocalBroker,
     publish_fixture,
 )
-from backend.modules.printers.telemetry.parity import (
+from modules.printers.telemetry.parity import (
     LegacyStatus,
     ParityDiff,
     ParityReport,
     _compare_fields,
     simulate_legacy_parse,
 )
-from backend.modules.printers.telemetry.state import PrinterStatus
+from modules.printers.telemetry.state import PrinterStatus
 
 logger = logging.getLogger(__name__)
 

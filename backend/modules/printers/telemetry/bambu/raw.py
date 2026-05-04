@@ -24,10 +24,10 @@ from typing import Annotated, Optional
 
 from pydantic import BeforeValidator, Field
 
-from backend.modules.printers.telemetry.base import _StrictBase
-from backend.modules.printers.telemetry.bambu.enums import BambuGcodeState
-from backend.modules.printers.telemetry.bambu.hms import BambuHMSEvent
-from backend.modules.printers.telemetry.validators import coerce_int_or_raise
+from modules.printers.telemetry.base import _StrictBase
+from modules.printers.telemetry.bambu.enums import BambuGcodeState
+from modules.printers.telemetry.bambu.hms import BambuHMSEvent
+from modules.printers.telemetry.validators import coerce_int_or_raise
 
 # Polymorphic int type used for fields that Bambu sends as both int and
 # str-of-int depending on firmware version. Unparseable values raise.

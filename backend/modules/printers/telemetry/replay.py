@@ -29,25 +29,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
-from backend.modules.printers.telemetry.bambu.raw import (
+from modules.printers.telemetry.bambu.raw import (
     BambuInfoSection,
     BambuPrintSection,
     BambuReport,
     InvalidBambuReport,
 )
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.events import (
     BambuInfoEvent,
     BambuReportEvent,
     ConnectionEvent,
     DegradedEvent,
     TelemetryEvent,
 )
-from backend.modules.printers.telemetry.observability import observer
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.observability import observer
+from modules.printers.telemetry.state import (
     PrinterStatus,
     StateTransitionEvent,
 )
-from backend.modules.printers.telemetry.transition import transition
+from modules.printers.telemetry.transition import transition
 
 
 MAX_GAP_SEC = 300.0                 # 5 min — larger gaps compress to this

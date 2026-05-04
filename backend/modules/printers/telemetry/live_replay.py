@@ -36,7 +36,7 @@ from typing import Optional
 
 import paho.mqtt.client as mqtt
 
-from backend.modules.printers.telemetry.replay import MAX_GAP_SEC
+from modules.printers.telemetry.replay import MAX_GAP_SEC
 
 logger = logging.getLogger(__name__)
 

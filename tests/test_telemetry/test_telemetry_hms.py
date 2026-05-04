@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.hms import (
+from modules.printers.telemetry.bambu.hms import (
     BambuHMSCatalog,
     BambuHMSEvent,
     HMSEntry,

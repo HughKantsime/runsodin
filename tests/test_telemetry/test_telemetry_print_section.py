@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
 
 
 # ---- Representative real payloads (trimmed to top-level scalars) ----

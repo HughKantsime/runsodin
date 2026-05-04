@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from backend.modules.printers.telemetry.state import PrinterState
+from modules.printers.telemetry.state import PrinterState
 
 if TYPE_CHECKING:  # pragma: no cover
     from backend.modules.printers.telemetry.state import PrinterStatus

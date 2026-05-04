@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from backend.modules.printers.telemetry.bambu.enums import BambuGcodeState
-from backend.modules.printers.telemetry.bambu.hms import get_catalog
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.bambu.enums import BambuGcodeState
+from modules.printers.telemetry.bambu.hms import get_catalog
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.events import (
     BambuInfoEvent,
     BambuReportEvent,
     ConnectionEvent,
@@ -27,7 +27,7 @@ from backend.modules.printers.telemetry.events import (
     HeartbeatMissedEvent,
     TelemetryEvent,
 )
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.state import (
     ActiveError,
     OutOfOrderError,
     PrinterState,

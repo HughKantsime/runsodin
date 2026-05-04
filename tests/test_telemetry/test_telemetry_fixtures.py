@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.observability import observer
-from backend.modules.printers.telemetry.replay import replay
-from backend.modules.printers.telemetry.state import PrinterState
+from modules.printers.telemetry.observability import observer
+from modules.printers.telemetry.replay import replay
+from modules.printers.telemetry.state import PrinterState
 
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "telemetry"

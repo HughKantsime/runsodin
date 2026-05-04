@@ -40,7 +40,7 @@ try:
 except ImportError:
     yaml = None  # type: ignore[assignment]
 
-from backend.modules.printers.telemetry.live_replay import (
+from modules.printers.telemetry.live_replay import (
     LocalBroker,
     publish_fixture,
 )

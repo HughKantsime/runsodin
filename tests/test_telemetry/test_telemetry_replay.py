@@ -17,11 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.events import (
     BambuReportEvent,
     ConnectionEvent,
 )
-from backend.modules.printers.telemetry.replay import (
+from modules.printers.telemetry.replay import (
     MAX_GAP_SEC,
     bootstrap_expected_states,
     iter_events,
@@ -29,7 +29,7 @@ from backend.modules.printers.telemetry.replay import (
     replay,
     slice_capture,
 )
-from backend.modules.printers.telemetry.state import PrinterState
+from modules.printers.telemetry.state import PrinterState
 
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "telemetry"
@@ -83,7 +83,7 @@ class TestLineToEvent:
         assert line_to_event(line, "test-01") is None
 
     def test_info_payload_is_info_event(self):
-        from backend.modules.printers.telemetry.events import BambuInfoEvent
+        from modules.printers.telemetry.events import BambuInfoEvent
         line = {
             "ts": 100.0,
             "payload": {"info": {"command": "get_version", "module": []}},

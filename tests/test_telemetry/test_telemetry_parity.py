@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.parity import (
+from modules.printers.telemetry.parity import (
     ParityDiff,
     ParityReport,
     run_parity_against_fixture,
@@ -29,7 +29,7 @@ from backend.modules.printers.telemetry.parity import (
     LegacyStatus,
     LegacyPrinterState,
 )
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
 
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "telemetry"

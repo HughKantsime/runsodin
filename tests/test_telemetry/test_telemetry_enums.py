@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from backend.modules.printers.telemetry.bambu.enums import BambuGcodeState
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.bambu.enums import BambuGcodeState
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
 
 
 class TestBambuGcodeState:

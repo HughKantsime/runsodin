@@ -12,18 +12,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.adapter import (
+from modules.printers.telemetry.bambu.adapter import (
     BambuAdapterConfig,
     BambuTelemetryAdapter,
 )
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.events import (
     BambuInfoEvent,
     BambuReportEvent,
     ConnectionEvent,
     DegradedEvent,
     TelemetryEvent,
 )
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.state import (
     PrinterState,
     StateTransitionEvent,
 )

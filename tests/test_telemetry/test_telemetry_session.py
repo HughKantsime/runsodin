@@ -11,12 +11,12 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 import pytest
 
-from backend.modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
-from backend.modules.printers.telemetry.bambu.session import (
+from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+from modules.printers.telemetry.bambu.session import (
     read_status_once,
     run_command,
 )
-from backend.modules.printers.telemetry.live_replay import (
+from modules.printers.telemetry.live_replay import (
     LocalBroker,
     publish_fixture,
 )

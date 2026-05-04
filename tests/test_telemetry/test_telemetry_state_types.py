@@ -9,7 +9,7 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.events import (
     BambuInfoEvent,
     BambuReportEvent,
     ConnectionEvent,
@@ -17,11 +17,11 @@ from backend.modules.printers.telemetry.events import (
     HeartbeatMissedEvent,
     TelemetryEvent,
 )
-from backend.modules.printers.telemetry.bambu.raw import (
+from modules.printers.telemetry.bambu.raw import (
     BambuInfoSection,
     BambuPrintSection,
 )
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.state import (
     ActiveError,
     PrinterState,
     PrinterStatus,

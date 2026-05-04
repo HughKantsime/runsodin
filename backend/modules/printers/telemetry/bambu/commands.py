@@ -27,7 +27,7 @@ from typing import Any, Callable, Optional
 
 import paho.mqtt.client as mqtt
 
-from backend.modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
+from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
 
 logger = logging.getLogger(__name__)
 

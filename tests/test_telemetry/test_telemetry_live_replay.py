@@ -15,18 +15,18 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.adapter import (
+from modules.printers.telemetry.bambu.adapter import (
     BambuAdapterConfig,
     BambuTelemetryAdapter,
 )
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.events import (
     BambuReportEvent,
 )
-from backend.modules.printers.telemetry.live_replay import (
+from modules.printers.telemetry.live_replay import (
     LocalBroker,
     publish_fixture,
 )
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.state import (
     PrinterState,
     StateTransitionEvent,
 )

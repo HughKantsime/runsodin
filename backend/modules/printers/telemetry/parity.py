@@ -38,15 +38,15 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from backend.modules.printers.telemetry.bambu.enums import BambuGcodeState
-from backend.modules.printers.telemetry.bambu.raw import BambuPrintSection
-from backend.modules.printers.telemetry.replay import iter_events
-from backend.modules.printers.telemetry.events import BambuReportEvent
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.bambu.enums import BambuGcodeState
+from modules.printers.telemetry.bambu.raw import BambuPrintSection
+from modules.printers.telemetry.replay import iter_events
+from modules.printers.telemetry.events import BambuReportEvent
+from modules.printers.telemetry.state import (
     PrinterState,
     PrinterStatus,
 )
-from backend.modules.printers.telemetry.transition import transition
+from modules.printers.telemetry.transition import transition
 
 
 # ===== Legacy simulator =====

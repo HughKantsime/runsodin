@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.modules.printers.telemetry.feature_flag import (
+from modules.printers.telemetry.feature_flag import (
     is_shadow_enabled,
     is_v2_enabled,
     mode,

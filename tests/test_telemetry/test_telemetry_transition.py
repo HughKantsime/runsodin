@@ -17,18 +17,18 @@ import copy
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.raw import (
+from modules.printers.telemetry.bambu.raw import (
     BambuInfoSection,
     BambuPrintSection,
 )
-from backend.modules.printers.telemetry.events import (
+from modules.printers.telemetry.events import (
     BambuInfoEvent,
     BambuReportEvent,
     ConnectionEvent,
     DegradedEvent,
     HeartbeatMissedEvent,
 )
-from backend.modules.printers.telemetry.state import (
+from modules.printers.telemetry.state import (
     ActiveError,
     OutOfOrderError,
     PrinterState,
@@ -37,7 +37,7 @@ from backend.modules.printers.telemetry.state import (
     UnhandledEventError,
     UnknownStageError,
 )
-from backend.modules.printers.telemetry.transition import transition
+from modules.printers.telemetry.transition import transition
 
 
 def _event(section_dict, ts=100.0, printer_id="h2d-01"):
@@ -325,7 +325,7 @@ class TestPurity:
         reference these by name don't count."""
         import ast
         import inspect
-        import backend.modules.printers.telemetry.transition as m
+        import modules.printers.telemetry.transition as m
 
         tree = ast.parse(inspect.getsource(m))
 

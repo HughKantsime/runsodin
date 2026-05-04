@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.demo import (
+from modules.printers.telemetry.demo import (
     DemoEngine,
     DemoMarker,
     DemoPrinter,
@@ -193,7 +193,7 @@ class TestSeekAndLoop:
         assert state.loop_window is None
 
     def test_binary_search_finds_iso(self):
-        from backend.modules.printers.telemetry.demo import _find_iso_index
+        from modules.printers.telemetry.demo import _find_iso_index
         events = [
             ("2026-04-16T14:00:00Z", 1.0, {}),
             ("2026-04-16T14:30:00Z", 2.0, {}),

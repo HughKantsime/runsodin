@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.modules.printers.telemetry.bambu.raw import (
+from modules.printers.telemetry.bambu.raw import (
     BambuAMSRoot,
     BambuAMSTray,
     BambuAMSUnit,
