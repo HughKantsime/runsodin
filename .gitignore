@@ -147,3 +147,5 @@ stress-out/sweep-*/n*-sqlite-v2/mqtt_monitor.log
 stress-out/sweep-*/n*-sqlite-v2/migrate.log
 stress-out/sweep-*/n*-sqlite-v2/bootstrap.log
 stress-out/sweep-*/n*-sqlite-v2/publisher.log
+.brain-output/
+stress-out/
