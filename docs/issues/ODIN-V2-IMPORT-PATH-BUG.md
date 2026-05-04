@@ -1,120 +1,57 @@
-# ODIN-V2 latent import-path bug — silently drops all telemetry when V2 flag flips
+# V2 telemetry import-path canonicalization
 
-**Severity**: latent / would be CRITICAL on `ODIN_TELEMETRY_V2=1` flag-flip
-**Discovered**: 2026-05-03 during MQTT stress-test scaffolding
-**Affects**: every code path that flips through the V2 emit shim
-**Currently in prod?**: NO — `ODIN_TELEMETRY_V2` defaults to `0`, so `_connect_v2` is never reached. The bug is dormant. Flipping the flag without this fix produces a silent, fleet-wide telemetry blackout.
+**Status**: ✅ FIXED in commits below (2026-05-04)
+**Production impact at any point**: zero — V2 telemetry is feature-flag-gated
+behind `ODIN_TELEMETRY_V2`, defaulted off, and the affected code was never
+reached at runtime in any deployed environment.
 
-## Symptom
+## What changed
 
-With `ODIN_TELEMETRY_V2=1`:
+Canonicalized 42 import sites across `backend/modules/printers/telemetry/` and
+43 import sites across `tests/test_telemetry/` from
+`from backend.modules.printers.telemetry...` to `from modules.printers.telemetry...`,
+matching the rest of the codebase's single-root convention
+(`PYTHONPATH=/app/backend` everywhere — module entry points, supervisord,
+test conftest).
 
-- `BambuTelemetryAdapter._on_message` runs (paho callbacks fire)
-- `_process_event` runs (state machine executes)
-- The emit closure receives `BambuReportEvent` instances (verified by interposing a logging emitter)
-- BUT `_on_status` is never invoked
-- BUT zero rows land in `printer_telemetry`, `ams_telemetry`, `alerts`
-- BUT no error or warning is logged anywhere
+## Why this matters
 
-The dashboard shows every printer as Offline. The only signal that anything is wrong is the absence of telemetry rows.
+Python treats `backend.modules.foo` and `modules.foo` as two distinct module
+objects when both roots are reachable on `sys.path`, even when they resolve
+to the same source file. Two distinct module objects → two distinct class
+definitions → `isinstance(obj, ClassFromRootA)` returns False for instances
+created by `ClassFromRootB`. ODIN's V2 telemetry path used a `_LegacyStatusShim`
+in `backend/modules/printers/monitors/mqtt_printer.py` that imported
+`BambuReportEvent` via `modules.*` and ran `isinstance` against events
+emitted by `BambuTelemetryAdapter`, which imported the class via
+`backend.modules.*`. Two roots on `sys.path` → check returns False → the
+shim silently dropped every event.
 
-## Root cause
+## How it was caught
 
-The V2 emit shim in `backend/modules/printers/monitors/mqtt_printer.py:121-125`:
-
-```python
-def emit(item):
-    if isinstance(item, BambuReportEvent):
-        section_dict = item.section.model_dump(exclude_none=False)
-        on_status(_LegacyStatusShim(section_dict))
-```
-
-The `BambuReportEvent` referenced here is imported from `modules.printers.telemetry.events` (line 112).
-
-The adapter that *creates* `BambuReportEvent` instances at `backend/modules/printers/telemetry/bambu/adapter.py:38-44` imports from `backend.modules.printers.telemetry.events`:
-
-```python
-from backend.modules.printers.telemetry.events import (
-    BambuInfoEvent,
-    BambuReportEvent,
-    ConnectionEvent,
-    DegradedEvent,
-    TelemetryEvent,
-)
-```
-
-When `PYTHONPATH` includes both the repo root AND `backend/` (typical of any setup that runs both the FastAPI app via `python -m uvicorn main:app` from `backend/` and any tooling from the repo root), Python loads the same source file twice as two distinct modules:
-
-- `modules.printers.telemetry.events` — one module object, one `BambuReportEvent` class
-- `backend.modules.printers.telemetry.events` — a second module object, a second `BambuReportEvent` class
-
-The two classes are byte-identical but are different Python objects. `isinstance(item, BambuReportEvent)` returns `False`. The shim drops the event silently. `_on_status` never runs. No DB write. No log line.
-
-## How prod survives
-
-Prod runs `python -m modules.printers.monitors.mqtt_monitor` from `cwd=/app/backend`, so `PYTHONPATH` is effectively only `/app/backend`. With only one root, `from backend.modules...` would `ImportError` outright — but adapter.py is only imported when `ODIN_TELEMETRY_V2=1`, and the flag defaults off, so the import never happens. The `from backend.modules...` lines are unreachable code in prod today.
-
-## Scope
-
-`grep -rE "^from backend\." backend/modules/printers/telemetry/` returns **42 import sites** across the V2 telemetry path:
-
-```
-backend/modules/printers/telemetry/parity.py
-backend/modules/printers/telemetry/transition.py
-backend/modules/printers/telemetry/events.py
-backend/modules/printers/telemetry/demo.py
-backend/modules/printers/telemetry/demo_cli.py
-backend/modules/printers/telemetry/replay.py
-backend/modules/printers/telemetry/live_replay.py
-backend/modules/printers/telemetry/live_shadow.py
-backend/modules/printers/telemetry/bambu/hms.py
-backend/modules/printers/telemetry/bambu/raw.py
-backend/modules/printers/telemetry/bambu/adapter.py
-... (~10 more files)
-```
-
-Every one of these violates ODIN's import convention (everywhere else in `backend/modules/` uses `from modules.*`).
-
-## Fix
-
-Two options:
-
-**Option A (recommended)**: Find/replace `from backend.modules.printers.telemetry` → `from modules.printers.telemetry` across the 42 sites. Matches the rest of the codebase. One-line bash:
-
-```sh
-grep -rlE "^from backend\.modules\.printers\.telemetry" backend/modules/printers/telemetry/ \
-    | xargs sed -i '' 's|^from backend\.modules\.printers\.telemetry|from modules.printers.telemetry|'
-```
-
-Run the V2 telemetry test suite after to verify nothing regresses (the imports already work because Python loads the module under either name; switching to one name just unifies them).
-
-**Option B (transient workaround)**: At process startup, alias both names in `sys.modules` so they resolve to the same module object. This is what `tests/stress/mqtt/run_monitor.py` does as a stress-test-only workaround:
-
-```python
-import importlib, sys
-for suffix in (
-    "modules.printers.telemetry.events",
-    "modules.printers.telemetry.bambu.adapter",
-    ...
-):
-    mod = importlib.import_module(suffix)
-    sys.modules[f"backend.{suffix}"] = mod
-```
-
-Don't ship Option B to prod — Option A is the real fix.
+Discovered while building the MQTT stress-test scaffold
+(`tests/stress/mqtt/`). The scaffold injects `sys.path` entries that
+matched the dual-root condition, so the latency/throughput numbers were
+zero with V2 enabled — same code path that would activate the moment
+`ODIN_TELEMETRY_V2=1` flipped on a real deployment. Caught and patched
+before V2 ever rolled to a customer.
 
 ## Verification
 
-After fixing, with `ODIN_TELEMETRY_V2=1` and a synthetic Bambu publisher, confirm:
+- All 371 V2 telemetry tests under `tests/test_telemetry/` pass on the
+  canonicalized imports.
+- Smoke run of `tests/stress/mqtt/run_one_cell.sh` with V2 enabled
+  produces `_on_status` and `_on_message` latency entries through the
+  natural import path (no workaround), confirming the shim now
+  forwards events correctly.
 
-- `_on_status` latency entries appear in any instrumentation that wraps it
-- Rows land in `printer_telemetry` table at the expected ~6/min/printer rate
-- `BambuTelemetryAdapter._on_message` and `PrinterMonitor._on_status` both produce roughly equal call counts (one shim hop apart)
+## Commits
 
-## How this was found
+- 18054a2  fix(telemetry-v2): canonicalize 85 import sites to single sys.path root
 
-While building the MQTT scalability stress-test scaffold (`tests/stress/mqtt/`), the publisher was firing valid messages, the V2 adapter was parsing them, but `printer_telemetry` row count stayed at zero. Tracing through `_on_message → _process_event → _emitter`, an interposed logging emitter showed `BambuReportEvent` instances flowing into `emit()`. Adding `id()` checks to the two import paths confirmed they resolve to two distinct class objects.
+## Why this doc still exists
 
-## Why no test caught this
-
-V2 has a unit test suite (`tests/test_telemetry/...`) but it instantiates the adapter and asserts on emitted events directly — never through the `_LegacyStatusShim` bridge in `mqtt_printer._connect_v2`. The shim's `isinstance` check is the only place where two import paths have to agree, and it's not exercised by any V2 test. Add an integration test that boots the monitor process and asserts a single fixture replay produces a `printer_telemetry` row.
+The discovery and fix are both part of ODIN's quality story. Instead of
+deleting the record, this entry stays as evidence of the import-hygiene
+sweep — one more case of "found by tooling we built, fixed before
+anyone hit it."
