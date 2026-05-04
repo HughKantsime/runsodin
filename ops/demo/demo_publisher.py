@@ -53,10 +53,10 @@ import threading
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT))
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent / "backend"
+sys.path.insert(0, str(BACKEND_DIR))
 
-from backend.modules.printers.telemetry.live_replay import publish_fixture  # noqa: E402
+from modules.printers.telemetry.live_replay import publish_fixture  # noqa: E402
 
 logger = logging.getLogger("odin.demo.publisher")
 HEARTBEAT_PATH = Path(os.environ.get("ODIN_DEMO_HEARTBEAT_PATH", "/tmp/odin-demo-publisher.heartbeat"))
@@ -137,7 +137,7 @@ def _run_scenario(name: str, host: str, port: int, speed: float, gap: float, sto
     # Import lazily — single-printer mode (the App Review default) doesn't
     # need DemoScenario at all, so a partial install / older image without
     # the demo module still works for the App Review path.
-    from backend.modules.printers.telemetry.demo import DemoScenario, FIXTURES_DIR, SCENARIOS_DIR
+    from modules.printers.telemetry.demo import DemoScenario, FIXTURES_DIR, SCENARIOS_DIR
 
     try:
         scenario = DemoScenario.load(SCENARIOS_DIR, name)
