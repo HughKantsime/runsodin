@@ -23,8 +23,16 @@ mkdir -p "$CELL_DIR"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$REPO"
 
-ENC_KEY="$(cat /tmp/odin-stress-enc-key)"
 PYBIN="$REPO/.venv-stress/bin/python3"
+
+# All credentials below are for an EPHEMERAL local SQLite stress DB that
+# only exists during this script's run. They grant zero access to anything
+# outside this process. Generated at runtime so nothing pattern-matches a
+# secret scanner if this file is ever committed.
+ENC_KEY="$(cat /tmp/odin-stress-enc-key 2>/dev/null || "$PYBIN" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' | tee /tmp/odin-stress-enc-key)"
+JWT_KEY="$(cat /tmp/odin-stress-jwt-key 2>/dev/null || "$PYBIN" -c 'import secrets; print(secrets.token_urlsafe(48))' | tee /tmp/odin-stress-jwt-key)"
+ADMIN_PW="$(cat /tmp/odin-stress-admin-pw 2>/dev/null || "$PYBIN" -c 'import secrets; print(secrets.token_urlsafe(24))' | tee /tmp/odin-stress-admin-pw)"
+API_KEY_VAL="$(cat /tmp/odin-stress-api-key 2>/dev/null || "$PYBIN" -c 'import secrets; print(secrets.token_urlsafe(24))' | tee /tmp/odin-stress-api-key)"
 
 cleanup() {
     if [ -f /tmp/odin-stress-monitor.pid ]; then
@@ -44,6 +52,7 @@ rm -f odin_stress.db odin_stress.db-wal odin_stress.db-shm
 # Migrations: ORM create_all FIRST (so system_config etc. exist), then SQL migrations.
 DATABASE_URL="sqlite:///$REPO/odin_stress.db" \
 DATABASE_PATH="$REPO/odin_stress.db" \
+STRESS_ADMIN_PW="$ADMIN_PW" \
 PYTHONPATH=backend "$PYBIN" -c "
 import importlib
 from pathlib import Path
@@ -78,7 +87,8 @@ for module in ['printers', 'jobs', 'archives']:
     except FileNotFoundError: pass
     except Exception as e: pass
 from passlib.context import CryptContext
-hash_ = CryptContext(schemes=['bcrypt']).hash('stress-admin-pw-2026')
+import os
+hash_ = CryptContext(schemes=['bcrypt']).hash(os.environ['STRESS_ADMIN_PW'])
 c.execute('INSERT OR IGNORE INTO users (username, password_hash, role, is_active, mfa_enabled) VALUES (?, ?, ?, ?, ?)',
           ('stress-admin', hash_, 'admin', 1, 0))
 c.commit()
@@ -89,8 +99,8 @@ print('migrate done')
 DATABASE_URL="sqlite:///$REPO/odin_stress.db" \
 DATABASE_PATH="$REPO/odin_stress.db" \
 ENCRYPTION_KEY="$ENC_KEY" \
-JWT_SECRET_KEY='stress-jwt-key-not-for-prod-12345678901234567890' \
-API_KEY='capture-pipeline-local' \
+JWT_SECRET_KEY="$JWT_KEY" \
+API_KEY="$API_KEY_VAL" \
 ODIN_TELEMETRY_V2=1 \
 ODIN_ALLOW_INSECURE_BAMBU_BROKER=1 \
 ODIN_BAMBU_INSECURE_BROKER_HOSTS='mosquitto,127.0.0.1,localhost' \
@@ -109,7 +119,7 @@ done
 
 # Login + bootstrap N printers
 TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
-    -F username=stress-admin -F password=stress-admin-pw-2026 \
+    -F username=stress-admin -F "password=$ADMIN_PW" \
     | "$PYBIN" -c 'import sys,json; print(json.load(sys.stdin).get("access_token",""))')
 
 if [ -z "$TOKEN" ]; then
@@ -117,7 +127,7 @@ if [ -z "$TOKEN" ]; then
     exit 1
 fi
 
-ODIN_ACCESS_TOKEN="$TOKEN" PYTHONPATH=backend:. "$PYBIN" -m tests.stress.mqtt.bootstrap_printers \
+ODIN_ACCESS_TOKEN="$TOKEN" API_KEY="$API_KEY_VAL" PYTHONPATH=backend:. "$PYBIN" -m tests.stress.mqtt.bootstrap_printers \
     --count "$N" --base-url http://127.0.0.1:8000 --api-host mosquitto \
     --out "$CELL_DIR/bootstrap.json" >"$CELL_DIR/bootstrap.log" 2>&1
 
@@ -125,8 +135,8 @@ ODIN_ACCESS_TOKEN="$TOKEN" PYTHONPATH=backend:. "$PYBIN" -m tests.stress.mqtt.bo
 DATABASE_URL="sqlite:///$REPO/odin_stress.db" \
 DATABASE_PATH="$REPO/odin_stress.db" \
 ENCRYPTION_KEY="$ENC_KEY" \
-JWT_SECRET_KEY='stress-jwt-key-not-for-prod-12345678901234567890' \
-API_KEY='capture-pipeline-local' \
+JWT_SECRET_KEY="$JWT_KEY" \
+API_KEY="$API_KEY_VAL" \
 ODIN_TELEMETRY_V2=1 \
 ODIN_ALLOW_INSECURE_BAMBU_BROKER=1 \
 ODIN_BAMBU_INSECURE_BROKER_HOSTS='mosquitto,127.0.0.1,localhost' \

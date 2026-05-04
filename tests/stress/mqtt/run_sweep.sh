@@ -72,8 +72,8 @@ run_cell() {
         ODIN_TELEMETRY_V2="$v2" \
         ODIN_STRESS_INSTRUMENTATION="$cell_dir" \
         ODIN_DB_PATH="odin_stress.db" \
-        API_KEY="capture-pipeline-local" \
-        ODIN_DEMO_API_KEY="capture-pipeline-local" \
+        API_KEY="${API_KEY:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')}" \
+        ODIN_DEMO_API_KEY="${ODIN_DEMO_API_KEY:-$API_KEY}" \
         ODIN_ALLOW_INSECURE_BAMBU_BROKER=1 \
         ODIN_BAMBU_INSECURE_BROKER_HOSTS="mosquitto,127.0.0.1,localhost" \
         python -m uvicorn backend.core.app:app --host 127.0.0.1 --port 8000 \

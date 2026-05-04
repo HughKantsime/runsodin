@@ -93,8 +93,8 @@ export ODIN_STRESS_INSTRUMENTATION="$(pwd)/stress-out/manual-$(date +%s)"
 export ODIN_DB_PATH=odin_stress.db
 export DATABASE_URL="sqlite:///./odin_stress.db"
 export ODIN_TELEMETRY_V2=0
-export API_KEY=capture-pipeline-local
-export ODIN_DEMO_API_KEY=capture-pipeline-local
+export API_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+export ODIN_DEMO_API_KEY="$API_KEY"
 export ODIN_ALLOW_INSECURE_BAMBU_BROKER=1
 export ODIN_BAMBU_INSECURE_BROKER_HOSTS=mosquitto,127.0.0.1,localhost
 rm -f odin_stress.db*

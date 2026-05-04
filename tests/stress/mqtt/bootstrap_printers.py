@@ -76,7 +76,10 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    api_key = os.environ.get("ODIN_DEMO_API_KEY") or "capture-pipeline-local"
+    api_key = os.environ.get("ODIN_DEMO_API_KEY") or os.environ.get("API_KEY") or ""
+    if not api_key:
+        log.error("Set ODIN_DEMO_API_KEY (or API_KEY) before running")
+        return 2
     access_token = os.environ.get("ODIN_ACCESS_TOKEN", "")
 
     results: list[dict] = []
