@@ -1,0 +1,13 @@
+{
+  "printers": 400,
+  "rate_s": 10.0,
+  "duration_s": 300.0,
+  "broker": "127.0.0.1:1883",
+  "fixture": "tests/fixtures/telemetry/bambu-x1c-ams-swap.jsonl",
+  "publishes": 12015,
+  "failures": 1,
+  "connect_attempts": 340,
+  "connect_successes": 340,
+  "first_publish_at": 1777853111.8435571,
+  "last_publish_at": 1777853412.3232799
+}
