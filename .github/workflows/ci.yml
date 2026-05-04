@@ -75,6 +75,21 @@ jobs:
       - name: Add Homebrew to PATH
         run: echo "$HOME/homebrew/bin:$HOME/homebrew/sbin:/opt/homebrew/bin:/opt/homebrew/sbin" | tr ':' '\n' >> $GITHUB_PATH
 
+      - name: Provision .venv-stress if missing
+        # The smoke shells .venv-stress/bin/python3 throughout. The venv is
+        # gitignored and pre-built on the active M4 runner; a clean or
+        # replaced runner needs to (re)provision it. Re-using a present
+        # venv avoids paying ~minute for full install on every push.
+        run: |
+          if [ ! -x .venv-stress/bin/python3 ]; then
+            echo "Provisioning .venv-stress (clean runner)…"
+            python3.11 -m venv .venv-stress
+            .venv-stress/bin/pip install --upgrade pip
+            .venv-stress/bin/pip install -r backend/requirements.txt
+          else
+            echo ".venv-stress already present — reusing"
+          fi
+
       - name: Run V2=1 smoke
         run: tests/stress/mqtt/run_ci_smoke.sh
 
