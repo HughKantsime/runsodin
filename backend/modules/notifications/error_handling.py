@@ -170,7 +170,8 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
             print_job_id, scheduled_job_id, job_name, started_at = row
 
             # Mark print_jobs as failed (WHERE status='running' guards against races)
-            cur.execute(f"""  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
+            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
+            cur.execute(f"""
                 UPDATE print_jobs
                 SET status = 'failed', ended_at = {sql.now()}, error_code = ?
                 WHERE id = ? AND status = 'running'

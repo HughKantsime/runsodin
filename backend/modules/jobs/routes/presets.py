@@ -140,7 +140,8 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
     if org is not None:
         org_filter = "WHERE (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
         params["org"] = org
-    query = text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    query = text(f"""
         SELECT
             p.id as printer_id,
             p.name as printer_name,

@@ -144,7 +144,8 @@ def generate_fleet_utilization(session, filters):
 
 def generate_job_summary(session, filters):
     """Jobs by status in period."""
-    rows = session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    rows = session.execute(text(f"""
         SELECT status, COUNT(*) as cnt
         FROM jobs
         WHERE created_at >= {sql.now_offset('-7 days')}
@@ -176,7 +177,8 @@ def generate_job_summary(session, filters):
 
 def generate_filament_consumption(session, filters):
     """Usage by material type."""
-    rows = session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    rows = session.execute(text(f"""
         SELECT fl.material, COALESCE(SUM(su.weight_used_g), 0) as total_g
         FROM spool_usage su
         JOIN spools s ON su.spool_id = s.id
@@ -208,7 +210,8 @@ def generate_filament_consumption(session, filters):
 
 def generate_failure_analysis(session, filters):
     """Detection counts, failure reasons."""
-    rows = session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    rows = session.execute(text(f"""
         SELECT detection_type, COUNT(*) as cnt, AVG(confidence) as avg_conf
         FROM vision_detections
         WHERE created_at >= {sql.now_offset('-30 days')}
@@ -216,7 +219,8 @@ def generate_failure_analysis(session, filters):
     """)).fetchall()
 
     # Also get job failure reasons
-    fail_rows = session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    fail_rows = session.execute(text(f"""
         SELECT fail_reason, COUNT(*) as cnt
         FROM jobs
         WHERE status = 'failed' AND fail_reason IS NOT NULL
@@ -266,7 +270,8 @@ def generate_failure_analysis(session, filters):
 
 def generate_chargeback_summary(session, filters):
     """Reuse query pattern from /api/reports/chargebacks."""
-    rows = session.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    rows = session.execute(text(f"""
         SELECT u.username, COUNT(j.id) as job_count,
                COALESCE(SUM(j.estimated_cost), 0) as total_cost,
                COALESCE(SUM(j.duration_hours), 0) as total_hours

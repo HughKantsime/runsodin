@@ -246,7 +246,8 @@ class PrinterMonitor:
                     }
                     for (uid,) in users:
                         for at, (ia, bp, em) in defaults.items():
-                            cur.execute(f"""  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
+                            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
+                            cur.execute(f"""
                                 {sql.insert_or_ignore_prefix()} alert_preferences
                                 (user_id, alert_type, in_app, browser_push, email, threshold_value)
                                 VALUES (?, ?, ?, ?, ?, ?){sql.on_conflict_ignore('user_id, alert_type')}

@@ -454,7 +454,8 @@ async def apply_profile(
             failures.append(gcode)
 
     # Update last_applied
-    db.execute(text(f"""  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+    db.execute(text(f"""
         UPDATE printer_profiles
         SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
         WHERE id = :id

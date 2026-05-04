@@ -63,7 +63,8 @@ def record_job_started(
                 cur.execute("BEGIN IMMEDIATE")
 
                 # ---- Stale schedule cleanup ----
-                cur.execute(f"""  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
+                cur.execute(f"""
                     SELECT id, item_name FROM jobs
                     WHERE printer_id = ? AND status = 'scheduled'
                       AND scheduled_start < {sql.now_offset('-2 hours', local=True)}

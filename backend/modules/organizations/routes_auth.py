@@ -36,7 +36,8 @@ def _record_session(db, user_id, access_token, ip, user_agent):
         payload = _jwt.decode(access_token, auth_module.SECRET_KEY, algorithms=[auth_module.ALGORITHM])
         jti = payload.get("jti")
         if jti:
-            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+            db.execute(text(f"""{sql.insert_or_ignore_prefix()} active_sessions (user_id, token_jti, ip_address, user_agent)
                                VALUES (:uid, :jti, :ip, :ua){sql.on_conflict_ignore('token_jti')}"""),
                        {"uid": user_id, "jti": jti, "ip": ip, "ua": (user_agent or "")[:500]})
             db.commit()
