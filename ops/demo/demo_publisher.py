@@ -53,11 +53,22 @@ import threading
 import time
 from pathlib import Path
 
+# NOTE on imports: this file uses `from backend.modules.*` rather than the
+# canonical `from modules.*` used by the rest of the codebase. The reason:
+# this script runs OUTSIDE the main app process — its own compose service
+# (ops/demo/docker-compose.demo.yml) and its own k8s Deployment
+# (ops/demo/k8s/50-publisher.yaml). In both deployed layouts the script is
+# mounted at /opt/odin-demo/demo_publisher.py with backend mounted at
+# /app/backend and PYTHONPATH=/app. That makes `backend.modules.X`
+# resolvable but NOT bare `modules.X`. The canonicalization done in
+# 18054a2 deliberately stopped at the live app boundary; this publisher is
+# explicitly exempted in tests/test_contracts/test_no_backend_modules_runtime_imports.py
+# because it cannot share a Python process with the app and therefore
+# cannot trigger the dual-root class-identity bug.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-BACKEND_DIR = REPO_ROOT / "backend"
-sys.path.insert(0, str(BACKEND_DIR))
+sys.path.insert(0, str(REPO_ROOT))
 
-from modules.printers.telemetry.live_replay import publish_fixture  # noqa: E402
+from backend.modules.printers.telemetry.live_replay import publish_fixture  # noqa: E402
 
 logger = logging.getLogger("odin.demo.publisher")
 HEARTBEAT_PATH = Path(os.environ.get("ODIN_DEMO_HEARTBEAT_PATH", "/tmp/odin-demo-publisher.heartbeat"))
@@ -138,7 +149,7 @@ def _run_scenario(name: str, host: str, port: int, speed: float, gap: float, sto
     # Import lazily — single-printer mode (the App Review default) doesn't
     # need DemoScenario at all, so a partial install / older image without
     # the demo module still works for the App Review path.
-    from modules.printers.telemetry.demo import DemoScenario, FIXTURES_DIR, SCENARIOS_DIR
+    from backend.modules.printers.telemetry.demo import DemoScenario, FIXTURES_DIR, SCENARIOS_DIR
 
     try:
         scenario = DemoScenario.load(SCENARIOS_DIR, name)

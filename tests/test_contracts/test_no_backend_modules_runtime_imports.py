@@ -25,6 +25,32 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+# ---------------------------------------------------------------------------
+# Exemptions — files that legitimately need `from backend.modules.*`
+# imports because of their deployment layout, AND that cannot share a
+# Python process with the main app (so they cannot trigger the dual-root
+# class-identity bug this contract guards against).
+#
+# Each entry must be paired with a one-line reason; if a future change
+# can't articulate why a new file belongs here, that's the signal to
+# canonicalize it instead.
+# ---------------------------------------------------------------------------
+
+EXEMPT_PATHS: dict[str, str] = {
+    # Demo publisher runs in its own compose service / k8s Deployment with
+    # the script mounted at /opt/odin-demo/ and backend at /app/backend.
+    # Bare `from modules.*` is not resolvable in that layout; PYTHONPATH=/app
+    # makes only `from backend.modules.*` reachable. Process-isolated from
+    # the app, so the dual-root bug cannot occur. See top of the file.
+    "ops/demo/demo_publisher.py": "process-isolated demo publisher; deployed layout requires backend.* prefix",
+}
+
+
+def _is_exempt(py_file: Path) -> bool:
+    rel = py_file.relative_to(REPO_ROOT).as_posix()
+    return rel in EXEMPT_PATHS
+
+
 def _is_type_checking_guard(node: ast.If) -> bool:
     """True if `node` is `if TYPE_CHECKING:` (the only allowed guard)."""
     test = node.test
@@ -145,6 +171,8 @@ class TestNoBackendModulesRuntimeImports:
         """No `from backend.modules` or `import backend.modules` outside TYPE_CHECKING."""
         all_violations: list[str] = []
         for py_file in _scanned_files():
+            if _is_exempt(py_file):
+                continue
             for lineno, line in _find_violations(py_file):
                 rel = py_file.relative_to(REPO_ROOT)
                 all_violations.append(f"{rel}:{lineno}: {line}")
@@ -243,6 +271,23 @@ class TestNoBackendModulesRuntimeImports:
             )
         finally:
             tmp.unlink(missing_ok=True)
+
+    def test_exempt_paths_exist(self):
+        """Every exempt path must actually exist — stale exemptions hide
+        regressions and creep is the slow death of contract tests."""
+        for rel_path in EXEMPT_PATHS:
+            assert (REPO_ROOT / rel_path).is_file(), (
+                f"EXEMPT_PATHS references missing file: {rel_path!r}. "
+                f"If the file moved, update the entry; if it was deleted, drop it."
+            )
+
+    def test_exempt_paths_have_reasons(self):
+        """Each exemption must have a non-empty reason — silent exemptions
+        decay into 'we always did it that way'."""
+        for rel_path, reason in EXEMPT_PATHS.items():
+            assert reason and reason.strip(), (
+                f"EXEMPT_PATHS[{rel_path!r}] has no reason"
+            )
 
     def test_importlib_dynamic_arg_is_not_flagged(self):
         """Computed module names (variables, f-strings) stay out of scope —
