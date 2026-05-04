@@ -153,6 +153,14 @@ def main() -> int:
     parser.add_argument("--broker-port", type=int, default=1883)
     parser.add_argument("--rate", type=float, default=10.0, help="Heartbeat seconds per printer")
     parser.add_argument("--duration", type=float, default=300.0, help="Run for N seconds then exit")
+    parser.add_argument(
+        "--connect-rate",
+        type=float,
+        default=100.0,
+        help="Cap on new paho client connects per second (spread the cold-start "
+        "storm; real fleets come online over hours, not seconds — at N>=400 the "
+        "test harness hits OS-level connect_async throttling without this gate).",
+    )
     parser.add_argument("--out", type=Path, default=Path("stress-out/publisher.json"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--log-level", default="INFO")
@@ -195,11 +203,14 @@ def main() -> int:
         )
 
     log.info(
-        "starting %d publishers against %s:%d rate=%.1fs duration=%.1fs",
-        args.printers, args.broker_host, args.broker_port, args.rate, args.duration,
+        "starting %d publishers against %s:%d rate=%.1fs duration=%.1fs connect_rate=%.1f/s",
+        args.printers, args.broker_host, args.broker_port, args.rate, args.duration, args.connect_rate,
     )
+    connect_interval = 1.0 / max(args.connect_rate, 0.001)
     for p in printers:
         p.start()
+        if connect_interval > 0:
+            time.sleep(connect_interval)
 
     def _shutdown(signum, frame):
         log.info("signal %d received, stopping", signum)

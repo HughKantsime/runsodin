@@ -140,8 +140,11 @@ echo $! > /tmp/odin-stress-monitor.pid
 sleep 5  # let monitor establish all N TLS-bypass connections
 
 # Run publisher (rate=10s matches production heartbeat throttle)
+# connect-rate caps the paho client cold-connect storm — at N>=400 the test
+# harness on macOS hits TCP connect_async throttling without this. 50/sec
+# means N=800 finishes its connect ramp in 16s, N=1600 in 32s.
 PYTHONPATH=backend:. "$PYBIN" -m tests.stress.mqtt.multi_publisher \
-    --printers "$N" --duration "$DURATION" --rate 10 \
+    --printers "$N" --duration "$DURATION" --rate 10 --connect-rate 50 \
     --broker-host 127.0.0.1 --broker-port 1883 \
     --out "$CELL_DIR/publisher.json" >"$CELL_DIR/publisher.log" 2>&1
 
