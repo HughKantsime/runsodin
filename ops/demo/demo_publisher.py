@@ -53,7 +53,8 @@ import threading
 import time
 from pathlib import Path
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent.parent / "backend"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+BACKEND_DIR = REPO_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from modules.printers.telemetry.live_replay import publish_fixture  # noqa: E402

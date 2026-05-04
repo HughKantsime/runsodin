@@ -39,13 +39,44 @@ def _import_targets_backend_modules(node: ast.AST) -> bool:
     """True if this import statement references `backend.modules.*`."""
     if isinstance(node, ast.ImportFrom):
         mod = node.module or ""
-        return mod == "backend.modules" or mod.startswith("backend.modules.")
+        if mod == "backend.modules" or mod.startswith("backend.modules."):
+            return True
+        # `from backend import modules` — imports the same forbidden package
+        # under a different alias path.
+        if mod == "backend" and any(alias.name == "modules" for alias in node.names):
+            return True
+        return False
     if isinstance(node, ast.Import):
         return any(
             alias.name == "backend.modules" or alias.name.startswith("backend.modules.")
             for alias in node.names
         )
     return False
+
+
+def _is_importlib_call_targeting_backend_modules(node: ast.AST) -> bool:
+    """True if this is `importlib.import_module("backend.modules...")` with
+    a literal string arg. Dynamic / computed module names are out of scope —
+    this only catches the easy regression vector where someone hand-writes
+    `import_module("backend.modules.X")` to dodge a static check."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    is_import_module = (
+        isinstance(func, ast.Attribute)
+        and func.attr == "import_module"
+    ) or (
+        isinstance(func, ast.Name)
+        and func.id == "import_module"
+    )
+    if not is_import_module:
+        return False
+    if not node.args:
+        return False
+    first_arg = node.args[0]
+    if not isinstance(first_arg, ast.Constant) or not isinstance(first_arg.value, str):
+        return False
+    return first_arg.value == "backend.modules" or first_arg.value.startswith("backend.modules.")
 
 
 def _find_violations(py_file: Path) -> list[tuple[int, str]]:
@@ -61,29 +92,30 @@ def _find_violations(py_file: Path) -> list[tuple[int, str]]:
         return []
 
     source_lines = source.splitlines()
-    type_checking_blocks: list[ast.If] = []
 
+    # Build an id-set of nodes that live inside `if TYPE_CHECKING:` block
+    # bodies ONLY (not the orelse / else branch — that runs at runtime).
+    type_checked_node_ids: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.If) and _is_type_checking_guard(node):
-            type_checking_blocks.append(node)
+        if not (isinstance(node, ast.If) and _is_type_checking_guard(node)):
+            continue
+        for body_stmt in node.body:
+            for descendant in ast.walk(body_stmt):
+                type_checked_node_ids.add(id(descendant))
 
-    def _inside_type_checking(import_node: ast.AST) -> bool:
-        for guard in type_checking_blocks:
-            for body_node in ast.walk(guard):
-                if body_node is import_node:
-                    return True
-        return False
+    def _emit(node: ast.AST, lineno: int) -> None:
+        line = source_lines[lineno - 1] if lineno - 1 < len(source_lines) else ""
+        violations.append((lineno, line.strip()))
 
     violations: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+        if id(node) in type_checked_node_ids:
             continue
-        if not _import_targets_backend_modules(node):
-            continue
-        if _inside_type_checking(node):
-            continue
-        line = source_lines[node.lineno - 1] if node.lineno - 1 < len(source_lines) else ""
-        violations.append((node.lineno, line.strip()))
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if _import_targets_backend_modules(node):
+                _emit(node, node.lineno)
+        elif _is_importlib_call_targeting_backend_modules(node):
+            _emit(node, node.lineno)
 
     return violations
 
@@ -158,6 +190,74 @@ class TestNoBackendModulesRuntimeImports:
             violations = _find_violations(tmp)
             assert len(violations) == 1, (
                 f"Runtime import not flagged. Got: {violations}"
+            )
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_else_branch_of_type_checking_is_not_exempt(self):
+        """The `else:` branch of `if TYPE_CHECKING:` runs at runtime, so any
+        `backend.modules` import there must still be flagged."""
+        stub = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    pass\n"
+            "else:\n"
+            "    from backend.modules.printers.telemetry.state import PrinterStatus\n"
+        )
+        tmp = REPO_ROOT / "tests" / "test_contracts" / "_tc_else_fixture.py"
+        try:
+            tmp.write_text(stub, encoding="utf-8")
+            violations = _find_violations(tmp)
+            assert len(violations) == 1, (
+                f"Runtime import in else-branch was not flagged. Got: {violations}"
+            )
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_from_backend_import_modules_is_flagged(self):
+        """`from backend import modules` reaches the same forbidden package."""
+        stub = "from backend import modules\n"
+        tmp = REPO_ROOT / "tests" / "test_contracts" / "_tc_alias_fixture.py"
+        try:
+            tmp.write_text(stub, encoding="utf-8")
+            violations = _find_violations(tmp)
+            assert len(violations) == 1, (
+                f"`from backend import modules` was not flagged. Got: {violations}"
+            )
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_importlib_string_literal_is_flagged(self):
+        """`importlib.import_module("backend.modules...")` with a literal
+        string is flagged. Dynamic/computed names stay out of scope."""
+        stub = (
+            "import importlib\n"
+            "importlib.import_module('backend.modules.printers.telemetry.state')\n"
+        )
+        tmp = REPO_ROOT / "tests" / "test_contracts" / "_tc_importlib_fixture.py"
+        try:
+            tmp.write_text(stub, encoding="utf-8")
+            violations = _find_violations(tmp)
+            assert len(violations) == 1, (
+                f"importlib.import_module literal not flagged. Got: {violations}"
+            )
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_importlib_dynamic_arg_is_not_flagged(self):
+        """Computed module names (variables, f-strings) stay out of scope —
+        this contract is intentionally narrow."""
+        stub = (
+            "import importlib\n"
+            "name = 'backend.modules.printers'\n"
+            "importlib.import_module(name)\n"
+        )
+        tmp = REPO_ROOT / "tests" / "test_contracts" / "_tc_importlib_dyn_fixture.py"
+        try:
+            tmp.write_text(stub, encoding="utf-8")
+            violations = _find_violations(tmp)
+            assert violations == [], (
+                f"Dynamic importlib arg was incorrectly flagged. Got: {violations}"
             )
         finally:
             tmp.unlink(missing_ok=True)

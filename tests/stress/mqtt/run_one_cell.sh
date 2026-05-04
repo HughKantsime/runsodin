@@ -18,6 +18,11 @@ fi
 N="$1"
 DURATION="$2"
 CELL_DIR="$3"
+# MOSQ_PORT defaults to 1883 to preserve existing sweep behavior. The CI
+# smoke (run_ci_smoke.sh) overrides this so each run gets an isolated
+# broker — stale retained messages can otherwise mask a real V2 path
+# regression by producing rows the publisher never sent this run.
+MOSQ_PORT="${MOSQ_PORT:-1883}"
 mkdir -p "$CELL_DIR"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -104,6 +109,7 @@ API_KEY="$API_KEY_VAL" \
 ODIN_TELEMETRY_V2=1 \
 ODIN_ALLOW_INSECURE_BAMBU_BROKER=1 \
 ODIN_BAMBU_INSECURE_BROKER_HOSTS='mosquitto,127.0.0.1,localhost' \
+ODIN_BAMBU_INSECURE_BROKER_PORT="$MOSQ_PORT" \
 ODIN_STRESS_INSTRUMENTATION="$CELL_DIR" \
 ODIN_DB_PATH="$REPO/odin_stress.db" \
 PYTHONPATH=backend \
@@ -140,6 +146,7 @@ API_KEY="$API_KEY_VAL" \
 ODIN_TELEMETRY_V2=1 \
 ODIN_ALLOW_INSECURE_BAMBU_BROKER=1 \
 ODIN_BAMBU_INSECURE_BROKER_HOSTS='mosquitto,127.0.0.1,localhost' \
+ODIN_BAMBU_INSECURE_BROKER_PORT="$MOSQ_PORT" \
 ODIN_STRESS_INSTRUMENTATION="$CELL_DIR" \
 ODIN_DB_PATH="$REPO/odin_stress.db" \
 PYTHONPATH=backend:. \
@@ -155,7 +162,7 @@ sleep 5  # let monitor establish all N TLS-bypass connections
 # means N=800 finishes its connect ramp in 16s, N=1600 in 32s.
 PYTHONPATH=backend:. "$PYBIN" -m tests.stress.mqtt.multi_publisher \
     --printers "$N" --duration "$DURATION" --rate 10 --connect-rate 50 \
-    --broker-host 127.0.0.1 --broker-port 1883 \
+    --broker-host 127.0.0.1 --broker-port "$MOSQ_PORT" \
     --out "$CELL_DIR/publisher.json" >"$CELL_DIR/publisher.log" 2>&1
 
 # Render report
