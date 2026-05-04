@@ -54,6 +54,50 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.7] - 2026-05-04
+
+Bug fix + V2 telemetry mitigation suite landing.
+
+### Fixed
+
+- `# nosemgrep` directives placed inside f-strings passed to
+  `text()` / `cur.execute()` — 21 sites across 12 files (commit
+  31d6f0d, 2026-04-10). SQLite parsed `#` as an unrecognized token
+  and the queries failed at runtime. Caused 24 days of silent alert
+  dispatch failure (every HMS error spamming the log every 13s) plus
+  silent login session-record failures swallowed by `except Exception:
+  log.warning("Failed to record session", ...)`. Discovered during
+  V2-flip pre-flip diagnosis. Fix: directive moved to the line above
+  the call (semgrep applies suppressions to the next line).
+
+### Added
+
+- `tests/test_contracts/test_no_nosemgrep_inside_sql.py` — AST-based
+  contract test guarding the regression. Detects both vectors:
+  start-of-line `#` and mid-line `# nosemgrep` substring inside any
+  string passed to `text()` / `*.execute()` / `*.executemany()` /
+  `*.executescript()`.
+- `tests/test_contracts/test_no_backend_modules_runtime_imports.py`
+  — AST contract guarding the V2 telemetry import-path canonicalization
+  (commit 18054a2 in v1.9.6). TYPE_CHECKING.body-only exemption,
+  detection of `from backend import modules` and
+  `importlib.import_module("backend.modules.X")` literals,
+  documented EXEMPT_PATHS allowlist for the process-isolated demo
+  publisher.
+- `tests/stress/mqtt/run_ci_smoke.sh` + new `telemetry-v2-smoke` CI
+  job — runs the full app + monitor with `ODIN_TELEMETRY_V2=1`
+  against an ephemeral random-port mosquitto. Previous CI exercised
+  the V2 adapter end-to-end and the flag-routing dispatch via
+  monkeypatch but never the import path with the flag actually set in
+  env. Closes the gap that produced the silent-drop bug.
+
+### Operator notes
+
+V2 flag flip on prod (LXC 112) is now safe to execute per
+`backend/modules/printers/telemetry/CUTOVER.md`. Pin to v1.9.7 during
+the flip; unpin to `:latest` after 24h soak. Fast rollback remains
+`ODIN_TELEMETRY_V2=0` + `docker compose up -d --force-recreate odin`.
+
 ## [1.9.6] - 2026-05-01
 
 Hotfix: completes the ODIN-136 HSTS work. v1.9.5 dropped the
