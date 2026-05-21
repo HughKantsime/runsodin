@@ -165,9 +165,11 @@ jobs:
 
       - name: pip-audit — dependency CVEs
         run: |
+          # PYSEC-2025-183 is a disputed PyJWT advisory with no fixed version.
           python3.11 -m pip_audit \
             -r backend/requirements.txt \
             --progress-spinner off \
+            --ignore-vuln PYSEC-2025-183 \
             --desc on
 
       - name: Semgrep — SAST

@@ -3,7 +3,7 @@
 fastapi==0.135.3
 starlette==0.49.1
 uvicorn[standard]==0.34.0
-python-multipart==0.0.26  # CVE-2026-40347 — DoS via malformed multipart preamble/epilogue
+python-multipart==0.0.27  # CVE-2026-42561 — header parsing DoS fixed in 0.0.27
 
 # Database
 sqlalchemy==2.0.36
