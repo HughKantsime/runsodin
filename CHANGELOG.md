@@ -54,6 +54,16 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.11] - 2026-05-21
+
+Follow-up deploy verification release.
+
+### Fixed
+
+- Changed the no-secret production verifier to check only the public
+  `/health` endpoint, matching production auth where `/api/v1/health/ready`
+  requires an API key.
+
 ## [1.9.10] - 2026-05-21
 
 Follow-up deploy hygiene release.

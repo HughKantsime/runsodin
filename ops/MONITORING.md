@@ -102,7 +102,7 @@ These are the numbers at which a human is woken up. Anything noisier belongs in 
 |---|---|---|
 | `install-smoke` workflow | GitHub Actions on PR | Installer breakage on clean Ubuntu — does **not** catch real-world install friction |
 | `verify-prod` workflow | GitHub Actions post-deploy | New `:latest` actually serves the expected version within 10 min |
-| `prod_verify_public.sh` | Same as above (no secrets) | `/health` + `/api/v1/health/ready` for the deployed version |
+| `prod_verify_public.sh` | Same as above (no secrets) | Public `/health` reports the deployed version |
 | Kuma HTTP monitor on `/health` | Kuma instance | Continuous availability between deploys |
 | Kuma cert monitor | Kuma instance | TLS expiry warning ≥ 14d out |
 | Backend supervisord | Inside container | Worker process restarts (silent unless tailing logs) |

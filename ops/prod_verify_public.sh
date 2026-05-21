@@ -3,10 +3,10 @@
 #
 # Checks:
 #   1. /health reports the expected deployed version.
-#   2. /api/v1/health/ready reports ready:true for that same version.
 #
-# This intentionally does not run host-local Docker, supervisor, auth, or DB
-# write probes. Keep those in ops/phase0_verify.sh for approved operator runs.
+# This intentionally does not run protected readiness, host-local Docker,
+# supervisor, auth, or DB write probes. Keep those in ops/phase0_verify.sh
+# for approved operator runs.
 
 set -euo pipefail
 
@@ -25,16 +25,11 @@ EXPECTED_VERSION="${EXPECTED_VERSION#v}"
 BASE_URL="${BASE_URL%/}"
 
 HEALTH_URL="${BASE_URL}/health"
-READY_URL="${BASE_URL}/api/v1/health/ready"
-
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 last_health_status=""
 last_health_version=""
-last_ready_status=""
-last_ready_value=""
-last_ready_version=""
 last_error=""
 
 fetch_json() {
@@ -83,18 +78,13 @@ write_summary() {
     echo "- Expected version: \`$EXPECTED_VERSION\`"
     echo "- Base URL: \`$BASE_URL\`"
     echo "- Health endpoint: \`$HEALTH_URL\`"
-    echo "- Readiness endpoint: \`$READY_URL\`"
     echo "- Last health status: \`${last_health_status:-n/a}\`"
     echo "- Last health version: \`${last_health_version:-n/a}\`"
-    echo "- Last readiness status: \`${last_ready_status:-n/a}\`"
-    echo "- Last readiness value: \`${last_ready_value:-n/a}\`"
-    echo "- Last readiness version: \`${last_ready_version:-n/a}\`"
   } >> "$GITHUB_STEP_SUMMARY"
 }
 
 for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
   health_json="$tmp_dir/health.json"
-  ready_json="$tmp_dir/ready.json"
 
   last_health_status="$(fetch_json "$HEALTH_URL" "$health_json")"
   if [[ "$last_health_status" == "200" ]]; then
@@ -109,27 +99,13 @@ for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
     continue
   fi
 
-  last_ready_status="$(fetch_json "$READY_URL" "$ready_json")"
-  if [[ "$last_ready_status" == "200" ]]; then
-    last_ready_value="$(json_field "$ready_json" ready)"
-    last_ready_version="$(json_field "$ready_json" version)"
-  else
-    last_ready_value=""
-    last_ready_version=""
-  fi
-
-  if [[ "$last_ready_status" == "200" && "$last_ready_value" == "true" && "$last_ready_version" == "$EXPECTED_VERSION" ]]; then
-    echo "Prod is running v$EXPECTED_VERSION and readiness is true"
-    write_summary
-    exit 0
-  fi
-
-  echo "Poll $attempt/$MAX_ATTEMPTS: /health has v$EXPECTED_VERSION but readiness not ready; status ${last_ready_status:-none}, ready ${last_ready_value:-none}, version ${last_ready_version:-none}"
-  sleep "$SLEEP_SECONDS"
+  echo "Prod is running v$EXPECTED_VERSION"
+  write_summary
+  exit 0
 done
 
 write_summary
-echo "::error::Prod did not become ready on $BASE_URL for v$EXPECTED_VERSION within $((MAX_ATTEMPTS * SLEEP_SECONDS)) seconds"
+echo "::error::Prod did not serve /health with v$EXPECTED_VERSION on $BASE_URL within $((MAX_ATTEMPTS * SLEEP_SECONDS)) seconds"
 if [[ -n "$last_error" ]]; then
   echo "::error::Last curl error: $last_error"
 fi
