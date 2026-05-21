@@ -134,8 +134,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           platforms: linux/amd64,linux/arm64
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   # ── Phase 3: Create GitHub Release ──
   release:

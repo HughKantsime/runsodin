@@ -54,6 +54,15 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.10] - 2026-05-21
+
+Follow-up deploy hygiene release.
+
+### Fixed
+
+- Removed GitHub Actions build cache import/export from the backend GHCR
+  publish step after repeated buildx export hangs on the self-hosted runner.
+
 ## [1.9.9] - 2026-05-21
 
 Follow-up cleanup release for CI/deploy hygiene.
