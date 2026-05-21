@@ -7,11 +7,20 @@ decisions, not more autonomous code commits.
 
 ## Current state
 
+- **Last reviewed:** 2026-05-21 during the ODIN blocker cleanup.
+- **Release status:** v1.9.8 is a metadata/cleanup patch on top of
+  v1.9.7 plus the post-tag SQL/nosemgrep fix. It does **not** flip
+  telemetry routing.
 - **Flag default:** `ODIN_TELEMETRY_V2=0` → legacy path runs.
 - **V2 path:** reachable at `ODIN_TELEMETRY_V2=1`. Every route that used
   `BambuPrinter` has a flag-gated branch (10 callsites across 8 files).
-- **Tests:** 348 telemetry contract tests pass, including 4 flag-routing
-  tests that verify the branches fire correctly.
+- **Automated evidence:** telemetry contract coverage and the
+  `telemetry-v2-smoke` CI path exercise V2 with fixture/MQTT smoke
+  inputs. This is high confidence for parsing/routing, but not a
+  substitute for live hardware validation.
+- **Hardware evidence:** not yet captured in this repo. Do not flip
+  production by default and do not delete legacy paths until a real
+  Bambu printer validates the checklist below.
 - **Legacy files** (`adapters/bambu.py`, `monitors/mqtt_printer.py`,
   `monitors/mqtt_telemetry.py`) still exist as fallback — cannot be
   deleted while legacy branches reference them.

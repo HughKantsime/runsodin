@@ -54,6 +54,26 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.8] - 2026-05-21
+
+Cleanup release after the v1.9.7 SQL follow-up landed past the tag.
+
+### Fixed
+
+- Aligned backend release metadata on a new patch tag instead of
+  rewriting `v1.9.7`. `VERSION`, `frontend/package.json`, and
+  `frontend/package-lock.json` now agree on `1.9.8`.
+- Updated `ops/bump-version.sh` so future releases update
+  `frontend/package-lock.json` alongside `frontend/package.json`.
+
+### Docs
+
+- Added the ODIN cleanup spec under `docs/plans/`.
+- Added the repo-local `AGENTS.md` vault pointer.
+- Clarified the Bambu telemetry V2 cutover status: V2 remains
+  implemented and fixture-tested, but real-printer staging validation
+  is still required before flipping production or deleting legacy code.
+
 ## [1.9.7] - 2026-05-04
 
 Bug fix + V2 telemetry mitigation suite landing.
