@@ -101,8 +101,19 @@ if command -v node &>/dev/null; then
       fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
     "
     ok "frontend/package.json → $VERSION"
+    node -e "
+      const fs = require('fs');
+      const path = '$REPO_ROOT/frontend/package-lock.json';
+      const lock = JSON.parse(fs.readFileSync(path, 'utf-8'));
+      lock.version = '$VERSION';
+      if (lock.packages && lock.packages['']) {
+        lock.packages[''].version = '$VERSION';
+      }
+      fs.writeFileSync(path, JSON.stringify(lock, null, 2) + '\n');
+    "
+    ok "frontend/package-lock.json → $VERSION"
 else
-    echo "  ⚠ node not found — skipping frontend/package.json"
+    echo "  ⚠ node not found — skipping frontend/package.json and package-lock.json"
 fi
 
 # backend/main.py fallback version
@@ -138,7 +149,7 @@ fi
 # --- Step 2: Commit ---
 step "Creating version bump commit"
 
-git add VERSION frontend/package.json backend/main.py docker-compose.yml install/install.sh frontend/public/sw.js frontend/src/design-tokens.css design/
+git add VERSION frontend/package.json frontend/package-lock.json backend/main.py docker-compose.yml install/install.sh frontend/public/sw.js frontend/src/design-tokens.css design/
 git commit -m "release: bump version to $VERSION"
 ok "Committed: release: bump version to $VERSION"
 
