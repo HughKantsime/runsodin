@@ -99,6 +99,7 @@ jobs:
     needs: tag
     if: needs.tag.outputs.tag_created == 'true'
     runs-on: mac-mini-runner
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -132,6 +133,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.tag.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           platforms: linux/amd64,linux/arm64
+          provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

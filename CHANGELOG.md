@@ -54,6 +54,19 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.9] - 2026-05-21
+
+Follow-up cleanup release for CI/deploy hygiene.
+
+### Fixed
+
+- Upgraded `python-multipart` to `0.0.27` for the multipart header
+  parsing DoS advisory.
+- Documented the unfixed, disputed PyJWT audit advisory and ignored it
+  explicitly in the backend dependency audit.
+- Disabled Docker provenance attestations for GHCR image publishing and
+  added a timeout to avoid stuck buildx export jobs.
+
 ## [1.9.8] - 2026-05-21
 
 Cleanup release after the v1.9.7 SQL follow-up landed past the tag.
