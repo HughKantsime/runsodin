@@ -247,15 +247,15 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   <span
                     data-testid="printer-nozzle-temp"
                     className={isHeating ? "text-orange-400" : ""}
-                    title={nozTarget && nozTarget > 0 ? `Nozzle: ${nozTemp}\u00B0/${nozTarget}\u00B0C` : `Nozzle: ${nozTemp}\u00B0C`}
+                    title={nozTarget && nozTarget > 0 ? `Nozzle: ${nozTemp}°/${nozTarget}°C` : `Nozzle: ${nozTemp}°C`}
                   >
-                    Nozzle {nozTemp}\u00B0{nozTarget && nozTarget > 0 ? `/${nozTarget}\u00B0` : ''}
+                    Nozzle {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
                   </span>
                 )}
                 {printer.machine_type === 'H2D' && nozTemp != null && (
                   <>
                     <span className={isHeating ? "text-orange-400" : ""} title="Left Nozzle">
-                      L {nozTemp}\u00B0{nozTarget && nozTarget > 0 ? `/${nozTarget}\u00B0` : ''}
+                      L {nozTemp}°{nozTarget && nozTarget > 0 ? `/${nozTarget}°` : ''}
                     </span>
                     {(() => {
                       const n1 = printer.h2d_nozzles?.nozzle_1
@@ -263,7 +263,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                       const n1tt = n1?.target != null ? Math.round(n1.target) : null
                       return (
                         <span className={(n1tt && n1tt > 0) ? "text-orange-400" : "text-[var(--brand-text-secondary)]"} title="Right Nozzle">
-                          R {n1t != null ? `${n1t}\u00B0${n1tt && n1tt > 0 ? `/${n1tt}\u00B0` : ''}` : '\u2014'}
+                          R {n1t != null ? `${n1t}°${n1tt && n1tt > 0 ? `/${n1tt}°` : ''}` : '—'}
                         </span>
                       )
                     })()}
@@ -273,9 +273,9 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
                   <span
                     data-testid="printer-bed-temp"
                     className={bedTarget && bedTarget > 0 ? "text-orange-400" : ""}
-                    title={bedTarget && bedTarget > 0 ? `Bed: ${bedTemp}\u00B0/${bedTarget}\u00B0C` : `Bed: ${bedTemp}\u00B0C`}
+                    title={bedTarget && bedTarget > 0 ? `Bed: ${bedTemp}°/${bedTarget}°C` : `Bed: ${bedTemp}°C`}
                   >
-                    Bed {bedTemp}\u00B0{bedTarget && bedTarget > 0 ? `/${bedTarget}\u00B0` : ''}
+                    Bed {bedTemp}°{bedTarget && bedTarget > 0 ? `/${bedTarget}°` : ''}
                   </span>
                 )}
                 {stage && (

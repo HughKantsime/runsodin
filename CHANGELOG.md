@@ -54,6 +54,15 @@ Before legacy deletion can happen:
 3. Flip in production.
 4. Delete legacy files per CUTOVER.md.
 
+## [1.9.12] - 2026-05-29
+
+Printer card screenshot polish release.
+
+### Fixed
+
+- Render printer card temperature degree symbols as `°` instead of the
+  literal escaped text `\u00B0`.
+
 ## [1.9.11] - 2026-05-21
 
 Follow-up deploy verification release.
