@@ -64,10 +64,10 @@ Open `http://your-server-ip:8000` and follow the setup wizard.
 ## Screenshots
 
 ### Fleet Overview
-![Printers page showing Klipper, Bambu, and Elegoo printers with spool inventory, temperatures, and status](docs/screenshots/dashboard.png)
+![Dark-mode O.D.I.N. printer utilization report with live fleet metrics, job counts, success rate, charts, and per-printer breakdown](docs/screenshots/dashboard.png)
 
 ### Camera Streaming
-![Camera grid with live WebRTC feeds, Control Room and TV Mode buttons](docs/screenshots/cameras.png)
+![Dark-mode O.D.I.N. camera page showing a live A1 camera feed with Control Room and TV Mode controls](docs/screenshots/cameras.png)
 
 ## Comparison
 
