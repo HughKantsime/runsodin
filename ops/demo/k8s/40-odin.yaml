@@ -63,6 +63,34 @@ spec:
           value: https://demo.subsystem.app
         - name: ODIN_DEMO_MODE
           value: "1"
+        - name: ODIN_DEMO_EDU_SEED
+          value: "1"
+        - name: ODIN_LICENSE_READ_ONLY
+          value: "1"
+        - name: ODIN_DEMO_EDU_ADMIN_EMAIL
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: edu_admin_email}
+        - name: ODIN_DEMO_EDU_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: edu_admin_password}
+        - name: ODIN_DEMO_EDU_TEACHER_EMAIL
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: edu_teacher_email}
+        - name: ODIN_DEMO_EDU_TEACHER_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: edu_teacher_password}
+        - name: ODIN_DEMO_EDU_STUDENT_EMAIL
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: edu_student_email}
+        - name: ODIN_DEMO_EDU_STUDENT_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: edu_student_password}
+        - name: ODIN_DEMO_REVIEWER_EMAIL
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: email}
+        - name: ODIN_DEMO_REVIEWER_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: demo-reviewer-credentials, key: password}
         - name: TZ
           value: UTC
         readinessProbe:
@@ -82,6 +110,10 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
+        - name: license
+          mountPath: /data/odin.license
+          subPath: odin.license
+          readOnly: true
         resources:
           limits:
             cpu: "1"
@@ -93,6 +125,9 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: odin-demo-data
+      - name: license
+        secret:
+          secretName: odin-demo-license
 ---
 apiVersion: v1
 kind: Service

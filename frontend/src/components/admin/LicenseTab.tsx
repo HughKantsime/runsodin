@@ -91,6 +91,7 @@ export default function LicenseTab() {
   }
 
   const tier = licenseInfo?.tier || 'community'
+  const managedExternally = licenseInfo?.managed_externally === true
   const tierColors = {
     community: 'text-[var(--brand-text-secondary)]',
     pro: 'text-[var(--brand-primary)]',
@@ -147,7 +148,17 @@ export default function LicenseTab() {
         )}
       </Card>
 
-      <Card padding="lg">
+      {managedExternally ? (
+        <Card padding="lg">
+          <div className="flex items-center gap-2 mb-3">
+            <Key size={18} className="text-blue-400" />
+            <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Externally Managed License</h3>
+          </div>
+          <p className="text-sm text-[var(--brand-text-secondary)]">
+            This deployment mounts its signed license read-only. License changes are managed by the sandbox administrator outside ODIN.
+          </p>
+        </Card>
+      ) : <Card padding="lg">
         <div className="flex items-center gap-2 mb-4">
           <Key size={18} className="text-[var(--brand-primary)]" />
           <h3 className="font-semibold" style={{ color: 'var(--brand-text-primary)' }}>Activate License</h3>
@@ -220,7 +231,7 @@ export default function LicenseTab() {
             {message.text}
           </div>
         )}
-      </Card>
+      </Card>}
     </div>
   )
 }

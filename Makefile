@@ -1,4 +1,6 @@
-.PHONY: build test test-contracts test-security test-e2e test-coverage scan security security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-edu test-security test-e2e test-coverage scan security security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+
+PYTHON ?= python3
 
 tokens: ## Regenerate design tokens (CSS + Swift) from design/tokens.json
 	node design/generate.mjs
@@ -16,6 +18,24 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 
 test-contracts: ## Run contract tests (module boundaries, no container required)
 	pytest tests/test_contracts/ -v --tb=short
+
+test-edu: ## Run deterministic EDU backend, frontend, and Chromium release gate
+	ADMIN_USERNAME=ci ADMIN_PASSWORD=ci $(PYTHON) ops/demo/run_junit_gate.py -- $(PYTHON) -m pytest \
+		tests/test_license.py \
+		tests/test_contracts/test_spa_auth_boundary.py \
+		tests/test_contracts/test_edu_quota_gating.py \
+		tests/test_contracts/test_demo_seed_edu.py \
+		tests/test_contracts/test_demo_publisher_health.py \
+		tests/test_contracts/test_managed_license.py \
+		tests/test_contracts/test_license_preflight.py \
+		tests/test_contracts/test_junit_gate.py \
+		tests/test_contracts/test_demo_edu_manifests.py \
+		-v --tb=short -o xfail_strict=true --junitxml={junit}
+	$(PYTHON) ops/demo/run_junit_gate.py -- npm --prefix frontend test -- --run \
+		src/LicenseContext.test.jsx src/components/admin/LicenseTab.test.jsx \
+		--reporter=default --reporter=junit --outputFile.junit={junit}
+	cd frontend && npm run build
+	./ops/demo/run_edu_browser_gate.sh
 
 test-security: ## Run Layer 3 security tests
 	pytest tests/security/ -v --tb=short

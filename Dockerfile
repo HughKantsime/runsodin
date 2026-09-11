@@ -67,6 +67,7 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/odin.conf
 
 # Copy entrypoint
 COPY docker/entrypoint.sh /app/entrypoint.sh
+COPY docker/seed_edu_if_enabled.sh /app/seed_edu_if_enabled.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Create non-root user for runtime (supervisord drops to this user)

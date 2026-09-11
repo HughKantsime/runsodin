@@ -239,6 +239,29 @@ class TestValidLicense:
         assert info.tier == "education"
         assert "job_approval" in info.features
         assert "usage_reports" in info.features
+        assert info.has_feature("user_groups") is True
+        assert info.has_feature("print_quotas") is True
+
+    def test_education_to_dict_returns_effective_tier_features(self, tmp_path, keypair):
+        license_str, pub_pem = self._make_valid(
+            keypair,
+            "education",
+            features=["custom_school_feature"],
+        )
+        path = _write_license(tmp_path, license_str)
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
+             patch.object(lm, "get_installation_id", return_value="test-install-id"):
+            info = lm.load_license()
+            data = info.to_dict()
+
+        assert data["features"] == sorted(set(
+            lm.TIERS["education"]["features"] + ["custom_school_feature"]
+        ))
+        assert "print_quotas" in data["features"]
+        assert "user_groups" in data["features"]
+        assert "class_sections" not in data["features"]
 
     def test_valid_enterprise(self, tmp_path, keypair):
         license_str, pub_pem = self._make_valid(keypair, "enterprise")

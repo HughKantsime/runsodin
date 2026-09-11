@@ -155,6 +155,7 @@ export interface License {
   tier: string;
   features: string[];
   expires_at: string | null;
+  managed_externally?: boolean;
   [key: string]: unknown;
 }
 

@@ -4,8 +4,8 @@
 #   make -f ops/demo/Makefile.demo demo-up
 #   cd ops/demo && make -f Makefile.demo demo-up
 
-.PHONY: help demo-build demo-up demo-down demo-reset demo-logs demo-probe demo-probe-public demo-scrub-fixture demo-rotate-password demo-write-credentials \
-	demo-k8s-secrets demo-k8s-configmaps demo-k8s-up demo-k8s-down demo-k8s-status demo-k8s-logs demo-k8s-probe demo-k8s-write-credentials demo-k8s-rotate-password
+.PHONY: help demo-build demo-up demo-down demo-reset demo-edu-up demo-edu-reset demo-logs demo-probe demo-probe-public demo-scrub-fixture demo-write-credentials \
+	demo-k8s-secrets demo-k8s-license demo-k8s-configmaps demo-k8s-up demo-k8s-down demo-k8s-status demo-k8s-logs demo-k8s-probe demo-k8s-write-credentials demo-k8s-rotate-password
 
 # Anchor every path to this Makefile's location, so behaviour is
 # identical regardless of the caller's $PWD.
@@ -13,6 +13,8 @@ HERE      := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 REPO_ROOT := $(abspath $(HERE)/../..)
 COMPOSE   := $(HERE)/docker-compose.demo.yml
 DC        := docker compose -f $(COMPOSE) -p odin-demo
+EDU_COMPOSE := $(HERE)/docker-compose.edu.yml
+EDU_DC      := docker compose -f $(COMPOSE) -f $(EDU_COMPOSE) -p odin-demo
 
 REVIEWER_EMAIL := appreview@demo.subsystem.app
 CREDS_FILE     := $(HERE)/.reviewer-credentials.txt
@@ -36,38 +38,43 @@ demo-up: ## Start the isolated demo stack
 demo-down: ## Stop the demo stack (preserve volumes)
 	$(DC) down
 
-demo-reset: ## Wipe demo data, rotate reviewer password, restart publisher (target: ≤60s)
+demo-reset: ## Wipe App Review demo data and restart with caller-supplied reviewer credentials
 	@echo "[demo-reset] tearing down..."
 	-$(DC) down
 	@echo "[demo-reset] wiping demo data + heartbeat..."
 	rm -rf $(DATA_DIR) $(HEARTBEAT_DIR)
 	mkdir -p $(DATA_DIR) $(HEARTBEAT_DIR)
-	@echo "[demo-reset] rotating reviewer password..."
-	$(MAKE) -f $(lastword $(MAKEFILE_LIST)) demo-rotate-password
 	@echo "[demo-reset] starting stack..."
 	$(DC) up -d
-	@echo "[demo-reset] OK — credentials at $(CREDS_FILE)"
+	$(MAKE) -f $(lastword $(MAKEFILE_LIST)) demo-write-credentials
+	@echo "[demo-reset] OK"
 
-demo-rotate-password: ## Generate a new 12-char password, write to credentials file (no MFA)
-	@python3 -c "import secrets, string, pathlib, datetime; \
-		alphabet = string.ascii_letters + string.digits; \
-		pw = ''.join(secrets.choice(alphabet) for _ in range(12)); \
-		pathlib.Path('$(CREDS_FILE)').write_text( \
-		  f'# demo.subsystem.app reviewer credentials\\n' \
-		  f'# rotated: {datetime.datetime.utcnow().isoformat()}Z\\n' \
-		  f'email: $(REVIEWER_EMAIL)\\n' \
-		  f'password: {pw}\\n' \
-		  f'mfa: disabled (App Review requirement)\\n' \
-		  f'scope: demo printer only — no admin, no instance creation, no API key generation\\n' \
-		); print(f'rotated; new password written to $(CREDS_FILE)')"
+demo-edu-up: ## Start the EDU sandbox overlay (requires signed license + persona env vars)
+	@test -f "$(ODIN_DEMO_LICENSE_FILE)" || (echo "ODIN_DEMO_LICENSE_FILE must name an existing signed license"; exit 1)
+	@test -s "$(DATA_DIR)/.odin-install-id" || (echo "missing demo installation ID; start the base demo once before issuing its Education license"; exit 1)
+	cd $(REPO_ROOT) && python3 -m backend.scripts.validate_license_file "$(ODIN_DEMO_LICENSE_FILE)" --expected-tier education --expected-installation-id "$$(cat $(DATA_DIR)/.odin-install-id)"
+	$(EDU_DC) config --quiet
+	$(EDU_DC) up -d
+	$(EDU_DC) ps
 
-demo-write-credentials: ## Apply the rotated password to the demo backend's reviewer account
-	@if [ ! -f "$(CREDS_FILE)" ]; then \
-		echo "no credentials file — run demo-rotate-password first"; exit 1; \
-	fi
-	@PW=$$(awk '/^password:/ {print $$2}' "$(CREDS_FILE)"); \
-	$(DC) exec -T odin python3 -m backend.scripts.demo_seed_reviewer \
-		--email "$(REVIEWER_EMAIL)" --password "$$PW" --no-mfa --read-only-printer x1c-demo
+demo-edu-reset: ## Wipe mutable EDU sandbox data; preserve mounted license and secret credentials
+	@test -f "$(ODIN_DEMO_LICENSE_FILE)" || (echo "ODIN_DEMO_LICENSE_FILE must name an existing signed license"; exit 1)
+	@test -s "$(DATA_DIR)/.odin-install-id" || (echo "missing demo installation ID; refusing reset"; exit 1)
+	cd $(REPO_ROOT) && python3 -m backend.scripts.validate_license_file "$(ODIN_DEMO_LICENSE_FILE)" --expected-tier education --expected-installation-id "$$(cat $(DATA_DIR)/.odin-install-id)"
+	$(EDU_DC) config --quiet
+	-$(EDU_DC) down
+	mkdir -p $(DATA_DIR)
+	find $(DATA_DIR) -mindepth 1 ! -name .odin-install-id ! -name .odin-device.key -exec rm -rf -- {} +
+	rm -rf $(HEARTBEAT_DIR)
+	mkdir -p $(DATA_DIR) $(HEARTBEAT_DIR)
+	$(EDU_DC) up -d
+	$(EDU_DC) ps
+
+demo-write-credentials: ## Apply caller-supplied reviewer credentials without printing them
+	@test -n "$${ODIN_DEMO_REVIEWER_PASSWORD:-}" || (echo "ODIN_DEMO_REVIEWER_PASSWORD is required"; exit 1)
+	@$(DC) exec -T -e ODIN_DEMO_REVIEWER_PASSWORD odin python3 -m backend.scripts.demo_seed_reviewer \
+		--email "$(or $(ODIN_DEMO_REVIEWER_EMAIL),$(REVIEWER_EMAIL))" \
+		--no-mfa --read-only-printer x1c-demo
 
 demo-logs: ## Tail logs across all demo services
 	$(DC) logs -f --tail=200
@@ -97,12 +104,13 @@ K8S_NAMESPACE  := odin-demo
 
 demo-k8s-secrets: ## Generate fresh ops/demo/k8s/05-secrets.yaml (gitignored). Re-run only on rotation.
 	@python3 -c "import secrets, string, datetime, pathlib; \
-		from cryptography.fernet import Fernet; \
-		enc = Fernet.generate_key().decode(); \
-		jwt = secrets.token_urlsafe(32); \
-		api = secrets.token_urlsafe(24); \
-		pw = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)); \
-		now = datetime.datetime.utcnow().isoformat() + 'Z'; \
+			from cryptography.fernet import Fernet; \
+			enc = Fernet.generate_key().decode(); \
+			jwt = secrets.token_urlsafe(32); \
+			api = secrets.token_urlsafe(24); \
+			pw = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)); \
+			admin_pw = secrets.token_urlsafe(18); teacher_pw = secrets.token_urlsafe(18); student_pw = secrets.token_urlsafe(18); \
+			now = datetime.datetime.utcnow().isoformat() + 'Z'; \
 		out = pathlib.Path('$(K8S_DIR)/05-secrets.yaml'); \
 		out.write_text( \
 		  '# Generated ' + now + ' — DO NOT COMMIT.\n' \
@@ -114,11 +122,26 @@ demo-k8s-secrets: ## Generate fresh ops/demo/k8s/05-secrets.yaml (gitignored). R
 		  '  api_key: \"' + api + '\"\n' \
 		  '---\n' \
 		  'apiVersion: v1\nkind: Secret\nmetadata:\n  name: demo-reviewer-credentials\n  namespace: $(K8S_NAMESPACE)\n' \
-		  'type: Opaque\nstringData:\n' \
-		  '  email: \"$(REVIEWER_EMAIL)\"\n' \
-		  '  password: \"' + pw + '\"\n' \
-		  '  rotated_at: \"' + now + '\"\n'); \
-		print('wrote', out, 'reviewer-pw=' + pw)"
+			  'type: Opaque\nstringData:\n' \
+			  '  email: \"$(REVIEWER_EMAIL)\"\n' \
+			  '  password: \"' + pw + '\"\n' \
+			  '  edu_admin_email: \"edu-admin@demo.subsystem.app\"\n' \
+			  '  edu_admin_password: \"' + admin_pw + '\"\n' \
+			  '  edu_teacher_email: \"teacher@demo.subsystem.app\"\n' \
+			  '  edu_teacher_password: \"' + teacher_pw + '\"\n' \
+			  '  edu_student_email: \"student@demo.subsystem.app\"\n' \
+			  '  edu_student_password: \"' + student_pw + '\"\n' \
+			  '  rotated_at: \"' + now + '\"\n'); \
+			print('wrote', out, '(credential values withheld)')"
+
+demo-k8s-license: ## Validate and apply caller-supplied signed Education license secret
+	@test -f "$(ODIN_DEMO_LICENSE_FILE)" || (echo "ODIN_DEMO_LICENSE_FILE must name an existing signed license"; exit 1)
+	@INSTALL_ID=$$(kubectl -n $(K8S_NAMESPACE) exec deploy/odin -- cat /data/.odin-install-id); \
+		test -n "$$INSTALL_ID" || (echo "could not read target demo installation ID"; exit 1); \
+		cd $(REPO_ROOT) && python3 -m backend.scripts.validate_license_file "$(ODIN_DEMO_LICENSE_FILE)" --expected-tier education --expected-installation-id "$$INSTALL_ID"
+	kubectl create secret generic odin-demo-license -n $(K8S_NAMESPACE) \
+		--from-file=odin.license="$(ODIN_DEMO_LICENSE_FILE)" \
+		--dry-run=client -o yaml | kubectl apply -f -
 
 demo-k8s-configmaps: ## Re-build odin-demo-fixture + odin-demo-publisher-script from in-repo files
 	kubectl create configmap odin-demo-publisher-script -n $(K8S_NAMESPACE) \
@@ -135,6 +158,7 @@ demo-k8s-up: ## Apply all manifests to the K3s cluster (idempotent)
 	fi
 	kubectl apply -f $(K8S_DIR)/00-namespace.yaml
 	kubectl apply -f $(K8S_DIR)/05-secrets.yaml
+	@kubectl -n $(K8S_NAMESPACE) get secret odin-demo-license >/dev/null || (echo "missing odin-demo-license — run demo-k8s-license first"; exit 1)
 	$(MAKE) -f $(lastword $(MAKEFILE_LIST)) demo-k8s-configmaps
 	kubectl apply -f $(K8S_DIR)/10-mosquitto.yaml
 	kubectl apply -f $(K8S_DIR)/20-odin-pvc.yaml
@@ -163,7 +187,7 @@ demo-k8s-rotate-password: ## Mint new reviewer password, patch demo-reviewer-cre
 	NOW=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
 	kubectl -n $(K8S_NAMESPACE) patch secret demo-reviewer-credentials \
 		--type=merge -p "{\"stringData\":{\"password\":\"$$PW\",\"rotated_at\":\"$$NOW\"}}"; \
-	echo "rotated; new password=$$PW"
+	echo "reviewer password rotated (value withheld)"
 
 demo-k8s-write-credentials: ## Apply the rotated password to the demo backend's reviewer account
 	# The published GHCR image lags HEAD until the next build, so the
@@ -171,7 +195,8 @@ demo-k8s-write-credentials: ## Apply the rotated password to the demo backend's 
 	# inside the running container. We `kubectl cp` the script in from
 	# the working tree and run it as a script, not as a module.
 	@POD=$$(kubectl -n $(K8S_NAMESPACE) get pod -l app=odin -o jsonpath='{.items[0].metadata.name}'); \
-	PW=$$(kubectl -n $(K8S_NAMESPACE) get secret demo-reviewer-credentials -o jsonpath='{.data.password}' | base64 -d); \
 	kubectl -n $(K8S_NAMESPACE) cp $(REPO_ROOT)/backend/scripts/demo_seed_reviewer.py $(K8S_NAMESPACE)/$$POD:/tmp/demo_seed_reviewer.py; \
-	kubectl -n $(K8S_NAMESPACE) exec deploy/odin -- python3 /tmp/demo_seed_reviewer.py \
-		--email "$(REVIEWER_EMAIL)" --password "$$PW" --no-mfa --read-only-printer x1c-demo
+	kubectl -n $(K8S_NAMESPACE) cp $(REPO_ROOT)/backend/scripts/demo_seed_edu.py $(K8S_NAMESPACE)/$$POD:/tmp/demo_seed_edu.py; \
+	kubectl -n $(K8S_NAMESPACE) get secret demo-reviewer-credentials -o jsonpath='{.data.password}' | base64 -d | \
+		kubectl -n $(K8S_NAMESPACE) exec -i deploy/odin -- python3 /tmp/demo_seed_reviewer.py \
+		--email "$(REVIEWER_EMAIL)" --password-stdin --no-mfa --read-only-printer x1c-demo

@@ -60,13 +60,20 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
 export default function GroupManager() {
   const queryClient = useQueryClient()
   const lic = useLicense()
+  const hasUserGroups = lic.hasFeature('user_groups')
   const [showModal, setShowModal] = useState(false)
   const [editingGroup, setEditingGroup] = useState(null)
 
-  if (!lic.hasFeature('user_groups')) return null
-
-  const { data: groupsList, isLoading } = useQuery({ queryKey: ['groups'], queryFn: groups.list })
-  const { data: usersList } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
+  const { data: groupsList, isLoading } = useQuery({
+    queryKey: ['groups'],
+    queryFn: groups.list,
+    enabled: hasUserGroups,
+  })
+  const { data: usersList } = useQuery({
+    queryKey: ['users'],
+    queryFn: usersApi.list,
+    enabled: hasUserGroups,
+  })
 
   const operatorAdmins = usersList?.filter(u => u.role === 'operator' || u.role === 'admin') || []
 
@@ -89,6 +96,8 @@ export default function GroupManager() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['groups'] }),
     onError: mutErr('Delete group failed'),
   })
+
+  if (!hasUserGroups) return null
 
   const handleSave = (formData) => {
     if (editingGroup) {

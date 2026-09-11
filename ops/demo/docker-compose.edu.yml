@@ -1,0 +1,22 @@
+# EDU proof-of-concept overlay for docker-compose.demo.yml.
+# All referenced values live in ops/demo/.env (gitignored) or the caller's
+# environment. The signed license is mounted read-only outside wipeable data.
+
+services:
+  odin:
+    volumes:
+      - type: bind
+        source: ${ODIN_DEMO_LICENSE_FILE:?absolute path to signed Education license required}
+        target: /data/odin.license
+        read_only: true
+    environment:
+      ODIN_DEMO_EDU_SEED: "1"
+      ODIN_LICENSE_READ_ONLY: "1"
+      ODIN_DEMO_EDU_ADMIN_EMAIL: ${ODIN_DEMO_EDU_ADMIN_EMAIL:?EDU admin email required}
+      ODIN_DEMO_EDU_ADMIN_PASSWORD: ${ODIN_DEMO_EDU_ADMIN_PASSWORD:?EDU admin password required}
+      ODIN_DEMO_EDU_TEACHER_EMAIL: ${ODIN_DEMO_EDU_TEACHER_EMAIL:?EDU teacher email required}
+      ODIN_DEMO_EDU_TEACHER_PASSWORD: ${ODIN_DEMO_EDU_TEACHER_PASSWORD:?EDU teacher password required}
+      ODIN_DEMO_EDU_STUDENT_EMAIL: ${ODIN_DEMO_EDU_STUDENT_EMAIL:?EDU student email required}
+      ODIN_DEMO_EDU_STUDENT_PASSWORD: ${ODIN_DEMO_EDU_STUDENT_PASSWORD:?EDU student password required}
+      ODIN_DEMO_REVIEWER_EMAIL: ${ODIN_DEMO_REVIEWER_EMAIL:-}
+      ODIN_DEMO_REVIEWER_PASSWORD: ${ODIN_DEMO_REVIEWER_PASSWORD:-}

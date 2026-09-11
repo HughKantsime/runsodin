@@ -63,6 +63,21 @@ spec:
           requests:
             cpu: 25m
             memory: 64Mi
+        startupProbe:
+          exec:
+            command: ["python", "/opt/odin-demo/demo_publisher.py", "--check-heartbeat", "--max-stale-sec", "90"]
+          periodSeconds: 5
+          failureThreshold: 24
+        readinessProbe:
+          exec:
+            command: ["python", "/opt/odin-demo/demo_publisher.py", "--check-heartbeat", "--max-stale-sec", "90"]
+          periodSeconds: 15
+          failureThreshold: 2
+        livenessProbe:
+          exec:
+            command: ["python", "/opt/odin-demo/demo_publisher.py", "--check-heartbeat", "--max-stale-sec", "90"]
+          periodSeconds: 30
+          failureThreshold: 3
       volumes:
       - name: heartbeat
         persistentVolumeClaim:

@@ -115,8 +115,8 @@ export default function Settings() {
           </div>
         </AccessAccordion>
         <AccessAccordion title="Quotas & Restrictions" icon={Shield}>
-          <QuotaManager />
-          <div className="border-t border-[var(--brand-card-border)] pt-6 mt-6">
+          {lic.hasFeature('print_quotas') && <QuotaManager />}
+          <div className={`${lic.hasFeature('print_quotas') ? 'border-t pt-6 mt-6 ' : ''}border-[var(--brand-card-border)]`}>
             <IPAllowlistSettings />
           </div>
         </AccessAccordion>

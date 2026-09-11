@@ -626,8 +626,11 @@ ENDPOINT_MATRIX = [
     # =========================================================================
     ("GET",  "/api/license/installation-id",    _admin_read(), None, "Get installation ID"),
     ("GET",  "/api/license/activation-request", _admin_read(), None, "Get offline activation request"),
+    ("GET",  "/api/license/unactivation-request", _admin_read(), None, "Get offline unactivation request"),
     ("POST", "/api/license/activate",           _admin_only(), {},   "Activate license online"),
     ("POST", "/api/license/upload",             _admin_only(), None, "Upload license file"),
+    ("POST", "/api/license/unactivate",         _admin_only(), None, "Unactivate license online"),
+    ("POST", "/api/license/reactivate",         _admin_only(), None, "Reactivate current license"),
 
     # =========================================================================
     # 50. Models — missing actions

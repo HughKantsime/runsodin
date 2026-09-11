@@ -20,6 +20,7 @@ from core.auth import hash_password
 import core.auth as auth_module
 from core.quota import _get_quota_usage
 from core.rate_limit import limiter
+from license_manager import require_feature
 
 from modules.organizations.routes_users import _is_superadmin, _check_org_admin_access
 
@@ -286,6 +287,7 @@ async def revoke_api_token(token_id: int, current_user: dict = Depends(require_r
 @router.get("/quotas", tags=["Quotas"])
 async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get current user's quota config and usage."""
+    require_feature("print_quotas")
     period = current_user.get("quota_period") or "monthly"
     usage = _get_quota_usage(db, current_user["id"], period)
     return {
@@ -301,6 +303,7 @@ async def get_my_quota(current_user: dict = Depends(require_role("viewer")), db:
 @router.get("/admin/quotas", tags=["Quotas"])
 async def admin_list_quotas(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: list all users' quota config and usage."""
+    require_feature("print_quotas")
     if _is_superadmin(current_user):
         users = db.execute(text(
             "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users WHERE is_active = 1"
@@ -333,6 +336,7 @@ class QuotaUpdateRequest(PydanticBaseModel):
 @router.put("/admin/quotas/{user_id}", tags=["Quotas"])
 async def admin_set_quota(user_id: int, body: QuotaUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: set quotas for a user."""
+    require_feature("print_quotas")
     user = db.execute(text("SELECT id, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

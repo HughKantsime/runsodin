@@ -21,7 +21,7 @@ from modules.system.schemas import HealthCheck
 from core.config import settings
 from license_manager import (
     get_license, save_license_file, get_installation_id,
-    get_device_keypair, sign_license_challenge,
+    get_device_keypair, sign_license_challenge, require_license_mutation_enabled,
 )
 
 log = logging.getLogger("odin.api")
@@ -199,6 +199,7 @@ async def upload_license(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Upload a license file. Admin only."""
     content = await file.read()
@@ -232,7 +233,11 @@ async def upload_license(
 
 
 @router.delete("/license", tags=["License"])
-def remove_license(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+def remove_license(
+    current_user: dict = Depends(require_superadmin()),
+    db: Session = Depends(get_db),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
+):
     """Remove the license file (revert to Community tier). Admin only."""
     import os as _os
     from license_manager import LICENSE_DIR, LICENSE_FILENAME
@@ -299,6 +304,7 @@ async def _fetch_license_challenge(license_server_url: str, installation_id: str
 async def activate_license(
     request: LicenseActivateRequest,
     current_user: dict = Depends(require_superadmin()),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Activate a license by key via the license server. Admin only."""
     license_server_url = settings.license_server_url
@@ -420,6 +426,7 @@ async def unactivate_license(
     request: LicenseUnactivateRequest = None,
     current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Unactivate the current license to free the grant for another server. Admin only."""
     license_server_url = settings.license_server_url
@@ -479,6 +486,7 @@ async def unactivate_license(
 async def reactivate_license(
     current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db),
+    license_mutation_allowed: None = Depends(require_license_mutation_enabled),
 ):
     """Reactivate the license to pick up tier/feature changes. Admin only."""
     license_server_url = settings.license_server_url

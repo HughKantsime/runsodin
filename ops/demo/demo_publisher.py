@@ -49,6 +49,7 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -75,7 +76,39 @@ HEARTBEAT_PATH = Path(os.environ.get("ODIN_DEMO_HEARTBEAT_PATH", "/tmp/odin-demo
 
 
 def _heartbeat() -> None:
-    HEARTBEAT_PATH.write_text(str(time.time()))
+    HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_path = tempfile.mkstemp(
+        prefix=f".{HEARTBEAT_PATH.name}.",
+        dir=HEARTBEAT_PATH.parent,
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(str(time.time()))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, HEARTBEAT_PATH)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def check_heartbeat(path: Path, max_stale_sec: float) -> tuple[bool, str]:
+    """Validate only the publisher heartbeat side-channel."""
+    if not path.exists():
+        return False, f"heartbeat missing: {path}"
+    try:
+        timestamp = float(path.read_text().strip())
+    except (OSError, ValueError) as exc:
+        return False, f"heartbeat unreadable: {exc}"
+    age = time.time() - timestamp
+    if age < 0:
+        return False, f"heartbeat timestamp is in the future ({age:.1f}s)"
+    ok = age <= max_stale_sec
+    return ok, f"heartbeat age={age:.1f}s (max {max_stale_sec:.1f}s)"
 
 
 def _publish_loop_single(
@@ -107,11 +140,14 @@ def _publish_loop_single(
                 "[%s] cycle %d done: published=%d skipped=%d duration=%.1fs",
                 label, cycle, res.messages_published, res.lines_skipped, res.duration_sec,
             )
-            _heartbeat()
         except (ConnectionRefusedError, OSError) as exc:
             logger.warning("[%s] broker unreachable, retrying: %s", label, exc)
             time.sleep(5.0)
             continue
+
+        # Heartbeat failures are deployment failures, not broker failures.
+        # Let them terminate the publisher so Kubernetes can restart it.
+        _heartbeat()
 
         if stop["flag"]:
             break
@@ -201,8 +237,25 @@ def _run_scenario(name: str, host: str, port: int, speed: float, gap: float, sto
     return 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="ODIN demo telemetry publisher")
+    parser.add_argument("--check-heartbeat", action="store_true")
+    parser.add_argument("--heartbeat-path", default=None)
+    parser.add_argument("--max-stale-sec", type=float, default=90.0)
+    args = parser.parse_args(argv)
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    if args.check_heartbeat:
+        path = Path(args.heartbeat_path) if args.heartbeat_path else HEARTBEAT_PATH
+        ok, message = check_heartbeat(path, args.max_stale_sec)
+        if not ok:
+            logger.error(message)
+            return 1
+        logger.info(message)
+        return 0
 
     host = os.environ.get("ODIN_DEMO_BROKER_HOST", "mosquitto")
     port = int(os.environ.get("ODIN_DEMO_BROKER_PORT", "1883"))

@@ -334,6 +334,11 @@ conn.close()
 print('  ✓ SQLite WAL mode enabled')
 "
 
+# ── Seed EDU sandbox personas after every schema/migration step succeeds ──
+# Disabled by default. EDU demo deployments provide credentials through
+# environment-backed secrets; the seeder never prints password material.
+/bin/sh /app/seed_edu_if_enabled.sh
+
 echo "========================================="
 echo "  O.D.I.N. is ready!"
 echo "  Web UI: http://localhost:8000"

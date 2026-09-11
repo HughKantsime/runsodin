@@ -1,12 +1,12 @@
-# `demo.subsystem.app` — App Review reviewer environment
+# `demo.subsystem.app` — App Review and EDU sandbox
 
 Per ODIN-128 / ODIN-125 plan v2 (ratified by Hugh 2026-04-30, Option 1 +
 reuse-existing-replayer amendment).
 
-This stack is **isolated** from prod ODIN. It exists to give App Review
-reviewers a working, "live" printer to inspect from the iOS / macOS app,
-without exposing any real customer data, real homelab IPs, or real
-printer credentials.
+This stack is **isolated** from production ODIN. Its base profile supports an
+App Review reviewer; the EDU overlay adds administrator, teacher, and student
+personas under a real signed Education license. Neither profile exposes real
+customer data, homelab IPs, or printer credentials.
 
 ## Architecture (no greenfield — wiring only)
 
@@ -45,10 +45,12 @@ telemetry-handling code.**
 | 2 | Isolated FastAPI / Postgres / mosquitto stack        | `ops/demo/docker-compose.demo.yml`                                       |
 | 3 | `ams-swap-loop` scenario shim                        | `demo_scenarios/ams-swap-loop/scenario.yaml` + `loop:true` in `demo.py`  |
 | 4 | Identity-scrub audit on chosen fixture               | `ops/demo/scrub_fixture.py`; scrubbed → `bambu-x1c-ams-swap.demo.jsonl`  |
-| 5 | Reviewer account `appreview@demo.subsystem.app`      | `make demo-rotate-password` + `make demo-write-credentials`              |
-| 6 | Nightly reset cron                                   | `make demo-reset` target (compose-down → wipe → rotate → up)             |
-| 7 | Health probe + ntfy alerting                         | `ops/demo/health_probe.py` (paging filter is caller-side)                |
-| 8 | Hand verified URL + creds back to ODIN Lead          | Pending DNS / first deploy                                               |
+| 5 | Reviewer account `appreview@demo.subsystem.app`      | Caller-managed secret + `make demo-write-credentials`                    |
+| 6 | EDU administrator/teacher/student personas           | `docker-compose.edu.yml` + idempotent startup seeder                     |
+| 7 | Signed Education license, mounted read-only          | `demo-edu-up` / `demo-k8s-license`; supplied out of band                 |
+| 8 | Nightly reset cron                                   | Wipes mutable data; preserves secrets and external license               |
+| 9 | Health probe + ntfy alerting                         | `ops/demo/health_probe.py` plus publisher heartbeat probes               |
+| 10 | Hand verified URL + creds back to ODIN Lead         | Separate, explicitly approved deployment gate                            |
 
 ## Identity-scrub audit (ODIN-128 deliverable 4)
 
@@ -92,22 +94,53 @@ make -f Makefile.demo demo-up
 make -f Makefile.demo demo-probe
 ```
 
+### EDU profile
+
+Populate the EDU variables shown in `env.example`, including an absolute path
+to a normally signed, unexpired Education license. Start the base demo once
+first so `/data/.odin-install-id` exists, issue the license for that exact ID,
+then run:
+
+```sh
+make -f ops/demo/Makefile.demo demo-edu-up \
+  ODIN_DEMO_LICENSE_FILE=/secure/path/odin.license
+```
+
+The target verifies the signature, expiry, Education tier, and binding against
+the target sandbox installation ID before changing the stack. The overlay
+mounts the license at `/data/odin.license` read-only,
+sets `ODIN_LICENSE_READ_ONLY=1`, and seeds these mappings after all database
+migrations succeed:
+
+| Sandbox persona | Existing ODIN role |
+|---|---|
+| Administrator | `admin` |
+| Teacher | `operator` |
+| Student | `viewer` |
+| Optional App Review account | `viewer` |
+
+Credentials stay in the caller's environment or secret store. The seeder is
+idempotent and never prints passwords. No license-signing private key belongs
+on the demo host.
+
 ### Nightly reset (cron 03:00 UTC)
 
 ```cron
 0 3 * * * cd /opt/odin-demo && /usr/bin/make -f ops/demo/Makefile.demo demo-reset >> /var/log/odin-demo-reset.log 2>&1
 ```
 
-`demo-reset`:
+`demo-reset` uses the caller-supplied `ODIN_DEMO_REVIEWER_PASSWORD`; it no
+longer creates or prints a plaintext password. `demo-edu-reset` performs all
+license and environment preflight checks before wiping anything, then:
 
-1. `docker compose down` — stops all three services.
-2. Wipes `./odin-demo-data/` and `./heartbeat/` (no shared data with prod).
-3. Generates a fresh 12-char alphanumeric reviewer password and writes
-   `ops/demo/.reviewer-credentials.txt` (gitignored).
-4. `docker compose up -d` — restarts mosquitto + odin + publisher.
+1. Stops the isolated demo services.
+2. Wipes `./odin-demo-data/` and `./heartbeat/` only.
+3. Preserves the externally stored signed license, credentials,
+   `.odin-install-id`, and `.odin-device.key` identity files.
+4. Restarts ODIN; its post-migration hook reseeds all configured personas.
 
-Target wall-clock: ≤60s. Hand the new password back to the ASC paste-block
-(see ODIN-125).
+Credential distribution remains a separate operator action through the
+approved secret channel (see ODIN-125).
 
 ### Health probe
 
@@ -115,7 +148,11 @@ Target wall-clock: ≤60s. Hand the new password back to the ASC paste-block
 
 1. `GET <base-url>/login` returns HTTP 200.
 2. mosquitto port reachable.
-3. Publisher heartbeat younger than `--max-stale-sec` (default 30s).
+3. Publisher heartbeat younger than `--max-stale-sec`.
+
+Kubernetes also runs heartbeat-only startup, readiness, and liveness probes
+inside the publisher container. Those probes do not depend on public DNS, the
+HTTP API, or MQTT reachability.
 
 Wire into ntfy by piping JSON output through `ops/demo/probe_ntfy.sh`
 (operator-supplied; not committed). Probe is **only paged during App
@@ -144,9 +181,9 @@ Cannot be done from this seat without account access:
       sidecar container on a VPS).
 - [ ] First deploy: `cp env.example .env; edit; make demo-up`.
 
-When DNS resolves and `make demo-probe-public` is green, comment back on
-ODIN-128 and ODIN-125 with the verified URL + current contents of
-`ops/demo/.reviewer-credentials.txt`.
+When DNS resolves and `make demo-probe-public` is green, deliver credentials
+through the approved secret channel. Do not paste them into issue comments or
+commit them to this repository.
 
 ## Hosting variants
 

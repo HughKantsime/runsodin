@@ -344,7 +344,7 @@ export default function GeneralTab() {
       </div>
 
       {/* Job Approval Workflow */}
-      <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
+      {lic.hasFeature('job_approval') && <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">
         <div className="flex items-center gap-2 md:gap-3 mb-4">
           <CheckCircle size={18} className="text-[var(--brand-primary)]" />
           <h2 className="text-lg md:text-xl font-display font-semibold">Job Approval Workflow</h2>
@@ -354,7 +354,7 @@ export default function GeneralTab() {
         </p>
         <ApprovalToggle />
         <p className="text-xs text-[var(--brand-text-muted)] mt-2">Saves automatically when toggled.</p>
-      </div>
+      </div>}
 
       {/* Interface Mode */}
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4 md:p-6 mb-4 md:mb-6">

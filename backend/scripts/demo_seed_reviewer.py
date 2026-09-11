@@ -30,17 +30,19 @@ the demo image ever grows beyond that one printer.
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 
-from passlib.context import CryptContext
+try:
+    from scripts.demo_seed_edu import Persona, upsert_personas
+except ModuleNotFoundError:  # `python -m backend.scripts...` from repo root
+    try:
+        from backend.scripts.demo_seed_edu import Persona, upsert_personas
+    except ModuleNotFoundError:  # direct/copy execution beside demo_seed_edu.py
+        from demo_seed_edu import Persona, upsert_personas
 
 DEFAULT_DB_PATH = "/data/odin.db"
-
-# Mirrors core/auth.py — keep cost factor in sync so reviewer logins
-# don't pay a different bcrypt cost than other accounts.
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-
 
 def upsert_reviewer(
     db_path: str,
@@ -49,32 +51,11 @@ def upsert_reviewer(
     no_mfa: bool,
     read_only_printer: str | None,
 ) -> None:
-    pw_hash = _pwd_context.hash(password)
-    mfa_enabled = 0 if no_mfa else 1
+    upsert_personas(db_path, [Persona(email, password, "viewer", no_mfa=no_mfa)])
 
-    conn = sqlite3.connect(db_path)
-    try:
-        # Upsert by username (UNIQUE). username == email for the reviewer.
-        conn.execute(
-            """
-            INSERT INTO users (username, email, password_hash, role,
-                               is_active, mfa_enabled, mfa_secret)
-            VALUES (:u, :e, :h, 'viewer', 1, :m, NULL)
-            ON CONFLICT(username) DO UPDATE SET
-                email = excluded.email,
-                password_hash = excluded.password_hash,
-                role = 'viewer',
-                is_active = 1,
-                mfa_enabled = excluded.mfa_enabled,
-                mfa_secret = CASE WHEN excluded.mfa_enabled = 0
-                                  THEN NULL
-                                  ELSE users.mfa_secret END
-            """,
-            {"u": email, "e": email, "h": pw_hash, "m": mfa_enabled},
-        )
-        conn.commit()
-
-        if read_only_printer:
+    if read_only_printer:
+        conn = sqlite3.connect(db_path)
+        try:
             row = conn.execute(
                 "SELECT COUNT(*) FROM printers WHERE is_active = 1"
             ).fetchone()
@@ -89,8 +70,8 @@ def upsert_reviewer(
                     "see all active printers. Wipe extras or model an allowlist.",
                     file=sys.stderr,
                 )
-    finally:
-        conn.close()
+        finally:
+            conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,7 +79,16 @@ def main(argv: list[str] | None = None) -> int:
         description="Upsert the App Review reviewer user (idempotent).",
     )
     p.add_argument("--email", required=True)
-    p.add_argument("--password", required=True)
+    p.add_argument(
+        "--password",
+        default=None,
+        help="Reviewer password (prefer ODIN_DEMO_REVIEWER_PASSWORD to avoid argv exposure).",
+    )
+    p.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="Read the reviewer password from stdin (for secret-store pipelines).",
+    )
     p.add_argument(
         "--no-mfa", action="store_true",
         help="Disable MFA on the reviewer account (App Review requirement).",
@@ -110,6 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--db-path", default=DEFAULT_DB_PATH)
     args = p.parse_args(argv)
+    if args.password_stdin:
+        if args.password:
+            p.error("--password-stdin cannot be combined with --password")
+        args.password = sys.stdin.read().rstrip("\r\n")
+    elif not args.password:
+        args.password = os.environ.get("ODIN_DEMO_REVIEWER_PASSWORD")
+    if not args.password:
+        p.error("--password or ODIN_DEMO_REVIEWER_PASSWORD is required")
 
     upsert_reviewer(
         args.db_path, args.email, args.password,

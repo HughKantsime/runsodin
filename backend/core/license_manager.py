@@ -25,6 +25,8 @@ from license_manager import (  # noqa: F401
     save_license_file,
     get_license,
     require_feature,
+    license_is_managed_externally,
+    require_license_mutation_enabled,
     check_printer_limit,
     check_user_limit,
 )

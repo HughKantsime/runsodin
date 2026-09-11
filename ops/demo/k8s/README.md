@@ -1,4 +1,4 @@
-# `odin-demo` namespace — K8s manifests
+# `odin-demo` namespace — K8s EDU sandbox manifests
 
 Mirrors `ops/demo/docker-compose.demo.yml` but on the M4 K3s cluster
 behind the existing CF tunnel + cert-manager + Traefik stack.
@@ -23,22 +23,33 @@ account-level CF perms required for cert provisioning.
 
 ## Apply order
 
+Provision secrets and the signed license before applying the manifests:
+
 ```sh
+make -f ops/demo/Makefile.demo demo-k8s-secrets
+kubectl apply -f ops/demo/k8s/00-namespace.yaml
+kubectl apply -f ops/demo/k8s/05-secrets.yaml
+make -f ops/demo/Makefile.demo demo-k8s-license \
+  ODIN_DEMO_LICENSE_FILE=/secure/path/odin.license
 make -f ops/demo/Makefile.demo demo-k8s-up
 ```
 
-Which runs:
+The final target runs:
 
 1. `kubectl apply -f ops/demo/k8s/00-namespace.yaml`
 2. `kubectl apply -f ops/demo/k8s/05-secrets.yaml`  (generated, see below)
-3. `make demo-k8s-configmaps`  (generates fixture + publisher-script ConfigMaps from in-repo files)
-4. `kubectl apply -f ops/demo/k8s/10-mosquitto.yaml`
-5. `kubectl apply -f ops/demo/k8s/20-odin-pvc.yaml`
-6. `kubectl apply -f ops/demo/k8s/40-odin.yaml`
-7. `kubectl apply -f ops/demo/k8s/50-publisher.yaml`
-8. `kubectl apply -f ops/demo/k8s/60-ingress.yaml`
-9. `kubectl apply -f ops/demo/k8s/70-networkpolicy.yaml`
-10. `kubectl apply -f ops/demo/k8s/80-cronjob-reset.yaml`
+3. Verify that the previously provisioned `odin-demo-license` Secret exists.
+4. Generate fixture + publisher-script ConfigMaps from in-repo files.
+5. Apply mosquitto, PVC, ODIN, publisher, ingress, NetworkPolicy, and reset
+   CronJob manifests in order.
+
+`demo-k8s-up` refuses to deploy ODIN until both the generated credential
+manifest and `odin-demo-license` Secret exist. It does not generate or accept a
+license-signing private key.
+
+`demo-k8s-license` reads the live sandbox's `/data/.odin-install-id` and rejects
+a signed artifact whose binding does not match. The base demo must therefore
+be running once before its Education license is issued and installed.
 
 ## Secrets
 
@@ -51,9 +62,18 @@ Which runs:
 - `odin-demo-secrets/api_key`            (24-byte URL-safe)
 - `demo-reviewer-credentials/email`      (`appreview@demo.subsystem.app`)
 - `demo-reviewer-credentials/password`   (16-char alphanumeric)
+- `demo-reviewer-credentials/edu_admin_email` / `edu_admin_password`
+- `demo-reviewer-credentials/edu_teacher_email` / `edu_teacher_password`
+- `demo-reviewer-credentials/edu_student_email` / `edu_student_password`
 - `demo-reviewer-credentials/rotated_at` (ISO timestamp)
 
-NEVER reuse prod values. Both secrets stay in-cluster only.
+The generator reports only the output filename; it withholds every credential
+value. Retrieve credentials from the cluster Secret through the approved
+operator channel. Never reuse production values or commit the generated file.
+
+The separate `odin-demo-license` Secret contains only the public signed license
+artifact. It is mounted at `/data/odin.license` with `subPath` and read-only,
+while the rest of `/data` remains writable.
 
 ## Network surface
 
@@ -71,6 +91,13 @@ NEVER reuse prod values. Both secrets stay in-cluster only.
 
 ## Reset cron
 
-`odin-demo-reset` CronJob, daily 03:00 UTC. Wipes `odin-demo-data` PVC,
-rotates the reviewer password into the `demo-reviewer-credentials`
-Secret, scales `odin` + `publisher` back up. ~60 s wall-clock.
+`odin-demo-reset` CronJob runs daily at 03:00 UTC. It scales ODIN and the
+publisher down, wipes only the mutable data and heartbeat PVCs, then scales
+both deployments back up. The signed license and credential Secrets are not
+modified, and `.odin-install-id` plus `.odin-device.key` survive the mutable
+data wipe. ODIN's startup hook reseeds every configured persona after database
+migrations, and startup fails if seeding cannot complete.
+
+The publisher has heartbeat-only startup/readiness/liveness probes with a
+90-second freshness threshold. A running Python process whose replay loop is
+stalled therefore stops reporting ready and is eventually restarted.

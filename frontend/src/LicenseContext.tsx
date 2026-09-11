@@ -13,45 +13,8 @@ const LicenseContext = createContext({
   refresh: () => {},
 })
 
-const TIER_FEATURES = {
-  community: new Set([
-    'dashboard', 'printers', 'cameras', 'jobs', 'upload',
-    'models', 'spools', 'timeline', 'calculator',
-    'keyboard_shortcuts', 'pwa', 'i18n', '3d_viewer',
-  ]),
-  pro: new Set([
-    'dashboard', 'printers', 'cameras', 'jobs', 'upload',
-    'models', 'spools', 'timeline', 'calculator',
-    'unlimited_printers', 'unlimited_users',
-    'rbac', 'sso', 'white_label', 'branding',
-    'orders', 'products', 'bom',
-    'webhooks', 'email_notifications',
-    'analytics', 'csv_export',
-    'maintenance', 'care_counters',
-    'prometheus', 'mqtt_republish',
-    'quiet_hours', 'permissions',
-    'smart_plug', 'energy_tracking', 'ams_environment', 'websocket', 'drag_drop_queue', 'ntfy', 'telegram', 'hms_decoder', 'failure_logging',
-    'usage_reports',
-  ]),
-  education: new Set([
-    'job_approval', 'print_quotas', 'class_sections',
-  ]),
-  enterprise: new Set([
-    'opcua', 'mqtt_republish_enterprise', 'audit_export', 'sqlcipher',
-    'custom_integrations',
-  ]),
-}
-
-function getFeaturesForTier(tier) {
-  const tiers = ['community', 'pro', 'education', 'enterprise']
-  const idx = tiers.indexOf(tier)
-  if (idx === -1) return TIER_FEATURES.community
-  const features = new Set()
-  for (let i = 0; i <= idx; i++) {
-    const tf = TIER_FEATURES[tiers[i]]
-    if (tf) tf.forEach(f => features.add(f))
-  }
-  return features
+export function featuresFromLicense(features) {
+  return new Set(Array.isArray(features) ? features : [])
 }
 
 export const PRO_PAGES = ['orders', 'products', 'analytics', 'maintenance', 'permissions', 'branding']
@@ -59,7 +22,8 @@ export const PRO_SETTINGS_TABS = ['sso', 'webhooks', 'smtp']
 
 export function LicenseProvider({ children }) {
   const [license, setLicense] = useState({
-    tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1, installation_id: null, loading: true,
+    tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1,
+    installation_id: null, features: [], managed_externally: false, loading: true,
   })
 
   const fetchLicense = async () => {
@@ -72,10 +36,15 @@ export function LicenseProvider({ children }) {
         max_printers: data.max_printers ?? 5,
         max_users: data.max_users ?? 1,
         installation_id: data.installation_id || null,
+        features: Array.isArray(data.features) ? data.features : [],
+        managed_externally: data.managed_externally === true,
         loading: false,
       })
     } catch {
-      setLicense(prev => ({ ...prev, tier: 'community', loading: false }))
+      setLicense({
+        tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1,
+        installation_id: null, features: [], managed_externally: false, loading: false,
+      })
     }
   }
 
@@ -84,15 +53,16 @@ export function LicenseProvider({ children }) {
   const isPro = ['pro', 'education', 'enterprise'].includes(license.tier)
   const isEducation = ['education', 'enterprise'].includes(license.tier)
   const isEnterprise = license.tier === 'enterprise'
-  const hasFeature = (feature) => getFeaturesForTier(license.tier).has(feature)
+  const effectiveFeatures = featuresFromLicense(license.features)
+  const hasFeature = (feature) => effectiveFeatures.has(feature)
 
   const value = {
     ...license, isPro, isEducation, isEnterprise, hasFeature,
     isProPage: (page) => PRO_PAGES.includes(page),
     isProSettingsTab: (tab) => PRO_SETTINGS_TABS.includes(tab),
     refresh: fetchLicense,
-    atUserLimit: (count) => license.tier === "community" && count >= 3,
-    maxUsers: license.tier === "community" ? 3 : Infinity,
+    atUserLimit: (count) => Number.isFinite(license.max_users) && count >= license.max_users,
+    maxUsers: license.max_users,
   }
 
   return <LicenseContext.Provider value={value}>{children}</LicenseContext.Provider>

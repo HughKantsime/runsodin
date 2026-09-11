@@ -392,13 +392,30 @@ def _register_http_middleware(app: FastAPI) -> None:
     app.middleware("http")(dry_run_middleware)
     app.middleware("http")(idempotency_middleware)
 
+    def _is_public_browser_request(request: Request) -> bool:
+        """Return whether a request may reach the public browser shell.
+
+        The SPA document and its static bundle must load before a user has a
+        session cookie.  API and server-owned prefixes remain behind the
+        perimeter, except for the explicit route exceptions below.
+        """
+        if request.method not in ("GET", "HEAD"):
+            return False
+        # Security decisions must use the router's ASGI path, not the URL
+        # reconstructed from the attacker-controlled Host header. Affected
+        # Starlette versions can otherwise produce a request.url.path that
+        # disagrees with the path actually dispatched by the router.
+        path = request.scope.get("path") or request.url.path
+        reserved = ("/api", "/static", "/health", "/ws", "/openapi.json")
+        return not any(path == prefix or path.startswith(prefix + "/") for prefix in reserved)
+
     @app.middleware("http")
     async def authenticate_request(request: Request, call_next):
         """Check IP allowlist and API key for all routes."""
         from core.db import SessionLocal
         from fastapi.responses import JSONResponse
 
-        path = request.url.path
+        path = request.scope.get("path") or request.url.path
         _api_path = ""
         if path.startswith("/api/v1/"):
             _api_path = path[7:]
@@ -415,6 +432,7 @@ def _register_http_middleware(app: FastAPI) -> None:
             or _api_path == "/license"
             or (_api_path == "/branding" and request.method == "GET")
             or path.startswith("/static/branding")
+            or _is_public_browser_request(request)
             or request.method == "OPTIONS"
         ):
             return await call_next(request)

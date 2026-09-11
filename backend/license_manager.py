@@ -45,6 +45,7 @@ TIERS = {
         "max_users": 9999,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
+            "permissions", "branding",
             "webhooks", "email_notifications", "push_notifications",
             "orders", "products", "bom",
             "analytics", "csv_export", "cost_calculator",
@@ -58,11 +59,12 @@ TIERS = {
         "max_users": 9999,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
+            "permissions", "branding",
             "webhooks", "email_notifications", "push_notifications",
             "orders", "products", "bom",
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
-            "job_approval", "user_groups", "usage_reports",
+            "job_approval", "user_groups", "print_quotas", "usage_reports",
         ],
     },
     "enterprise": {
@@ -71,11 +73,12 @@ TIERS = {
         "max_users": 9999,
         "features": [
             "multi_user", "rbac", "sso", "white_label",
+            "permissions", "branding",
             "webhooks", "email_notifications", "push_notifications",
             "orders", "products", "bom",
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
-            "job_approval", "user_groups", "usage_reports",
+            "job_approval", "user_groups", "print_quotas", "usage_reports",
             "opcua", "mqtt_republish", "audit_export", "sqlcipher",
         ],
     },
@@ -210,6 +213,13 @@ class LicenseInfo:
         tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
         return feature in self.features or feature in tier_features
 
+    def effective_features(self) -> list[str]:
+        """Return the deterministic feature set enforced by ``has_feature``."""
+        if not self.valid:
+            return sorted(set(TIERS["community"]["features"]))
+        tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
+        return sorted(set(tier_features) | set(self.features))
+
     def to_dict(self) -> Dict[str, Any]:
         tier_def = TIERS.get(self.tier, TIERS["community"])
         return {
@@ -224,7 +234,8 @@ class LicenseInfo:
             "expired": self.expired,
             "max_printers": self.max_printers,
             "max_users": self.max_users,
-            "features": self.features,
+            "features": self.effective_features(),
+            "managed_externally": license_is_managed_externally(),
             "error": self.error,
             "installation_id": get_installation_id(),
         }
@@ -392,9 +403,32 @@ def require_feature(feature: str):
     license_info = get_license()
     if not license_info.has_feature(feature):
         tier = license_info.tier
+        eligible = [
+            tier_def["name"]
+            for tier_name, tier_def in TIERS.items()
+            if tier_name != "community" and feature in tier_def["features"]
+        ]
+        requirement = " or ".join(eligible) if eligible else "a license with this entitlement"
         raise HTTPException(
             status_code=403,
-            detail=f"Feature '{feature}' requires a Pro or higher license. Current tier: {tier}"
+            detail=f"Feature '{feature}' requires {requirement}. Current tier: {tier}"
+        )
+
+
+def license_is_managed_externally() -> bool:
+    """Whether license lifecycle is controlled by a read-only deployment mount."""
+    return os.environ.get("ODIN_LICENSE_READ_ONLY", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def require_license_mutation_enabled() -> None:
+    """FastAPI dependency that blocks mutation of externally managed licenses."""
+    if license_is_managed_externally():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="License is externally managed by this deployment and cannot be changed here.",
         )
 
 

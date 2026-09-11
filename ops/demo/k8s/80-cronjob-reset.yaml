@@ -1,8 +1,8 @@
 # Nightly demo reset at 03:00 UTC per ODIN-129 hard requirement #5.
 #
-# Deletes all pods (Recreate strategy ensures clean restart), wipes the
-# odin-demo-data PVC contents (via a privileged init-style Job), rotates
-# the reviewer password, and reseeds the reviewer account.
+# Deletes all pods (Recreate strategy ensures clean restart) and wipes the
+# mutable data and heartbeat PVC contents. Credential and signed-license
+# Secrets are preserved; ODIN's post-migration startup hook reseeds personas.
 #
 # The CronJob runs the reset script in a small image with `kubectl`
 # already baked. Service account `odin-demo-resetter` has scoped RBAC
@@ -83,7 +83,7 @@ spec:
               done
 
               echo "[reset] wiping data via ephemeral pod"
-              # Mount the PVC into a throwaway pod and rm its contents.
+              # Mount both mutable PVCs into a throwaway pod and rm their contents.
               kubectl -n odin-demo run wipe-tmp --restart=Never \
                 --image=busybox:1.36 \
                 --overrides="$(cat <<'EOF'
@@ -92,10 +92,10 @@ spec:
                   "containers": [{
                     "name": "wipe",
                     "image": "busybox:1.36",
-                    "command": ["sh","-c","rm -rf /data/* /data/.[!.]* 2>/dev/null || true"],
-                    "volumeMounts": [{"name":"data","mountPath":"/data"}]
+                    "command": ["sh","-c","set -e; find /data -mindepth 1 ! -name .odin-install-id ! -name .odin-device.key -exec rm -rf -- {} +; find /heartbeat -mindepth 1 -exec rm -rf -- {} +"],
+                    "volumeMounts": [{"name":"data","mountPath":"/data"},{"name":"heartbeat","mountPath":"/heartbeat"}]
                   }],
-                  "volumes": [{"name":"data","persistentVolumeClaim":{"claimName":"odin-demo-data"}}],
+                  "volumes": [{"name":"data","persistentVolumeClaim":{"claimName":"odin-demo-data"}},{"name":"heartbeat","persistentVolumeClaim":{"claimName":"odin-demo-heartbeat"}}],
                   "restartPolicy": "Never"
                 }
               }
@@ -105,18 +105,11 @@ spec:
               kubectl -n odin-demo wait --for=jsonpath='{.status.phase}'=Succeeded pod/wipe-tmp --timeout=60s
               kubectl -n odin-demo delete pod wipe-tmp --ignore-not-found
 
-              echo "[reset] rotating reviewer password"
-              # Generate a 16-char alphanumeric password, store in the
-              # demo-reviewer-credentials secret. demo_seed_reviewer reads
-              # it on next start.
-              PW=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
-              kubectl -n odin-demo patch secret demo-reviewer-credentials \
-                --type=merge \
-                -p "{\"stringData\":{\"password\":\"$PW\",\"rotated_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
-
               echo "[reset] scaling odin/publisher back up"
               kubectl -n odin-demo scale deploy/odin --replicas=1
               kubectl -n odin-demo scale deploy/publisher --replicas=1
+              kubectl -n odin-demo rollout status deploy/odin --timeout=180s
+              kubectl -n odin-demo rollout status deploy/publisher --timeout=180s
               echo "[reset] done"
             resources:
               limits:
