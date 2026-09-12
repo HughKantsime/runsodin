@@ -126,7 +126,7 @@ export default function App() {
     <ProtectedRoute>
       <div className="h-screen flex flex-col md:flex-row overflow-hidden">
         {/* Skip to content — WCAG 2.4.1 */}
-        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-[var(--brand-primary)] focus:text-white focus:rounded-lg focus:text-sm">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-[var(--brand-primary)] focus:text-[var(--brand-on-primary)] focus:rounded-lg focus:text-sm">
           Skip to content
         </a>
 
@@ -148,7 +148,7 @@ export default function App() {
             <AlertBell />
           </div>
           <UpgradeBanner />
-          <main id="main-content" className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
+          <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
           {/* Screen reader live region for async status announcements */}
           <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" id="sr-status" />
           <ErrorBoundary>

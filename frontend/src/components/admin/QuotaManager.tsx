@@ -68,7 +68,7 @@ export default function QuotaManager() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0} aria-label="User quota table">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[var(--brand-text-secondary)] text-left border-b border-[var(--brand-card-border)]">
@@ -101,7 +101,7 @@ export default function QuotaManager() {
                     onChange={e => handleEdit(u.user_id, 'quota_hours', e.target.value)} />
                 </td>
                 <td className="py-2 px-2">
-                  <select className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
+                  <select aria-label={`Quota period for ${u.username}`} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-2 py-1 text-xs"
                     value={getVal(u, 'quota_period')} onChange={e => handleEdit(u.user_id, 'quota_period', e.target.value)}>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>

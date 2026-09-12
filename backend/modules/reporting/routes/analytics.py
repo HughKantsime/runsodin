@@ -1,7 +1,7 @@
 """O.D.I.N. — Analytics, Stats, and Usage Reports."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -15,6 +15,7 @@ from core.base import JobStatus
 from modules.printers.models import Printer
 from modules.models_library.models import Model
 from modules.jobs.models import Job
+from modules.reporting.education_usage import build_education_usage_report
 from license_manager import require_feature
 
 log = logging.getLogger("odin.api")
@@ -551,7 +552,6 @@ def get_time_accuracy(
 
 
 # ============== Education Usage Report ==============
-
 @router.get("/education/usage-report", tags=["Education"])
 def get_education_usage_report(
     days: int = Query(default=30, ge=7, le=90),
@@ -560,106 +560,4 @@ def get_education_usage_report(
 ):
     """Education usage report — per-user job metrics and summary stats."""
     require_feature("usage_reports")
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
-    # Get all users — non-admin callers can only see their own org
-    if current_user.get("role") == "admin":
-        users_rows = db.execute(
-            text("SELECT id, username, email, role, is_active, last_login FROM users")
-        ).fetchall()
-    else:
-        user_group_id = current_user.get("group_id")
-        if user_group_id is None:
-            users_rows = []
-        else:
-            users_rows = db.execute(
-                text("SELECT id, username, email, role, is_active, last_login FROM users WHERE group_id = :gid"),
-                {"gid": user_group_id}
-            ).fetchall()
-
-    # Get jobs in window, eager-load model for filament data
-    jobs_in_range = (
-        db.query(Job)
-        .options(joinedload(Job.model))
-        .filter(Job.created_at >= cutoff)
-        .all()
-    )
-
-    # Build per-user stats
-    user_stats = []
-    fleet_hours = 0
-    fleet_jobs = 0
-    fleet_approved = 0
-    fleet_rejected = 0
-    active_ids = set()
-
-    for row in users_rows:
-        u = dict(row._mapping)
-        uid = u["id"]
-        user_jobs = [j for j in jobs_in_range if j.submitted_by == uid]
-        if not user_jobs:
-            continue
-
-        active_ids.add(uid)
-        n_submitted = len(user_jobs)
-        n_approved = sum(1 for j in user_jobs if j.approved_by is not None and j.rejected_reason is None)
-        n_rejected = sum(1 for j in user_jobs if j.rejected_reason is not None)
-        n_completed = sum(1 for j in user_jobs if j.status == JobStatus.COMPLETED)
-        n_failed = sum(1 for j in user_jobs if j.status == JobStatus.FAILED)
-
-        hours = sum(
-            (j.duration_hours or (j.model.build_time_hours if j.model else 0) or 0) * j.quantity
-            for j in user_jobs if j.status == JobStatus.COMPLETED
-        )
-        grams = sum(
-            (j.model.total_filament_grams if j.model else 0) * j.quantity
-            for j in user_jobs if j.status == JobStatus.COMPLETED
-        )
-
-        last_act = max((j.created_at for j in user_jobs), default=None)
-
-        user_stats.append({
-            "user_id": uid,
-            "username": u["username"],
-            "email": u["email"],
-            "role": u["role"],
-            "total_jobs_submitted": n_submitted,
-            "total_jobs_approved": n_approved,
-            "total_jobs_rejected": n_rejected,
-            "total_jobs_completed": n_completed,
-            "total_jobs_failed": n_failed,
-            "total_print_hours": round(hours, 1),
-            "total_filament_grams": round(grams, 1),
-            "approval_rate": round(n_approved / n_submitted * 100, 1) if n_submitted else 0,
-            "success_rate": round(n_completed / (n_completed + n_failed) * 100, 1) if (n_completed + n_failed) else 0,
-            "last_activity": last_act.isoformat() if last_act else None,
-        })
-
-        fleet_hours += hours
-        fleet_jobs += n_submitted
-        fleet_approved += n_approved
-        fleet_rejected += n_rejected
-
-    user_stats.sort(key=lambda x: x["total_jobs_submitted"], reverse=True)
-
-    # Daily submissions for chart
-    daily = {}
-    for j in jobs_in_range:
-        if not j.created_at:
-            continue
-        d = j.created_at.strftime("%Y-%m-%d")
-        daily[d] = daily.get(d, 0) + 1
-
-    return {
-        "summary": {
-            "total_users_active": len(active_ids),
-            "total_print_hours": round(fleet_hours, 1),
-            "total_jobs": fleet_jobs,
-            "approval_rate": round(fleet_approved / fleet_jobs * 100, 1) if fleet_jobs else 0,
-            "rejection_rate": round(fleet_rejected / fleet_jobs * 100, 1) if fleet_jobs else 0,
-        },
-        "users": user_stats,
-        "daily_submissions": daily,
-        "days": days,
-    }
+    return build_education_usage_report(days, db, current_user)

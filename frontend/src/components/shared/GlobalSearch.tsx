@@ -127,8 +127,11 @@ export default function GlobalSearch() {
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setIsOpen(true)}
           placeholder="Search... (⌘K)"
+          role="combobox"
           aria-autocomplete="list"
           aria-expanded={isOpen && query.length >= 2}
+          aria-controls="global-search-results"
+          aria-haspopup="listbox"
           className="w-44 md:w-64 bg-transparent border-b border-[var(--brand-card-border)] rounded-none pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-[var(--brand-primary)]"
         />
         {query && (
@@ -144,7 +147,7 @@ export default function GlobalSearch() {
 
       {/* Results Dropdown */}
       {isOpen && query.length >= 2 && (
-        <div className="absolute top-full left-0 right-0 md:w-80 mt-2 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-xl z-50 max-h-96 overflow-auto">
+        <div id="global-search-results" role="listbox" aria-label="Search results" className="absolute top-full left-0 right-0 md:w-80 mt-2 bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md shadow-xl z-50 max-h-96 overflow-auto">
           {loading ? (
             <div className="p-4 text-center text-[var(--brand-text-muted)] text-sm">Searching...</div>
           ) : totalResults === 0 ? (

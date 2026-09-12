@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "protocols": [
+    {
+      "id": "bambu",
+      "transport": "TLS MQTT passive subscription",
+      "fixture_replay": "covered",
+      "parser_state": "covered",
+      "command_contract": "mocked",
+      "read_only_probe": "implemented",
+      "real_device": "blocked_until_recorded"
+    },
+    {
+      "id": "moonraker",
+      "transport": "HTTP GET allowlist",
+      "fixture_replay": "covered",
+      "parser_state": "covered",
+      "command_contract": "mocked",
+      "read_only_probe": "implemented",
+      "real_device": "blocked_until_recorded"
+    },
+    {
+      "id": "prusalink",
+      "transport": "HTTP GET allowlist",
+      "fixture_replay": "covered",
+      "parser_state": "covered",
+      "command_contract": "mocked",
+      "read_only_probe": "implemented",
+      "real_device": "blocked_until_recorded"
+    },
+    {
+      "id": "elegoo",
+      "transport": "passive WebSocket receive",
+      "fixture_replay": "covered",
+      "parser_state": "covered",
+      "command_contract": "mocked",
+      "read_only_probe": "implemented",
+      "real_device": "blocked_until_recorded"
+    }
+  ]
+}

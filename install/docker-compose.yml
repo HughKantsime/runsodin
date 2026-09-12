@@ -31,6 +31,7 @@ services:
       - API_KEY=${API_KEY:-}
       - DATABASE_URL=sqlite:////data/odin.db
       - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+      - TRUSTED_HOSTS=${TRUSTED_HOSTS:-*}
       # Set to your server's LAN IP for camera streaming (or configure in Settings > Network)
       - ODIN_HOST_IP=${ODIN_HOST_IP:-}
       - TZ=${TZ:-America/New_York}

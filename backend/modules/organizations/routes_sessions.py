@@ -429,6 +429,8 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot erase the last admin account")
 
+    user_data = dict(user._mapping)
+
     db.execute(text("""UPDATE users SET
         username = :anon_name, email = '[deleted]', password_hash = '[deleted]',
         is_active = 0, mfa_enabled = 0, mfa_secret = NULL,
@@ -441,6 +443,42 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("DELETE FROM alert_preferences WHERE user_id = :uid"), {"uid": user_id})
     db.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid"), {"uid": user_id})
 
-    log_audit(db, "gdpr_erasure", "user", user_id, f"User data erased (was: {user.username})")
+    # Submission/resubmission alerts are delivered to reviewers, so deleting
+    # only alerts owned by this user would leave their former username or
+    # email in other users' inboxes. Scrub the known account identifiers while
+    # retaining the operational alert and job reference.
+    identifiers = {
+        value
+        for value in (
+            user_data.get("username"),
+            user_data.get("email"),
+            user_data.get("display_name"),
+        )
+        if isinstance(value, str) and value and value != "[deleted]"
+    }
+    for identifier in identifiers:
+        db.execute(
+            text(
+                "UPDATE alerts SET "
+                "title = REPLACE(title, :identifier, '[deleted-user]'), "
+                "message = CASE WHEN message IS NULL THEN NULL "
+                "ELSE REPLACE(message, :identifier, '[deleted-user]') END "
+                "WHERE title LIKE :pattern OR message LIKE :pattern"
+            ),
+            {"identifier": identifier, "pattern": f"%{identifier}%"},
+        )
+
+    # Historical audit detail strings can contain the former username (for
+    # example the export audit). Preserve event metadata while removing the
+    # erased identity before writing the final erasure record.
+    db.execute(
+        text("UPDATE audit_logs SET details = :details WHERE entity_type = 'user' AND entity_id = :uid"),
+        {"details": json.dumps({"anonymized_user_id": user_id}), "uid": user_id},
+    )
+
+    log_audit(db, "gdpr_erasure", "user", user_id, {
+        "anonymized_user_id": user_id,
+        "actor_user_id": current_user["id"],
+    })
     db.commit()
-    return {"status": "ok", "message": f"User {user.username} data erased"}
+    return {"status": "ok", "message": "User data erased"}

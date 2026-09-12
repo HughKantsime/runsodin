@@ -51,9 +51,11 @@ class TestScopedTokenBoundaries:
             headers=h,
             timeout=10,
         )
-        # The token might use X-API-Token header instead of Bearer
+        # Per-user ODIN tokens use the same X-API-Key carrier as the
+        # installation-wide perimeter key; get_current_user distinguishes
+        # them by the odin_ prefix and applies the stored scopes.
         if r.status_code in (401, 403):
-            h2 = {"X-API-Token": read_only_token["token"]}
+            h2 = {"X-API-Key": read_only_token["token"]}
             r = requests.get(
                 f"{BASE_URL}/api/printers",
                 headers=h2,

@@ -155,8 +155,7 @@ export default function Setup() {
       })
       if (loginResp.ok) {
         const loginData = await loginResp.json()
-        // Cache user info for permissions (role, username)
-        localStorage.setItem('odin_user', JSON.stringify({ username: data.username || username.trim(), role: data.role || 'admin' }))
+        await refreshPermissions()
         // Also keep token for setup steps that pass it explicitly
         setToken(loginData.access_token || data.access_token)
       }

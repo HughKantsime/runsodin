@@ -412,7 +412,9 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
     try:
         from modules.notifications.alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
         owner_id = get_group_owner_id(db, current_user["id"])
-        target_ids = [owner_id] if owner_id else get_operator_admin_ids(db)
+        target_ids = [owner_id] if owner_id else get_operator_admin_ids(
+            db, current_user.get("group_id")
+        )
         dispatch_alert(
             db=db,
             alert_type=AlertType.JOB_SUBMITTED,

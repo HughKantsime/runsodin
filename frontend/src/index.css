@@ -188,6 +188,15 @@
   50% { opacity: 0.7; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Drag and drop feedback */
 .drop-target {
   @apply ring-2 ring-print-500 ring-opacity-50;
@@ -207,6 +216,17 @@
 ::selection {
   background: var(--brand-selection-bg);
   color: var(--brand-selection-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ============================================

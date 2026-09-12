@@ -18,6 +18,8 @@ _ENUM_VALUES = lambda x: [e.value for e in x]
 
 class JobStatus(str, Enum):
     PENDING = "pending"
+    SUBMITTED = "submitted"
+    REJECTED = "rejected"
     SCHEDULED = "scheduled"
     PRINTING = "printing"
     PAUSED = "paused"

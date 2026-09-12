@@ -2,9 +2,9 @@
 O.D.I.N. WebSocket Tests — Connection auth and lifecycle.
 
 Tests:
-  1. WS connects with valid JWT token
+  1. WS connects with a purpose-limited JWT token
   2. WS rejects invalid tokens (expects 4001 close code)
-  3. WS rejects connections with no token when API key is set
+  3. WS rejects connections with no token in every configuration
   4. WS responds to ping with pong
 
 Run: pytest tests/test_websocket.py -v --tb=short
@@ -66,6 +66,14 @@ def _login(username, password):
     return None
 
 
+def _get_ws_token(access_token):
+    headers = {"Authorization": f"Bearer {access_token}"}
+    if API_KEY:
+        headers["X-API-Key"] = API_KEY
+    resp = requests.post(f"{BASE_URL}/api/auth/ws-token", headers=headers, timeout=10)
+    return resp.json().get("token") if resp.status_code == 200 else None
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -77,6 +85,14 @@ def admin_token():
     token = _login(ADMIN_USERNAME, ADMIN_PASSWORD)
     if not token:
         pytest.skip(f"Failed to login as {ADMIN_USERNAME}")
+    return token
+
+
+@pytest.fixture(scope="module")
+def admin_ws_token(admin_token):
+    token = _get_ws_token(admin_token)
+    if not token:
+        pytest.skip("Failed to obtain purpose-limited WebSocket token")
     return token
 
 
@@ -99,9 +115,9 @@ pytestmark = pytest.mark.skipif(
 class TestWebSocketAuth:
     """WebSocket authentication tests matching core/app.py ws handler."""
 
-    def test_ws_connects_with_valid_jwt(self, admin_token):
-        """WS connection with valid JWT token should succeed."""
-        url = f"{WS_BASE}/ws?token={admin_token}"
+    def test_ws_connects_with_valid_jwt(self, admin_ws_token):
+        """WS connection with a purpose-limited JWT should succeed."""
+        url = f"{WS_BASE}/ws?token={admin_ws_token}"
         conn = ws_client.create_connection(url, timeout=10)
         try:
             # Connection established — send ping and expect pong
@@ -111,23 +127,25 @@ class TestWebSocketAuth:
         finally:
             conn.close()
 
-    def test_ws_connects_with_api_key_as_token(self, api_key_set):
-        """WS connection using API key as token should succeed (if API key is set)."""
+    def test_ws_rejects_api_key_as_token(self, api_key_set):
+        """Global API keys must never be accepted in a WebSocket URL."""
         if not api_key_set:
             pytest.skip("API key not set — cannot test API key auth")
         url = f"{WS_BASE}/ws?token={API_KEY}"
-        conn = ws_client.create_connection(url, timeout=10)
         try:
-            conn.send("ping")
-            result = conn.recv()
-            assert result == "pong", f"Expected 'pong', got: {result}"
-        finally:
-            conn.close()
+            conn = ws_client.create_connection(url, timeout=10)
+            try:
+                conn.recv()
+                pytest.fail("Expected WebSocket API-key credential to be rejected")
+            except ws_client.WebSocketConnectionClosedException:
+                pass
+            finally:
+                conn.close()
+        except ws_client.WebSocketBadStatusException as exc:
+            assert exc.status_code in {401, 403}
 
-    def test_ws_rejects_invalid_token(self, api_key_set):
+    def test_ws_rejects_invalid_token(self):
         """WS connection with invalid token should be rejected with close code 4001."""
-        if not api_key_set:
-            pytest.skip("API key not set — server allows all connections without auth")
         url = f"{WS_BASE}/ws?token=definitely-not-a-valid-token"
         try:
             conn = ws_client.create_connection(url, timeout=10)
@@ -148,14 +166,12 @@ class TestWebSocketAuth:
             assert "403" in str(e) or "401" in str(e) or "4001" in str(e), (
                 f"Unexpected rejection: {e}"
             )
-        except Exception as e:
+        except Exception:
             # Connection refused or closed — acceptable rejection
             pass
 
-    def test_ws_rejects_no_token_when_api_key_set(self, api_key_set):
-        """WS connection with no token should be rejected when API key is configured."""
-        if not api_key_set:
-            pytest.skip("API key not set — server allows all connections without auth")
+    def test_ws_rejects_no_token(self):
+        """WS connection with no token is always rejected."""
         url = f"{WS_BASE}/ws"
         try:
             conn = ws_client.create_connection(url, timeout=10)
@@ -176,22 +192,9 @@ class TestWebSocketAuth:
             # Connection refused — acceptable rejection
             pass
 
-    def test_ws_allows_no_token_when_no_api_key(self):
-        """WS connection with no token should succeed when no API key is configured."""
-        if API_KEY:
-            pytest.skip("API key is set — this test requires no API key")
-        url = f"{WS_BASE}/ws"
-        conn = ws_client.create_connection(url, timeout=10)
-        try:
-            conn.send("ping")
-            result = conn.recv()
-            assert result == "pong"
-        finally:
-            conn.close()
-
-    def test_ws_ping_pong_lifecycle(self, admin_token):
+    def test_ws_ping_pong_lifecycle(self, admin_ws_token):
         """WS should respond to text 'ping' with text 'pong'."""
-        url = f"{WS_BASE}/ws?token={admin_token}"
+        url = f"{WS_BASE}/ws?token={admin_ws_token}"
         conn = ws_client.create_connection(url, timeout=10)
         try:
             # Send multiple pings

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "required_gates": [
+    "foundation",
+    "privacy",
+    "backup_restore",
+    "hardware_contracts",
+    "api_load",
+    "accessibility",
+    "security",
+    "artifact_scan",
+    "tls_live",
+    "legal_sources_live",
+    "hardware_bambu_live",
+    "hardware_moonraker_live",
+    "hardware_prusalink_live",
+    "hardware_elegoo_live",
+    "manual_legal_contract"
+  ],
+  "code_controlled_gates": [
+    "foundation",
+    "privacy",
+    "backup_restore",
+    "hardware_contracts",
+    "api_load",
+    "accessibility",
+    "security",
+    "artifact_scan"
+  ],
+  "conditionally_blockable_gates": [
+    "hardware_bambu_live",
+    "hardware_moonraker_live",
+    "hardware_prusalink_live",
+    "hardware_elegoo_live",
+    "manual_legal_contract"
+  ],
+  "never_conditionally_blockable_gates": [
+    "tls_live",
+    "legal_sources_live"
+  ]
+}

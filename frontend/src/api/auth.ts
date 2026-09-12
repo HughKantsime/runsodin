@@ -1,4 +1,5 @@
 import { fetchAPI } from './client'
+import { clearSensitiveBrowserState } from '../permissions'
 import type {
   User,
   UserCreate,
@@ -44,10 +45,14 @@ export const auth = {
     return response.json()
   },
   logout: async (): Promise<void> => {
-    await fetch(`${API_BASE}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    })
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+    } finally {
+      await clearSensitiveBrowserState()
+    }
   },
   me: async (): Promise<User | null> => {
     const response = await fetch(`${API_BASE}/auth/me`, {

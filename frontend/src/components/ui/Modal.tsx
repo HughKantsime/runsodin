@@ -32,11 +32,21 @@ export default function Modal({
   alert = false,
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
   const titleId = useId()
 
   // Focus trap and Escape key
   useEffect(() => {
     if (!isOpen) return
+
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+
+    const focusable = modalRef.current?.querySelector<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    ;(focusable || modalRef.current)?.focus()
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -61,7 +71,10 @@ export default function Modal({
     }
 
     document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('keydown', handleKey)
+      previouslyFocusedRef.current?.focus()
+    }
   }, [isOpen, onClose])
 
   // Body scroll lock
@@ -94,6 +107,7 @@ export default function Modal({
     >
       <div
         ref={modalRef}
+        tabIndex={-1}
         className={`bg-[var(--brand-card-bg)] w-full ${SIZE_CLASSES[size] || SIZE_CLASSES.lg} max-h-[90vh] overflow-y-auto ${roundingClasses} ${className}`}
         style={{ boxShadow: 'var(--brand-card-shadow)' }}
         onClick={(e) => e.stopPropagation()}

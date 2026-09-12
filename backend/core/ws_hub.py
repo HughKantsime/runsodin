@@ -43,13 +43,13 @@ def ensure_table():
         conn.commit()
 
 
-def push_event(event_type: str, data: dict):
+def push_event(event_type: str, data: dict, *, audience: dict | None = None):
     """
     Called by monitor processes to publish an event.
     Signature unchanged from the file-based version — monitors need zero changes.
     """
     try:
-        payload = json.dumps({"type": event_type, "data": data})
+        payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO ws_events (event_type, data, created_at) VALUES (?, ?, ?)",
@@ -127,7 +127,13 @@ def _handle_job_completed(event) -> None:
 
 def _handle_alert_dispatched(event) -> None:
     """Forward notifications.alert_dispatched as 'alert_new' for frontend compatibility."""
-    push_event("alert_new", event.data)
+    data = dict(event.data)
+    user_ids = data.pop("_ws_user_ids", None)
+    push_event(
+        "alert_new",
+        data,
+        audience={"user_ids": user_ids} if user_ids is not None else None,
+    )
 
 
 def _handle_other_events(event) -> None:

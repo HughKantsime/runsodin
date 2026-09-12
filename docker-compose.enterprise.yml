@@ -53,6 +53,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       API_KEY: ${API_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-*}
       ODIN_HOST_IP: ${ODIN_HOST_IP:-}
       TZ: ${TZ:-America/New_York}
       # Tell monitors to skip — API-only mode

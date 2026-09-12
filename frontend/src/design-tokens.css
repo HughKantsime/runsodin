@@ -5,6 +5,7 @@
 :root {
   --brand-primary: #C47A1A;
   --brand-accent: #D4891F;
+  --brand-on-primary: #0B0D11;
   --brand-sidebar-bg: #0B0D11;
   --brand-sidebar-border: #1F2330;
   --brand-sidebar-text: #7A8396;
@@ -15,7 +16,7 @@
   --brand-card-border: #1F2330;
   --brand-text-primary: #E8ECF2;
   --brand-text-secondary: #7A8396;
-  --brand-text-muted: #3D4559;
+  --brand-text-muted: #9099AA;
   --brand-surface: #1A1D25;
   --brand-input-bg: #1A1D25;
   --brand-input-border: #1F2330;
@@ -56,6 +57,7 @@
 
 /* ── High-contrast overrides (shop floor monitors, TV dashboards) ─────── */
 .high-contrast {
+  --brand-on-primary: #080A0E;
   --brand-content-bg: #080A0E;
   --brand-card-bg: #0F1219;
   --brand-surface: #1A1E28;
@@ -64,7 +66,7 @@
   --brand-input-border: #2E3448;
   --brand-text-primary: #FFFFFF;
   --brand-text-secondary: #C0C8D8;
-  --brand-text-muted: #6B7A94;
+  --brand-text-muted: #AAB4C8;
   --brand-sidebar-border: #2E3448;
   --status-printing: #6BA6F7;
   --status-completed: #4CC76E;
@@ -78,6 +80,7 @@
 html.light {
   --brand-primary: #9A5E0D;
   --brand-accent: #B46E14;
+  --brand-on-primary: #FFFFFF;
   --brand-focus-ring: #9A5E0D;
   --brand-selection-bg: rgba(154, 94, 13, 0.15);
   --brand-selection-text: #9A5E0D;
@@ -89,7 +92,7 @@ html.light {
   --brand-input-border: #E2E5EB;
   --brand-text-primary: #0F1219;
   --brand-text-secondary: #5A6478;
-  --brand-text-muted: #9BA3B2;
+  --brand-text-muted: #607086;
   --brand-input-text: #1E293B;
   --brand-sidebar-bg: #F8FAFC;
   --brand-sidebar-border: #E2E5EB;

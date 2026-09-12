@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "warmup_operations": 100,
+  "repetitions": 3,
+  "concurrent_users": 25,
+  "operations_per_repetition": 1000,
+  "minimum_reads": 800,
+  "minimum_writes": 100,
+  "maximum_repetition_seconds": 45,
+  "read_p95_ms": 500,
+  "write_p95_ms": 1000,
+  "global_p99_ms": 2000,
+  "maximum_error_rate": 0,
+  "maximum_5xx": 0,
+  "maximum_tenant_leaks": 0,
+  "maximum_fd_delta": 8,
+  "maximum_memory_delta_mib": 64,
+  "websocket_cycles_per_repetition": 50,
+  "websocket_p95_ms": 1000
+}

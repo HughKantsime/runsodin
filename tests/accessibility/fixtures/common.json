@@ -1,0 +1,17 @@
+{
+  "GET /api/auth/me": {"$dynamic": "current_user"},
+  "GET /api/permissions": {"$dynamic": "permissions"},
+  "POST /api/auth/ws-token": {"$body": {"token": ""}},
+  "GET /api/auth/capabilities": {"smtp_enabled": false},
+  "GET /api/auth/oidc/config": {"enabled": false},
+  "GET /api/license": {"valid": true, "tier": "education", "features": ["rbac", "permissions", "job_approval", "user_groups", "print_quotas", "usage_reports", "analytics", "csv_export", "maintenance", "products"], "max_printers": 50, "max_users": 500, "managed_externally": true},
+  "GET /api/setup/status": {"needs_setup": false},
+  "GET /api/branding": {},
+  "GET /api/orgs/1/settings": {},
+  "GET /api/settings/language": {"language": "en"},
+  "GET /api/pricing-config": {"ui_mode": "advanced"},
+  "GET /api/settings/education-mode": {"enabled": true},
+  "GET /api/alerts/unread-count": {"count": 0},
+  "GET /api/printers": [{"id": 1, "name": "EDU Printer", "nickname": "EDU Printer", "type": "moonraker", "status": "offline", "last_seen": null, "filament_slots": []}],
+  "GET /api/stats": {}
+}

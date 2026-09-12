@@ -34,7 +34,7 @@ import { useBranding } from '../../BrandingContext'
 import { useLicense } from '../../LicenseContext'
 import { useOrg } from '../../contexts/OrgContext'
 import ProBadge from '../shared/ProBadge'
-import { canAccessPage } from '../../permissions'
+import { canAccessPage, clearSensitiveBrowserState } from '../../permissions'
 import { isOnline } from '../../utils/shared'
 import { stats, printers, getEducationMode, pricingConfig } from '../../api'
 import { Modal, Button } from '../ui'
@@ -324,7 +324,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         <p className="text-sm mb-4" style={{ color: 'var(--brand-text-secondary)' }}>Are you sure you want to log out?</p>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={() => setShowLogoutConfirm(false)}>Cancel</Button>
-          <Button variant="danger" size="sm" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {}); window.location.href = '/login'; }}>Logout</Button>
+          <Button variant="danger" size="sm" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {}); await clearSensitiveBrowserState(); window.location.href = '/login'; }}>Logout</Button>
         </div>
       </Modal>
     </>

@@ -66,6 +66,7 @@ patch_*.py
 forge_*.py
 migrate_*.py
 verify_*.py
+!ops/edu_readiness/verify_live.py
 commit_*.py
 update_to_*.py
 prepend_*.py
@@ -149,3 +150,4 @@ stress-out/sweep-*/n*-sqlite-v2/bootstrap.log
 stress-out/sweep-*/n*-sqlite-v2/publisher.log
 .brain-output/
 stress-out/
+artifacts/edu-readiness/

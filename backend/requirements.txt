@@ -1,18 +1,18 @@
 # O.D.I.N. — Python Dependencies
 # Core web framework
 fastapi==0.135.3
-starlette==0.49.1
+starlette==1.3.1
 uvicorn[standard]==0.34.0
-python-multipart==0.0.27  # CVE-2026-42561 — header parsing DoS fixed in 0.0.27
+python-multipart==0.0.31
 
 # Database
 sqlalchemy==2.0.36
 alembic==1.14.1
 
 # Auth
-PyJWT==2.12.0
+PyJWT==2.13.0
 passlib[bcrypt]==1.7.4
-cryptography==46.0.7
+cryptography==50.0.0
 
 # Config
 pydantic==2.10.4
@@ -32,7 +32,7 @@ defusedxml==0.7.1
 pywebpush==2.0.1
 
 # OIDC/SSO
-authlib==1.6.11
+authlib==1.6.12
 
 # MFA / TOTP
 pyotp==2.9.0

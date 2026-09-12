@@ -27,7 +27,10 @@ def _api_handler(features: list[str]):
         elif path == "/api/setup/status":
             body = {"needs_setup": False}
         elif path == "/api/permissions":
-            body = {}
+            body = {
+                "page_access": {"settings": ["admin"], "audit": ["admin"]},
+                "action_access": {},
+            }
         elif path in {"/api/admin/quotas", "/api/groups", "/api/printers", "/api/users", "/api/orgs"}:
             body = []
         elif path == "/api/pricing-config":

@@ -228,7 +228,7 @@ export default function Printers() {
             placeholder="Search printers..."
             className="flex-1 min-w-[180px] max-w-xs"
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
+          <select aria-label="Filter printers by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
             <option value="all">All Status</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
@@ -236,7 +236,7 @@ export default function Printers() {
             <option value="idle">Idle</option>
           </select>
           {apiTypes.length > 1 && (
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
+            <select aria-label="Filter printers by type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
               <option value="all">All Types</option>
               {apiTypes.map(t => (
                 <option key={t} value={t}>{t === 'bambu' ? 'Bambu' : t === 'moonraker' ? 'Moonraker' : t === 'prusalink' ? 'PrusaLink' : t === 'elegoo' ? 'Elegoo' : t}</option>
@@ -244,12 +244,12 @@ export default function Printers() {
             </select>
           )}
           {allTags.length > 0 && (
-            <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
+            <select aria-label="Filter printers by tag" value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
               <option value="">All Tags</option>
               {allTags.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
+          <select aria-label="Sort printers" value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1.5 text-sm">
             <option value="manual">Manual Order</option>
             <option value="name_asc">Name A-Z</option>
             <option value="name_desc">Name Z-A</option>
@@ -266,7 +266,7 @@ export default function Printers() {
               <button
                 key={size}
                 onClick={() => { setCardSize(size); localStorage.setItem('printerCardSize', size) }}
-                className={`px-2 py-1.5 text-xs font-medium transition-colors ${cardSize === size ? 'bg-[var(--brand-primary)] text-white' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
+                className={`px-2 py-1.5 text-xs font-medium transition-colors ${cardSize === size ? 'bg-[var(--brand-primary)] text-[var(--brand-on-primary)]' : 'bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:bg-[var(--brand-card-border)]'}`}
               >
                 {size}
               </button>

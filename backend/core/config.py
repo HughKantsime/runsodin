@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Default is empty (no cross-origin). Set via CORS_ORIGINS env var in dev/prod.
     cors_origins: str = ""
 
+    # Comma-separated Host header allowlist. Keep "*" for backwards-compatible
+    # general self-hosting; EDU deployments should set their exact hostname(s).
+    trusted_hosts: str = "*"
+
     # Cookie settings for session auth
     # Set COOKIE_SECURE=false for local HTTP dev (default true for production)
     cookie_secure: bool = True

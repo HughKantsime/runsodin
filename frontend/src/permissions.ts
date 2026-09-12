@@ -1,7 +1,10 @@
 /**
- * RBAC Permissions — reads from cached server config, falls back to hardcoded defaults.
- * On login, the app fetches /api/permissions and stores in localStorage.
- * This module reads that cache. If missing (upgrade, first boot), defaults kick in.
+ * In-memory RBAC state.
+ *
+ * Identity and authorization documents are deliberately never persisted in
+ * browser storage: school lab machines are frequently shared between users.
+ * ProtectedRoute reloads this state from the HttpOnly session after every
+ * document bootstrap. Until that succeeds, authorization fails closed.
  */
 
 interface CachedUser {
@@ -14,124 +17,88 @@ interface PermissionsConfig {
   action_access?: Record<string, string[]>
 }
 
-const DEFAULT_PAGE_ACCESS: Record<string, string[]> = {
-  dashboard:   ['admin', 'operator', 'viewer'],
-  timeline:    ['admin', 'operator', 'viewer'],
-  jobs:        ['admin', 'operator', 'viewer'],
-  printers:    ['admin', 'operator', 'viewer'],
-  models:      ['admin', 'operator', 'viewer'],
-  spools:      ['admin', 'operator', 'viewer'],
-  cameras:     ['admin', 'operator', 'viewer'],
-  analytics:   ['admin', 'operator', 'viewer'],
-  calculator:  ['admin', 'operator', 'viewer'],
-  upload:      ['admin', 'operator'],
-  maintenance: ['admin', 'operator'],
-  settings:    ['admin'],
-  admin:       ['admin'],
-  branding:    ['admin'],
-  audit:              ['admin'],
-  orders:             ['admin', 'operator', 'viewer'],
-  products:            ['admin', 'operator', 'viewer'],
-  alerts:              ['admin', 'operator', 'viewer'],
-  education_reports:   ['admin', 'operator'],
+const LEGACY_SENSITIVE_KEYS = [
+  'odin_user',
+  'rbac_permissions',
+  'odin_token',
+  'access_token',
+  'refresh_token',
+  'mfa_token',
+  'reset_token',
+]
+
+let currentUser: CachedUser | null = null
+let permissions: PermissionsConfig | null = null
+
+export function purgeLegacySensitiveStorage(): void {
+  if (typeof window === 'undefined') return
+  for (const key of LEGACY_SENSITIVE_KEYS) {
+    window.localStorage.removeItem(key)
+    window.sessionStorage.removeItem(key)
+  }
 }
 
-const DEFAULT_ACTION_ACCESS: Record<string, string[]> = {
-  'jobs.create':       ['admin', 'operator'],
-  'jobs.edit':         ['admin', 'operator'],
-  'jobs.cancel':       ['admin', 'operator'],
-  'jobs.delete':       ['admin', 'operator'],
-  'jobs.start':        ['admin', 'operator'],
-  'jobs.complete':     ['admin', 'operator'],
-  'printers.add':      ['admin'],
-  'printers.edit':     ['admin', 'operator'],
-  'printers.delete':   ['admin', 'operator'],
-  'printers.slots':    ['admin', 'operator'],
-  'printers.reorder':  ['admin', 'operator'],
-  'models.create':     ['admin', 'operator'],
-  'models.edit':       ['admin', 'operator'],
-  'models.delete':     ['admin', 'operator'],
-  'spools.edit':       ['admin', 'operator'],
-  'spools.delete':     ['admin', 'operator'],
-  'timeline.move':     ['admin', 'operator'],
-  'upload.upload':     ['admin', 'operator'],
-  'upload.schedule':   ['admin', 'operator'],
-  'upload.delete':     ['admin', 'operator'],
-  'maintenance.log':   ['admin', 'operator'],
-  'maintenance.tasks': ['admin'],
-  'dashboard.actions': ['admin', 'operator'],
-  'orders.create':      ['admin', 'operator'],
-  'orders.edit':        ['admin'],
-  'orders.delete':      ['admin', 'operator'],
-  'orders.ship':        ['admin', 'operator'],
-  'products.create':    ['admin', 'operator'],
-  'products.edit':      ['admin', 'operator'],
-  'products.delete':    ['admin'],
-  'jobs.approve':       ['admin', 'operator'],
-  'jobs.reject':        ['admin', 'operator'],
-  'jobs.resubmit':      ['admin', 'operator', 'viewer'],
-  'alerts.read':        ['admin', 'operator', 'viewer'],
-  'printers.plug':      ['admin', 'operator'],
-}
+export async function clearSensitiveBrowserState(): Promise<void> {
+  currentUser = null
+  permissions = null
+  purgeLegacySensitiveStorage()
 
-function getCachedPermissions(): PermissionsConfig | null {
-  try {
-    const raw = localStorage.getItem('rbac_permissions')
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return null
-}
-
-function getPageAccess(): Record<string, string[]> {
-  const cached = getCachedPermissions()
-  return cached?.page_access || DEFAULT_PAGE_ACCESS
-}
-
-function getActionAccess(): Record<string, string[]> {
-  const cached = getCachedPermissions()
-  return cached?.action_access || DEFAULT_ACTION_ACCESS
+  if (typeof window === 'undefined') return
+  if ('caches' in window) {
+    const names = await window.caches.keys()
+    await Promise.all(names.map((name) => window.caches.delete(name)))
+  }
+  const indexedDBWithList = window.indexedDB as IDBFactory & {
+    databases?: () => Promise<Array<{ name?: string }>>
+  }
+  if (indexedDBWithList?.databases) {
+    const databases = await indexedDBWithList.databases()
+    await Promise.all(databases.map(database => new Promise<void>((resolve) => {
+      if (!database.name) return resolve()
+      const request = indexedDBWithList.deleteDatabase(database.name)
+      request.onsuccess = () => resolve()
+      request.onerror = () => resolve()
+      request.onblocked = () => resolve()
+    })))
+  }
 }
 
 export function getCurrentUser(): CachedUser | null {
-  try {
-    const raw = localStorage.getItem('odin_user')
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return null
+  return currentUser
 }
 
 export function canAccessPage(page: string): boolean {
-  const user = getCurrentUser()
-  if (!user) return false
-  const access = getPageAccess()
-  const allowed = access[page]
-  return allowed ? allowed.includes(user.role) : false
+  if (!currentUser || !permissions?.page_access) return false
+  return permissions.page_access[page]?.includes(currentUser.role) ?? false
 }
 
 export function canDo(action: string): boolean {
-  const user = getCurrentUser()
-  if (!user) return false
-  const access = getActionAccess()
-  const allowed = access[action]
-  return allowed ? allowed.includes(user.role) : false
+  if (!currentUser || !permissions?.action_access) return false
+  return permissions.action_access[action]?.includes(currentUser.role) ?? false
 }
 
 export async function refreshPermissions(): Promise<PermissionsConfig | null> {
+  purgeLegacySensitiveStorage()
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     const [meRes, permRes] = await Promise.all([
       fetch('/api/auth/me', { headers, credentials: 'include' }),
       fetch('/api/permissions', { headers, credentials: 'include' }),
     ])
-    if (meRes.ok) {
-      const me = await meRes.json()
-      localStorage.setItem('odin_user', JSON.stringify({ username: me.username, role: me.role }))
+    if (!meRes.ok || !permRes.ok) {
+      await clearSensitiveBrowserState()
+      return null
     }
-    if (permRes.ok) {
-      const data = await permRes.json()
-      localStorage.setItem('rbac_permissions', JSON.stringify(data))
-      return data
-    }
-  } catch {}
-  return null
+    const me = await meRes.json()
+    const data = await permRes.json()
+    currentUser = { username: me.username, role: me.role }
+    permissions = data
+    return data
+  } catch {
+    await clearSensitiveBrowserState()
+    return null
+  }
 }
+
+// Remove sensitive values written by releases before the in-memory model.
+purgeLegacySensitiveStorage()

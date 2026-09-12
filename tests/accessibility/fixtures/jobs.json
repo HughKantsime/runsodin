@@ -1,0 +1,9 @@
+{
+  "$include": ["common.json"],
+  "GET /api/jobs": [],
+  "GET /api/quotas": {"quota_period": "monthly", "usage": {"grams_used": 0, "hours_used": 0, "jobs_used": 0}},
+  "GET /api/config/require-job-approval": {"require_job_approval": true},
+  "GET /api/models": [],
+  "GET /api/presets": [],
+  "GET /api/print-files": []
+}

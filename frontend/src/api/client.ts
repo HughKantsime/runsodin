@@ -1,3 +1,5 @@
+import { clearSensitiveBrowserState } from '../permissions'
+
 const API_BASE = '/api'
 
 export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -19,6 +21,7 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
     throw new Error('Network error. Check your connection and try again.')
   }
   if (response.status === 401) {
+    await clearSensitiveBrowserState()
     if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
       window.location.href = "/login"
     }

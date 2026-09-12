@@ -1,0 +1,7 @@
+{
+  "$include": ["common.json"],
+  "GET /api/auth/me": {"$status": 401, "$body": {"detail": "Not authenticated"}},
+  "POST /api/auth/ws-token": {"$status": 401, "$body": {"detail": "Not authenticated"}},
+  "GET /api/auth/capabilities": {"smtp_enabled": false},
+  "GET /api/auth/oidc/config": {"enabled": false}
+}

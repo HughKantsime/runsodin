@@ -1,4 +1,5 @@
 import { fetchAPI } from './client'
+import { clearSensitiveBrowserState } from '../permissions'
 import type {
   Job,
   JobCreate,
@@ -68,6 +69,7 @@ export const printFiles = {
       body: formData
     })
     if (response.status === 401) {
+      await clearSensitiveBrowserState()
       if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
         window.location.href = "/login"
       }

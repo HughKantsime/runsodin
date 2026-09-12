@@ -19,6 +19,7 @@ from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
 
 from core.error_buffer import error_buffer
@@ -130,28 +131,71 @@ def _resolve_load_order(pkg_names: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 class ConnectionManager:
-    """Manages active WebSocket connections."""
+    """Manages authenticated WebSockets and scopes tenant/user events."""
 
     def __init__(self):
-        self.active: list[WebSocket] = []
+        self.active: list[tuple[WebSocket, dict]] = []
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket, principal: dict):
         await ws.accept()
-        self.active.append(ws)
+        self.active.append((ws, principal))
 
     def disconnect(self, ws: WebSocket):
-        if ws in self.active:
-            self.active.remove(ws)
+        self.active = [(active_ws, principal) for active_ws, principal in self.active if active_ws is not ws]
 
-    async def broadcast(self, message: dict):
+    @staticmethod
+    def _can_receive(principal: dict, user_ids: set[int] | None, org_id: int | None, shared: bool) -> bool:
+        if user_ids is not None:
+            return principal.get("id") in user_ids
+        if shared or org_id is None:
+            return True
+        return (
+            principal.get("role") == "admin" and principal.get("group_id") is None
+        ) or principal.get("group_id") == org_id
+
+    @staticmethod
+    def _printer_scope(message: dict) -> tuple[int | None, bool]:
+        printer_id = message.get("data", {}).get("printer_id")
+        if printer_id is None:
+            return None, False
+        try:
+            from core.db import SessionLocal
+
+            with SessionLocal() as db:
+                row = db.execute(
+                    text("SELECT org_id, shared FROM printers WHERE id = :id"),
+                    {"id": printer_id},
+                ).fetchone()
+            if not row:
+                return -1, False
+            return row[0], bool(row[1])
+        except Exception:
+            log.exception("Unable to resolve WebSocket printer audience")
+            return -1, False
+
+    async def broadcast(self, message: dict) -> int:
+        """Deliver an event only to its explicit user or tenant audience."""
+        audience = message.get("_audience", {})
+        raw_user_ids = audience.get("user_ids")
+        user_ids = set(raw_user_ids) if raw_user_ids is not None else None
+        org_id = audience.get("org_id")
+        shared = bool(audience.get("shared"))
+        if user_ids is None and org_id is None and message.get("data", {}).get("printer_id") is not None:
+            org_id, shared = self._printer_scope(message)
+        public_message = {key: value for key, value in message.items() if key != "_audience"}
         dead = []
-        for ws in self.active:
+        delivered = 0
+        for ws, principal in list(self.active):
+            if not self._can_receive(principal, user_ids, org_id, shared):
+                continue
             try:
-                await ws.send_json(message)
+                await ws.send_json(public_message)
+                delivered += 1
             except Exception:
                 dead.append(ws)
         for ws in dead:
             self.disconnect(ws)
+        return delivered
 
 
 ws_manager = ConnectionManager()
@@ -299,6 +343,12 @@ def _setup_middleware(app: FastAPI) -> None:
     # Rate limiting
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    trusted_hosts = [host.strip() for host in settings.trusted_hosts.split(",") if host.strip()]
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=trusted_hosts or ["localhost", "127.0.0.1", "testserver"],
+    )
 
     # CORS
     _cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
@@ -534,6 +584,12 @@ def _register_http_middleware(app: FastAPI) -> None:
         response.headers["Strict-Transport-Security"] = (
             "max-age=63072000; includeSubDomains; preload"
         )
+        path = request.scope.get("path") or request.url.path
+        if path == "/openapi.json" or path.startswith("/api/"):
+            # API responses can contain student, user, job, report, or auth
+            # state. Shared lab browsers and intermediary caches must not keep it.
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
         return response
 
 
@@ -809,32 +865,52 @@ def create_app() -> FastAPI:
         """
         WebSocket endpoint for real-time printer telemetry and job updates.
 
-        Requires a valid JWT token passed as a query parameter (?token=...) or
-        a valid API key (?token=<api_key>). Rejects unauthenticated connections.
+        Requires a short-lived, purpose-limited JWT passed as a query parameter
+        (?token=...). Rejects all other credentials and unauthenticated connections.
         """
-        import hmac
-
-        authenticated = False
+        principal = None
         if token:
-            if decode_token(token):
-                authenticated = True
-            elif settings.api_key and hmac.compare_digest(token, settings.api_key):
-                authenticated = True
+            token_data = decode_token(token)
+            if token_data:
+                try:
+                    import jwt as jwt_library
+                    from core import auth as auth_module
+                    from core.db import SessionLocal
 
-        if not settings.api_key and not authenticated:
-            authenticated = True
+                    payload = jwt_library.decode(
+                        token,
+                        auth_module.SECRET_KEY,
+                        algorithms=[auth_module.ALGORITHM],
+                    )
+                    if payload.get("ws") is True:
+                        with SessionLocal() as db:
+                            row = db.execute(
+                                text("SELECT id, username, role, group_id FROM users WHERE username = :username AND is_active = 1"),
+                                {"username": token_data.username},
+                            ).fetchone()
+                        if row:
+                            principal = dict(row._mapping)
+                except Exception:
+                    log.exception("WebSocket principal lookup failed")
 
-        if not authenticated:
+        if not principal:
             await ws.close(code=4001, reason="Authentication required")
             return
 
-        await ws_manager.connect(ws)
+        await ws_manager.connect(ws, principal)
         try:
             while True:
                 try:
                     data = await asyncio.wait_for(ws.receive_text(), timeout=30)
                     if data == "ping":
                         await ws.send_text("pong")
+                    else:
+                        try:
+                            request = json.loads(data)
+                        except (json.JSONDecodeError, TypeError):
+                            request = None
+                        if request == {"type": "subscribe", "channels": ["events"]}:
+                            await ws.send_json({"type": "subscribed", "channels": ["events"]})
                 except asyncio.TimeoutError:
                     try:
                         await ws.send_json({"type": "ping"})

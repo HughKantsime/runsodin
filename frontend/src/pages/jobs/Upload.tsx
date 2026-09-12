@@ -8,6 +8,7 @@ import ConfirmModal from '../../components/shared/ConfirmModal'
 
 import { printFiles, getApprovalSetting } from '../../api'
 import { models as modelsApi } from '../../api'
+import { getCurrentUser } from '../../permissions'
 
 function DropZone({ onFileSelect, isUploading, uploadProgress }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -42,7 +43,14 @@ function DropZone({ onFileSelect, isUploading, uploadProgress }) {
       onDragOver={handleDrag}
       onDrop={handleDrop}
     >
-      <input type="file" accept=".3mf" onChange={handleFileInput} className="hidden" id="file-upload" disabled={isUploading} />
+      <input
+        type="file"
+        accept=".3mf"
+        onChange={handleFileInput}
+        className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:p-2 focus:bg-[var(--brand-card-bg)]"
+        id="file-upload"
+        disabled={isUploading}
+      />
       <label htmlFor="file-upload" className="cursor-pointer">
         <div className="flex flex-col items-center gap-3 md:gap-4">
           <div className={clsx('p-3 md:p-4 rounded-full', isDragging ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-input-bg)]')}>
@@ -219,7 +227,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
         <button onClick={onScheduleNow} className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 hover:bg-green-500 text-white font-medium transition-colors text-sm" title="Choose a printer and set priority before scheduling">
           <Calendar size={16} /> {submitForApproval ? 'Submit for Approval' : 'Schedule Now'}
         </button>
-        <button onClick={onViewLibrary} className="flex items-center gap-2 px-4 md:px-6 py-2 rounded-md bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 text-white font-medium transition-colors text-sm">
+        <button onClick={onViewLibrary} className="flex items-center gap-2 px-4 md:px-6 py-2 rounded-md bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/80 text-[var(--brand-on-primary)] font-medium transition-colors text-sm">
           View in Library <ArrowRight size={16} />
         </button>
       </div>
@@ -292,14 +300,7 @@ export default function Upload() {
     queryFn: getApprovalSetting,
   })
   const approvalEnabled = approvalSetting?.require_job_approval || false
-  // Get user role from the cached user info (set by refreshPermissions after login)
-  const userRole = (() => {
-    try {
-      const raw = localStorage.getItem('odin_user')
-      if (raw) return JSON.parse(raw).role
-    } catch {}
-    return null
-  })()
+  const userRole = getCurrentUser()?.role ?? null
   const showSubmitForApproval = approvalEnabled && userRole === 'viewer'
 
   const uploadMutation = useMutation({

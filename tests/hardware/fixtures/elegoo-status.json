@@ -1,0 +1,17 @@
+{
+  "Topic": "sdcp/status/REDACTED",
+  "Status": {
+    "CurrentStatus": [1],
+    "TempOfHotbed": 60.0,
+    "TempOfNozzle": 210.0,
+    "PrintInfo": {
+      "Status": 8,
+      "CurrentLayer": 5,
+      "TotalLayer": 20,
+      "CurrentTicks": 300,
+      "TotalTicks": 1200,
+      "Filename": "synthetic.gcode",
+      "Progress": 25.0
+    }
+  }
+}

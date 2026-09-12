@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runsodin.com/schemas/edu-readiness-result-v1.json",
+  "title": "ODIN EDU readiness gate result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "gate_id", "mandatory", "status",
+    "started_at", "ended_at", "duration_seconds", "tool_versions",
+    "executed_count", "skipped_count", "xfailed_count", "metrics",
+    "findings", "artifacts"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7,12}$"},
+    "gate_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+    "mandatory": {"type": "boolean"},
+    "status": {"enum": ["pass", "fail", "blocked"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "ended_at": {"type": "string", "format": "date-time"},
+    "duration_seconds": {"type": "number", "minimum": 0},
+    "tool_versions": {"type": "object", "additionalProperties": {"type": "string"}},
+    "executed_count": {"type": "integer", "minimum": 0},
+    "skipped_count": {"type": "integer", "minimum": 0},
+    "xfailed_count": {"type": "integer", "minimum": 0},
+    "metrics": {"type": "object"},
+    "findings": {"type": "array", "items": {"type": "string"}},
+    "artifacts": {"type": "array", "items": {"type": "string", "pattern": "^(?!/)(?!.*\\.\\.).+$"}}
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "result": {
+    "status": {
+      "heater_bed": {"temperature": 24.5, "target": 0.0},
+      "extruder": {"temperature": 25.0, "target": 0.0},
+      "print_stats": {"state": "standby", "filename": "synthetic.gcode", "info": {}},
+      "virtual_sdcard": {"progress": 0.0},
+      "idle_timeout": {"state": "Idle"}
+    }
+  }
+}

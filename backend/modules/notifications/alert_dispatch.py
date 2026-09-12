@@ -105,6 +105,7 @@ def dispatch_alert(
                 "printer_id": printer_id,
                 "job_id": job_id,
                 "count": len(in_app_users),
+                "_ws_user_ids": in_app_users,
             },
         ))
 

@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
+import { getCurrentUser, refreshPermissions } from '../../permissions'
 
 async function fetchCurrentUser() {
-  const response = await fetch('/api/auth/me', { credentials: 'include' })
-  if (!response.ok) throw new Error('Not authenticated')
-  return response.json()
+  const permissions = await refreshPermissions()
+  const user = getCurrentUser()
+  if (!permissions || !user) throw new Error('Not authenticated')
+  return user
 }
 
 interface ProtectedRouteProps {

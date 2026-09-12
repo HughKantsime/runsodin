@@ -19,7 +19,7 @@ const DEFAULT_BRANDING = {
   card_border: "#1a2030",
   text_primary: "#e8ecf2",
   text_secondary: "#8b95a8",
-  text_muted: "#364155",
+  text_muted: "#9099AA",
   input_bg: "#1a2030",
   input_border: "#252d3d",
   // Fonts

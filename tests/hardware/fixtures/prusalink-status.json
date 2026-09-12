@@ -1,0 +1,10 @@
+{
+  "printer": {
+    "state": "PRINTING",
+    "temp_bed": 60.0,
+    "target_bed": 60.0,
+    "temp_nozzle": 210.0,
+    "target_nozzle": 210.0
+  },
+  "job": {"id": 42, "progress": 25.0, "time_remaining": 900, "time_printing": 300}
+}

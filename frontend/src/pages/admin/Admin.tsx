@@ -95,7 +95,7 @@ function UserModal({ user, groupsList, hasGroups, onClose, onSave }: { user: any
           )}
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">Cancel</button>
-            <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
+            <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm">{user ? 'Save Changes' : 'Create User'}</button>
           </div>
         </form>
       </div>
@@ -259,7 +259,7 @@ function ImportUsersModal({ onClose, onImported }: { onClose: () => void; onImpo
             <button
               onClick={handleImport}
               disabled={!preview?.rows || importing}
-              className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md font-medium transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {importing ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
               {importing ? 'Importing...' : `Import ${preview?.rows?.length || 0} Users`}
@@ -358,7 +358,7 @@ export default function Admin() {
             ? <button onClick={() => setShowUpgradeModal(true)} className="flex items-center gap-2 bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-secondary)] px-4 py-2 rounded-md font-medium text-sm transition-colors" title={`User limit reached (${lic.maxUsers}). Upgrade to Pro for unlimited.`}>
                 <Plus size={16} /> Add User (limit: {lic.maxUsers})
               </button>
-            : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] px-4 py-2 rounded-md font-medium transition-colors text-sm">
+            : <button onClick={() => { setEditingUser(null); setShowModal(true) }} className="flex items-center gap-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] px-4 py-2 rounded-md font-medium transition-colors text-sm">
                 <Plus size={16} /> Add User
               </button>
           }
@@ -378,6 +378,7 @@ export default function Admin() {
           />
         </div>
         <select
+          aria-label="Filter users by role"
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
           className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md py-2 px-3 text-sm focus:outline-none focus:border-[var(--brand-primary)]"
@@ -390,7 +391,7 @@ export default function Admin() {
       </div>
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} aria-label="Users table">
           <table className="w-full min-w-[550px]">
             <thead className="bg-[var(--brand-input-bg)]">
               <tr>

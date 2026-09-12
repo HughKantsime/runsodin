@@ -304,7 +304,7 @@ export default function Jobs() {
         />
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-[var(--brand-text-muted)]" />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
+          <select aria-label="Filter jobs by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
             {statusOptions.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
@@ -331,7 +331,7 @@ export default function Jobs() {
       )}
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} aria-label="Jobs table">
           <table className="w-full min-w-[600px]">
             <JobTableHeader
               sortField={sortField}

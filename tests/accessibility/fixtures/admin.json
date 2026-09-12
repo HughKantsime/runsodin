@@ -1,0 +1,16 @@
+{
+  "$include": ["common.json"],
+  "GET /api/users": [],
+  "GET /api/groups": [],
+  "GET /api/orgs": [],
+  "GET /api/admin/quotas": [],
+  "GET /api/admin/oidc": {"configured": false},
+  "GET /api/config": {},
+  "GET /api/config/require-job-approval": {"require_job_approval": true},
+  "GET /api/backups": [],
+  "GET /api/config/retention": {},
+  "GET /api/config/ip-allowlist": {"enabled": false, "allowed_ips": []},
+  "GET /api/setup/network": {"configured_ip": "", "detected_ip": ""},
+  "GET /api/report-schedules": [],
+  "GET /api/reports/chargebacks": []
+}

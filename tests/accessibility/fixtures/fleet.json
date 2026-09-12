@@ -1,0 +1,15 @@
+{
+  "$include": ["common.json"],
+  "GET /api/printers/1": {"id": 1, "name": "EDU Printer", "nickname": "EDU Printer", "type": "moonraker", "status": "offline", "last_seen": null, "filament_slots": []},
+  "GET /api/printers/1/telemetry": [],
+  "GET /api/alerts/summary": {"total": 0, "print_failed": 0, "spool_low": 0, "maintenance_overdue": 0},
+  "GET /api/cameras": [],
+  "GET /api/filaments/combined": [],
+  "GET /api/maintenance/status": [],
+  "GET /api/models": [],
+  "GET /api/presets": [],
+  "GET /api/print-files": [],
+  "GET /api/print-jobs": [],
+  "GET /api/jobs": [],
+  "GET /api/spools": []
+}

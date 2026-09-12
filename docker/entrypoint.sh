@@ -64,20 +64,49 @@ ENCRYPTION_KEY=${ENCRYPTION_KEY}
 JWT_SECRET_KEY=${JWT_SECRET_KEY}
 API_KEY=${API_KEY:-}
 CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8000,http://localhost:3000}
+TRUSTED_HOSTS=${TRUSTED_HOSTS:-*}
 HOST=0.0.0.0
 PORT=8000
 EOF
 chmod 600 /app/backend/.env
 
+DATABASE_URL_VALUE="${DATABASE_URL:-sqlite:////data/odin.db}"
+case "${DATABASE_URL_VALUE}" in
+    sqlite:///*) DATABASE_PATH_VALUE="${DATABASE_URL_VALUE#sqlite:///}" ;;
+    *) DATABASE_PATH_VALUE="${DATABASE_PATH:-/data/odin.db}" ;;
+esac
+export DATABASE_URL="${DATABASE_URL_VALUE}"
+export DATABASE_PATH="${DATABASE_PATH_VALUE}"
+
 echo "  ✓ Configuration written"
+
+# Apply a validated restore before importing FastAPI/SQLAlchemy or starting
+# any monitor process. The coordinator refuses to run if supervisord is live.
+cd /app/backend
+python3 -m modules.system.restore_coordinator \
+    --database-url "${DATABASE_URL_VALUE}" \
+    --pid-file /var/run/supervisord.pid
+
+# A swapped restore is provisional until every startup migration and seed step
+# succeeds. Any intervening shell error restores the pre-restore database.
+rollback_restore_on_startup_error() {
+    restore_exit_code=$?
+    trap - ERR
+    python3 -m modules.system.restore_coordinator \
+        --database-url "${DATABASE_URL_VALUE}" \
+        --pid-file /var/run/supervisord.pid \
+        --rollback || true
+    exit "${restore_exit_code}"
+}
+trap rollback_restore_on_startup_error ERR
 
 # ── Write environment file for supervisord processes ──
 cat > /data/.env.supervisor <<ENVEOF
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 JWT_SECRET_KEY=${JWT_SECRET_KEY}
 API_KEY=${API_KEY:-}
-DATABASE_URL=${DATABASE_URL:-sqlite:////data/odin.db}
-DATABASE_PATH=/data/odin.db
+DATABASE_URL=${DATABASE_URL_VALUE}
+DATABASE_PATH=${DATABASE_PATH_VALUE}
 BACKEND_PATH=/app/backend
 PYTHONUNBUFFERED=1
 ENVEOF
@@ -85,7 +114,6 @@ chmod 600 /data/.env.supervisor
 echo "  ✓ Supervisor environment written"
 
 # ── Initialize database (creates tables if needed) ──
-cd /app/backend
 python3 -c "
 from core.base import Base
 # Import all ORM models so SQLAlchemy registers them with Base.metadata
@@ -100,21 +128,21 @@ import modules.archives.models
 import modules.system.models
 import core.models
 from sqlalchemy import create_engine
-engine = create_engine('${DATABASE_URL:-sqlite:////data/odin.db}')
+engine = create_engine('${DATABASE_URL_VALUE}')
 Base.metadata.create_all(bind=engine)
 print('  ✓ Database initialized')
 "
 
 # ── Normalize enum values to lowercase (SQLAlchemy 2.x uses values, not names) ──
 python3 << 'ENUMMIGREOF'
-import sqlite3
-conn = sqlite3.connect("/data/odin.db")
+import os, sqlite3
+conn = sqlite3.connect(os.environ["DATABASE_PATH"])
 c = conn.cursor()
 
 # jobs.status: normalize uppercase names to lowercase values
 c.execute("""UPDATE jobs SET status = LOWER(status)
              WHERE status != LOWER(status)
-             AND LOWER(status) IN ('pending','scheduled','printing','paused','completed','failed','cancelled')""")
+             AND LOWER(status) IN ('pending','submitted','rejected','scheduled','printing','paused','completed','failed','cancelled')""")
 jobs_fixed = c.rowcount
 
 # spools.status: normalize uppercase names to lowercase values
@@ -159,7 +187,7 @@ import sys
 sys.path.insert(0, '/app/backend')
 from pathlib import Path
 from core.db import run_core_migrations, run_module_migrations
-db_url = '${DATABASE_URL:-sqlite:////data/odin.db}'
+db_url = '${DATABASE_URL_VALUE}'
 run_core_migrations(database_url=db_url)
 run_module_migrations(Path('/app/backend/modules'), database_url=db_url)
 print('  ✓ Module migrations complete')
@@ -169,8 +197,8 @@ print('  ✓ Module migrations complete')
 # These ALTER TABLE statements are safe to run repeatedly (exceptions are swallowed).
 # They ensure older installations gain new columns without requiring a full re-init.
 python3 << 'UPGRADESEOF'
-import sqlite3
-conn = sqlite3.connect("/data/odin.db")
+import os, sqlite3
+conn = sqlite3.connect(os.environ["DATABASE_PATH"])
 
 # users: MFA columns (added in v1.x)
 for col, coldef in [
@@ -327,8 +355,8 @@ UPGRADESEOF
 
 # ── Enable SQLite WAL mode ──
 python3 -c "
-import sqlite3
-conn = sqlite3.connect('/data/odin.db')
+import os, sqlite3
+conn = sqlite3.connect(os.environ['DATABASE_PATH'])
 conn.execute('PRAGMA journal_mode=WAL')
 conn.close()
 print('  ✓ SQLite WAL mode enabled')
@@ -339,6 +367,14 @@ print('  ✓ SQLite WAL mode enabled')
 # environment-backed secrets; the seeder never prints password material.
 /bin/sh /app/seed_edu_if_enabled.sh
 
+# All database-affecting startup work succeeded. Record restore completion and
+# remove the rollback trap before any long-running process starts.
+python3 -m modules.system.restore_coordinator \
+    --database-url "${DATABASE_URL_VALUE}" \
+    --pid-file /var/run/supervisord.pid \
+    --finalize
+trap - ERR
+
 echo "========================================="
 echo "  O.D.I.N. is ready!"
 echo "  Web UI: http://localhost:8000"
@@ -346,7 +382,7 @@ echo "========================================="
 
 # ── Inject environment into supervisord config ──
 # Supervisord child processes don't inherit shell exports, so we inject them
-ENV_VARS="ENCRYPTION_KEY=\"${ENCRYPTION_KEY}\",JWT_SECRET_KEY=\"${JWT_SECRET_KEY}\",API_KEY=\"${API_KEY:-}\",DATABASE_URL=\"${DATABASE_URL:-sqlite:////data/odin.db}\",DATABASE_PATH=\"/data/odin.db\",BACKEND_PATH=\"/app/backend\",PYTHONUNBUFFERED=\"1\""
+ENV_VARS="ENCRYPTION_KEY=\"${ENCRYPTION_KEY}\",JWT_SECRET_KEY=\"${JWT_SECRET_KEY}\",API_KEY=\"${API_KEY:-}\",DATABASE_URL=\"${DATABASE_URL_VALUE}\",DATABASE_PATH=\"${DATABASE_PATH_VALUE}\",BACKEND_PATH=\"/app/backend\",PYTHONUNBUFFERED=\"1\""
 
 sed -i "s|environment=PYTHONUNBUFFERED=\"1\"|environment=${ENV_VARS}|g" /etc/supervisor/conf.d/odin.conf
 echo "  ✓ Supervisor environment injected"

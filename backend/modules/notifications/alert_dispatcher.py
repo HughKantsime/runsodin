@@ -154,20 +154,23 @@ def _deliver_browser_push(db, user_id, title, message, severity):
         )
         return
 
+    import os
+    vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
+    vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
+
+    # Avoid serializing a cold burst of job notifications behind pywebpush's
+    # import lock when push is intentionally unconfigured (the common local
+    # and self-hosted EDU case). Configuration is authoritative here.
+    if not vapid_private_key:
+        logger.debug("VAPID_PRIVATE_KEY not set — skipping browser push")
+        return
+
     try:
         from pywebpush import webpush
     except ImportError:
         logger.warning("pywebpush not installed — skipping browser push")
         return
 
-    import os
-    vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
-    vapid_email = os.environ.get("VAPID_EMAIL", "mailto:admin@example.com")
-    
-    if not vapid_private_key:
-        logger.warning("VAPID_PRIVATE_KEY not set — skipping browser push")
-        return
-    
     subscriptions = db.query(PushSubscription).filter(
         PushSubscription.user_id == user_id
     ).all()
@@ -298,10 +301,15 @@ def get_group_owner_id(db: Session, user_id: int) -> Optional[int]:
     return row[0] if row else None
 
 
-def get_operator_admin_ids(db: Session) -> List[int]:
-    """Get all active operator/admin user IDs (fallback when no group owner)."""
+def get_operator_admin_ids(db: Session, group_id: int | None = None) -> List[int]:
+    """Get eligible fallback reviewers without crossing operator tenants."""
     rows = db.execute(
-        text("SELECT id FROM users WHERE role IN ('operator', 'admin') AND is_active = 1")
+        text(
+            "SELECT id FROM users "
+            "WHERE role IN ('operator', 'admin') AND is_active = 1 "
+            "AND (:group_id IS NULL OR role = 'admin' OR group_id = :group_id)"
+        ),
+        {"group_id": group_id},
     ).fetchall()
     return [r[0] for r in rows]
 

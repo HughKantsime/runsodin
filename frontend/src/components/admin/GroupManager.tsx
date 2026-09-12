@@ -49,7 +49,7 @@ function GroupModal({ group, operatorAdmins, onClose, onSave }) {
           </div>
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 py-2 border border-[var(--brand-card-border)] rounded-md hover:bg-[var(--brand-input-bg)] transition-colors text-sm">Cancel</button>
-            <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] rounded-md font-medium transition-colors text-sm">{group ? 'Save Changes' : 'Create Group'}</button>
+            <button type="submit" className="flex-1 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] rounded-md font-medium transition-colors text-sm">{group ? 'Save Changes' : 'Create Group'}</button>
           </div>
         </form>
       </div>
@@ -119,13 +119,13 @@ export default function GroupManager() {
           <h2 className="text-lg font-display font-bold flex items-center gap-2"><FolderOpen size={18} /> Groups</h2>
           <p className="text-[var(--brand-text-muted)] text-sm mt-0.5">Organize users into groups with designated approvers</p>
         </div>
-        <button onClick={() => { setEditingGroup(null); setShowModal(true) }} className="flex items-center gap-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] px-3 py-1.5 rounded-md font-medium transition-colors text-sm">
+        <button onClick={() => { setEditingGroup(null); setShowModal(true) }} className="flex items-center gap-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] text-[var(--brand-on-primary)] px-3 py-1.5 rounded-md font-medium transition-colors text-sm">
           <Plus size={14} /> New Group
         </button>
       </div>
 
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} aria-label="Groups table">
           <table className="w-full min-w-[500px]">
             <thead className="bg-[var(--brand-input-bg)]">
               <tr>

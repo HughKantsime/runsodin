@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileText, Shield, Wifi, Save, Smartphone } from 'lucide-react'
 import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob, adminBundle, diagnostics } from '../../api'
@@ -8,6 +8,7 @@ import ReportScheduleManager from './ReportScheduleManager'
 import ChargebackReport from './ChargebackReport'
 import toast from 'react-hot-toast'
 import { Button, Card, Input } from '../ui'
+import { clearSensitiveBrowserState } from '../../permissions'
 
 function downloadExport(endpoint, filename) {
   // endpoint comes in as '/api/...' — strip the /api prefix for downloadBlob
@@ -102,6 +103,19 @@ function PrivacyDataCard() {
   const [erasing, setErasing] = useState(false)
   const [confirmErase, setConfirmErase] = useState(false)
   const [message, setMessage] = useState(null)
+  const eraseButtonRef = useRef<HTMLButtonElement | null>(null)
+  const confirmEraseRef = useRef<HTMLButtonElement | null>(null)
+  const confirmationWasOpenRef = useRef(false)
+
+  useEffect(() => {
+    if (confirmErase) {
+      confirmationWasOpenRef.current = true
+      confirmEraseRef.current?.focus()
+    } else if (confirmationWasOpenRef.current) {
+      confirmationWasOpenRef.current = false
+      eraseButtonRef.current?.focus()
+    }
+  }, [confirmErase])
 
   const getCurrentUserId = async () => {
     try {
@@ -151,8 +165,7 @@ function PrivacyDataCard() {
       await gdpr.eraseData(userId)
       // Clear session — call logout to clear cookie
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-      localStorage.removeItem('odin_user')
-      localStorage.removeItem('rbac_permissions')
+      await clearSensitiveBrowserState()
       window.location.href = '/login'
     } catch (err) {
       setMessage({ type: 'error', text: err.message || 'Erase failed' })
@@ -176,8 +189,17 @@ function PrivacyDataCard() {
           Export My Data
         </Button>
         {confirmErase ? (
-          <div className="flex items-center gap-2">
-            <Button variant="danger" icon={Trash2} loading={erasing} onClick={handleErase}>
+          <div
+            className="flex items-center gap-2"
+            role="alertdialog"
+            aria-modal="false"
+            aria-labelledby="erase-confirmation-title"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setConfirmErase(false)
+            }}
+          >
+            <span id="erase-confirmation-title" className="sr-only">Confirm permanent erasure of your ODIN account data</span>
+            <Button ref={confirmEraseRef} variant="danger" icon={Trash2} loading={erasing} onClick={handleErase}>
               Confirm Erase
             </Button>
             <Button variant="tertiary" onClick={() => setConfirmErase(false)}>
@@ -185,7 +207,7 @@ function PrivacyDataCard() {
             </Button>
           </div>
         ) : (
-          <Button variant="danger" icon={Trash2} onClick={() => setConfirmErase(true)} className="bg-red-900/50 hover:bg-red-800/50 text-red-300 border border-red-700/50">
+          <Button ref={eraseButtonRef} variant="danger" icon={Trash2} onClick={() => setConfirmErase(true)} className="bg-red-900/50 hover:bg-red-800/50 text-red-300 border border-red-700/50">
             Erase My Data
           </Button>
         )}

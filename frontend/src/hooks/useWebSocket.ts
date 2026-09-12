@@ -37,7 +37,7 @@ export default function useWebSocket() {
     lastConnectAttempt.current = now
 
     // Fetch a short-lived WS token (WebSocket connections can't send cookies/headers).
-    // Falls back to no token — backend allows unauthenticated WS when API key is disabled.
+    // A missing token fails closed; the backend never accepts an anonymous socket.
     let wsToken = ''
     try {
       const res = await fetch('/api/auth/ws-token', { method: 'POST', credentials: 'include' })
@@ -49,7 +49,8 @@ export default function useWebSocket() {
 
     // Build WebSocket URL from current location
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const tokenParam = wsToken ? `?token=${encodeURIComponent(wsToken)}` : ''
+    if (!wsToken) return
+    const tokenParam = `?token=${encodeURIComponent(wsToken)}`
     const url = `${proto}//${window.location.host}/ws${tokenParam}`
 
     try {

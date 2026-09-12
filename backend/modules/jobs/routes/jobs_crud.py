@@ -444,9 +444,11 @@ def create_job(
     db.flush()
     db.refresh(db_job)
     log_audit(db, "job.created", "job", db_job.id, {"item_name": db_job.item_name, "status": str(initial_status)})
-    db.commit()
 
-    # Increment quota usage
+    # Keep job creation, its audit record, and quota accounting in one
+    # transaction. The former second commit doubled SQLite writer-lock churn
+    # under classroom submission bursts and could leave quota out of sync if
+    # the process stopped between commits.
     if current_user and current_user.get("quota_jobs"):
         period = current_user.get("quota_period") or "monthly"
         pk = _get_period_key(period)
@@ -454,14 +456,14 @@ def create_job(
                            VALUES (:uid, :pk, 1)
                            ON CONFLICT(user_id, period_key) DO UPDATE SET jobs_used = jobs_used + 1, updated_at = CURRENT_TIMESTAMP"""),
                    {"uid": current_user["id"], "pk": pk})
-        db.commit()
-
     # If submitted for approval, notify group owner (or all operators/admins as fallback)
     if initial_status == "submitted":
         try:
             from modules.notifications.alert_dispatcher import dispatch_alert, get_group_owner_id, get_operator_admin_ids
             owner_id = get_group_owner_id(db, current_user["id"])
-            target_ids = [owner_id] if owner_id else get_operator_admin_ids(db)
+            target_ids = [owner_id] if owner_id else get_operator_admin_ids(
+                db, current_user.get("group_id")
+            )
             dispatch_alert(
                 db=db,
                 alert_type=AlertType.JOB_SUBMITTED,
@@ -473,6 +475,12 @@ def create_job(
             )
         except Exception as e:
             logger.warning(f"Failed to dispatch job_submitted alert: {e}")
+
+    # dispatch_alert commits when it creates in-app records, atomically
+    # persisting this pending job and its notifications. This final commit is
+    # the fallback for non-approval jobs or configurations with no in-app
+    # recipients; when dispatch already committed it is a harmless no-op.
+    db.commit()
 
     # Return JobResponse fields + next_actions as a dict. response_model
     # is intentionally omitted on this route — see docstring.

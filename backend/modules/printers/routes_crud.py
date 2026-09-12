@@ -46,10 +46,10 @@ def list_printers(
     tag: Optional[str] = None,
     org_id: Optional[int] = None,
     # Stacked auth (Phase 2 canonical read shape) — viewer floor for JWT,
-    # admin/agent:write/agent:read for scoped tokens.
+    # admin/agent:write/agent:read or the legacy resource-specific read scope.
     current_user: dict = Depends(require_role("viewer")),
     _agent_scope: dict = Depends(
-        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE, "read:printers")
     ),
     db: Session = Depends(get_db),
 ):
@@ -187,7 +187,7 @@ def get_printer(
     printer_id: int,
     current_user: dict = Depends(require_role("viewer")),
     _agent_scope: dict = Depends(
-        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE, "read:printers")
     ),
     db: Session = Depends(get_db),
 ):

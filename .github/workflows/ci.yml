@@ -39,11 +39,23 @@ jobs:
       - name: Add Homebrew to PATH
         run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+
+      - name: Verify EDU runtime versions
+        run: |
+          node -e "if (!process.version.startsWith('v20.')) process.exit(1)"
+          python3.11 --version
+
       - name: Install backend and browser test dependencies
         run: |
-          pip3.11 install --break-system-packages pytest playwright==1.58.0
+          pip3.11 install --break-system-packages pytest playwright==1.58.0 bandit pip-audit semgrep
           pip3.11 install --break-system-packages -r backend/requirements.txt
           python3.11 -m playwright install chromium
+
+      - name: Install native EDU audit tools
+        run: brew install gitleaks hadolint 2>/dev/null || true
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -52,7 +64,7 @@ jobs:
       - name: Run deterministic EDU gate
         env:
           EDU_BROWSER_PYTHON: python3.11
-        run: make test-edu PYTHON=python3.11
+        run: make test-edu-readiness PYTHON=python3.11
 
   # ─────────────────────────────────────────────────────────
   # Job 0b: Telemetry V2 Contract Tests
@@ -192,20 +204,18 @@ jobs:
 
       - name: pip-audit — dependency CVEs
         run: |
-          # PYSEC-2025-183 is a disputed PyJWT advisory with no fixed version.
           python3.11 -m pip_audit \
             -r backend/requirements.txt \
             --progress-spinner off \
-            --ignore-vuln PYSEC-2025-183 \
             --desc on
 
       - name: Semgrep — SAST
         run: |
           pip3.11 install --break-system-packages semgrep
-          semgrep --config auto --error \
+          semgrep --config auto --error --no-git-ignore \
             --exclude='tests/*' \
             --exclude='*.min.js' \
-            backend/
+            backend/ ops/edu_readiness/
 
       - name: Upload bandit report
         if: always()
@@ -228,7 +238,7 @@ jobs:
       - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "20.19.0"
 
       - name: Install dependencies
         run: cd frontend && npm ci

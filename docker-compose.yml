@@ -43,6 +43,7 @@ services:
       
       # CORS — add your domain/IP if accessing remotely
       - CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+      - TRUSTED_HOSTS=${TRUSTED_HOSTS:-*}
       
       # Host IP for WebRTC ICE candidates (REQUIRED for camera streaming).
       # Set to the LAN IP of the Docker host so browsers can reach go2rtc.

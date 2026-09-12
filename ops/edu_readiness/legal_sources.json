@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "maximum_age_days": 90,
+  "sources": [
+    {
+      "id": "wcag22",
+      "url": "https://www.w3.org/TR/WCAG22/",
+      "authoritative_domain": "www.w3.org",
+      "accessed_at": "2026-09-11",
+      "required_markers": ["Web Content Accessibility Guidelines (WCAG) 2.2", "W3C Recommendation"]
+    },
+    {
+      "id": "doj_title_ii_web_rule",
+      "url": "https://www.ada.gov/resources/2024-03-08-web-rule/",
+      "authoritative_domain": "www.ada.gov",
+      "accessed_at": "2026-09-11",
+      "required_markers": ["WCAG Version 2.1, Level AA", "April 26, 2027", "April 26, 2028"]
+    },
+    {
+      "id": "ferpa_vendors",
+      "url": "https://studentprivacy.ed.gov/audience/education-technology-vendors",
+      "authoritative_domain": "studentprivacy.ed.gov",
+      "accessed_at": "2026-09-11",
+      "required_markers": ["Education Technology Vendors", "FERPA-protected information"]
+    },
+    {
+      "id": "ftc_coppa_edtech",
+      "url": "https://www.ftc.gov/business-guidance/blog/2020/04/coppa-guidance-ed-tech-companies-schools-during-coronavirus",
+      "authoritative_domain": "www.ftc.gov",
+      "accessed_at": "2026-09-11",
+      "required_markers": ["school-authorized educational purpose", "under age 13"]
+    },
+    {
+      "id": "california_sopipa",
+      "url": "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?sectionNum=22584.&lawCode=BPC",
+      "authoritative_domain": "leginfo.legislature.ca.gov",
+      "accessed_at": "2026-09-11",
+      "required_markers": ["K–12 Pupil Online Personal Information Protection Act", "Delete a pupil’s covered information"]
+    },
+    {
+      "id": "california_edc_49073_1",
+      "url": "https://leginfo.legislature.ca.gov/faces/codes_displaySection.xhtml?sectionNum=49073.1.&lawCode=EDC",
+      "authoritative_domain": "leginfo.legislature.ca.gov",
+      "accessed_at": "2026-09-11",
+      "required_markers": ["pupil records continue to be the property", "unauthorized disclosure"]
+    }
+  ]
+}

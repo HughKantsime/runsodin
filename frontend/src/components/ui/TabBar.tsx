@@ -48,7 +48,7 @@ export default function TabBar({ tabs, activeTab, active, onTabChange, onChange,
                   ? 'text-[var(--brand-primary)] border-b-2 border-[var(--brand-primary)] -mb-px'
                   : 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)]'
                 : isActive
-                  ? 'bg-[var(--brand-primary)] text-white'
+                  ? 'bg-[var(--brand-primary)] text-[var(--brand-on-primary)]'
                   : 'text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] hover:bg-[var(--brand-surface)]'
             )}
           >

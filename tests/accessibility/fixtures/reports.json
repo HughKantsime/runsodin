@@ -1,0 +1,4 @@
+{
+  "$include": ["common.json"],
+  "GET /api/education/usage-report": {"summary": {}, "users": [], "daily": []}
+}

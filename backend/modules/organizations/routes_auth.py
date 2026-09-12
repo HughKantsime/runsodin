@@ -371,7 +371,13 @@ async def get_ws_token(request: Request, current_user: dict = Depends(get_curren
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     ws_token = create_access_token(
-        data={"sub": current_user["username"], "role": current_user["role"], "ws": True},
+        data={
+            "sub": current_user["username"],
+            "role": current_user["role"],
+            "user_id": current_user["id"],
+            "group_id": current_user.get("group_id"),
+            "ws": True,
+        },
         expires_delta=timedelta(minutes=5),
     )
     return {"token": ws_token}

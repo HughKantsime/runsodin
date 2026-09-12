@@ -145,18 +145,18 @@ const handleSubmit = async (e) => {
 
   if (oidcLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4"
+      <main className="min-h-screen flex items-center justify-center p-4"
         style={{ backgroundColor: 'var(--brand-content-bg)' }}>
         <div className="text-center">
           <Loader2 size={32} className="animate-spin mx-auto mb-4" style={{ color: 'var(--brand-accent)' }} />
           <p style={{ color: 'var(--brand-text-secondary)' }}>Completing sign-in...</p>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4"
+    <main className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: 'var(--brand-content-bg)' }}>
       <div className="w-full max-w-md">
         <div className="rounded-md p-8"
@@ -199,6 +199,8 @@ const handleSubmit = async (e) => {
                 <div className="relative">
                   <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
                   <input
+                    id="mfa-code"
+                    aria-label="Authentication code"
                     ref={mfaInputRef}
                     type="text"
                     inputMode="numeric"
@@ -222,7 +224,7 @@ const handleSubmit = async (e) => {
                 type="submit"
                 disabled={isLoading || mfaCode.length !== 6}
                 className="w-full font-medium py-3 rounded-md transition-colors disabled:opacity-50"
-                style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
+                style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)' }}
               >
                 {isLoading ? 'Verifying...' : 'Verify'}
               </button>
@@ -241,11 +243,14 @@ const handleSubmit = async (e) => {
             <>
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
-                  <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Username</label>
+                  <label htmlFor="login-username" className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Username</label>
                   <div className="relative">
                     <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
                     <input
+                      id="login-username"
+                      name="username"
                       type="text"
+                      autoComplete="username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none"
@@ -261,11 +266,14 @@ const handleSubmit = async (e) => {
                 </div>
 
                 <div>
-                  <label className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Password</label>
+                  <label htmlFor="login-password" className="block text-sm mb-2" style={{ color: 'var(--brand-text-secondary)' }}>Password</label>
                   <div className="relative">
                     <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--brand-text-muted)' }} />
                     <input
+                      id="login-password"
+                      name="password"
                       type="password"
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none"
@@ -284,7 +292,7 @@ const handleSubmit = async (e) => {
                   type="submit"
                   disabled={isLoading}
                   className="w-full font-medium py-3 rounded-md transition-colors disabled:opacity-50"
-                  style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
+                  style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)' }}
                 >
                   {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
@@ -304,6 +312,7 @@ const handleSubmit = async (e) => {
                       <div className="space-y-2">
                         <p>Enter your email to receive a reset link</p>
                         <input
+                          aria-label="Account email"
                           type="email"
                           value={forgotEmail}
                           onChange={(e) => setForgotEmail(e.target.value)}
@@ -322,7 +331,7 @@ const handleSubmit = async (e) => {
                             }}
                             disabled={forgotLoading || !forgotEmail}
                             className="flex-1 py-2 rounded-md text-sm font-medium disabled:opacity-50"
-                            style={{ backgroundColor: 'var(--brand-primary)', color: '#fff' }}
+                            style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-on-primary)' }}
                           >
                             {forgotLoading ? 'Sending...' : 'Send Reset Link'}
                           </button>
@@ -347,9 +356,9 @@ const handleSubmit = async (e) => {
 
         <div className="text-center mt-6" style={{ color: 'var(--brand-text-muted)' }}>
           <p className="text-xs">v{__APP_VERSION__}</p>
-          <p className="text-[10px] mt-1" style={{ opacity: 0.6 }}>Powered by O.D.I.N.</p>
+          <p className="text-[10px] mt-1">Powered by O.D.I.N.</p>
         </div>
       </div>
-    </div>
+    </main>
   )
 }
