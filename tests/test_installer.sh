@@ -438,10 +438,10 @@ section "Docker Compose File"
 
 compose_file="$REPO_DIR/install/docker-compose.yml"
 
-if grep -q 'healthcheck' "$compose_file"; then
-    pass "docker-compose.yml has healthcheck"
+if grep -q 'http://localhost:8000/health/ready' "$compose_file"; then
+    pass "docker-compose.yml has database-backed readiness healthcheck"
 else
-    fail "compose healthcheck" "Missing healthcheck configuration"
+    fail "compose healthcheck" "Missing /health/ready healthcheck configuration"
 fi
 
 if grep -q 'restart: unless-stopped' "$compose_file"; then
@@ -570,11 +570,12 @@ if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
         fail "container health" "Did not become healthy within 90s (status: $health)"
     fi
 
-    # API health check
-    if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-        pass "API /health returns 200"
+    # API readiness check
+    readiness_json=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || true)
+    if printf '%s' "$readiness_json" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+        pass "API /health/ready returns ready=true"
     else
-        fail "API health" "curl to /health failed"
+        fail "API readiness" "curl to /health/ready did not return ready=true"
     fi
 
     # Version endpoint
@@ -619,17 +620,19 @@ if docker ps --format '{{.Names}}' | grep -q '^odin$'; then
         fail "update.sh --force pull" "Expected pull output"
     fi
 
-    # Verify still healthy after update
+    # Verify still ready after update
     sleep 5
-    if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-        pass "API healthy after update"
+    readiness_json=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || true)
+    if printf '%s' "$readiness_json" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+        pass "API ready after update"
     else
         # Give it more time
         sleep 15
-        if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-            pass "API healthy after update (slow start)"
+        readiness_json=$(curl -sf http://localhost:8000/health/ready 2>/dev/null || true)
+        if printf '%s' "$readiness_json" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
+            pass "API ready after update (slow start)"
         else
-            fail "API health after update" "Not responding after update"
+            fail "API readiness after update" "Not ready after update"
         fi
     fi
 

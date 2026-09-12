@@ -8,7 +8,7 @@ name: Install Script Smoke
 # Strategy: run the installer inside a Docker container based on
 # ubuntu:24.04, mount the host's Docker socket so the installer's
 # `docker run` call actually starts ODIN on the host Docker, then
-# assert /health responds on 8000.
+# assert the candidate image reports database-backed readiness on 8000.
 #
 # This is a reflection of the smoke I ran locally on 2026-04-14 before
 # shipping this workflow; see the track plan for
@@ -17,6 +17,7 @@ name: Install Script Smoke
 on:
   pull_request:
     paths:
+      - 'Dockerfile'
       - 'install/**'
       - 'backend/**'
       - '.github/workflows/install-smoke.yml'
@@ -36,6 +37,9 @@ jobs:
       - name: Pull ubuntu:24.04
         run: docker pull ubuntu:24.04
 
+      - name: Build candidate image
+        run: docker build -t "odin-install-smoke:${GITHUB_SHA}" .
+
       - name: Clean up any previous ODIN container
         run: |
           docker stop odin 2>/dev/null || true
@@ -49,9 +53,15 @@ jobs:
           set -euo pipefail
 
           docker run --rm \
+            --add-host=host.docker.internal:host-gateway \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${{ github.workspace }}/install:/install:ro" \
             -e ODIN_SKIP_PUBLIC_CHECK=1 \
+            -e ODIN_IMAGE="odin-install-smoke:${GITHUB_SHA}" \
+            -e ODIN_COMPOSE_SOURCE=/install/docker-compose.yml \
+            -e ODIN_UPDATE_SOURCE=/install/update.sh \
+            -e ODIN_SKIP_IMAGE_PULL=1 \
+            -e ODIN_READINESS_URL=http://host.docker.internal:8000/health/ready \
             ubuntu:24.04 bash -c '
               set -e
               export DEBIAN_FRONTEND=noninteractive
@@ -71,26 +81,30 @@ jobs:
               bash ./install.sh
             '
 
-      - name: Assert /health responds with 200
+      - name: Assert candidate image and readiness
         run: |
           set -euo pipefail
+          expected_image_id=$(docker image inspect "odin-install-smoke:${GITHUB_SHA}" --format '{{.Id}}')
+          running_image_id=$(docker inspect odin --format '{{.Image}}')
+          test "${running_image_id}" = "${expected_image_id}"
+
           # The installer started ODIN via the host's docker socket, so
           # the container is running on the host, bound to :8000.
           # Wait up to 60s for the app to come up (the installer's own
           # healthcheck loop may have already raced past, so we give
           # slack).
           for attempt in $(seq 1 30); do
-            if curl -fsS http://localhost:8000/health >/tmp/health.json 2>/dev/null; then
-              echo "/health responded at attempt $attempt:"
+            if curl -fsS http://localhost:8000/health/ready >/tmp/health.json 2>/dev/null; then
+              echo "/health/ready responded at attempt $attempt:"
               cat /tmp/health.json
-              if grep -q '"status":"ok"' /tmp/health.json; then
+              if grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' /tmp/health.json; then
                 echo "OK"
                 exit 0
               fi
             fi
             sleep 2
           done
-          echo "::error::/health did not return {status:ok} within 60s"
+          echo "::error::/health/ready did not return {ready:true} within 60s"
           echo "Container state:"
           docker ps -a --filter "name=odin"
           echo "Recent logs:"
@@ -103,3 +117,4 @@ jobs:
           docker stop odin 2>/dev/null || true
           docker rm odin 2>/dev/null || true
           docker volume rm odin_data 2>/dev/null || true
+          docker image rm "odin-install-smoke:${GITHUB_SHA}" 2>/dev/null || true

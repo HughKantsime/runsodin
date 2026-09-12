@@ -104,7 +104,7 @@ security: security-operational security-secrets security-audit security-sast sec
 	@echo "4 passed in security scanners"
 
 security-operational: ## Verify EDU HTTP, host, cache, backup-capacity, and failure behavior
-	PYTHONPATH=backend $(PYTHON) -m pytest tests/privacy/test_operational_security.py -q --tb=short -o xfail_strict=true
+	PYTHONPATH=backend $(PYTHON) -m pytest tests/privacy/test_operational_security.py tests/test_contracts/test_readiness_deploy_parity.py -q --tb=short -o xfail_strict=true
 
 security-audit: ## Dependency audit (pip-audit + npm audit)
 	$(SECURITY_PYTHON) -m pip_audit -r backend/requirements.txt --progress-spinner off --desc on

@@ -356,8 +356,8 @@ $healthy = $false
 
 while ($attempts -lt $maxAttempts) {
     try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:8000/health" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
-        if ($resp.StatusCode -eq 200) {
+        $resp = Invoke-RestMethod -Uri "http://localhost:8000/health/ready" -TimeoutSec 2 -ErrorAction SilentlyContinue
+        if ($resp.ready -eq $true) {
             $healthy = $true
             break
         }
@@ -374,9 +374,9 @@ if ($healthy) {
     Write-Ok "O.D.I.N. is healthy"
     Write-Ok "API responding on port 8000"
 } else {
-    Write-Warn "Container did not respond within ${maxAttempts}s"
-    Write-Dim "Check logs: docker compose -f $composePath logs"
-    Write-Dim "The container may still be starting — wait and check: docker ps"
+    Stop-WithError "O.D.I.N. readiness was not confirmed within ${maxAttempts}s" `
+        "Check logs: docker compose -f $composePath logs" `
+        "The installation was started but is not ready for use."
 }
 
 # ── Phase 9: Complete ────────────────────────────────────────────────────────

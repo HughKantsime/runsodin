@@ -18,8 +18,12 @@ case "$(uname -s 2>/dev/null)" in
 esac
 
 ODIN_VERSION="1.9.12"
-ODIN_IMAGE="ghcr.io/hughkantsime/odin:latest"
-ODIN_REPO="https://raw.githubusercontent.com/HughKantsime/runsodin/master"
+ODIN_IMAGE="${ODIN_IMAGE:-ghcr.io/hughkantsime/odin:latest}"
+ODIN_REPO="${ODIN_REPO:-https://raw.githubusercontent.com/HughKantsime/runsodin/master}"
+ODIN_COMPOSE_SOURCE="${ODIN_COMPOSE_SOURCE:-${ODIN_REPO}/install/docker-compose.yml}"
+ODIN_UPDATE_SOURCE="${ODIN_UPDATE_SOURCE:-${ODIN_REPO}/install/update.sh}"
+ODIN_SKIP_IMAGE_PULL="${ODIN_SKIP_IMAGE_PULL:-0}"
+ODIN_READINESS_URL="${ODIN_READINESS_URL:-http://localhost:8000/health/ready}"
 INSTALL_DIR="./odin"
 
 # ─── Display Library ───────────────────────────────────────────────────────────
@@ -436,17 +440,21 @@ ok "Created ${INSTALL_DIR}/"
 phase 4 $TOTAL "Downloading configuration"
 
 spin_start "Downloading docker-compose.yml..."
-if ! curl -sfL "${ODIN_REPO}/install/docker-compose.yml" -o "${INSTALL_DIR}/docker-compose.yml"; then
+if [ -f "${ODIN_COMPOSE_SOURCE}" ]; then
+    cp "${ODIN_COMPOSE_SOURCE}" "${INSTALL_DIR}/docker-compose.yml"
+elif ! curl -sfL "${ODIN_COMPOSE_SOURCE}" -o "${INSTALL_DIR}/docker-compose.yml"; then
     spin_stop
     die "Failed to download docker-compose.yml" \
         "Check your internet connection and try again." \
-        "URL: ${ODIN_REPO}/install/docker-compose.yml"
+        "Source: ${ODIN_COMPOSE_SOURCE}"
 fi
 spin_stop
 ok "docker-compose.yml"
 
 spin_start "Downloading update.sh..."
-if ! curl -sfL "${ODIN_REPO}/install/update.sh" -o "${INSTALL_DIR}/update.sh"; then
+if [ -f "${ODIN_UPDATE_SOURCE}" ]; then
+    cp "${ODIN_UPDATE_SOURCE}" "${INSTALL_DIR}/update.sh"
+elif ! curl -sfL "${ODIN_UPDATE_SOURCE}" -o "${INSTALL_DIR}/update.sh"; then
     spin_stop
     die "Failed to download update.sh" \
         "Check your internet connection and try again."
@@ -464,6 +472,7 @@ cat > "${INSTALL_DIR}/.env" << EOF
 ODIN_HOST_IP=${HOST_IP}
 TZ=${TIMEZONE}
 CORS_ORIGINS=http://${HOST_IP}:8000,http://localhost:8000,http://localhost:3000
+ODIN_IMAGE=${ODIN_IMAGE}
 EOF
 
 chmod 600 "${INSTALL_DIR}/.env"
@@ -474,11 +483,17 @@ ok ".env written"
 phase 6 $TOTAL "Pulling Docker image"
 
 spin_start "Pulling ${ODIN_IMAGE}..."
-if ! docker pull "$ODIN_IMAGE" > /dev/null 2>&1; then
-    spin_stop
-    die "Failed to pull ${ODIN_IMAGE}" \
-        "Check your internet connection and Docker Hub access." \
-        "Try manually: docker pull ${ODIN_IMAGE}"
+if [ "${ODIN_SKIP_IMAGE_PULL}" = "1" ]; then
+    if ! docker image inspect "${ODIN_IMAGE}" > /dev/null 2>&1; then
+        spin_stop
+        die "Candidate image is not present: ${ODIN_IMAGE}" \
+            "ODIN_SKIP_IMAGE_PULL=1 never falls back to a remote image."
+    fi
+elif ! docker pull "$ODIN_IMAGE" > /dev/null 2>&1; then
+        spin_stop
+        die "Failed to pull ${ODIN_IMAGE}" \
+            "Check your internet connection and registry access." \
+            "Try manually: docker pull ${ODIN_IMAGE}"
 fi
 spin_stop
 
@@ -536,10 +551,13 @@ if [ $attempts -ge $max_attempts ]; then
 fi
 
 # Verify API
-if curl -sf "http://localhost:8000/health" > /dev/null 2>&1; then
+readiness_json=$(curl -sf "${ODIN_READINESS_URL}" 2>/dev/null || true)
+if printf '%s' "${readiness_json}" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
     ok "API responding on port 8000"
 else
-    warn "API not yet responding on localhost:8000 (may need a moment)"
+    die "API readiness was not confirmed on localhost:8000" \
+        "Check logs: docker compose -f ${INSTALL_DIR}/docker-compose.yml logs" \
+        "The installation was started but is not ready for use."
 fi
 
 # ── Phase 9: Complete ─────────────────────────────────────────────────────────

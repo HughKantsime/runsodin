@@ -2,8 +2,15 @@
 # O.D.I.N. Updater — run from your odin/ install directory
 set -euo pipefail
 
-ODIN_IMAGE="ghcr.io/hughkantsime/odin:latest"
-ODIN_REPO="https://raw.githubusercontent.com/HughKantsime/runsodin/master"
+if [ -n "${ODIN_IMAGE+x}" ]; then
+    ODIN_IMAGE_EXPLICIT=1
+else
+    ODIN_IMAGE_EXPLICIT=0
+fi
+ODIN_IMAGE="${ODIN_IMAGE:-ghcr.io/hughkantsime/odin:latest}"
+ODIN_REPO="${ODIN_REPO:-https://raw.githubusercontent.com/HughKantsime/runsodin/master}"
+ODIN_UPDATE_SOURCE="${ODIN_UPDATE_SOURCE:-${ODIN_REPO}/install/update.sh}"
+ODIN_SKIP_IMAGE_PULL="${ODIN_SKIP_IMAGE_PULL:-0}"
 FORCE=false
 
 for arg in "$@"; do
@@ -163,6 +170,16 @@ ART
 
 cd "$(dirname "$0")"
 
+if [ "${ODIN_IMAGE_EXPLICIT}" = "0" ] && [ -f .env ]; then
+    configured_image=$(grep -E '^ODIN_IMAGE=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    if [ -n "${configured_image}" ]; then
+        if ! printf '%s' "${configured_image}" | grep -Eq '^[A-Za-z0-9._/@:-]+$'; then
+            die "Invalid ODIN_IMAGE value in .env"
+        fi
+        ODIN_IMAGE="${configured_image}"
+    fi
+fi
+
 START_TIME=$(date +%s)
 
 banner
@@ -180,7 +197,14 @@ TOTAL=6
 if [ "${ODIN_SELF_UPDATED:-}" != "1" ]; then
     spin_start "Checking for updater updates..."
     tmp_update=$(mktemp)
-    if curl -sfL "${ODIN_REPO}/install/update.sh" -o "$tmp_update" 2>/dev/null; then
+    update_fetched=false
+    if [ -f "${ODIN_UPDATE_SOURCE}" ]; then
+        cp "${ODIN_UPDATE_SOURCE}" "$tmp_update"
+        update_fetched=true
+    elif curl -sfL "${ODIN_UPDATE_SOURCE}" -o "$tmp_update" 2>/dev/null; then
+        update_fetched=true
+    fi
+    if [ "$update_fetched" = true ]; then
         if ! diff -q "$0" "$tmp_update" > /dev/null 2>&1; then
             spin_stop
             dim "Updater has a new version, restarting..."
@@ -209,6 +233,16 @@ if [ -z "$CURRENT_VERSION" ]; then
 fi
 
 ok "Current: ${CURRENT_VERSION}"
+
+# Candidate/local-image mode is a provenance contract: validate the exact
+# requested image before any "already current" short-circuit can return
+# success. This mode never falls back to a registry pull.
+if [ "${ODIN_SKIP_IMAGE_PULL}" = "1" ]; then
+    if ! docker image inspect "${ODIN_IMAGE}" > /dev/null 2>&1; then
+        die "Candidate image is not present: ${ODIN_IMAGE}" \
+            "ODIN_SKIP_IMAGE_PULL=1 never falls back to a remote image."
+    fi
+fi
 
 # ── Phase 2: Check for updates ────────────────────────────────────────────────
 
@@ -242,11 +276,13 @@ fi
 phase 3 $TOTAL "Pulling new image"
 
 spin_start "Pulling ${ODIN_IMAGE}..."
-if ! docker pull "$ODIN_IMAGE" > /dev/null 2>&1; then
-    spin_stop
-    die "Failed to pull ${ODIN_IMAGE}" \
-        "Check your internet connection." \
-        "Try manually: docker pull ${ODIN_IMAGE}"
+if [ "${ODIN_SKIP_IMAGE_PULL}" = "1" ]; then
+    ok "Using local candidate image ${ODIN_IMAGE}"
+elif ! docker pull "$ODIN_IMAGE" > /dev/null 2>&1; then
+        spin_stop
+        die "Failed to pull ${ODIN_IMAGE}" \
+            "Check your internet connection." \
+            "Try manually: docker pull ${ODIN_IMAGE}"
 fi
 spin_stop
 

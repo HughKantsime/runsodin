@@ -15,7 +15,7 @@ import pathlib
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -473,7 +473,7 @@ def _register_http_middleware(app: FastAPI) -> None:
             _api_path = path[4:]
 
         if (
-            path in ("/health", "/ws", "/api/v1/ws")
+            path in ("/health", "/health/ready", "/ws", "/api/v1/ws")
             or path.endswith("/label")
             or path.endswith("/labels/batch")
             or _api_path.startswith("/auth")
@@ -612,7 +612,7 @@ def create_app() -> FastAPI:
     Returns the fully configured app object. Uvicorn finds it via main:app.
     """
     from core.config import settings
-    from core.db import engine, Base
+    from core.db import engine, Base, get_db
     from core.auth import decode_token
     from core.registry import registry
     from core.itar import is_itar_mode, enforce_boot_config
@@ -856,6 +856,12 @@ def create_app() -> FastAPI:
         """Root-level health check — delegates to system module health_check."""
         from modules.system import routes as system
         return await system.health_check()
+
+    @app.get("/health/ready", tags=["System"], include_in_schema=False)
+    def health_ready_root(db=Depends(get_db)):
+        """Public orchestrator probe backed by database and migration checks."""
+        from modules.system.routes_health import readiness_check
+        return readiness_check(db)
 
     # -----------------------------------------------------------------------
     # WebSocket endpoint
