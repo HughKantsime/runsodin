@@ -66,6 +66,38 @@ jobs:
           EDU_BROWSER_PYTHON: python3.11
         run: make test-edu-readiness PYTHON=python3.11
 
+  # Exact-image release candidate gate. Builds the checked-out Dockerfile,
+  # boots a uniquely named disposable installation, and tests its real API
+  # and compiled frontend. The image is never pushed by this job.
+  candidate-full-stack:
+    name: Candidate Full-Stack Gate
+    runs-on: mac-mini-runner
+    concurrency:
+      group: odin-candidate-docker-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Homebrew to PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
+
+      - name: Install candidate test dependencies
+        run: |
+          pip3.11 install --break-system-packages -r tests/requirements-test.txt
+          python3.11 -m playwright install chromium
+
+      - name: Run exact candidate gate
+        run: make test-candidate CANDIDATE_PYTHON=python3.11
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odin-candidate-gate-${{ github.run_id }}
+          path: artifacts/candidate-gate/**
+          if-no-files-found: warn
+          retention-days: 14
+
   # ─────────────────────────────────────────────────────────
   # Job 0b: Telemetry V2 Contract Tests
   # Gates the Bambu telemetry rewrite (track

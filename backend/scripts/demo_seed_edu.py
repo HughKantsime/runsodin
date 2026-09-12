@@ -35,8 +35,7 @@ class Persona:
             raise ValueError(f"invalid ODIN role for {self.email}: {self.role}")
 
 
-def upsert_personas(db_path: str, personas: Iterable[Persona]) -> None:
-    """Validate and atomically upsert sandbox personas by username/email."""
+def _validated_personas(personas: Iterable[Persona]) -> list[Persona]:
     persona_list = list(personas)
     if not persona_list:
         raise ValueError("at least one sandbox persona is required")
@@ -45,60 +44,73 @@ def upsert_personas(db_path: str, personas: Iterable[Persona]) -> None:
     emails = [persona.email for persona in persona_list]
     if len(emails) != len(set(emails)):
         raise ValueError("duplicate sandbox persona email")
+    return persona_list
 
+
+def upsert_personas_connection(
+    conn: sqlite3.Connection, personas: Iterable[Persona]
+) -> None:
+    """Validate and upsert personas using the caller's transaction."""
+    persona_list = _validated_personas(personas)
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()
+    }
+    required = {
+        "username", "email", "password_hash", "role",
+        "is_active", "mfa_enabled", "mfa_secret",
+    }
+    missing = sorted(required - columns)
+    if missing:
+        raise RuntimeError(f"users table missing required columns: {', '.join(missing)}")
+
+    for persona in persona_list:
+        password_hash = _pwd_context.hash(persona.password)
+        if persona.no_mfa:
+            conn.execute(
+                """
+                INSERT INTO users (username, email, password_hash, role,
+                                   is_active, mfa_enabled, mfa_secret)
+                VALUES (:email, :email, :password_hash, :role, 1, 0, NULL)
+                ON CONFLICT(username) DO UPDATE SET
+                    email = excluded.email,
+                    password_hash = excluded.password_hash,
+                    role = excluded.role,
+                    is_active = 1,
+                    mfa_enabled = 0,
+                    mfa_secret = NULL
+                """,
+                {
+                    "email": persona.email,
+                    "password_hash": password_hash,
+                    "role": persona.role,
+                },
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO users (username, email, password_hash, role, is_active)
+                VALUES (:email, :email, :password_hash, :role, 1)
+                ON CONFLICT(username) DO UPDATE SET
+                    email = excluded.email,
+                    password_hash = excluded.password_hash,
+                    role = excluded.role,
+                    is_active = 1
+                """,
+                {
+                    "email": persona.email,
+                    "password_hash": password_hash,
+                    "role": persona.role,
+                },
+            )
+
+
+def upsert_personas(db_path: str, personas: Iterable[Persona]) -> None:
+    """Validate and atomically upsert sandbox personas by username/email."""
     conn = sqlite3.connect(db_path)
     try:
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()
-        }
-        required = {
-            "username", "email", "password_hash", "role",
-            "is_active", "mfa_enabled", "mfa_secret",
-        }
-        missing = sorted(required - columns)
-        if missing:
-            raise RuntimeError(f"users table missing required columns: {', '.join(missing)}")
-
         with conn:
-            for persona in persona_list:
-                password_hash = _pwd_context.hash(persona.password)
-                if persona.no_mfa:
-                    conn.execute(
-                        """
-                        INSERT INTO users (username, email, password_hash, role,
-                                           is_active, mfa_enabled, mfa_secret)
-                        VALUES (:email, :email, :password_hash, :role, 1, 0, NULL)
-                        ON CONFLICT(username) DO UPDATE SET
-                            email = excluded.email,
-                            password_hash = excluded.password_hash,
-                            role = excluded.role,
-                            is_active = 1,
-                            mfa_enabled = 0,
-                            mfa_secret = NULL
-                        """,
-                        {
-                            "email": persona.email,
-                            "password_hash": password_hash,
-                            "role": persona.role,
-                        },
-                    )
-                else:
-                    conn.execute(
-                        """
-                        INSERT INTO users (username, email, password_hash, role, is_active)
-                        VALUES (:email, :email, :password_hash, :role, 1)
-                        ON CONFLICT(username) DO UPDATE SET
-                            email = excluded.email,
-                            password_hash = excluded.password_hash,
-                            role = excluded.role,
-                            is_active = 1
-                        """,
-                        {
-                            "email": persona.email,
-                            "password_hash": password_hash,
-                            "role": persona.role,
-                        },
-                    )
+            upsert_personas_connection(conn, personas)
     finally:
         conn.close()
 

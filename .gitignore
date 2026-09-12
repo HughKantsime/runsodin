@@ -151,3 +151,4 @@ stress-out/sweep-*/n*-sqlite-v2/publisher.log
 .brain-output/
 stress-out/
 artifacts/edu-readiness/
+artifacts/candidate-gate/

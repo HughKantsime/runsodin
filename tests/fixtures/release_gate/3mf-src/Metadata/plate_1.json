@@ -1,0 +1,7 @@
+{
+  "bed_type": "Synthetic Plate",
+  "nozzle_diameter": 0.4,
+  "objects": [
+    {"name": "ODIN Candidate Calibration Cube", "layer_height": 0.2}
+  ]
+}

@@ -2,6 +2,12 @@
 
 ODIN is EDU-ready only when the evidence-derived report says `READY`. Automated tests are an accessibility/security baseline, not a VPAT/ACR or legal certification.
 
+## Candidate-image evidence
+
+Run `make test-candidate` before treating a checked-out revision as a release candidate. The gate builds that revision's Dockerfile, verifies the running container uses the exact built image ID, claims and seeds a fresh disposable SQLite installation, and tests the real API, RBAC, WebSocket, compiled frontend, mobile layout, keyboard path, theme persistence, Community feature gates, and a synthetic `.3mf` upload. It rejects empty, skipped, expected-failure, failed, or errored JUnit results.
+
+Evidence is written to `artifacts/candidate-gate/<run-id>/index.html`, with a redacted manifest, retained JUnit reports, sanitized container logs, and failure screenshots. A passing candidate gate proves deterministic software integration for that image; it does not prove Education license entitlement, external TLS, legal approval, backup operations on the deployment host, or physical printer/camera compatibility. Those remain separate EDU readiness rows and must not be inferred from this gate.
+
 Before a school production deployment:
 
 - All deterministic gates must pass: existing EDU foundation, compiled-browser and ASGI privacy lifecycles, backup/restore, four protocol contracts, API/WebSocket load thresholds, accessibility matrix/keyboard suite, security/dependencies, and artifact scanning.

@@ -1,7 +1,8 @@
-.PHONY: build test test-contracts test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-candidate test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
+CANDIDATE_PYTHON ?= python3.11
 EDU_RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)
 EDU_RUN_DIR ?= artifacts/edu-readiness/$(EDU_RUN_ID)
 BACKUP_NAME ?= latest
@@ -22,6 +23,9 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 
 test-contracts: ## Run contract tests (module boundaries, no container required)
 	pytest tests/test_contracts/ -v --tb=short
+
+test-candidate: ## Build and test one exact disposable ODIN candidate image
+	$(CANDIDATE_PYTHON) -m ops.release_gate.runner
 
 test-edu: ## Run deterministic EDU backend, frontend, and Chromium release gate
 	ADMIN_USERNAME=ci ADMIN_PASSWORD=ci $(PYTHON) ops/demo/run_junit_gate.py -- $(PYTHON) -m pytest \
