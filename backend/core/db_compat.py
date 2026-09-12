@@ -21,6 +21,24 @@ Usage:
 """
 
 from core.db import IS_SQLITE, IS_POSTGRES
+from sqlalchemy import text
+
+
+def execute_insert_returning_id(executor, statement: str, parameters: dict) -> int:
+    """Execute an INSERT and return its integer identity on either dialect."""
+    dialect = executor.bind.dialect.name
+    sql_text = statement.strip().rstrip(";")
+    if dialect == "postgresql":
+        value = executor.execute(
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- statement is an internal route constant; values remain bound parameters
+            text(sql_text + " RETURNING id"),
+            parameters,
+        ).scalar_one()
+        return int(value)
+    result = executor.execute(text(sql_text), parameters)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- statement is an internal route constant; values remain bound parameters
+    if result.lastrowid is None:
+        raise RuntimeError("Database did not return an inserted row identity")
+    return int(result.lastrowid)
 
 
 class _SQLCompat:
@@ -148,6 +166,11 @@ class _SQLCompat:
         if IS_SQLITE:
             return "1" if value else "0"
         return "TRUE" if value else "FALSE"
+
+    @staticmethod
+    def returning_id() -> str:
+        """Return an identity clause for cursor-style INSERT statements."""
+        return "" if IS_SQLITE else " RETURNING id"
 
     @staticmethod
     def json_extract(column: str, path: str) -> str:

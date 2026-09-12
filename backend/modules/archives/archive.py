@@ -7,6 +7,7 @@ Called from printer_events.job_completed().
 
 import logging
 
+from core.db_compat import sql
 from core.db_utils import get_db
 
 log = logging.getLogger("odin.archive")
@@ -94,13 +95,15 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     plate_count = pf[4] or 1
 
             # Insert archive row
+            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
             cur.execute(
-                """INSERT INTO print_archives
+                f"""INSERT INTO print_archives
                    (job_id, print_job_id, printer_id, user_id, print_name,
                     status, started_at, completed_at, actual_duration_seconds,
                     filament_used_grams, cost_estimate, thumbnail_b64, file_path,
                     print_file_id, plate_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                {sql.returning_id()}""",
                 (
                     scheduled_job_id,
                     print_job_id,
@@ -119,7 +122,10 @@ def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                     plate_count,
                 ),
             )
-            archive_id = cur.lastrowid
+            if sql.is_postgres:
+                archive_id = cur.fetchone()[0]
+            else:
+                archive_id = cur.lastrowid
             conn.commit()
             log.info(f"Print archive created for job '{job_name}' on printer {printer_id}")
 

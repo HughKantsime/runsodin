@@ -29,7 +29,7 @@ def list_tags(
                 "SELECT a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
             ),
             {"org": org},
         ).fetchall()
@@ -68,7 +68,7 @@ def rename_tag(
                 "SELECT a.id, a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
             ),
             {"org": org},
         ).fetchall()
@@ -112,7 +112,7 @@ def delete_tag(
                 "SELECT a.id, a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
             ),
             {"org": org},
         ).fetchall()

@@ -289,7 +289,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     """Prometheus-compatible metrics endpoint. Requires viewer role or API key."""
     lines = []
 
-    printers_all = db.execute(text("SELECT * FROM printers WHERE is_active = 1")).fetchall()
+    printers_all = db.execute(text("SELECT * FROM printers WHERE is_active IS TRUE")).fetchall()
     total_printers = len(printers_all)
     online_count = 0
     printing_count = 0
@@ -398,7 +398,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         r = dict(row._mapping)
         lines.append(f'odin_orders_by_status{{status="{r["status"]}"}} {r["cnt"]}')
 
-    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read = 0")).fetchone()
+    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read IS FALSE")).fetchone()
     lines.append("# HELP odin_alerts_unread Unread alerts")
     lines.append("# TYPE odin_alerts_unread gauge")
     lines.append(f"odin_alerts_unread {dict(unread._mapping)['cnt']}")

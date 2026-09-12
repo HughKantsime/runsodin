@@ -132,7 +132,7 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
     try:
         with get_db() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled = 1")
+            cur.execute("SELECT id, url, webhook_type, alert_types FROM webhooks WHERE is_enabled IS TRUE")
             webhooks = cur.fetchall()
     except Exception as e:
         log.error(f"Failed to read webhooks: {e}")

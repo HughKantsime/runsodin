@@ -1,4 +1,4 @@
-.PHONY: build test test-contracts test-candidate test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-candidate test-database-parity test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
@@ -22,10 +22,13 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 	@pytest tests/test_features.py tests/test_license.py tests/test_mqtt_linking.py tests/test_order_math.py tests/test_security.py tests/test_rbac.py tests/test_printer_models.py --co -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1 > TEST_COUNT
 
 test-contracts: ## Run contract tests (module boundaries, no container required)
-	pytest tests/test_contracts/ -v --tb=short
+	$(PYTHON) -m pytest tests/test_contracts/ -v --tb=short
 
 test-candidate: ## Build and test one exact disposable ODIN candidate image
 	$(CANDIDATE_PYTHON) -m ops.release_gate.runner
+
+test-database-parity: ## Build and test SQLite/PostgreSQL parity twice with HTML evidence
+	$(CANDIDATE_PYTHON) -m ops.database_parity.runner
 
 test-edu: ## Run deterministic EDU backend, frontend, and Chromium release gate
 	ADMIN_USERNAME=ci ADMIN_PASSWORD=ci $(PYTHON) ops/demo/run_junit_gate.py -- $(PYTHON) -m pytest \
@@ -94,8 +97,8 @@ verify-edu-live: ## Read-only TLS, legal-source, and physical-hardware readiness
 	$(PYTHON) ops/edu_readiness/artifact_scan.py --run-id $(EDU_RUN_ID) $(EDU_RUN_DIR) || status=1; \
 	exit $$status
 
-verify-backup: ## Non-destructively verify the latest SQLite backup
-	@test -n "$(DATABASE_URL)" || (echo "Usage: make verify-backup DATABASE_URL=sqlite:////data/odin.db [BACKUP_NAME=latest]" && exit 1)
+verify-backup: ## Non-destructively verify the latest SQLite or PostgreSQL backup
+	@test -n "$(DATABASE_URL)" || (echo "Usage: make verify-backup DATABASE_URL=<url> [BACKUP_NAME=latest]" && exit 1)
 	cd backend && $(PYTHON) -m modules.system.backup_verifier --database-url "$(DATABASE_URL)" --backup "$(BACKUP_NAME)"
 
 test-security: ## Run Layer 3 security tests

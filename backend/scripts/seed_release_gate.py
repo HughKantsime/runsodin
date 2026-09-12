@@ -80,11 +80,18 @@ class SeedSafetyError(RuntimeError):
 
 
 def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    try:
-        statement = _TABLE_INFO_SQL[table]
-    except KeyError as exc:
-        raise SeedSafetyError("release-gate schema requested an unknown table") from exc
-    return {str(row[1]) for row in connection.execute(statement)}
+    if table not in _TABLE_INFO_SQL:
+        raise SeedSafetyError("release-gate schema requested an unknown table")
+    if getattr(connection, "_postgres", False):
+        return {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name=?",
+                (table,),
+            )
+        }
+    return {str(row[1]) for row in connection.execute(_TABLE_INFO_SQL[table])}
 
 
 def _require_schema(connection: sqlite3.Connection) -> None:
@@ -130,6 +137,12 @@ def _single_id(
 
 
 def _insert_id(connection: sqlite3.Connection, sql: str, params: tuple[object, ...]) -> int:
+    if getattr(connection, "_postgres", False):
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- callers pass only fixed fixture statements and all values remain bound
+        row = connection.execute(sql.rstrip().rstrip(";") + " RETURNING id", params).fetchone()
+        if row is None:
+            raise SeedSafetyError("release-gate insert did not return an identity")
+        return int(row[0])
     cursor = connection.execute(sql, params)
     return int(cursor.lastrowid)
 
@@ -217,14 +230,14 @@ def _ensure_domain_graph(
         filament_id = _insert_id(
             connection,
             "INSERT INTO filament_library (brand, name, material, color_hex, cost_per_gram, is_custom) "
-            "VALUES (?, ?, 'PLA', 'C47A1A', 0.025, 1)",
+            "VALUES (?, ?, 'PLA', 'C47A1A', 0.025, TRUE)",
             ("ODIN Candidate", "Gate PLA"),
         )
 
     printer_id = _single_id(connection, "printers", "name = ?", (PRINTER_NAME,))
     printer_values = (
-        PRINTER_NAME, "Candidate", "Synthetic / No Hardware", 1, 0, 0,
-        None, None, None, 0, None, None, None, None, "idle", '["candidate-gate"]', 0, 1,
+        PRINTER_NAME, "Candidate", "Synthetic / No Hardware", 1, False, False,
+        None, None, None, False, None, None, None, None, "idle", '["candidate-gate"]', False, True,
     )
     if printer_id is None:
         printer_id = _insert_id(
@@ -266,13 +279,13 @@ def _ensure_domain_graph(
     if slot_rows:
         connection.execute(
             "UPDATE filament_slots SET filament_type='PLA', color='amber', color_hex='#C47A1A', "
-            "assigned_spool_id=?, spool_confirmed=1 WHERE id=?",
+            "assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?",
             (spool_id, int(slot_rows[0][0])),
         )
     else:
         connection.execute(
             "INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) "
-            "VALUES (?, 1, 'PLA', 'amber', '#C47A1A', ?, 1)",
+            "VALUES (?, 1, 'PLA', 'amber', '#C47A1A', ?, TRUE)",
             (printer_id, spool_id),
         )
 
@@ -342,7 +355,7 @@ def _ensure_domain_graph(
                 "quantity_on_bed, submitted_by, charged_to_user_id, required_tags, target_type, queue_position, "
                 "hold, is_locked) "
                 "VALUES (?, ?, 1, ?, 3, ?, 0.5, 'amber', 'PLA', ?, 0.42, 4.99, ?, 1, ?, ?, '[]', "
-                "'specific', ?, 0, 0)",
+                "'specific', ?, FALSE, FALSE)",
                 (
                     model_id, f"ODIN Candidate Cube ({suffix})", status, assigned_printer, note,
                     order_item_id, user_ids[VIEWER_EMAIL], user_ids[VIEWER_EMAIL],
@@ -351,7 +364,7 @@ def _ensure_domain_graph(
             )
         else:
             connection.execute(
-                "UPDATE jobs SET hold=0, is_locked=0, required_tags='[]', target_type='specific' "
+                "UPDATE jobs SET hold=FALSE, is_locked=FALSE, required_tags='[]', target_type='specific' "
                 "WHERE id=?",
                 (job_id,),
             )
@@ -361,7 +374,7 @@ def _ensure_domain_graph(
         _insert_id(
             connection,
             "INSERT INTO alerts (user_id, alert_type, severity, title, message, is_read, is_dismissed, printer_id, metadata_json) "
-            "VALUES (?, 'printer_error', 'warning', 'ODIN Candidate Gate Alert', ?, 0, 0, ?, ?)",
+            "VALUES (?, 'printer_error', 'warning', 'ODIN Candidate Gate Alert', ?, FALSE, FALSE, ?, ?)",
             (user_ids[ADMIN_EMAIL], "Synthetic candidate evidence", printer_id, json.dumps({"marker": marker})),
         )
 
@@ -437,28 +450,53 @@ def seed_release_gate(
     path = Path(db_path)
     if not path.is_file():
         raise SeedSafetyError(f"release-gate database does not exist: {path}")
-    allowed_users = {admin_email, operator_email, viewer_email}
-    if allowed_users != {ADMIN_EMAIL, OPERATOR_EMAIL, VIEWER_EMAIL}:
-        raise SeedSafetyError("release-gate persona identifiers are fixed")
     connection = sqlite3.connect(path)
     try:
         connection.execute("PRAGMA foreign_keys=ON")
-        _validate_target(connection, run_id, marker, allowed_users)
         with connection:
-            user_ids = _ensure_personas(
-                connection,
-                admin_email,
-                admin_password,
-                operator_email,
-                operator_password,
-                viewer_email,
-                viewer_password,
+            return seed_release_gate_connection(
+                connection=connection,
+                run_id=run_id,
+                marker=marker,
+                admin_email=admin_email,
+                admin_password=admin_password,
+                operator_email=operator_email,
+                operator_password=operator_password,
+                viewer_email=viewer_email,
+                viewer_password=viewer_password,
             )
-            _ensure_domain_graph(connection, run_id, user_ids)
-            counts = _manifest(connection, run_id)
-        return counts
     finally:
         connection.close()
+
+
+def seed_release_gate_connection(
+    *,
+    connection,
+    run_id: str,
+    marker: str,
+    admin_email: str,
+    admin_password: str,
+    operator_email: str,
+    operator_password: str,
+    viewer_email: str,
+    viewer_password: str,
+) -> dict[str, int]:
+    """Seed a caller-owned SQLite or PostgreSQL transaction."""
+    allowed_users = {admin_email, operator_email, viewer_email}
+    if allowed_users != {ADMIN_EMAIL, OPERATOR_EMAIL, VIEWER_EMAIL}:
+        raise SeedSafetyError("release-gate persona identifiers are fixed")
+    _validate_target(connection, run_id, marker, allowed_users)
+    user_ids = _ensure_personas(
+        connection,
+        admin_email,
+        admin_password,
+        operator_email,
+        operator_password,
+        viewer_email,
+        viewer_password,
+    )
+    _ensure_domain_graph(connection, run_id, user_ids)
+    return _manifest(connection, run_id)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -476,17 +514,39 @@ def main(argv: list[str] | None = None) -> int:
     }
     if not all(passwords.values()):
         raise SeedSafetyError("all candidate persona passwords are required")
-    counts = seed_release_gate(
-        db_path=args.db_path,
-        run_id=args.run_id,
-        marker=marker,
-        admin_email=ADMIN_EMAIL,
-        admin_password=passwords["admin"],
-        operator_email=OPERATOR_EMAIL,
-        operator_password=passwords["operator"],
-        viewer_email=VIEWER_EMAIL,
-        viewer_password=passwords["viewer"],
-    )
+    database_url = os.environ.get("DATABASE_URL", "")
+    if database_url.startswith(("postgresql://", "postgres://")):
+        from core.db_utils import get_db
+
+        with get_db() as connection:
+            try:
+                counts = seed_release_gate_connection(
+                    connection=connection,
+                    run_id=args.run_id,
+                    marker=marker,
+                    admin_email=ADMIN_EMAIL,
+                    admin_password=passwords["admin"],
+                    operator_email=OPERATOR_EMAIL,
+                    operator_password=passwords["operator"],
+                    viewer_email=VIEWER_EMAIL,
+                    viewer_password=passwords["viewer"],
+                )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+    else:
+        counts = seed_release_gate(
+            db_path=args.db_path,
+            run_id=args.run_id,
+            marker=marker,
+            admin_email=ADMIN_EMAIL,
+            admin_password=passwords["admin"],
+            operator_email=OPERATOR_EMAIL,
+            operator_password=passwords["operator"],
+            viewer_email=VIEWER_EMAIL,
+            viewer_password=passwords["viewer"],
+        )
     print(json.dumps({"run_id": args.run_id, "counts": counts}, sort_keys=True))
     return 0
 

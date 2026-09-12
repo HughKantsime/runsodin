@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
 from core.rbac import require_role
@@ -234,13 +234,8 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
                        VALUES (:user_id, :name, :token_hash, :prefix, :scopes, :expires_at)"""
     params = {"user_id": current_user["id"], "name": name, "token_hash": token_hash_val,
               "prefix": token_prefix, "scopes": json.dumps(scopes), "expires_at": expires_at}
-    if sql.is_sqlite:
-        db.execute(text(insert_sql), params)
-        db.flush()
-        token_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-    else:
-        token_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.flush()
+    token_id = execute_insert_returning_id(db, insert_sql, params)
+    db.flush()
     log_audit(db, "api_token_created", "api_token", token_id, f"Token '{name}' created")
     db.commit()
 
@@ -306,12 +301,12 @@ async def admin_list_quotas(current_user: dict = Depends(require_role("admin")),
     require_feature("print_quotas")
     if _is_superadmin(current_user):
         users = db.execute(text(
-            "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users WHERE is_active = 1"
+            "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users WHERE is_active IS TRUE"
         )).fetchall()
     else:
         users = db.execute(text(
             "SELECT id, username, quota_grams, quota_hours, quota_jobs, quota_period FROM users "
-            "WHERE is_active = 1 AND (group_id = :gid OR group_id IS NULL)"),
+            "WHERE is_active IS TRUE AND (group_id = :gid OR group_id IS NULL)"),
             {"gid": current_user["group_id"]}).fetchall()
     result = []
     for u in users:
@@ -425,7 +420,7 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
         if not _check_org_admin_access(current_user, dict(user._mapping).get("group_id")):
             raise HTTPException(status_code=403, detail="Cannot erase users outside your group")
     if user.role == "admin":
-        admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
+        admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active IS TRUE")).scalar()
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot erase the last admin account")
 
@@ -433,7 +428,7 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
 
     db.execute(text("""UPDATE users SET
         username = :anon_name, email = '[deleted]', password_hash = '[deleted]',
-        is_active = 0, mfa_enabled = 0, mfa_secret = NULL,
+        is_active = FALSE, mfa_enabled = FALSE, mfa_secret = NULL,
         oidc_subject = NULL, oidc_provider = NULL
         WHERE id = :id"""),
         {"anon_name": f"[deleted-{user_id}]", "id": user_id})

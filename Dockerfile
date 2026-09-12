@@ -13,18 +13,28 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # System deps — versions intentionally unpinned to track Debian security updates
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    gnupg \
     supervisor \
     curl \
-    wget \
     ffmpeg \
+    && install -d -m 0755 /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" | sha256sum -c - \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+       > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install go2rtc (camera proxy) — SHA256 verified per architecture
 ARG GO2RTC_VERSION=1.9.4
 ARG TARGETARCH=amd64
 # Hashes for v1.9.4: amd64 and arm64 (add others if new arches are targeted)
-RUN wget -q "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${TARGETARCH}" \
-    -O /usr/local/bin/go2rtc \
+RUN curl -fsSL "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${TARGETARCH}" \
+    -o /usr/local/bin/go2rtc \
     && case "${TARGETARCH}" in \
          amd64) echo "8d86510e64e0deadee40d550d46323ddec9f62e14cec56de3a9df0f2f7fe9ada  /usr/local/bin/go2rtc" | sha256sum -c - ;; \
          arm64) echo "ebea4cf3a0bc3a12190ebba1f2c4b3c8cf4aac099fadb4cd50a669429b074f1c  /usr/local/bin/go2rtc" | sha256sum -c - ;; \
@@ -64,6 +74,10 @@ COPY docker/go2rtc.yaml /app/go2rtc/go2rtc.yaml
 
 # Copy supervisord config
 COPY docker/supervisord.conf /etc/supervisor/conf.d/odin.conf
+COPY docker/supervisord.api.conf /etc/supervisor/conf.d/api.conf
+COPY docker/supervisord.monitors.conf /etc/supervisor/conf.d/monitors.conf
+COPY docker/supervisord.vision.conf /etc/supervisor/conf.d/vision.conf
+COPY docker/supervisord.reports.conf /etc/supervisor/conf.d/reports.conf
 
 # Copy entrypoint
 COPY docker/entrypoint.sh /app/entrypoint.sh
@@ -72,7 +86,8 @@ RUN chmod +x /app/entrypoint.sh
 
 # Create non-root user for runtime (supervisord drops to this user)
 # entrypoint.sh still runs as root to handle secret generation and chown
-RUN groupadd -r odin && useradd -r -g odin -d /app -s /sbin/nologin odin
+RUN groupadd -r -g 10001 odin \
+    && useradd -r -u 10001 -g odin -d /app -s /sbin/nologin odin
 
 # Create data directories (will be mounted as volumes)
 RUN mkdir -p /data /data/backups /data/uploads /data/static/branding /app/go2rtc \
@@ -81,9 +96,6 @@ RUN mkdir -p /data /data/backups /data/uploads /data/static/branding /app/go2rtc
 # Default environment
 ENV PYTHONUNBUFFERED=1 \
     DATABASE_URL=sqlite:////data/odin.db \
-    ENCRYPTION_KEY="" \
-    JWT_SECRET_KEY="" \
-    API_KEY="" \
     HOST=0.0.0.0 \
     PORT=8000
 
@@ -95,3 +107,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/health/ready || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/odin.conf"]

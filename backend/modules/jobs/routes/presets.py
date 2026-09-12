@@ -100,7 +100,7 @@ def get_print_jobs(
     params = {}
 
     if org is not None:
-        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         params["org"] = org
     if printer_id is not None:
         sql += " AND pj.printer_id = :printer_id"
@@ -138,8 +138,13 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
     org_filter = ""
     params = {}
     if org is not None:
-        org_filter = "WHERE (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        org_filter = "WHERE (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         params["org"] = org
+    duration_hours = (
+        "EXTRACT(EPOCH FROM (pj.ended_at - pj.started_at)) / 3600.0"
+        if db.bind.dialect.name == "postgresql"
+        else "(julianday(pj.ended_at) - julianday(pj.started_at)) * 24"
+    )
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     query = text(f"""
         SELECT
@@ -151,7 +156,7 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
             SUM(CASE WHEN pj.status = 'running' THEN 1 ELSE 0 END) as running_jobs,
             ROUND(SUM(
                 CASE WHEN pj.ended_at IS NOT NULL
-                THEN (julianday(pj.ended_at) - julianday(pj.started_at)) * 24
+                THEN {duration_hours}
                 ELSE 0 END
             ), 2) as total_hours
         FROM print_jobs pj
@@ -177,7 +182,7 @@ def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db
     params = {}
 
     if org is not None:
-        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         params["org"] = org
     if printer_id:
         sql += " AND pj.printer_id = :printer_id"

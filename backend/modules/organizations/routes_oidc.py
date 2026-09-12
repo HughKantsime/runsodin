@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, require_superadmin
 import core.auth as auth_module
@@ -53,7 +53,7 @@ async def get_oidc_public_config(db: Session = Depends(get_db)):
 async def oidc_login(request: Request, db: Session = Depends(get_db)):
     """Initiate OIDC login flow. Redirects to identity provider."""
     from modules.organizations.oidc_handler import create_handler_from_config
-    row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled = 1 LIMIT 1")).fetchone()
+    row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled IS TRUE LIMIT 1")).fetchone()
     if not row:
         raise HTTPException(status_code=400, detail="OIDC not configured")
     config = dict(row._mapping)
@@ -83,7 +83,7 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
     if not code or not state:
         return RedirectResponse(url="/?error=missing_params", status_code=302)
 
-    row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled = 1 LIMIT 1")).fetchone()
+    row = db.execute(text("SELECT * FROM oidc_config WHERE is_enabled IS TRUE LIMIT 1")).fetchone()
     if not row:
         return RedirectResponse(url="/?error=oidc_not_configured", status_code=302)
     config = dict(row._mapping)
@@ -136,13 +136,8 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
             insert_params = {"username": username, "email": email, "role": default_role,
                              "sub": oidc_subject, "provider": oidc_provider,
                              "now": datetime.now(timezone.utc).isoformat()}
-            if sql.is_sqlite:
-                db.execute(text(insert_sql), insert_params)
-                db.commit()
-                user_id = db.execute(text("SELECT last_insert_rowid()")).fetchone()[0]
-            else:
-                user_id = db.execute(text(insert_sql + " RETURNING id"), insert_params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                db.commit()
+            user_id = execute_insert_returning_id(db, insert_sql, insert_params)
+            db.commit()
             user_role = default_role
             log.info(f"Created OIDC user: {username} ({email})")
         else:

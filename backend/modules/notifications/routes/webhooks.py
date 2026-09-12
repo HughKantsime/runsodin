@@ -9,7 +9,7 @@ import threading
 
 import core.crypto as crypto
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
 from core.rbac import require_role
 from core.webhook_utils import _validate_webhook_url, resolve_and_check_webhook_url, safe_post, trusted_post, WebhookSSRFError
@@ -85,13 +85,8 @@ async def create_webhook(
         VALUES (:name, :url, :type, :alerts)
     """
     params = {"name": name, "url": url, "type": webhook_type, "alerts": alert_types}
-    if sql.is_sqlite:
-        db.execute(text(insert_sql), params)
-        db.flush()
-        wh_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-    else:
-        wh_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.flush()
+    wh_id = execute_insert_returning_id(db, insert_sql, params)
+    db.flush()
     log_audit(db, "webhook.created", "webhook", wh_id, {"name": name, "type": webhook_type})
     db.commit()
 
@@ -298,7 +293,7 @@ def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, s
     """Send alert to all matching enabled webhooks."""
     import httpx
 
-    rows = db.execute(text("SELECT * FROM webhooks WHERE is_enabled = 1")).fetchall()
+    rows = db.execute(text("SELECT * FROM webhooks WHERE is_enabled IS TRUE")).fetchall()
 
     for row in rows:
         wh = dict(row._mapping)

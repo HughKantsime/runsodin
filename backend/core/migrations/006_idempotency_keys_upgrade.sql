@@ -13,9 +13,8 @@
 -- raises a SQL error — converting a retry primitive into a 500
 -- every single time.
 --
--- This migration is idempotent on a FRESH install (ALTER TABLE ADD
--- COLUMN on an already-complete schema raises "duplicate column
--- name" which the migration loader swallows). On an UPGRADED install
+-- This migration is idempotent on a FRESH install (the schema-aware
+-- migration runner verifies existing columns before issuing ALTER). On an UPGRADED install
 -- it backfills the missing columns + index so the table matches the
 -- current middleware contract. On a fully NEW install (first boot
 -- with both 005 and 006) it's also a no-op because 005 already

@@ -15,8 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
+from core.database_config import create_database_engine
 from core.db_compat import sql
 
 logging.basicConfig(
@@ -31,7 +32,11 @@ TIMELAPSE_DIR = Path("/data/timelapses")
 CAPTURE_INTERVAL = 30  # seconds between frames
 FFMPEG_FPS = 30  # output video framerate
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_database_engine(
+    DATABASE_URL,
+    role=os.getenv("ODIN_DB_ROLE", "timelapse"),
+    password_file=os.getenv("DATABASE_PASSWORD_FILE"),
+)
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -40,8 +45,8 @@ def get_active_printers(session) -> list:
     rows = session.execute(text("""
         SELECT p.id, p.name
         FROM printers p
-        WHERE p.timelapse_enabled = 1
-          AND p.is_active = 1
+        WHERE p.timelapse_enabled IS TRUE
+          AND p.is_active IS TRUE
           AND p.gcode_state = 'RUNNING'
     """)).fetchall()
     return [{"id": r[0], "name": r[1]} for r in rows]

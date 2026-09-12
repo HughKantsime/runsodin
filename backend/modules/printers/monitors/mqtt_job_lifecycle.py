@@ -88,7 +88,7 @@ def record_job_started(
                     needs_reschedule = True
 
                 # ---- Job matching (3 strategies) ----
-                cur.execute("""
+                cur.execute(f"""
                     SELECT DISTINCT j.id, pf.filename, j.item_name, m.name as model_name,
                            pf.layer_count, j.status, j.scheduled_start
                     FROM jobs j
@@ -184,16 +184,21 @@ def record_job_started(
                     log.info(f"[{printer_name}] No auto-match for '{job_base}' ({total_layers} layers) - no candidates to bump")
 
                 # ---- Insert print_jobs record ----
-                cur.execute("""
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
+                cur.execute(f"""
                     INSERT INTO print_jobs
                     (printer_id, job_id, filename, job_name, started_at, status,
                      total_layers, bed_temp_target, nozzle_temp_target, scheduled_job_id)
                     VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)
+                    {sql.returning_id()}
                 """, (printer_id, str(mqtt_job_id), filename, job_name,
                       datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                       total_layers or None, bed_target, nozzle_target,
                       linked_job_id))
-                new_job_id = cur.lastrowid
+                if sql.is_postgres:
+                    new_job_id = cur.fetchone()[0]
+                else:
+                    new_job_id = cur.lastrowid
 
                 # Snapshot AMS remain percentages at job start for filament usage calc
                 try:
@@ -342,12 +347,17 @@ def record_job_ended(
             else:
                 # Create a jobs record for metrics tracking
                 actual_start = pj_row[0] if pj_row else now_utc
-                cur.execute("""
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
+                cur.execute(f"""
                     INSERT INTO jobs (item_name, printer_id, status, actual_start, actual_end,
                                      duration_hours, quantity, hold, is_locked, quantity_on_bed)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, FALSE, FALSE, 1)
+                    {sql.returning_id()}
                 """, (job_name, printer_id, job_status, actual_start, now_utc, duration_hours))
-                linked_job_id = cur.lastrowid
+                if sql.is_postgres:
+                    linked_job_id = cur.fetchone()[0]
+                else:
+                    linked_job_id = cur.lastrowid
                 cur.execute("UPDATE print_jobs SET scheduled_job_id = ? WHERE id = ?",
                             (linked_job_id, current_job_id))
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")

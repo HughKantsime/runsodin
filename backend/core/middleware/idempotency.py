@@ -297,7 +297,7 @@ def _resolve_user_id(request: Any, db: Session) -> Optional[int]:
             row = db.execute(
                 text(
                     "SELECT id FROM users WHERE role = 'admin' "
-                    "AND is_active = 1 ORDER BY id LIMIT 1"
+                    "AND is_active IS TRUE ORDER BY id LIMIT 1"
                 )
             ).fetchone()
             if row:

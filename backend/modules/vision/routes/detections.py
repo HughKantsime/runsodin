@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func, case, text
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
@@ -408,7 +409,7 @@ async def get_vision_stats(
     db: Session = Depends(get_db),
 ):
     """Detection statistics: counts by type, status, and printer."""
-    cutoff = sa_func.datetime("now", f"-{days} days")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # By type
     type_rows = (

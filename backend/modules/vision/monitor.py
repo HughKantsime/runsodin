@@ -125,8 +125,8 @@ class VisionMonitorDaemon:
                     LEFT JOIN vision_settings vs ON vs.printer_id = p.id
                     LEFT JOIN print_jobs pj ON pj.printer_id = p.id
                         AND pj.status = 'running'
-                    WHERE p.is_active = 1
-                      AND p.camera_enabled = 1
+                    WHERE p.is_active IS TRUE
+                      AND p.camera_enabled IS TRUE
                       AND p.camera_url IS NOT NULL
                       AND (p.gcode_state = 'RUNNING'
                            OR (p.gcode_state IN ('IDLE', 'FINISH', 'FINISHED')

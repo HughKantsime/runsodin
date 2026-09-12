@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import modules.system.backup_service as backup_service
+import modules.system.backup_verifier as backup_verifier
 
 from modules.system.backup_service import (
     BackupValidationError,
@@ -204,6 +205,35 @@ def test_non_destructive_verifier_rejects_noncanonical_backup_name(tmp_path: Pat
     _database(live, "before")
     with pytest.raises(BackupValidationError, match="name is invalid"):
         verify_backup(f"sqlite:///{live}", "../odin_backup_escape.db")
+
+
+def test_non_destructive_verifier_dispatches_postgres_dump_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("ODIN_DATA_DIR", str(tmp_path))
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    archive = backup_dir / "odin_backup_20260912_130000_123456.dump"
+    archive.write_bytes(b"synthetic archive")
+    calls: list[tuple[object, ...]] = []
+
+    def validate(*args, **kwargs):
+        calls.append((*args, kwargs))
+        return {"size_bytes": archive.stat().st_size, "sha256": "f" * 64}
+
+    monkeypatch.setattr(backup_verifier, "validate_postgres_restore", validate)
+    result = verify_backup(
+        "postgresql://odin@postgres:5432/odin",
+        maintenance_url="postgresql://odin_maintenance@postgres:5432/postgres",
+        password_file="/run/secrets/app",
+        maintenance_password_file="/run/secrets/maintenance",
+    )
+
+    assert result["filename"] == archive.name
+    assert result["sha256"] == "f" * 64
+    assert calls[0][0] == archive
+    assert calls[0][1] == "postgresql://odin@postgres:5432/odin"
+    assert calls[0][2] == "postgresql://odin_maintenance@postgres:5432/postgres"
 
 
 def test_relationally_invalid_backup_is_rejected(tmp_path: Path):

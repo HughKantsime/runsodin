@@ -115,7 +115,7 @@ async def refresh_with_biometric_token(
 
     # Look up the user
     user_row = db.execute(
-        text("SELECT * FROM users WHERE id = :id AND is_active = 1"),
+        text("SELECT * FROM users WHERE id = :id AND is_active IS TRUE"),
         {"id": bio_token.user_id},
     ).fetchone()
     if not user_row:

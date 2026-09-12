@@ -51,7 +51,7 @@ def dispatch_alert(
                 SELECT DISTINCT ap.user_id, ap.in_app, ap.browser_push, ap.email
                 FROM alert_preferences ap
                 WHERE UPPER(ap.alert_type) = :atype
-                  AND (ap.in_app = 1 OR ap.browser_push = 1 OR ap.email = 1)
+                  AND (ap.in_app IS TRUE OR ap.browser_push IS TRUE OR ap.email IS TRUE)
             """), {"atype": alert_type.upper()}).mappings().fetchall()
 
             in_app_users = [r['user_id'] for r in pref_rows if r['in_app']]
@@ -68,7 +68,7 @@ def dispatch_alert(
             dup = conn.execute(text(f"""
                 SELECT id FROM alerts
                 WHERE alert_type = :atype
-                  AND printer_id IS :pid
+                  AND (printer_id = :pid OR (printer_id IS NULL AND :pid IS NULL))
                   AND title = :title
                   AND created_at > {sql.now_offset('-5 minutes')}
                 LIMIT 1

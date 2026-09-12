@@ -9,7 +9,10 @@
 # - go2rtc (camera streaming, WebRTC relay)
 #
 # Usage:
-#   cp .env.example .env  # configure DATABASE_URL, JWT_SECRET_KEY, etc.
+#   export POSTGRES_ADMIN_PASSWORD_FILE=/absolute/path/to/admin-secret
+#   export POSTGRES_APP_PASSWORD_FILE=/absolute/path/to/app-secret
+#   export POSTGRES_MAINTENANCE_PASSWORD_FILE=/absolute/path/to/maintenance-secret
+#   docker compose -f docker-compose.enterprise.yml config
 #   docker compose -f docker-compose.enterprise.yml up -d
 #
 # For simple self-hosted installs, use docker-compose.yml instead (single container).
@@ -19,36 +22,56 @@ services:
 
   # ── PostgreSQL ──────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
-    container_name: odin-postgres
+    image: postgres@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     restart: unless-stopped
     environment:
       POSTGRES_DB: odin
-      POSTGRES_USER: odin
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-odin_secure_password}
+      POSTGRES_USER: odin_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      ODIN_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+      ODIN_MAINTENANCE_PASSWORD_FILE: /run/secrets/postgres_maintenance_password
+    secrets:
+      - source: postgres_admin_password
+        target: postgres_admin_password
+        uid: "70"
+        gid: "70"
+        mode: 0400
+      - source: postgres_app_password
+        target: postgres_app_password
+        uid: "70"
+        gid: "70"
+        mode: 0400
+      - source: postgres_maintenance_password
+        target: postgres_maintenance_password
+        uid: "70"
+        gid: "70"
+        mode: 0400
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init/10-odin-roles.sh:/docker-entrypoint-initdb.d/10-odin-roles.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U odin"]
+      test: ["CMD-SHELL", "pg_isready -U odin_admin -d odin"]
       interval: 10s
       timeout: 5s
       retries: 5
-    ports:
-      - "5432:5432"  # Remove in production — only for direct DB access
 
   # ── Backend API ─────────────────────────────────────────────
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: odin-api
     restart: unless-stopped
-    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+    command: ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/api.conf"]
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      DATABASE_URL: postgresql://odin@postgres:5432/odin
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_app_password
+      DATABASE_MAINTENANCE_URL: postgresql://odin_maintenance@postgres:5432/postgres
+      DATABASE_MAINTENANCE_PASSWORD_FILE: /run/secrets/postgres_maintenance_password
+      ODIN_DB_BOOTSTRAP_OWNER: "1"
+      ODIN_DB_ROLE: api
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       API_KEY: ${API_KEY:-}
@@ -56,8 +79,17 @@ services:
       TRUSTED_HOSTS: ${TRUSTED_HOSTS:-*}
       ODIN_HOST_IP: ${ODIN_HOST_IP:-}
       TZ: ${TZ:-America/New_York}
-      # Tell monitors to skip — API-only mode
-      ODIN_ROLE: api
+    secrets:
+      - source: postgres_app_password
+        target: postgres_app_password
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: postgres_maintenance_password
+        target: postgres_maintenance_password
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     ports:
       - "8000:8000"
     volumes:
@@ -74,19 +106,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: odin-monitors
     restart: unless-stopped
-    command: ["supervisord", "-c", "/etc/supervisor/conf.d/monitors.conf"]
+    command: ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/monitors.conf"]
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      DATABASE_URL: postgresql://odin@postgres:5432/odin
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_app_password
+      ODIN_DB_BOOTSTRAP_OWNER: "0"
+      ODIN_DB_ROLE: monitor-bambu
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TZ: ${TZ:-America/New_York}
-      ODIN_ROLE: monitors
+    secrets:
+      - source: postgres_app_password
+        target: postgres_app_password
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     volumes:
       - odin-data:/data
     # Monitors need LAN access for printer discovery
@@ -98,17 +137,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: odin-vision
     restart: unless-stopped
-    command: ["supervisord", "-c", "/etc/supervisor/conf.d/vision.conf"]
+    command: ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/vision.conf"]
     depends_on:
       postgres:
         condition: service_healthy
+      api:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      DATABASE_URL: postgresql://odin@postgres:5432/odin
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_app_password
+      ODIN_DB_BOOTSTRAP_OWNER: "0"
+      ODIN_DB_ROLE: vision
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TZ: ${TZ:-America/New_York}
-      ODIN_ROLE: vision
+    secrets:
+      - source: postgres_app_password
+        target: postgres_app_password
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     volumes:
       - odin-data:/data
     # Uncomment for GPU acceleration:
@@ -122,8 +170,7 @@ services:
 
   # ── go2rtc (Camera Streaming) ───────────────────────────────
   go2rtc:
-    image: alexxit/go2rtc:latest
-    container_name: odin-go2rtc
+    image: alexxit/go2rtc@sha256:61b8f04efe0f9025739ce0e5e5a5e0748b64c1e4bdb5ae707e9d0966150175e7
     restart: unless-stopped
     ports:
       - "8555:8555"  # WebRTC
@@ -138,20 +185,37 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: odin-reports
     restart: unless-stopped
-    command: ["python", "backend/modules/reporting/report_runner.py"]
+    command: ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/reports.conf"]
     depends_on:
       postgres:
         condition: service_healthy
+      api:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://odin:${POSTGRES_PASSWORD:-odin_secure_password}@postgres:5432/odin
+      DATABASE_URL: postgresql://odin@postgres:5432/odin
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_app_password
+      ODIN_DB_BOOTSTRAP_OWNER: "0"
+      ODIN_DB_ROLE: reports
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       TZ: ${TZ:-America/New_York}
-      ODIN_ROLE: reports
+    secrets:
+      - source: postgres_app_password
+        target: postgres_app_password
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     volumes:
       - odin-data:/data
 
 volumes:
   postgres-data:
   odin-data:
+
+secrets:
+  postgres_admin_password:
+    file: ${POSTGRES_ADMIN_PASSWORD_FILE:?Set POSTGRES_ADMIN_PASSWORD_FILE to an absolute mode-0600 file}
+  postgres_app_password:
+    file: ${POSTGRES_APP_PASSWORD_FILE:?Set POSTGRES_APP_PASSWORD_FILE to an absolute mode-0600 file}
+  postgres_maintenance_password:
+    file: ${POSTGRES_MAINTENANCE_PASSWORD_FILE:?Set POSTGRES_MAINTENANCE_PASSWORD_FILE to an absolute mode-0600 file}

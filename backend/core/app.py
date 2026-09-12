@@ -299,20 +299,22 @@ _DUAL_SCHEMA_TABLES = [
 
 
 def _check_schema_drift(engine, Base):
-    """Compare SQLAlchemy column definitions against live PRAGMA table_info."""
+    """Compare SQLAlchemy column definitions against dialect-neutral inspection."""
     try:
+        from sqlalchemy import inspect
+
         with engine.connect() as conn:
+            inspector = inspect(conn)
             for table_name in _DUAL_SCHEMA_TABLES:
                 sa_table = Base.metadata.tables.get(table_name)
                 if sa_table is None:
                     continue
                 sa_cols = {c.name for c in sa_table.columns}
-                rows = conn.execute(
-                    text(f"PRAGMA table_info({table_name})")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                ).fetchall()
-                if not rows:
+                if table_name not in inspector.get_table_names():
                     continue
-                db_cols = {r[1] for r in rows}
+                db_cols = {
+                    column["name"] for column in inspector.get_columns(table_name)
+                }
                 only_sa = sa_cols - db_cols
                 only_db = db_cols - sa_cols
                 if only_sa:
@@ -682,11 +684,6 @@ def create_app() -> FastAPI:
         from modules.notifications import register_subscribers as notifications_register
         from modules.archives import register_subscribers as archives_register
 
-        Base.metadata.create_all(bind=engine)
-
-        from core.ws_hub import ensure_table as _ws_ensure
-        _ws_ensure()
-
         _check_schema_drift(engine, Base)
 
         # v1.8.9 codex pass 4: second ITAR audit, now that DB is
@@ -891,7 +888,7 @@ def create_app() -> FastAPI:
                     if payload.get("ws") is True:
                         with SessionLocal() as db:
                             row = db.execute(
-                                text("SELECT id, username, role, group_id FROM users WHERE username = :username AND is_active = 1"),
+                                text("SELECT id, username, role, group_id FROM users WHERE username = :username AND is_active IS TRUE"),
                                 {"username": token_data.username},
                             ).fetchone()
                         if row:

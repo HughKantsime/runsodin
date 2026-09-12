@@ -17,7 +17,9 @@ import time
 import logging
 from typing import List, Tuple
 
-from core.db_utils import get_db
+from sqlalchemy import inspect, text
+
+from core.db import engine
 
 log = logging.getLogger("ws_hub")
 
@@ -27,20 +29,10 @@ _last_cleanup = 0
 
 
 def ensure_table():
-    """Create ws_events table if it doesn't exist. Called from main.py lifespan."""
-    with get_db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ws_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT NOT NULL,
-                data TEXT NOT NULL,
-                created_at REAL NOT NULL
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ws_events_created ON ws_events(created_at)"
-        )
-        conn.commit()
+    """Verify the bootstrap-owned WebSocket event table is present."""
+    with engine.connect() as conn:
+        if "ws_events" not in inspect(conn).get_table_names():
+            raise RuntimeError("WebSocket event table is missing; run database bootstrap")
 
 
 def push_event(event_type: str, data: dict, *, audience: dict | None = None):
@@ -50,14 +42,20 @@ def push_event(event_type: str, data: dict, *, audience: dict | None = None):
     """
     try:
         payload = json.dumps({"type": event_type, "data": data, **({"_audience": audience} if audience else {})})
-        with get_db() as conn:
+        with engine.begin() as conn:
             conn.execute(
-                "INSERT INTO ws_events (event_type, data, created_at) VALUES (?, ?, ?)",
-                (event_type, payload, time.time()),
+                text(
+                    "INSERT INTO ws_events (event_type, data, created_at) "
+                    "VALUES (:event_type, :data, :created_at)"
+                ),
+                {
+                    "event_type": event_type,
+                    "data": payload,
+                    "created_at": time.time(),
+                },
             )
-            conn.commit()
     except Exception:
-        pass  # Non-critical — don't crash monitors
+        log.warning("Failed to persist WebSocket event", exc_info=True)
 
 
 def read_events_since(last_id: int) -> Tuple[List[dict], int]:
@@ -68,10 +66,10 @@ def read_events_since(last_id: int) -> Tuple[List[dict], int]:
     global _last_cleanup
 
     try:
-        with get_db() as conn:
+        with engine.connect() as conn:
             cur = conn.execute(
-                "SELECT id, data FROM ws_events WHERE id > ? ORDER BY id",
-                (last_id,),
+                text("SELECT id, data FROM ws_events WHERE id > :last_id ORDER BY id"),
+                {"last_id": last_id},
             )
             rows = cur.fetchall()
 
@@ -93,17 +91,20 @@ def read_events_since(last_id: int) -> Tuple[List[dict], int]:
         return events, newest_id
 
     except Exception:
+        log.warning("Failed to read WebSocket events", exc_info=True)
         return [], last_id
 
 
 def _cleanup(before_ts: float):
     """Delete events older than the given timestamp."""
     try:
-        with get_db() as conn:
-            conn.execute("DELETE FROM ws_events WHERE created_at < ?", (before_ts,))
-            conn.commit()
+        with engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM ws_events WHERE created_at < :before_ts"),
+                {"before_ts": before_ts},
+            )
     except Exception:
-        pass
+        log.warning("Failed to clean WebSocket events", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

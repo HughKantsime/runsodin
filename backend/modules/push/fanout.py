@@ -75,7 +75,7 @@ def _get_all_admin_user_ids(db: Session) -> list[int]:
     """Return user IDs with admin or operator role to receive farm-wide alerts."""
     from sqlalchemy import text
     rows = db.execute(
-        text("SELECT id FROM users WHERE role IN ('admin', 'operator') AND is_active = 1")
+        text("SELECT id FROM users WHERE role IN ('admin', 'operator') AND is_active IS TRUE")
     ).fetchall()
     return [r.id for r in rows]
 

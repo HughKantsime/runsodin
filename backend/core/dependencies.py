@@ -233,7 +233,7 @@ async def get_current_user(
         configured_key = os.getenv("API_KEY", "")
         if configured_key and hmac.compare_digest(api_key, configured_key):
             admin = db.execute(
-                text("SELECT * FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1")
+                text("SELECT * FROM users WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
             ).fetchone()
             if admin:
                 return dict(admin._mapping)

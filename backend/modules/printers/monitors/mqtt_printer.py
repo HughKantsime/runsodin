@@ -229,20 +229,20 @@ class PrinterMonitor:
                 cur.execute("""
                     SELECT user_id, in_app, browser_push, email
                     FROM alert_preferences
-                    WHERE alert_type = ? AND in_app = 1
+                    WHERE alert_type = ? AND in_app IS TRUE
                 """, (alert_type,))
                 prefs = cur.fetchall()
 
                 # If no preferences exist, seed defaults for all active users
                 if not prefs:
-                    cur.execute("SELECT id FROM users WHERE is_active = 1")
+                    cur.execute("SELECT id FROM users WHERE is_active IS TRUE")
                     users = cur.fetchall()
                     defaults = {
-                        'print_complete': (1, 0, 0),
-                        'print_failed': (1, 1, 0),
-                        'spool_low': (1, 0, 0),
-                        'maintenance_overdue': (1, 0, 0),
-                        'schedule_bump': (1, 0, 0),
+                        'print_complete': (True, False, False),
+                        'print_failed': (True, True, False),
+                        'spool_low': (True, False, False),
+                        'maintenance_overdue': (True, False, False),
+                        'schedule_bump': (True, False, False),
                     }
                     for (uid,) in users:
                         for at, (ia, bp, em) in defaults.items():
@@ -257,7 +257,7 @@ class PrinterMonitor:
                     cur.execute("""
                         SELECT user_id, in_app, browser_push, email
                         FROM alert_preferences
-                        WHERE alert_type = ? AND in_app = 1
+                        WHERE alert_type = ? AND in_app IS TRUE
                     """, (alert_type,))
                     prefs = cur.fetchall()
 
@@ -268,7 +268,7 @@ class PrinterMonitor:
                         cur.execute("""
                             SELECT 1 FROM alerts
                             WHERE user_id = ? AND alert_type = 'SPOOL_LOW'
-                            AND spool_id = ? AND is_read = 0 AND is_dismissed = 0
+                            AND spool_id = ? AND is_read IS FALSE AND is_dismissed IS FALSE
                             LIMIT 1
                         """, (user_id, spool_id))
                         if cur.fetchone():
@@ -279,7 +279,7 @@ class PrinterMonitor:
                         INSERT INTO alerts
                         (user_id, alert_type, severity, title, message,
                          printer_id, job_id, spool_id, metadata_json, is_read, is_dismissed, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE, ?)
                     """, (user_id, alert_type.upper(), severity.upper(), title, message,
                           self.printer_id, job_id, spool_id,
                           json.dumps(metadata) if metadata else None,

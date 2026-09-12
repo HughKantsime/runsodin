@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 from core.auth_helpers import _validate_password
@@ -270,7 +270,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
         if not _check_org_admin_access(current_user, target.group_id):
             raise HTTPException(status_code=403, detail="Cannot delete users outside your group")
     if target.role == "admin":
-        admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = 1")).scalar()
+        admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active IS TRUE")).scalar()
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
     username = target.role  # we need to fetch username for audit
@@ -413,17 +413,21 @@ async def create_group(body: dict, current_user: dict = Depends(require_superadm
     owner_id = body.get("owner_id")
 
     if owner_id:
-        owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active = 1"), {"id": owner_id}).fetchone()
+        owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active IS TRUE"), {"id": owner_id}).fetchone()
         if not owner:
             raise HTTPException(status_code=400, detail="Owner not found")
         if owner.role not in ("operator", "admin"):
             raise HTTPException(status_code=400, detail="Group owner must be an operator or admin")
 
     try:
-        result = db.execute(text("INSERT INTO groups (name, description, owner_id) VALUES (:name, :description, :owner_id)"),
-                            {"name": name, "description": description, "owner_id": owner_id})
+        group_id = execute_insert_returning_id(
+            db,
+            "INSERT INTO groups (name, description, owner_id) "
+            "VALUES (:name, :description, :owner_id)",
+            {"name": name, "description": description, "owner_id": owner_id},
+        )
         db.commit()
-        return {"status": "created", "id": result.lastrowid}
+        return {"status": "created", "id": group_id}
     except Exception:
         raise HTTPException(status_code=400, detail="Group name already exists")
 
@@ -460,7 +464,7 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
     updates = {k: v for k, v in body.items() if k in ALLOWED_GROUP_FIELDS}
 
     if "owner_id" in updates and updates["owner_id"]:
-        owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active = 1"), {"id": updates["owner_id"]}).fetchone()
+        owner = db.execute(text("SELECT role FROM users WHERE id = :id AND is_active IS TRUE"), {"id": updates["owner_id"]}).fetchone()
         if not owner:
             raise HTTPException(status_code=400, detail="Owner not found")
         if owner.role not in ("operator", "admin"):

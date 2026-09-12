@@ -18,7 +18,7 @@ import numpy as np
 from sqlalchemy import text
 
 from core.db import engine
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from modules.vision.inference_engine import VisionInferenceEngine
 from modules.vision import frame_storage
 
@@ -304,11 +304,7 @@ class PrinterVisionThread(threading.Thread):
                     "fpath": frame_path,
                     "bbox": json.dumps(bbox),
                 }
-                if sql.is_sqlite:
-                    conn.execute(text(insert_sql), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                    detection_id = conn.execute(text("SELECT last_insert_rowid()")).scalar()
-                else:
-                    detection_id = conn.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+                detection_id = execute_insert_returning_id(conn, insert_sql, params)
                 return detection_id
         except Exception as e:
             log.error(f"Failed to insert detection: {e}")

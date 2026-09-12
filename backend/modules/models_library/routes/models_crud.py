@@ -11,6 +11,7 @@ import os
 import re
 
 from core.db import get_db
+from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, _get_org_filter, get_org_scope, check_org_access
 from core.models import SystemConfig
@@ -254,17 +255,17 @@ def schedule_from_model(
     # Calculate cost
     estimated_cost, suggested_price, _ = calculate_job_cost(db, model_id=model.id)
 
-    job_result = db.execute(text("""
+    job_id = execute_insert_returning_id(db, """
         INSERT INTO jobs (
             item_name, model_id, duration_hours, colors_required,
             quantity, priority, status, printer_id, hold, is_locked,
             estimated_cost, suggested_price
         ) VALUES (
             :item_name, :model_id, :duration_hours, :colors_required,
-            1, 5, 'pending', :printer_id, 0, 0,
+            1, 5, 'pending', :printer_id, FALSE, FALSE,
             :estimated_cost, :suggested_price
         )
-    """), {
+    """, {
         "item_name": model.name,
         "model_id": model.id,
         "duration_hours": model.build_time_hours or 0,
@@ -276,7 +277,7 @@ def schedule_from_model(
     db.commit()
 
     return {
-        "job_id": job_result.lastrowid,
+        "job_id": job_id,
         "model_id": model.id,
         "model_name": model.name,
         "status": "pending"

@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from core.rbac import require_role
 
@@ -165,13 +165,13 @@ def _database_info() -> dict:
         db = SessionLocal()
         try:
             # Get all table names
-            tables_raw = db.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            ).fetchall()
+            tables_raw = sorted(inspect(db.bind).get_table_names())
             table_counts = {}
-            for (tbl,) in tables_raw:
+            for tbl in tables_raw:
                 try:
-                    count = db.execute(text(f"SELECT COUNT(*) FROM [{tbl}]")).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+                    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", tbl):
+                        raise ValueError("unexpected database identifier")
+                    count = db.execute(text(f'SELECT COUNT(*) FROM "{tbl}"')).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- identifier originates from SQLAlchemy inspector and is allowlist-validated
                     table_counts[tbl] = count
                 except Exception:
                     table_counts[tbl] = "error"

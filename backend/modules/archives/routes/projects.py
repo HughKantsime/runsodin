@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db_compat import execute_insert_returning_id
 from core.dependencies import get_current_user
 from core.rbac import check_org_access, get_org_scope, require_role
 
@@ -117,18 +118,18 @@ def create_project(
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
     # Default org_id to user's org scope if not explicitly provided
     org_id = body.org_id if body.org_id is not None else get_org_scope(user)
-    result = db.execute(
-        text("""
+    pid = execute_insert_returning_id(
+        db,
+        """
             INSERT INTO projects (name, description, color, expected_parts, created_by, org_id)
             VALUES (:name, :desc, :color, :parts, :uid, :org)
-        """),
+        """,
         {
             "name": body.name, "desc": body.description, "color": body.color,
             "parts": body.expected_parts, "uid": uid, "org": org_id,
         },
     )
     db.commit()
-    pid = result.lastrowid
     return {"id": pid, "name": body.name, "status": "active"}
 
 
@@ -321,11 +322,12 @@ async def import_project(
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
     org_id = get_org_scope(user)
 
-    result = db.execute(
-        text("""
+    project_id = execute_insert_returning_id(
+        db,
+        """
             INSERT INTO projects (name, description, color, expected_parts, created_by, status, org_id)
             VALUES (:name, :desc, :color, :parts, :uid, 'active', :org)
-        """),
+        """,
         {
             "name": meta.get("name", "Imported Project"),
             "desc": meta.get("description"),
@@ -336,4 +338,4 @@ async def import_project(
         },
     )
     db.commit()
-    return {"id": result.lastrowid, "name": meta.get("name"), "status": "imported"}
+    return {"id": project_id, "name": meta.get("name"), "status": "imported"}

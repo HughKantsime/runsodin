@@ -18,12 +18,12 @@ the failure shape.
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine, inspect
 
 BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 if str(BACKEND_DIR) not in sys.path:
@@ -32,7 +32,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 def test_inline_semicolon_in_comment_does_not_break_alter_path():
     """The loader's ALTER-TABLE branch must handle `;` inside line comments."""
-    from core.db import _run_sql_file
+    from core.schema.migrator import run_migration_files
 
     # Mimics the shape of migration 004: a blob with `ALTER TABLE` in
     # it (forcing the split-by-semicolon code path) and a header
@@ -50,25 +50,25 @@ ALTER TABLE example ADD COLUMN status TEXT DEFAULT 'pending';
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
-        db_path = str(tmp_dir / "test.db")
+        db_path = tmp_dir / "test.db"
         sql_file = tmp_dir / "004_test.sql"
         sql_file.write_text(sql, encoding="utf-8")
 
         # Pre-create the example table (migration presumes it exists).
-        conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE example (id INTEGER PRIMARY KEY, payload TEXT)")
-        conn.commit()
-        conn.close()
+        engine = create_engine(f"sqlite:///{db_path}")
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TABLE example (id INTEGER PRIMARY KEY, payload TEXT)"
+            )
 
         # If the loader splits on the `;` inside the comment, sqlite3
         # raises OperationalError with `near "one"`. If the fix works,
         # the DELETE + ALTER complete silently.
-        _run_sql_file(db_path, sql_file)
+        run_migration_files(engine, [("fixture/004_test.sql", sql_file)])
 
         # Verify the ALTER actually landed.
-        conn = sqlite3.connect(db_path)
-        cols = [row[1] for row in conn.execute("PRAGMA table_info(example)")]
-        conn.close()
+        cols = [column["name"] for column in inspect(engine).get_columns("example")]
+        engine.dispose()
         assert "status" in cols, (
             f"ALTER TABLE did not apply — loader may have bailed early. "
             f"Columns present: {cols}"

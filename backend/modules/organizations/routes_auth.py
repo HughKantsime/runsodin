@@ -253,7 +253,7 @@ async def mfa_confirm(body: dict, current_user: dict = Depends(require_role("vie
     if not totp.verify(code, valid_window=1):
         raise HTTPException(status_code=400, detail="Invalid code. Scan the QR code and try again.")
 
-    db.execute(text("UPDATE users SET mfa_enabled = 1 WHERE id = :id"), {"id": current_user["id"]})
+    db.execute(text("UPDATE users SET mfa_enabled = TRUE WHERE id = :id"), {"id": current_user["id"]})
     log_audit(db, "mfa_enabled", "user", current_user["id"], "MFA enabled")
     db.commit()
     return {"status": "ok", "message": "MFA enabled successfully"}
@@ -278,7 +278,7 @@ async def mfa_disable(body: dict = None, current_user: dict = Depends(require_ro
     else:
         raise HTTPException(status_code=400, detail="TOTP code is required to disable MFA")
 
-    db.execute(text("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = :id"), {"id": current_user["id"]})
+    db.execute(text("UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id"), {"id": current_user["id"]})
     log_audit(db, "mfa_disabled", "user", current_user["id"], "MFA disabled")
     db.commit()
     return {"status": "ok", "message": "MFA disabled"}
@@ -293,7 +293,7 @@ async def admin_mfa_disable(user_id: int, current_user: dict = Depends(require_r
     if not user.mfa_enabled:
         raise HTTPException(status_code=400, detail="MFA is not enabled for this user")
 
-    db.execute(text("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = :id"), {"id": user_id})
+    db.execute(text("UPDATE users SET mfa_enabled = FALSE, mfa_secret = NULL WHERE id = :id"), {"id": user_id})
     log_audit(db, "mfa_disabled_admin", "user", user_id, f"Admin force-disabled MFA for user {user.username}")
     db.commit()
     return {"status": "ok", "message": f"MFA disabled for {user.username}"}
@@ -453,7 +453,7 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest, db: Ses
         raise HTTPException(status_code=503, detail="Password reset requires SMTP to be configured.")
 
     user_row = db.execute(
-        text("SELECT id, username FROM users WHERE email = :email AND is_active = 1"),
+        text("SELECT id, username FROM users WHERE email = :email AND is_active IS TRUE"),
         {"email": body.email},
     ).fetchone()
 
@@ -504,7 +504,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest, db: Sessi
     user_id = row[1]
     password_hash = hash_password(body.new_password)
     db.execute(text("UPDATE users SET password_hash = :h WHERE id = :id"), {"h": password_hash, "id": user_id})
-    db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE id = :id"), {"id": row[0]})
+    db.execute(text("UPDATE password_reset_tokens SET used = TRUE WHERE id = :id"), {"id": row[0]})
 
     sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
     expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()

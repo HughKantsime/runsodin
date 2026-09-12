@@ -101,8 +101,8 @@ FULL_APP_PROBE = textwrap.dedent(
     from pathlib import Path
     import sqlite3
 
-    from core.base import Base
-    from core.db import engine, run_core_migrations, run_module_migrations
+    from core.db import engine
+    from core.schema import bootstrap_database
     import core.models  # noqa: F401
     import modules.archives.models  # noqa: F401
     import modules.inventory.models  # noqa: F401
@@ -115,9 +115,7 @@ FULL_APP_PROBE = textwrap.dedent(
     import modules.vision.models  # noqa: F401
 
     database_url = os.environ["DATABASE_URL"]
-    Base.metadata.create_all(bind=engine)
-    run_core_migrations(database_url)
-    run_module_migrations(Path("backend/modules"), database_url)
+    bootstrap_database(engine, Path("backend"))
 
     from core.app import create_app
     from starlette.testclient import TestClient

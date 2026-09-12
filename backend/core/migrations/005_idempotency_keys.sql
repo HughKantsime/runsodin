@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     response_body TEXT NOT NULL DEFAULT '',
     response_media_type TEXT NOT NULL DEFAULT 'application/json',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (key, user_id)
 );
 

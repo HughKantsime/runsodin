@@ -256,7 +256,7 @@ def collect_db_configured_urls() -> list[str]:
             rows = db.execute(
                 sa_text(
                     "SELECT discovery_url FROM oidc_config "
-                    "WHERE is_enabled = 1 AND discovery_url IS NOT NULL"
+                    "WHERE is_enabled IS TRUE AND discovery_url IS NOT NULL"
                 )
             ).fetchall()
             for row in rows:

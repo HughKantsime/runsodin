@@ -12,6 +12,7 @@ import re
 import tempfile
 
 from core.db import get_db
+from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
 from core.rbac import AGENT_WRITE_SCOPE, check_org_access, require_any_scope, require_role
@@ -176,7 +177,7 @@ async def upload_3mf(
             mesh_json = json.dumps(mesh_data) if mesh_data else None
 
             # Store in database
-            result = db.execute(text("""
+            file_id = execute_insert_returning_id(db, """
                 INSERT INTO print_files (
                     filename, project_name, print_time_seconds, total_weight_grams,
                     layer_count, layer_height, nozzle_diameter, printer_model,
@@ -188,7 +189,7 @@ async def upload_3mf(
                     :supports_used, :bed_type, :filaments_json, :thumbnail_b64, :mesh_json,
                     :file_hash
                 )
-            """), {
+            """, {
                 "filename": file.filename,
                 "project_name": metadata.project_name,
                 "print_time_seconds": metadata.print_time_seconds,
@@ -211,8 +212,6 @@ async def upload_3mf(
                 "file_hash": file_hash,
             })
             db.commit()
-
-            file_id = result.lastrowid
 
             # Check for existing model with same name (multi-variant support)
             normalized_name = _normalize_model_name(metadata.project_name)
@@ -240,7 +239,7 @@ async def upload_3mf(
                 db.commit()
             else:
                 # Create new model
-                model_result = db.execute(text("""
+                model_id = execute_insert_returning_id(db, """
                     INSERT INTO models (
                         name, build_time_hours, default_filament_type,
                         color_requirements, thumbnail_b64, print_file_id, category
@@ -248,7 +247,7 @@ async def upload_3mf(
                         :name, :build_time_hours, :filament_type,
                         :color_requirements, :thumbnail_b64, :print_file_id, :category
                     )
-                """), {
+                """, {
                     "name": normalized_name,
                     "build_time_hours": round(metadata.print_time_seconds / 3600.0, 2),
                     "filament_type": fil_type,
@@ -258,7 +257,6 @@ async def upload_3mf(
                     "category": "Uploaded"
                 })
                 db.commit()
-                model_id = model_result.lastrowid
                 is_new_model = True
                 db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
                            {"mid": model_id, "fid": file_id})
@@ -315,20 +313,19 @@ async def upload_3mf(
             project_name = os.path.splitext(fname)[0]
             normalized_name = _normalize_model_name(project_name)
 
-            result = db.execute(text("""
+            file_id = execute_insert_returning_id(db, """
                 INSERT INTO print_files (
                     filename, project_name, filaments_json, file_hash
                 ) VALUES (
                     :filename, :project_name, :filaments_json, :file_hash
                 )
-            """), {
+            """, {
                 "filename": file.filename,
                 "project_name": project_name,
                 "filaments_json": json.dumps([]),
                 "file_hash": file_hash,
             })
             db.commit()
-            file_id = result.lastrowid
 
             # Persist file to disk
             file_dir = "/data/print_files"
@@ -352,12 +349,11 @@ async def upload_3mf(
                            {"mid": model_id, "fid": file_id})
                 db.commit()
             else:
-                model_result = db.execute(text("""
+                model_id = execute_insert_returning_id(db, """
                     INSERT INTO models (name, default_filament_type, print_file_id, category)
                     VALUES (:name, 'PLA', :print_file_id, 'Uploaded')
-                """), {"name": normalized_name, "print_file_id": file_id})
+                """, {"name": normalized_name, "print_file_id": file_id})
                 db.commit()
-                model_id = model_result.lastrowid
                 is_new_model = True
                 db.execute(text("UPDATE print_files SET model_id = :mid WHERE id = :fid"),
                            {"mid": model_id, "fid": file_id})
@@ -457,17 +453,17 @@ async def submit_studio_print(
     duration_hours = duration_seconds / 3600.0 if duration_seconds else 0
     notes = _studio_print_notes(note, parsed_profile_metadata)
 
-    job_result = db.execute(text("""
+    job_id = execute_insert_returning_id(db, """
         INSERT INTO jobs (
             item_name, model_id, duration_hours, colors_required, quantity,
             priority, status, printer_id, hold, is_locked, notes,
             charged_to_user_id, charged_to_org_id, target_type
         ) VALUES (
             :item_name, :model_id, :duration_hours, :colors_required, 1,
-            5, 'pending', :printer_id, 0, 0, :notes,
+            5, 'pending', :printer_id, FALSE, FALSE, :notes,
             :charged_to_user_id, :charged_to_org_id, 'specific'
         )
-    """), {
+    """, {
         "item_name": uploaded.get("project_name") or filename,
         "model_id": uploaded.get("model_id"),
         "duration_hours": duration_hours,
@@ -478,7 +474,6 @@ async def submit_studio_print(
         "charged_to_org_id": current_user.get("group_id") if current_user else None,
     })
     db.commit()
-    job_id = job_result.lastrowid
 
     db.execute(
         text("UPDATE print_files SET job_id = :job_id WHERE id = :id"),
@@ -589,21 +584,19 @@ def schedule_print_file(
     colors = [f['color'] for f in filaments]
 
     # Create the job
-    job_result = db.execute(text("""
+    job_id = execute_insert_returning_id(db, """
         INSERT INTO jobs (
             item_name, duration_hours, colors_required, quantity, priority, status, printer_id, hold, is_locked
         ) VALUES (
-            :item_name, :duration_hours, :colors_required, 1, 5, 'pending', :printer_id, 0, 0
+            :item_name, :duration_hours, :colors_required, 1, 5, 'pending', :printer_id, FALSE, FALSE
         )
-    """), {
+    """, {
         "item_name": pf['project_name'],
         "duration_hours": pf['print_time_seconds'] / 3600.0,
         "colors_required": ','.join(colors),
         "printer_id": printer_id
     })
     db.commit()
-
-    job_id = job_result.lastrowid
 
     # Link the print file to the job
     db.execute(text("UPDATE print_files SET job_id = :job_id WHERE id = :id"), {

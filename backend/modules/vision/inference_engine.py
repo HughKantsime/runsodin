@@ -48,7 +48,7 @@ class VisionInferenceEngine:
             with engine.connect() as conn:
                 rows = conn.execute(
                     text("SELECT id, name, detection_type, filename, input_size "
-                    "FROM vision_models WHERE is_active = 1")
+                    "FROM vision_models WHERE is_active IS TRUE")
                 ).mappings().fetchall()
         except Exception as e:
             log.error(f"Failed to load model registry: {e}")

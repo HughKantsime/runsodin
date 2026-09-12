@@ -24,7 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import get_current_user, log_audit
 from core.rbac import require_role, get_org_scope, check_org_access
 
@@ -142,13 +142,8 @@ async def create_profile(
         "is_default": body.get("is_default", 0),
         "tags": body.get("tags"),
     }
-    if sql.is_sqlite:
-        db.execute(text(insert_sql), params)
-        db.flush()
-        pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
-    else:
-        pid = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.flush()
+    pid = execute_insert_returning_id(db, insert_sql, params)
+    db.flush()
     log_audit(db, "create", "profile", pid, {"name": name, "slicer": slicer})
     db.commit()
     return {"id": pid, "name": name}
@@ -258,13 +253,8 @@ async def import_profile(
             "filament_type": p.get("filament_type"),
             "raw_content": p["raw_content"],
         }
-        if sql.is_sqlite:
-            db.execute(text(import_insert_sql), import_params)
-            db.flush()
-            pid = db.execute(text("SELECT last_insert_rowid()")).scalar()
-        else:
-            pid = db.execute(text(import_insert_sql + " RETURNING id"), import_params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-            db.flush()
+        pid = execute_insert_returning_id(db, import_insert_sql, import_params)
+        db.flush()
         ids.append(pid)
         log_audit(db, "create", "profile", pid, {"name": p["name"], "slicer": p["slicer"], "source": "import"})
         db.commit()

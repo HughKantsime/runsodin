@@ -250,7 +250,7 @@ def sync_go2rtc_config_raw():
             cur = conn.cursor()
             rows = cur.execute(
                 "SELECT id, api_type, api_host, api_key, camera_url, model "
-                "FROM printers WHERE is_active = 1 AND camera_enabled = 1"
+                "FROM printers WHERE is_active IS TRUE AND camera_enabled IS TRUE"
             ).fetchall()
             for row in rows:
                 pid, api_type, api_host, api_key, camera_url, model = row

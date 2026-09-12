@@ -306,7 +306,7 @@ def get_operator_admin_ids(db: Session, group_id: int | None = None) -> List[int
     rows = db.execute(
         text(
             "SELECT id FROM users "
-            "WHERE role IN ('operator', 'admin') AND is_active = 1 "
+            "WHERE role IN ('operator', 'admin') AND is_active IS TRUE "
             "AND (:group_id IS NULL OR role = 'admin' OR group_id = :group_id)"
         ),
         {"group_id": group_id},
@@ -357,7 +357,7 @@ def dispatch_alert(
 
     # Auto-seed preferences for existing users if none found
     if not preferences:
-        users = db.execute(text("SELECT id FROM users WHERE is_active = 1")).fetchall()
+        users = db.execute(text("SELECT id FROM users WHERE is_active IS TRUE")).fetchall()
         for user_row in users:
             seed_alert_preferences(db, user_row.id)
         preferences = db.query(AlertPreference).filter(

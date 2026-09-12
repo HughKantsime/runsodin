@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from core.db import get_db
+from core.schema import schema_fingerprint, validate_schema
+from core.schema.bootstrap import import_all_models
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
 from modules.system.schemas import HealthCheck
@@ -182,7 +184,18 @@ def readiness_check(db: Session = Depends(get_db)):
             status_code=503,
             detail={"ready": False, "reason": f"migrations:{type(e).__name__}"},
         )
-    return {"ready": True, "version": __version__}
+    try:
+        import_all_models()
+        validation = validate_schema(db.connection())
+        fingerprint = schema_fingerprint(db.connection())
+    except Exception as e:
+        log.error(f"/health/ready: schema validation failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "reason": f"schema:{type(e).__name__}"},
+        )
+    return {"ready": True, "version": __version__, "dialect": db.bind.dialect.name,
+            "schema_fingerprint": fingerprint, **validation}
 
 
 # ============== License ==============

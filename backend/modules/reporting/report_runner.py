@@ -14,8 +14,9 @@ from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
+from core.database_config import create_database_engine
 from core.db_compat import sql
 
 logging.basicConfig(
@@ -27,7 +28,11 @@ log = logging.getLogger("odin.report_runner")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/odin.db")
 POLL_INTERVAL = 60  # seconds
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_database_engine(
+    DATABASE_URL,
+    role=os.getenv("ODIN_DB_ROLE", "reports"),
+    password_file=os.getenv("DATABASE_PASSWORD_FILE"),
+)
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -107,7 +112,7 @@ def _wrap_report_html(title, content):
 def generate_fleet_utilization(session, filters):
     """Printer count, utilization %, hours."""
     total = session.execute(text("SELECT COUNT(*) FROM printers")).scalar() or 0
-    active = session.execute(text("SELECT COUNT(*) FROM printers WHERE is_active = 1")).scalar() or 0
+    active = session.execute(text("SELECT COUNT(*) FROM printers WHERE is_active IS TRUE")).scalar() or 0
     printing = session.execute(text("SELECT COUNT(*) FROM printers WHERE gcode_state = 'RUNNING'")).scalar() or 0
     total_hours = session.execute(text(
         "SELECT COALESCE(SUM(total_print_hours), 0) FROM printers"
@@ -327,7 +332,7 @@ def process_due_reports(session):
     rows = session.execute(text("""
         SELECT id, name, report_type, frequency, recipients, filters
         FROM report_schedules
-        WHERE is_active = 1 AND next_run_at <= :now
+        WHERE is_active IS TRUE AND next_run_at <= :now
     """), {"now": now.isoformat()}).fetchall()
 
     if not rows:
@@ -448,7 +453,8 @@ def _update_org_digest_status(session, org_id, window_ended_at, status: str):
     try:
         session.execute(text(
             "UPDATE quiet_hours_org_digest_sends SET delivery_status = :s "
-            "WHERE org_id IS :oid AND window_ended_at = :wend"
+            "WHERE (org_id = :oid OR (org_id IS NULL AND :oid IS NULL)) "
+            "AND window_ended_at = :wend"
             if org_id is None else
             "UPDATE quiet_hours_org_digest_sends SET delivery_status = :s "
             "WHERE org_id = :oid AND window_ended_at = :wend"

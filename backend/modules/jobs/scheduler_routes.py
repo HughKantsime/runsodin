@@ -176,7 +176,7 @@ def get_timeline(
     mqtt_org_filter = ""
     mqtt_params = {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()}
     if org is not None:
-        mqtt_org_filter = "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+        mqtt_org_filter = "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         mqtt_params["org"] = org
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     mqtt_jobs_query = text(f"""

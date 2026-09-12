@@ -87,7 +87,7 @@ class MQTTMonitorDaemon:
                 WHERE api_type = 'moonraker'
                   AND api_host IS NOT NULL
                   AND api_host != ''
-                  AND is_active = 1
+                  AND is_active IS TRUE
             """))
 
             printers = []

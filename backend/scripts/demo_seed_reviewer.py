@@ -57,7 +57,7 @@ def upsert_reviewer(
         conn = sqlite3.connect(db_path)
         try:
             row = conn.execute(
-                "SELECT COUNT(*) FROM printers WHERE is_active = 1"
+                "SELECT COUNT(*) FROM printers WHERE is_active IS TRUE"
             ).fetchone()
             n = row[0] if row else 0
             if n > 1:

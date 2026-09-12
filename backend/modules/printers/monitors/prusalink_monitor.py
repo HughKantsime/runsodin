@@ -319,7 +319,7 @@ def start_prusalink_monitors():
     try:
         with engine.connect() as conn:
             rows = conn.execute(
-                text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active=1")
+                text("SELECT id, name, api_host, api_key FROM printers WHERE api_type='prusalink' AND api_host IS NOT NULL AND is_active IS TRUE")
             ).mappings().fetchall()
 
         for row in rows:

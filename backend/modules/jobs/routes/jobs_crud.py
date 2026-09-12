@@ -258,14 +258,14 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             job = db.query(Job).filter(Job.id == jid).first()
             if job and not check_org_access(current_user, job.charged_to_org_id):
                 continue
-            db.execute(text("UPDATE jobs SET hold = 1 WHERE id = :id"), {"id": jid})
+            db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id"), {"id": jid})
             count += 1
     elif action == "unhold":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if job and not check_org_access(current_user, job.charged_to_org_id):
                 continue
-            db.execute(text("UPDATE jobs SET hold = 0 WHERE id = :id"), {"id": jid})
+            db.execute(text("UPDATE jobs SET hold = FALSE WHERE id = :id"), {"id": jid})
             count += 1
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")

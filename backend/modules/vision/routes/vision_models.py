@@ -96,7 +96,7 @@ async def activate_vision_model(
     # Deactivate all models of same type
     db.query(VisionModel).filter(VisionModel.detection_type == dt).update({"is_active": 0})
     # Activate this one
-    model.is_active = 1
+    model.is_active = True
     db.commit()
 
     return {"id": model_id, "detection_type": dt, "is_active": True}

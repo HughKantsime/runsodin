@@ -59,12 +59,12 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     if org is not None:
         mqtt_printing = db.execute(text(
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
-            "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+            "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         ), {"org": org}).scalar() or 0
         mqtt_completed_today = db.execute(text(
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
             "WHERE pj.status = 'completed' AND pj.ended_at >= :today "
-            "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1)"
+            "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         ), {"today": today_start, "org": org}).scalar() or 0
     else:
         mqtt_printing = db.execute(text("SELECT COUNT(*) FROM print_jobs WHERE status = 'running'")).scalar() or 0
@@ -441,7 +441,7 @@ def get_failure_analytics(
             text(
                 "SELECT h.code, h.message, COUNT(*) as cnt FROM hms_error_history h "
                 "JOIN printers p ON h.printer_id = p.id "
-                "WHERE h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared = 1) "
+                "WHERE h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE) "
                 "GROUP BY h.code ORDER BY cnt DESC LIMIT 10"
             ),
             {"cutoff": cutoff.isoformat(), "org": org},

@@ -8,7 +8,7 @@ import json
 import logging
 
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 
 log = logging.getLogger("odin.api")
@@ -105,13 +105,8 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
     params = {"name": name, "type": report_type, "freq": frequency,
               "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
               "next": next_run, "uid": current_user["id"]}
-    if sql.is_sqlite:
-        db.execute(text(insert_sql), params)
-        db.commit()
-        sched_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-    else:
-        sched_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.commit()
+    sched_id = execute_insert_returning_id(db, insert_sql, params)
+    db.commit()
     return {"id": sched_id, "status": "ok"}
 
 

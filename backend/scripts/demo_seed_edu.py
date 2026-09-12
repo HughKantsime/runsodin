@@ -53,9 +53,19 @@ def upsert_personas_connection(
     """Validate and upsert personas using the caller's transaction."""
     persona_list = _validated_personas(personas)
 
-    columns = {
-        row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()
-    }
+    if getattr(conn, "_postgres", False):
+        columns = {
+            row[0]
+            for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name=?",
+                ("users",),
+            ).fetchall()
+        }
+    else:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
     required = {
         "username", "email", "password_hash", "role",
         "is_active", "mfa_enabled", "mfa_secret",
@@ -71,37 +81,29 @@ def upsert_personas_connection(
                 """
                 INSERT INTO users (username, email, password_hash, role,
                                    is_active, mfa_enabled, mfa_secret)
-                VALUES (:email, :email, :password_hash, :role, 1, 0, NULL)
+                VALUES (?, ?, ?, ?, TRUE, FALSE, NULL)
                 ON CONFLICT(username) DO UPDATE SET
                     email = excluded.email,
                     password_hash = excluded.password_hash,
                     role = excluded.role,
-                    is_active = 1,
-                    mfa_enabled = 0,
+                    is_active = TRUE,
+                    mfa_enabled = FALSE,
                     mfa_secret = NULL
                 """,
-                {
-                    "email": persona.email,
-                    "password_hash": password_hash,
-                    "role": persona.role,
-                },
+                (persona.email, persona.email, password_hash, persona.role),
             )
         else:
             conn.execute(
                 """
                 INSERT INTO users (username, email, password_hash, role, is_active)
-                VALUES (:email, :email, :password_hash, :role, 1)
+                VALUES (?, ?, ?, ?, TRUE)
                 ON CONFLICT(username) DO UPDATE SET
                     email = excluded.email,
                     password_hash = excluded.password_hash,
                     role = excluded.role,
-                    is_active = 1
+                    is_active = TRUE
                 """,
-                {
-                    "email": persona.email,
-                    "password_hash": password_hash,
-                    "role": persona.role,
-                },
+                (persona.email, persona.email, password_hash, persona.role),
             )
 
 

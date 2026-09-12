@@ -119,7 +119,7 @@ def _apply_org_scope(conditions, params, current_user, join_clauses=None):
     if org is None:
         return ""  # superadmin — no filter
     params["_org"] = org
-    conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+    conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
     return " JOIN printers p ON a.printer_id = p.id" if join_clauses is None else ""
 
 
@@ -149,7 +149,7 @@ def list_archives(
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
     if org is not None:
-        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
         params["_org"] = org
 
     where = " AND ".join(conditions) if conditions else "1=1"
@@ -252,7 +252,7 @@ def archive_log(
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
     if org is not None:
-        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
         params["_org"] = org
 
     where = " AND ".join(conditions) if conditions else "1=1"
@@ -314,7 +314,7 @@ def export_archive_log(
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
     if org is not None:
-        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared = 1)")
+        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
         params["_org"] = org
 
     where = " AND ".join(conditions) if conditions else "1=1"

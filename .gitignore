@@ -152,3 +152,6 @@ stress-out/sweep-*/n*-sqlite-v2/publisher.log
 stress-out/
 artifacts/edu-readiness/
 artifacts/candidate-gate/
+artifacts/database-parity/
+.odin-pg-restore.*
+.odin-db-parity.*

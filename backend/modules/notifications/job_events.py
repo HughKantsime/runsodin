@@ -39,10 +39,13 @@ def job_started(
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""INSERT INTO print_jobs
                     (printer_id, job_name, started_at, status, total_layers, scheduled_job_id)
-                VALUES (?, ?, {sql.now()}, 'running', ?, ?)""",
+                VALUES (?, ?, {sql.now()}, 'running', ?, ?){sql.returning_id()}""",
                 (printer_id, job_name, total_layers, scheduled_job_id)
             )
-            job_id = cur.lastrowid
+            if sql.is_postgres:
+                job_id = cur.fetchone()[0]
+            else:
+                job_id = cur.lastrowid
             conn.commit()
 
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")

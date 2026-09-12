@@ -385,11 +385,11 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
 
     if action == "enable":
         for pid in printer_ids:
-            db.execute(text("UPDATE printers SET is_active = 1 WHERE id = :id"), {"id": pid})
+            db.execute(text("UPDATE printers SET is_active = TRUE WHERE id = :id"), {"id": pid})
             count += 1
     elif action == "disable":
         for pid in printer_ids:
-            db.execute(text("UPDATE printers SET is_active = 0 WHERE id = :id"), {"id": pid})
+            db.execute(text("UPDATE printers SET is_active = FALSE WHERE id = :id"), {"id": pid})
             count += 1
     elif action == "add_tag":
         tag = body.get("tag", "").strip()

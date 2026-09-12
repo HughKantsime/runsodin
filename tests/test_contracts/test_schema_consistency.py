@@ -82,6 +82,7 @@ Run: pytest tests/test_contracts/test_schema_consistency.py -v
 
 import sys
 import re
+import importlib
 from pathlib import Path
 
 import pytest
@@ -93,18 +94,12 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from core.base import Base  # noqa: E402
+from core.schema.bootstrap import import_all_models  # noqa: E402
+COMMON_COLUMNS = importlib.import_module(
+    "core.schema.migrations.001_legacy_columns"
+).COMMON_COLUMNS
 
-# Import all ORM models so they register with Base.metadata
-import core.models  # noqa: E402, F401
-import modules.printers.models  # noqa: E402, F401
-import modules.jobs.models  # noqa: E402, F401
-import modules.inventory.models  # noqa: E402, F401
-import modules.models_library.models  # noqa: E402, F401
-import modules.vision.models  # noqa: E402, F401
-import modules.notifications.models  # noqa: E402, F401
-import modules.orders.models  # noqa: E402, F401
-import modules.archives.models  # noqa: E402, F401
-import modules.system.models  # noqa: E402, F401
+import_all_models()
 
 
 # ---------------------------------------------------------------------------
@@ -181,27 +176,20 @@ def _get_all_sql_tables() -> dict:
     return all_tables
 
 
-def _parse_alter_table_columns(entrypoint_path: Path) -> dict:
-    """Parse ALTER TABLE ADD COLUMN statements from entrypoint.sh.
+def _get_bootstrapped_tables() -> dict[str, set[str]]:
+    """Inspect the actual converged SQLite schema produced by bootstrap."""
+    from core.schema.bootstrap import bootstrap_database
 
-    Returns {table_name: set_of_column_names_added}.
-    """
-    if not entrypoint_path.exists():
-        return {}
-
-    text = entrypoint_path.read_text(encoding="utf-8")
-    result = {}
-
-    # Match: ALTER TABLE <table> ADD COLUMN <col> ...
-    pattern = re.compile(
-        r'ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)',
-        re.IGNORECASE,
-    )
-    for match in pattern.finditer(text):
-        table_name = match.group(1)
-        col_name = match.group(2)
-        result.setdefault(table_name, set()).add(col_name)
-
+    engine = sqlalchemy.create_engine("sqlite://")
+    bootstrap_database(engine, BACKEND_DIR)
+    inspector = sqlalchemy.inspect(engine)
+    result = {
+        table_name: {
+            column["name"] for column in inspector.get_columns(table_name)
+        }
+        for table_name in inspector.get_table_names()
+    }
+    engine.dispose()
     return result
 
 
@@ -211,8 +199,11 @@ def _parse_alter_table_columns(entrypoint_path: Path) -> dict:
 
 ORM_TABLES = _get_orm_tables()
 SQL_TABLES = _get_all_sql_tables()
-ENTRYPOINT = BACKEND_DIR.parent / "docker" / "entrypoint.sh"
-ALTER_COLUMNS = _parse_alter_table_columns(ENTRYPOINT)
+CURRENT_SCHEMA = _get_bootstrapped_tables()
+LEGACY_COLUMNS = {
+    table_name: {column_name for column_name, _ in definitions}
+    for table_name, definitions in COMMON_COLUMNS.items()
+}
 
 # Tables that exist in BOTH ORM and SQL migrations — the "dual schema" tables.
 # These were historically problematic but should now be reconciled.
@@ -232,7 +223,7 @@ class TestORMTablesRegistered:
 
     EXPECTED_ORM_TABLES = {
         # core
-        "system_config", "audit_logs",
+        "system_config", "audit_logs", "branding",
         # printers
         "printers", "filament_slots", "nozzle_lifecycle",
         # jobs
@@ -246,6 +237,8 @@ class TestORMTablesRegistered:
         "orders", "order_items", "products", "product_components",
         # notifications
         "alerts", "alert_preferences", "push_subscriptions",
+        # push
+        "push_devices", "biometric_tokens",
         # archives
         "timelapses",
         # vision
@@ -285,8 +278,6 @@ class TestSQLMigrationTablesExist:
         "print_archives", "projects",
         # models_library
         "model_revisions",
-        # push
-        "push_devices", "biometric_tokens",
     }
 
     @pytest.mark.parametrize("table_name", sorted(EXPECTED_SQL_TABLES))
@@ -315,25 +306,22 @@ class TestDualSchemaTables:
             )
 
 
-class TestEntrypointUpgradeMigrations:
-    """Verify that ALTER TABLE ADD COLUMN statements in entrypoint.sh match ORM columns."""
+class TestLegacyUpgradeMigrations:
+    """Verify source-controlled legacy additions match canonical ownership."""
 
     def test_all_alter_columns_exist_in_orm(self):
-        """Every column added via ALTER TABLE in entrypoint.sh must exist in the ORM model."""
+        """Every legacy column must exist in its ORM or raw SQL definition."""
         mismatches = []
-        for table_name, alter_cols in ALTER_COLUMNS.items():
-            if table_name not in ORM_TABLES:
-                # Table is raw-SQL only (e.g. print_jobs, print_files, groups) — skip
-                continue
-            orm_cols = ORM_TABLES[table_name]
-            missing_in_orm = alter_cols - orm_cols
-            if missing_in_orm:
+        for table_name, legacy_cols in LEGACY_COLUMNS.items():
+            canonical = CURRENT_SCHEMA.get(table_name, set())
+            missing = legacy_cols - canonical
+            if missing:
                 mismatches.append(
-                    f"  {table_name}: ALTER adds {sorted(missing_in_orm)} "
-                    f"but ORM model has {sorted(orm_cols)}"
+                    f"  {table_name}: migration adds {sorted(missing)} "
+                    f"but canonical schema has {sorted(canonical)}"
                 )
         assert not mismatches, (
-            "Columns in entrypoint.sh ALTER TABLE not found in ORM:\n"
+            "Columns in Python legacy migration not found in canonical schema:\n"
             + "\n".join(mismatches)
         )
 
@@ -344,17 +332,7 @@ class TestEntrypointUpgradeMigrations:
         Both paths must produce the same final schema.
         """
         # ORM tables created by create_all always have all columns — this is inherent.
-        # The ALTER TABLE migrations in entrypoint.sh are for OLDER installs that
-        # already had the table created before new columns were added.
-        # We verify the ALTER statements don't reference columns NOT in the ORM.
-        for table_name, alter_cols in ALTER_COLUMNS.items():
-            if table_name in ORM_TABLES:
-                orm_cols = ORM_TABLES[table_name]
-                extra = alter_cols - orm_cols
-                assert not extra, (
-                    f"entrypoint.sh adds column(s) {sorted(extra)} to {table_name} "
-                    f"that do not exist in ORM model"
-                )
+        assert LEGACY_COLUMNS
 
 
 class TestNoOrphanedORMTables:

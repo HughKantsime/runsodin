@@ -15,7 +15,7 @@ import logging
 
 import core.crypto as crypto
 from core.db import get_db
-from core.db_compat import sql
+from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.dependencies import log_audit
 from core.webhook_utils import _validate_webhook_url
@@ -66,7 +66,7 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
         rows = db.execute(text(
             "SELECT g.*, g.settings_json, "
             "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
-            "FROM groups g WHERE g.is_org = 1 AND g.id = :gid ORDER BY g.name"),
+            "FROM groups g WHERE g.is_org IS TRUE AND g.id = :gid ORDER BY g.name"),
             {"gid": user_group}).fetchall()
         return [{
             "id": r.id, "name": r.name, "description": r.description,
@@ -76,7 +76,7 @@ async def list_orgs(current_user: dict = Depends(require_role("admin")), db: Ses
     rows = db.execute(text(
         "SELECT g.*, g.settings_json, "
         "(SELECT COUNT(*) FROM users WHERE group_id = g.id) as member_count "
-        "FROM groups g WHERE g.is_org = 1 ORDER BY g.name")).fetchall()
+        "FROM groups g WHERE g.is_org IS TRUE ORDER BY g.name")).fetchall()
     return [{
         "id": r.id, "name": r.name, "description": r.description,
         "owner_id": r.owner_id, "member_count": r.member_count,
@@ -97,15 +97,15 @@ async def create_org(body: dict, current_user: dict = Depends(require_superadmin
         raise HTTPException(status_code=409, detail="Organization name already exists")
 
     insert_sql = """INSERT INTO groups (name, description, owner_id, is_org)
-                       VALUES (:name, :desc, :owner, 1)"""
-    params = {"name": name, "desc": body.get("description", ""), "owner": current_user["id"]}
-    if sql.is_sqlite:
-        db.execute(text(insert_sql), params)
-        db.flush()
-        org_id = db.execute(text("SELECT last_insert_rowid()")).scalar()
-    else:
-        org_id = db.execute(text(insert_sql + " RETURNING id"), params).scalar()  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        db.flush()
+                       VALUES (:name, :desc, :owner, :is_org)"""
+    params = {
+        "name": name,
+        "desc": body.get("description", ""),
+        "owner": current_user["id"],
+        "is_org": True,
+    }
+    org_id = execute_insert_returning_id(db, insert_sql, params)
+    db.flush()
 
     log_audit(db, "org_created", "org", org_id, f"Organization '{name}' created")
     db.commit()
@@ -117,7 +117,7 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
     """Update an organization. Org-scoped admins can only update their own org."""
     if current_user.get("group_id") and current_user["group_id"] != org_id:
         raise HTTPException(status_code=404, detail="Organization not found")
-    org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -137,7 +137,7 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
 @router.delete("/orgs/{org_id}", tags=["Organizations"])
 async def delete_org(org_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Delete an organization. Superadmin only."""
-    org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -184,7 +184,7 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
 
-    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -237,7 +237,7 @@ async def get_org_settings(org_id: int, current_user: dict = Depends(require_rol
     """Get org-level settings. Org-scoped admins can only view their own org."""
     if current_user.get("group_id") and current_user["group_id"] != org_id:
         raise HTTPException(status_code=404, detail="Organization not found")
-    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    org = db.execute(text("SELECT 1 FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
     return _get_org_settings(db, org_id)
@@ -248,7 +248,7 @@ async def update_org_settings(org_id: int, body: dict, current_user: dict = Depe
     """Update org-level settings. Org-scoped admins can only update their own org."""
     if current_user.get("group_id") and current_user["group_id"] != org_id:
         raise HTTPException(status_code=404, detail="Organization not found")
-    org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org = 1"), {"id": org_id}).fetchone()
+    org = db.execute(text("SELECT name, settings_json FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
