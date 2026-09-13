@@ -1,14 +1,14 @@
 """Contract tests for idempotent EDU sandbox persona seeding."""
 
-import os
 import shutil
 import sqlite3
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from core.auth import verify_password
-from scripts.demo_seed_edu import Persona, upsert_personas
+from scripts.demo_seed_edu import Persona, personas_from_environment, upsert_personas
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +93,28 @@ def test_persona_seed_rejects_unknown_role_before_writing(tmp_path):
     conn = sqlite3.connect(db_path)
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
     conn.close()
+
+
+def test_personas_support_password_files_without_secret_environment(tmp_path, monkeypatch):
+    expected = {
+        "ODIN_DEMO_EDU_ADMIN": ("admin@school.invalid", "admin-secret", "admin"),
+        "ODIN_DEMO_EDU_TEACHER": ("teacher@school.invalid", "teacher-secret", "operator"),
+        "ODIN_DEMO_EDU_STUDENT": ("student@school.invalid", "student-secret", "viewer"),
+    }
+    for prefix, (email, password, _role) in expected.items():
+        password_file = tmp_path / f"{prefix.lower()}.txt"
+        password_file.write_text(password, encoding="utf-8")
+        password_file.chmod(0o600)
+        monkeypatch.setenv(f"{prefix}_EMAIL", email)
+        monkeypatch.setenv(f"{prefix}_PASSWORD_FILE", str(password_file))
+        monkeypatch.delenv(f"{prefix}_PASSWORD", raising=False)
+    monkeypatch.delenv("ODIN_DEMO_REVIEWER_EMAIL", raising=False)
+    monkeypatch.delenv("ODIN_DEMO_REVIEWER_PASSWORD", raising=False)
+    monkeypatch.delenv("ODIN_DEMO_REVIEWER_PASSWORD_FILE", raising=False)
+
+    personas = personas_from_environment()
+
+    assert [(p.email, p.password, p.role) for p in personas] == list(expected.values())
 
 
 def test_copied_reviewer_wrapper_accepts_password_over_stdin(tmp_path):

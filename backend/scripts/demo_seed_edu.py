@@ -119,6 +119,21 @@ def upsert_personas(db_path: str, personas: Iterable[Persona]) -> None:
 
 def personas_from_environment() -> list[Persona]:
     """Build the required EDU personas and optional App Review persona."""
+    def secret(prefix: str) -> str:
+        direct = os.environ.get(f"{prefix}_PASSWORD", "")
+        path = os.environ.get(f"{prefix}_PASSWORD_FILE", "").strip()
+        if direct and path:
+            raise ValueError(f"{prefix} password must use environment or file, not both")
+        if not path:
+            return direct
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise ValueError(f"{prefix}_PASSWORD_FILE must be a regular non-symlink file")
+        with open(path, encoding="utf-8") as handle:
+            value = handle.read().strip()
+        if not value:
+            raise ValueError(f"{prefix}_PASSWORD_FILE is empty")
+        return value
+
     definitions = (
         ("ODIN_DEMO_EDU_ADMIN", "admin"),
         ("ODIN_DEMO_EDU_TEACHER", "operator"),
@@ -128,7 +143,7 @@ def personas_from_environment() -> list[Persona]:
     missing: list[str] = []
     for prefix, role in definitions:
         email = os.environ.get(f"{prefix}_EMAIL", "").strip()
-        password = os.environ.get(f"{prefix}_PASSWORD", "")
+        password = secret(prefix)
         if not email:
             missing.append(f"{prefix}_EMAIL")
         if not password:
@@ -137,7 +152,7 @@ def personas_from_environment() -> list[Persona]:
             personas.append(Persona(email, password, role, no_mfa=True))
 
     reviewer_email = os.environ.get("ODIN_DEMO_REVIEWER_EMAIL", "").strip()
-    reviewer_password = os.environ.get("ODIN_DEMO_REVIEWER_PASSWORD", "")
+    reviewer_password = secret("ODIN_DEMO_REVIEWER")
     if bool(reviewer_email) != bool(reviewer_password):
         missing.append(
             "ODIN_DEMO_REVIEWER_EMAIL and ODIN_DEMO_REVIEWER_PASSWORD must be set together"

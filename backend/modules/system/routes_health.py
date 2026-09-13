@@ -204,7 +204,7 @@ def readiness_check(db: Session = Depends(get_db)):
 def get_license_info():
     """Get current license status. No auth required so frontend can check tier."""
     license_info = get_license()
-    return license_info.to_dict()
+    return license_info.to_public_dict()
 
 
 @router.post("/license/upload", tags=["License"])
@@ -266,8 +266,8 @@ def remove_license(
 
 
 @router.get("/license/installation-id", tags=["License"])
-def get_license_installation_id(current_user: dict = Depends(require_superadmin())):
-    """Return the installation ID for this ODIN instance. Admin only."""
+def get_license_installation_id(current_user: dict = Depends(require_role("admin"))):
+    """Return the installation ID for this ODIN instance to an administrator."""
     return {"installation_id": get_installation_id()}
 
 

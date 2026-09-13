@@ -10,9 +10,10 @@ License file format: base64-encoded JSON payload + signature
 
 import json
 import base64
+import hashlib
 import os
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, time as datetime_time, timezone
 from typing import Optional, Dict, Any
 from pathlib import Path
 
@@ -203,6 +204,9 @@ class LicenseInfo:
         self.features = []
         self.error = None
         self.expired = False
+        self.binding_present = False
+        self.binding_matches_current = False
+        self.license_sha256 = ""
 
     def has_feature(self, feature: str) -> bool:
         """Check if the current license includes a feature.
@@ -236,13 +240,44 @@ class LicenseInfo:
             "max_users": self.max_users,
             "features": self.effective_features(),
             "managed_externally": license_is_managed_externally(),
+            "binding_present": self.binding_present,
+            "binding_matches_current": self.binding_matches_current,
+            "license_sha256": self.license_sha256,
             "error": self.error,
             "installation_id": get_installation_id(),
+        }
+
+    def to_public_dict(self) -> Dict[str, Any]:
+        """Return license capabilities without customer or device identity.
+
+        ``GET /api/license`` is intentionally unauthenticated so the login and
+        setup screens can render tier-aware UI.  Keep that response limited to
+        operational capability data; support diagnostics and activation flows
+        use authenticated endpoints for installation identity.
+        """
+        tier_def = TIERS.get(self.tier, TIERS["community"])
+        return {
+            "valid": self.valid,
+            "tier": self.tier,
+            "tier_name": tier_def["name"],
+            "issued_at": self.issued_at,
+            "expires_at": self.expires_at,
+            "expired": self.expired,
+            "max_printers": self.max_printers,
+            "max_users": self.max_users,
+            "features": self.effective_features(),
+            "managed_externally": license_is_managed_externally(),
+            "binding_present": self.binding_present,
+            "binding_matches_current": self.binding_matches_current,
+            "license_sha256": self.license_sha256,
         }
 
 
 def _find_license_file() -> Optional[str]:
     """Look for a license file in known locations."""
+    explicit_path = os.environ.get("ODIN_LICENSE_FILE", "").strip()
+    if explicit_path:
+        return explicit_path if os.path.isfile(explicit_path) else None
     search_paths = [
         os.path.join(LICENSE_DIR, LICENSE_FILENAME),
         os.path.join(os.path.dirname(__file__), LICENSE_FILENAME),
@@ -265,6 +300,31 @@ def _verify_signature(payload_bytes: bytes, signature_bytes: bytes) -> bool:
         return True
     except Exception:
         return False
+
+
+def license_binding_is_required() -> bool:
+    """Whether this deployment refuses legacy licenses without installation binding."""
+    return os.environ.get("ODIN_REQUIRE_LICENSE_BINDING", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _license_expiry_deadline(value: str) -> datetime:
+    """Parse signed license expiry without discarding timestamp precision.
+
+    Historical date-only licenses remain valid through the end of that UTC
+    date. Timestamped licenses are compared at their exact instant; a missing
+    timezone is interpreted as UTC for backward compatibility.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("license expiry must be a non-empty string")
+    text = value.strip()
+    if "T" not in text:
+        return datetime.combine(date.fromisoformat(text), datetime_time.max, tzinfo=timezone.utc)
+    parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def load_license() -> LicenseInfo:
@@ -304,6 +364,11 @@ def load_license() -> LicenseInfo:
             info.error = "Invalid license signature"
             return info
 
+        # The digest becomes evidence only after signature verification. This
+        # lets an external controller compare the exact mounted artifact with
+        # application-observed state without exposing the artifact itself.
+        info.license_sha256 = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
         # Parse payload
         payload = json.loads(payload_bytes.decode("utf-8"))
 
@@ -313,10 +378,20 @@ def load_license() -> LicenseInfo:
                 info.error = f"License missing required field: {field}"
                 return info
 
+        payload_install_id = payload.get("installation_id")
+        info.binding_present = bool(payload_install_id)
+        if payload_install_id:
+            info.binding_matches_current = payload_install_id == get_installation_id()
+            if not info.binding_matches_current:
+                info.error = "License is bound to a different installation"
+                return info
+        elif license_binding_is_required():
+            info.error = "License must be bound to this installation"
+            return info
+
         # Check expiry
-        expires_str = payload["expires_at"].split("T")[0]  # Handle both "2027-02-09" and "2027-02-09T23:59:59Z"
-        expires = datetime.strptime(expires_str, "%Y-%m-%d").date()
-        if expires < date.today():
+        expires = _license_expiry_deadline(payload["expires_at"])
+        if expires < datetime.now(timezone.utc):
             info.valid = False
             info.expired = True
             info.error = f"License expired on {payload['expires_at']}"
@@ -346,18 +421,6 @@ def load_license() -> LicenseInfo:
         info.features = payload.get("features", tier_def["features"])
         info.expired = False
 
-        # Installation binding check (backwards compatible — skip if not in payload)
-        payload_install_id = payload.get("installation_id")
-        if payload_install_id:
-            local_install_id = get_installation_id()
-            if payload_install_id != local_install_id:
-                info.valid = False
-                info.error = "License is bound to a different installation"
-                info.max_printers = TIERS["community"]["max_printers"]
-                info.max_users = TIERS["community"]["max_users"]
-                info.features = TIERS["community"]["features"]
-                return info
-
         return info
 
     except json.JSONDecodeError:
@@ -373,8 +436,22 @@ def save_license_file(content: str, directory: str = None) -> str:
     target_dir = directory or LICENSE_DIR
     os.makedirs(target_dir, exist_ok=True)
     path = os.path.join(target_dir, LICENSE_FILENAME)
-    with open(path, "w") as f:
-        f.write(content.strip())
+    temporary = path + ".tmp"
+    encoded = content.strip().encode("utf-8")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(encoded)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
     return path
 
 

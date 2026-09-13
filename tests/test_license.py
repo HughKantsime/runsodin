@@ -11,8 +11,9 @@ import sys
 import os
 import json
 import base64
+import hashlib
 import pytest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 # Add backend to path
@@ -192,6 +193,21 @@ class TestExpiredLicense:
         assert info.max_users == 1
         assert info.features == []  # Community features
 
+    def test_timestamp_expiry_is_not_truncated_to_utc_date(self, tmp_path, keypair):
+        priv, pub_pem = keypair
+        expired_at = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        payload = {"tier": "education", "licensee": "Test School", "expires_at": expired_at}
+        license_str = _sign_license(priv, payload)
+        path = _write_license(tmp_path, license_str)
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem):
+            info = lm.load_license()
+
+        assert info.valid is False
+        assert info.expired is True
+        assert info.expires_at == expired_at
+
 
 # ---------------------------------------------------------------------------
 # Tests: Valid licenses
@@ -241,6 +257,78 @@ class TestValidLicense:
         assert "usage_reports" in info.features
         assert info.has_feature("user_groups") is True
         assert info.has_feature("print_quotas") is True
+
+    def test_strict_binding_rejects_legacy_unbound_license(self, tmp_path, keypair):
+        license_str, pub_pem = self._make_valid(keypair, "education")
+        path = _write_license(tmp_path, license_str)
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
+             patch.dict(os.environ, {"ODIN_REQUIRE_LICENSE_BINDING": "1"}):
+            info = lm.load_license()
+
+        assert info.valid is False
+        assert info.binding_present is False
+        assert info.binding_matches_current is False
+        assert info.error == "License must be bound to this installation"
+
+    def test_strict_binding_reports_verified_digest_and_match(self, tmp_path, keypair):
+        license_str, pub_pem = self._make_valid(
+            keypair,
+            "education",
+            installation_id="edu-install-123",
+        )
+        path = _write_license(tmp_path, license_str)
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
+             patch.object(lm, "get_installation_id", return_value="edu-install-123"), \
+             patch.dict(os.environ, {"ODIN_REQUIRE_LICENSE_BINDING": "true"}):
+            info = lm.load_license()
+            data = info.to_dict()
+
+        assert info.valid is True
+        assert data["binding_present"] is True
+        assert data["binding_matches_current"] is True
+        assert data["license_sha256"] == hashlib.sha256(license_str.encode()).hexdigest()
+
+    def test_strict_binding_rejects_wrong_installation(self, tmp_path, keypair):
+        license_str, pub_pem = self._make_valid(
+            keypair,
+            "education",
+            installation_id="different-install",
+        )
+        path = _write_license(tmp_path, license_str)
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
+             patch.object(lm, "get_installation_id", return_value="local-install"), \
+             patch.dict(os.environ, {"ODIN_REQUIRE_LICENSE_BINDING": "1"}):
+            info = lm.load_license()
+
+        assert info.valid is False
+        assert info.binding_present is True
+        assert info.binding_matches_current is False
+        assert info.error == "License is bound to a different installation"
+
+    def test_invalid_signature_has_no_evidence_digest(self, tmp_path, keypair):
+        license_str, _pub_pem = self._make_valid(keypair, "education")
+        path = _write_license(tmp_path, license_str)
+        _, wrong_pub_pem = _generate_test_keypair()
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", wrong_pub_pem):
+            info = lm.load_license()
+
+        assert info.valid is False
+        assert info.license_sha256 == ""
+
+
+    def test_save_license_file_is_mode_0600_and_exact(self, tmp_path):
+        content = "payload.signature\n"
+        path = lm.save_license_file(content, str(tmp_path))
+        assert os.stat(path).st_mode & 0o777 == 0o600
+        assert open(path, encoding="utf-8").read() == "payload.signature"
 
     def test_education_to_dict_returns_effective_tier_features(self, tmp_path, keypair):
         license_str, pub_pem = self._make_valid(
@@ -323,6 +411,22 @@ class TestValidLicense:
         assert d["tier_name"] == "Pro"
         assert d["expired"] is False
         assert isinstance(d["features"], list)
+
+    def test_public_dict_omits_customer_device_and_diagnostic_identity(self, tmp_path, keypair):
+        license_str, pub_pem = self._make_valid(keypair, "pro")
+        path = _write_license(tmp_path, license_str)
+
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem), \
+             patch.object(lm, "get_installation_id", return_value="private-install-id"):
+            info = lm.load_license()
+            public = info.to_public_dict()
+
+        assert public["valid"] is True
+        assert public["tier"] == "pro"
+        assert public["binding_present"] is False
+        assert public["license_sha256"] == hashlib.sha256(license_str.encode()).hexdigest()
+        assert {"key", "licensee", "email", "error", "installation_id"}.isdisjoint(public)
 
 
 # ---------------------------------------------------------------------------

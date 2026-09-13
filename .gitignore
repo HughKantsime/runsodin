@@ -155,3 +155,5 @@ artifacts/candidate-gate/
 artifacts/database-parity/
 .odin-pg-restore.*
 .odin-db-parity.*
+.odin-edu-sandboxes/
+artifacts/edu-sandbox/

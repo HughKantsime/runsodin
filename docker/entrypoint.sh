@@ -2,6 +2,31 @@
 set -Eeuo pipefail
 
 echo "========================================="
+
+load_secret_file() {
+    secret_name="$1"
+    file_variable="${secret_name}_FILE"
+    eval "secret_path=\${${file_variable}:-}"
+    [ -n "${secret_path}" ] || return 0
+    [ -f "${secret_path}" ] || {
+        echo "Required secret file for ${secret_name} is missing" >&2
+        exit 1
+    }
+    [ ! -L "${secret_path}" ] || {
+        echo "Secret file for ${secret_name} cannot be a symlink" >&2
+        exit 1
+    }
+    secret_value=$(< "${secret_path}")
+    [ -n "${secret_value}" ] || {
+        echo "Secret file for ${secret_name} is empty" >&2
+        exit 1
+    }
+    export "${secret_name}=${secret_value}"
+}
+
+load_secret_file ENCRYPTION_KEY
+load_secret_file JWT_SECRET_KEY
+load_secret_file API_KEY
 echo "  O.D.I.N. — Starting up..."
 echo "========================================="
 

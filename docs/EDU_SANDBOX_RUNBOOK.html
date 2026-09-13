@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ODIN Education Sandbox Runbook</title><style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif}body{margin:0;background:#0d1117;color:#e6edf3;line-height:1.55}
+main{width:min(920px,calc(100% - 32px));margin:36px auto}header,section{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:22px;margin-bottom:16px}
+h1,h2{line-height:1.2}code,pre{font-family:ui-monospace,SFMono-Regular,monospace}pre{background:#0d1117;border-radius:8px;padding:14px;overflow:auto}
+.warning{border-left:4px solid #d29922;padding-left:14px}.good{color:#3fb950}.blocked{color:#d29922}li{margin:.4rem 0}
+</style></head><body><main><header><p class="good">Operator runbook</p><h1>ODIN Education Sandbox</h1>
+<p>An isolated, fictional proof-of-concept lifecycle. It does not deploy, contact the license service, mint licenses, or connect to real printers.</p></header>
+<section><h2>Safety model</h2><ul><li>Unique validated IDs and label-owned Docker resources.</li><li>ODIN, the broker, and simulator have only an internal network; a read-only, capability-dropped proxy with no secret/data mounts is the sole edge member and binds dynamic loopback-only HTTP. MQTT is never published.</li><li>One exact candidate image for the app, proxy, and replay publisher.</li><li>Random 0600 file secrets; no credential values in argv, Compose metadata, state, logs, JSON, or HTML.</li><li><span class="blocked">ACTIVE requires a normally signed, installation-bound Education license.</span></li></ul></section>
+<section><h2>1. Prepare</h2><pre>make edu-sandbox-prepare EDU_SANDBOX_ID=ctec-poc
+make edu-sandbox-status EDU_SANDBOX_ID=ctec-poc</pre><p>The application is verified and stopped. No Education capability is claimed. After an interrupted preparation, use the bounded <code>python3.11 -m ops.edu_sandbox prepare ctec-poc --recover</code> path; it verifies ownership before removing partial resources.</p></section>
+<section><h2>2. Proof-of-possession request</h2><p>Use hidden terminal prompts so the key and nonce never enter shell arguments, history, or environment variables. This helper writes the bounded JSON request only to the lifecycle command's non-TTY stdin.</p><pre>python3.11 - &lt;&lt;'PY'
+import getpass, json, subprocess
+request = {
+    "key": getpass.getpass("ODIN license key: "),
+    "nonce": getpass.getpass("Single-use issuer nonce: "),
+}
+subprocess.run(
+    ["make", "edu-sandbox-request-license", "EDU_SANDBOX_ID=ctec-poc"],
+    input=json.dumps(request).encode(),
+    check=True,
+)
+PY</pre><p>Deliver the 0600 activation request to the existing issuer through the approved secure channel. Public evidence contains only its digest.</p></section>
+<section><h2>3. Activate</h2><pre>make edu-sandbox-activate EDU_SANDBOX_ID=ctec-poc \
+  EDU_EXPIRES_AT=2026-10-15T23:59:59Z &lt; signed-odin-license.txt</pre><p>ODIN verifies signature, tier, binding, installation, expiry, digest, internal-only app networking, loopback proxy isolation, personas, roles, tenant graph, report access, exact images, and synthetic replay.</p></section>
+<section><h2>4. Status and reset</h2><pre>make edu-sandbox-status EDU_SANDBOX_ID=ctec-poc
+make edu-sandbox-reset EDU_SANDBOX_ID=ctec-poc</pre><p>Reset preserves installation/device/license identity while replacing mutable data. A failed reset becomes <code>DEGRADED</code>.</p></section>
+<section><h2>5. Expire and reconcile</h2><pre>make edu-sandbox-expire EDU_SANDBOX_ID=ctec-poc
+make edu-sandbox-reconcile EDU_SANDBOX_ID=ctec-poc</pre><p>Reconciliation stops the application and publisher. The repository includes a one-shot scheduler example but installs nothing.</p></section>
+<section><h2>6. Certify or purge</h2><pre>make edu-sandbox-certify EDU_SANDBOX_ID=ctec-poc
+make edu-sandbox-purge EDU_SANDBOX_ID=ctec-poc</pre><p class="warning">Full certification resets, expires, and purges. Without the external signed license it reports <strong>BLOCKED_EXTERNAL</strong>, never PASS.</p><p>Purge verifies labelled containers, volumes, both networks, the candidate tag, license mount, heartbeat volume, controller directory, and prior loopback port are absent. JSON and clickable HTML tombstones remain; the sandbox ID is then terminal.</p></section>
+<section><h2>Evidence and failure rules</h2><p>HTML/JSON/JUnit evidence is written under <code>artifacts/edu-sandbox/</code>. Foreign labels, symlinks, state drift, stale replay, wrong images, wrong roles, or residue fail closed. A failed renewal restores the prior expired bound license or becomes <code>DEGRADED</code>. Send school IT only sanitized evidence and transfer credentials through an approved password manager or encrypted channel.</p></section>
+</main></body></html>

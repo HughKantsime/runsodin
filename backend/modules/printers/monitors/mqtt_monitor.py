@@ -76,6 +76,35 @@ class MQTTMonitorDaemon:
                 except Exception as e:
                     log.warning(f"Could not load {row['name']}: {e}")
 
+            # EDU replay is deliberately not configured through the printer
+            # record: no fictional printer stores a host, serial, or access
+            # credential. Both explicit sandbox gates are required before the
+            # monitor uses the compose-internal broker and synthetic identity.
+            if (
+                os.environ.get("ODIN_EDU_SANDBOX_SEED") == "1"
+                and os.environ.get("ODIN_EDU_BAMBU_REPLAY") == "1"
+            ):
+                result = conn.execute(text('''
+                    SELECT id, name
+                    FROM printers
+                    WHERE api_type = 'bambu'
+                      AND api_host IS NULL
+                      AND api_key IS NULL
+                      AND is_active IS TRUE
+                '''))
+                simulated = list(result.mappings())
+                if len(simulated) != 1:
+                    log.error("EDU replay requires exactly one credential-free active Bambu row")
+                else:
+                    row = simulated[0]
+                    printers.append({
+                        "id": row["id"],
+                        "name": row["name"],
+                        "ip": "mosquitto",
+                        "serial": "EDU-BAMBU-SIM-001",
+                        "access_code": "simulation-only",
+                    })
+
         return printers
 
     def load_moonraker_printers(self):

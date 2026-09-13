@@ -1,10 +1,10 @@
-.PHONY: build test test-contracts test-candidate test-database-parity test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-candidate test-database-parity test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
 CANDIDATE_PYTHON ?= python3.11
-EDU_RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)
-EDU_RUN_DIR ?= artifacts/edu-readiness/$(EDU_RUN_ID)
+EDU_RUN_ID := $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)
+EDU_RUN_DIR := artifacts/edu-readiness/$(EDU_RUN_ID)
 BACKUP_NAME ?= latest
 
 tokens: ## Regenerate design tokens (CSS + Swift) from design/tokens.json
@@ -29,6 +29,48 @@ test-candidate: ## Build and test one exact disposable ODIN candidate image
 
 test-database-parity: ## Build and test SQLite/PostgreSQL parity twice with HTML evidence
 	$(CANDIDATE_PYTHON) -m ops.database_parity.runner
+
+test-edu-sandbox-contracts: ## Run deterministic EDU sandbox lifecycle and productization contracts
+	PYTHONPATH=backend:. $(CANDIDATE_PYTHON) ops/demo/run_junit_gate.py -- $(CANDIDATE_PYTHON) -m pytest tests/edu_sandbox tests/test_license.py tests/test_contracts/test_license_pop.py tests/test_contracts/test_demo_seed_edu.py -q --tb=short -o xfail_strict=true --junitxml={junit}
+
+test-edu-sandbox: test-edu-sandbox-contracts ## Build, prepare, inspect, and purge an unlicensed exact-image EDU sandbox
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox.certify
+
+edu-sandbox-prepare: ## Prepare exact-image sandbox (EDU_SANDBOX_ID required)
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox prepare "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-request-license: ## Read key+nonce JSON from stdin and create signed handoff
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox request-license "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-activate: ## Read signed license from stdin and activate (EDU_EXPIRES_AT required)
+	@test -n "$(EDU_SANDBOX_ID)" -a -n "$(EDU_EXPIRES_AT)" || (echo "EDU_SANDBOX_ID and EDU_EXPIRES_AT are required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox activate "$(EDU_SANDBOX_ID)" --expires-at "$(EDU_EXPIRES_AT)"
+
+edu-sandbox-status: ## Inspect persisted and independently observed sandbox status
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox status "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-reset: ## Destructively reset mutable sandbox data with exact confirmation
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox reset "$(EDU_SANDBOX_ID)" --confirm "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-expire: ## Expire a sandbox lease with exact confirmation
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox expire "$(EDU_SANDBOX_ID)" --confirm "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-reconcile: ## Stop application/simulator when lease or license is expired
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox reconcile "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-purge: ## Purge exact owned sandbox resources with tombstone evidence
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox purge "$(EDU_SANDBOX_ID)" --confirm "$(EDU_SANDBOX_ID)"
+
+edu-sandbox-certify: ## Run license-gated destructive full lifecycle certification
+	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox certify "$(EDU_SANDBOX_ID)" --confirm "$(EDU_SANDBOX_ID)"
 
 test-edu: ## Run deterministic EDU backend, frontend, and Chromium release gate
 	ADMIN_USERNAME=ci ADMIN_PASSWORD=ci $(PYTHON) ops/demo/run_junit_gate.py -- $(PYTHON) -m pytest \
@@ -121,8 +163,8 @@ security-secrets: ## Secret scanning (gitleaks)
 	gitleaks detect --source . --config .gitleaks.toml -v
 
 security-sast: ## Static analysis (bandit + semgrep)
-	$(SECURITY_PYTHON) -m bandit -r backend/ -lll --exclude backend/vision_models_default/ -q
-	semgrep --config auto --error --no-git-ignore --exclude='tests/*' --exclude='*.min.js' backend/ ops/edu_readiness/
+	$(SECURITY_PYTHON) -m bandit -r backend/ ops/edu_sandbox/ -lll --exclude backend/vision_models_default/ -q
+	semgrep --config auto --error --no-git-ignore --exclude='tests/*' --exclude='*.min.js' backend/ ops/edu_readiness/ ops/edu_sandbox/
 
 security-docker: ## Dockerfile lint (hadolint)
 	hadolint Dockerfile

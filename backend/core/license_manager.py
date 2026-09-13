@@ -21,6 +21,7 @@ from license_manager import (  # noqa: F401
     LicenseInfo,
     _find_license_file,
     _verify_signature,
+    license_binding_is_required,
     load_license,
     save_license_file,
     get_license,

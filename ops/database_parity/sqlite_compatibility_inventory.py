@@ -87,6 +87,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Candidate seed uses a dual-provider connection shim and provider-specific schema inspection",
     ),
+    "backend/scripts/seed_edu_sandbox.py": (
+        "dialect-neutral",
+        "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+    ),
 }
 
 

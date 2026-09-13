@@ -65,6 +65,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend source
 COPY backend/ ./backend/
 COPY VERSION /app/VERSION
+COPY ops/demo/demo_publisher.py /app/ops/demo/demo_publisher.py
+COPY ops/edu_sandbox/tcp_proxy.py /app/ops/edu_sandbox/tcp_proxy.py
+COPY tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl /app/tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl
 
 # Copy built frontend into backend static serving directory
 COPY --from=frontend-build /build/frontend/dist ./frontend/dist

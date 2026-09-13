@@ -898,6 +898,382 @@
     },
     {
       "classification": "dialect-neutral",
+      "line": 9,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "sqlite3",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "import sqlite3"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 55,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "lastrowid",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "return int(cursor.lastrowid)"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 66,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "row = connection.execute(\"SELECT value FROM system_config WHERE key=?\", (MARKER_KEY,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 103,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "org_id = _one_id(connection, \"SELECT id FROM groups WHERE name=?\", (ORGANIZATION_NAME,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 108,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO groups (name, description, owner_id, is_org, settings_json) VALUES (?, ?, ?, TRUE, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 113,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"UPDATE groups SET description=?, owner_id=?, is_org=TRUE, settings_json=? WHERE id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 124,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"UPDATE users SET group_id=?, quota_grams=?, quota_hours=?, quota_jobs=?, quota_period='monthly' WHERE id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 130,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "printer_id = _one_id(connection, \"SELECT id FROM printers WHERE name=?\", (name,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 139,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO printers (name, nickname, model, slot_count, is_active, camera_enabled, display_order, \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 146,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"UPDATE printers SET nickname=?, model=?, slot_count=?, is_active=?, camera_enabled=?, display_order=?, \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 154,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"SELECT id FROM filament_library WHERE brand=? AND name=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 160,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO filament_library (brand, name, material, color_hex, cost_per_gram, is_custom) VALUES (?, ?, 'PLA', '2563EB', 0.024, TRUE)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 163,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "spool_id = _one_id(connection, \"SELECT id FROM spools WHERE qr_code=?\", (\"NORTHSTAR-EDU-SPOOL-001\",))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 167,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO spools (filament_id, qr_code, color_hex, initial_weight_g, remaining_weight_g, spool_weight_g, price, vendor, status, location_printer_id, location_slot, storage_location, notes, org_id) \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 173,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"SELECT id FROM filament_slots WHERE printer_id=? AND slot_number=1\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 178,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO filament_slots (printer_id, slot_number, filament_type, color, color_hex, assigned_spool_id, spool_confirmed) VALUES (?, 1, 'PLA', 'blue', '#2563EB', ?, TRUE)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 183,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"UPDATE filament_slots SET filament_type='PLA', color='blue', color_hex='#2563EB', assigned_spool_id=?, spool_confirmed=TRUE WHERE id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 187,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "model_id = _one_id(connection, \"SELECT id FROM models WHERE name=?\", (\"Northstar Calibration Badge\",))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 191,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO models (name, build_time_hours, default_filament_type, color_requirements, category, notes, cost_per_item, units_per_bed, quantity_per_bed, markup_percent, org_id) \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 195,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "product_id = _one_id(connection, \"SELECT id FROM products WHERE sku=?\", (\"NORTHSTAR-EDU-001\",))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 199,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO products (name, sku, price, description, org_id) VALUES (?, ?, 0, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 202,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "if _one_id(connection, \"SELECT id FROM product_components WHERE product_id=? AND model_id=?\", (product_id, model_id)) is None:"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 204,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO product_components (product_id, model_id, quantity_needed, notes) VALUES (?, ?, 1, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 207,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "order_id = _one_id(connection, \"SELECT id FROM orders WHERE order_number=?\", (\"NORTHSTAR-CLASS-001\",))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 211,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO orders (order_number, platform, customer_name, customer_email, status, revenue, notes, org_id) VALUES (?, 'education', 'Northstar Student', ?, 'pending', 0, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 214,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "order_item_id = _one_id(connection, \"SELECT id FROM order_items WHERE order_id=? AND product_id=?\", (order_id, product_id))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 218,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO order_items (order_id, product_id, quantity, unit_price, fulfilled_quantity) VALUES (?, ?, 2, 0, 1)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 226,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "if _one_id(connection, \"SELECT id FROM jobs WHERE notes=?\", (note,)) is None:"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 228,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO jobs (model_id, item_name, quantity, status, priority, printer_id, duration_hours, colors_required, filament_type, notes, estimated_cost, suggested_price, order_item_id, quantity_on_bed, submitted_by, approved_by, charged_to_us"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 232,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "if _one_id(connection, \"SELECT id FROM alerts WHERE title=?\", (\"Northstar Inert Printer Reminder\",)) is None:"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 234,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO alerts (user_id, alert_type, severity, title, message, is_read, is_dismissed, printer_id, metadata_json) VALUES (?, 'maintenance_due', 'info', ?, ?, FALSE, FALSE, ?, ?)\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 238,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO quota_usage (user_id, period_key, grams_used, hours_used, jobs_used) VALUES (?, 'demo-period', 22, 0.75, 1) ON CONFLICT(user_id, period_key) DO UPDATE SET grams_used=excluded.grams_used, hours_used=excluded.hours_used, jobs_use"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 243,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"INSERT INTO system_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 249,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"users\": int(connection.execute(\"SELECT COUNT(*) FROM users WHERE group_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 250,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"printers\": int(connection.execute(\"SELECT COUNT(*) FROM printers WHERE org_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 251,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"credential_free_printers\": int(connection.execute(\"SELECT COUNT(*) FROM printers WHERE org_id=? AND api_host IS NULL AND api_key IS NULL\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 252,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"inert_printers\": int(connection.execute(\"SELECT COUNT(*) FROM printers WHERE org_id=? AND is_active IS FALSE AND api_host IS NULL AND api_key IS NULL\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 253,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"spools\": int(connection.execute(\"SELECT COUNT(*) FROM spools WHERE org_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 254,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"models\": int(connection.execute(\"SELECT COUNT(*) FROM models WHERE org_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 255,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"products\": int(connection.execute(\"SELECT COUNT(*) FROM products WHERE org_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 256,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"orders\": int(connection.execute(\"SELECT COUNT(*) FROM orders WHERE org_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 257,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"jobs\": int(connection.execute(\"SELECT COUNT(*) FROM jobs WHERE charged_to_org_id=?\", (org_id,)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 258,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"quota_usage\": int(connection.execute(\"SELECT COUNT(*) FROM quota_usage WHERE user_id=?\", (users[STUDENT_EMAIL],)).fetchone()[0]),"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 267,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"SELECT COUNT(*) FROM spools WHERE org_id=? AND location_printer_id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 271,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"SELECT COUNT(*) FROM product_components WHERE product_id=? AND model_id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 275,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "\"SELECT COUNT(*) FROM order_items WHERE order_id=? AND product_id=?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 314,
+      "path": "backend/scripts/seed_edu_sandbox.py",
+      "pattern": "PRAGMA",
+      "reason": "Education sandbox seed uses the dual-provider connection shim and provider-specific insert identity",
+      "source": "connection.execute(\"PRAGMA foreign_keys=ON\")"
+    },
+    {
+      "classification": "dialect-neutral",
       "line": 14,
       "path": "backend/scripts/seed_release_gate.py",
       "pattern": "sqlite3",

@@ -1,0 +1,129 @@
+services:
+  mosquitto:
+    image: ${ODIN_EDU_BROKER_IMAGE:?pinned broker image required}
+    restart: unless-stopped
+    networks: [sandbox]
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "127.0.0.1", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    labels:
+      com.runsodin.edu-sandbox: ${ODIN_EDU_SANDBOX_ID:?sandbox ID required}
+      com.runsodin.edu-schema: "1"
+      com.runsodin.edu-generation: ${ODIN_EDU_GENERATION:?generation required}
+
+  odin:
+    image: ${ODIN_EDU_CANDIDATE_IMAGE_ID:?immutable candidate image ID required}
+    hostname: odin-edu-${ODIN_EDU_SANDBOX_ID:?sandbox ID required}-app
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks: [sandbox]
+    volumes:
+      - data:/data
+      - secrets:/run/odin-secrets:ro
+    environment:
+      DATABASE_URL: sqlite:////data/odin.db
+      ENCRYPTION_KEY_FILE: /run/odin-secrets/encryption-key
+      JWT_SECRET_KEY_FILE: /run/odin-secrets/jwt-secret
+      API_KEY_FILE: /run/odin-secrets/api-key
+      LICENSE_DIR: /data
+      ODIN_LICENSE_FILE: /run/odin-secrets/license.json
+      ODIN_LICENSE_READ_ONLY: "1"
+      ODIN_REQUIRE_LICENSE_BINDING: "1"
+      ODIN_DEMO_EDU_SEED: "1"
+      ODIN_DEMO_EDU_ADMIN_EMAIL: administrator@northstar-lab.example.invalid
+      ODIN_DEMO_EDU_ADMIN_PASSWORD_FILE: /run/odin-secrets/admin-password
+      ODIN_DEMO_EDU_TEACHER_EMAIL: teacher@northstar-lab.example.invalid
+      ODIN_DEMO_EDU_TEACHER_PASSWORD_FILE: /run/odin-secrets/teacher-password
+      ODIN_DEMO_EDU_STUDENT_EMAIL: student@northstar-lab.example.invalid
+      ODIN_DEMO_EDU_STUDENT_PASSWORD_FILE: /run/odin-secrets/student-password
+      ODIN_EDU_SANDBOX_SEED: "1"
+      ODIN_EDU_BAMBU_REPLAY: "1"
+      ODIN_EDU_SANDBOX_ID: ${ODIN_EDU_SANDBOX_ID}
+      CORS_ORIGINS: http://127.0.0.1
+      TRUSTED_HOSTS: 127.0.0.1,localhost
+      COOKIE_SECURE: "false"
+      ODIN_BAMBU_BROKER_URL: mqtt://mosquitto:1883
+      ODIN_ALLOW_INSECURE_BAMBU_BROKER: "1"
+      ODIN_BAMBU_INSECURE_BROKER_HOSTS: mosquitto
+      ODIN_BAMBU_INSECURE_BROKER_PORT: "1883"
+      TZ: UTC
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    labels:
+      com.runsodin.edu-sandbox: ${ODIN_EDU_SANDBOX_ID}
+      com.runsodin.edu-schema: "1"
+      com.runsodin.edu-generation: ${ODIN_EDU_GENERATION}
+
+  proxy:
+    image: ${ODIN_EDU_CANDIDATE_IMAGE_ID}
+    restart: unless-stopped
+    depends_on:
+      odin:
+        condition: service_healthy
+    networks: [sandbox, edge]
+    ports:
+      - "127.0.0.1::8080"
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["python3", "/app/ops/edu_sandbox/tcp_proxy.py"]
+    labels:
+      com.runsodin.edu-sandbox: ${ODIN_EDU_SANDBOX_ID}
+      com.runsodin.edu-schema: "1"
+      com.runsodin.edu-generation: ${ODIN_EDU_GENERATION}
+
+  publisher:
+    image: ${ODIN_EDU_CANDIDATE_IMAGE_ID}
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      odin:
+        condition: service_healthy
+    networks: [sandbox]
+    volumes:
+      - heartbeat:/var/run/odin-edu
+    working_dir: /app
+    entrypoint: []
+    command: ["python3", "/app/ops/demo/demo_publisher.py"]
+    environment:
+      ODIN_DEMO_BROKER_HOST: mosquitto
+      ODIN_DEMO_BROKER_PORT: "1883"
+      ODIN_DEMO_PRINTER_SERIAL: EDU-BAMBU-SIM-001
+      ODIN_DEMO_FIXTURE: tests/fixtures/telemetry/bambu-x1c-ams-swap.demo.jsonl
+      ODIN_DEMO_SPEED: "0.05"
+      ODIN_DEMO_LOOP_GAP_SEC: "2.0"
+      ODIN_DEMO_HEARTBEAT_PATH: /var/run/odin-edu/bambu-publisher.heartbeat
+    labels:
+      com.runsodin.edu-sandbox: ${ODIN_EDU_SANDBOX_ID}
+      com.runsodin.edu-schema: "1"
+      com.runsodin.edu-generation: ${ODIN_EDU_GENERATION}
+      com.runsodin.edu-simulator: bambu
+
+networks:
+  sandbox:
+    name: ${ODIN_EDU_INTERNAL_NETWORK:?internal sandbox network required}
+    external: true
+  edge:
+    name: ${ODIN_EDU_EDGE_NETWORK:?loopback edge network required}
+    external: true
+
+volumes:
+  data:
+    name: ${ODIN_EDU_DATA_VOLUME:?data volume required}
+    external: true
+  secrets:
+    name: ${ODIN_EDU_SECRET_VOLUME:?secret volume required}
+    external: true
+  heartbeat:
+    name: ${ODIN_EDU_HEARTBEAT_VOLUME:?heartbeat volume required}
+    external: true
