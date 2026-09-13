@@ -2,6 +2,16 @@
 
 Updated — see CHANGELOG for current version.
 
+## Completed locally — EDU hardware certification (unreleased)
+
+- Four-protocol Bambu, Elegoo, Moonraker, and PrusaLink certification harness
+  with deterministic loopback replay, production parser/state seams, protected
+  passive observation, default-deny one-time active authorization, strict
+  privacy-preserving evidence, EDU readiness import, CI, and operator HTML.
+- Code-controlled replay is complete; it does not claim physical compatibility.
+  Live printer observation/exercise and the Telemetry V2 seven-day staging soak
+  remain blocked until real hardware and operator authorization are available.
+
 ## Shipped in v1.5.10
 
 - ~~Moonraker print archives~~ — Moonraker monitor now creates archives on job completion (was silently skipping)

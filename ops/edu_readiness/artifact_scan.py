@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import re
 from pathlib import Path
 
@@ -15,7 +16,14 @@ except ImportError:
 TEXT_SUFFIXES = {".json", ".html", ".txt", ".log", ".csv", ".md", ".xml"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b")
-PRIVATE_IP_RE = re.compile(r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})\b")
+IPV4_RE = re.compile(r"(?<![A-Za-z0-9])(?:\d{1,3}\.){3}\d{1,3}(?![A-Za-z0-9])")
+LOCAL_HOST_RE = re.compile(r"(?i)\b[A-Z0-9][A-Z0-9.-]{0,251}\.local\b")
+INTERNAL_HOST_RE = re.compile(
+    r"(?i)\b[A-Z0-9][A-Z0-9.-]{0,251}\.(?:internal|lan|home|corp|localdomain)\b"
+)
+IPV6_CANDIDATE_RE = re.compile(r"(?i)(?<![A-Za-z0-9])[0-9a-f:]{2,45}(?![A-Za-z0-9])")
+MQTT_TOPIC_RE = re.compile(r"(?i)\bdevice/[A-Za-z0-9_-]{3,}/(?:report|request)\b")
+PRINTER_FILENAME_RE = re.compile(r"(?i)\b[^\s<>'\"]{1,200}\.(?:3mf|gcode|bgcode|ctb|goo|sl1s?)\b")
 JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")
 KEY_RE = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |)PRIVATE KEY-----")
 SENSITIVE_ASSIGNMENT_RE = re.compile(
@@ -26,13 +34,34 @@ PRINTER_SERIAL_RE = re.compile(r"(?i)\b(?:serial|device[_-]?id|mainboard[_-]?id)
 
 def scan_text(text: str, relative_path: str) -> list[str]:
     findings = []
+    for match in IPV4_RE.finditer(text):
+        try:
+            address = ipaddress.ip_address(match.group(0))
+        except ValueError:
+            continue
+        if isinstance(address, ipaddress.IPv4Address):
+            findings.append(f"{relative_path}: private IP address")
+            break
+    for match in IPV6_CANDIDATE_RE.finditer(text):
+        candidate = match.group(0)
+        if candidate.count(":") < 2:
+            continue
+        try:
+            if isinstance(ipaddress.ip_address(candidate), ipaddress.IPv6Address):
+                findings.append(f"{relative_path}: IPv6 address")
+                break
+        except ValueError:
+            continue
     for match in EMAIL_RE.finditer(text):
         domain = match.group(1).lower()
         if not domain.endswith(".test") and domain not in {"example.com", "example.org", "example.net"}:
             findings.append(f"{relative_path}: non-reserved email domain")
             break
     checks = [
-        (PRIVATE_IP_RE, "private IP address"),
+        (LOCAL_HOST_RE, "local hostname"),
+        (INTERNAL_HOST_RE, "internal hostname"),
+        (MQTT_TOPIC_RE, "raw MQTT topic"),
+        (PRINTER_FILENAME_RE, "printer job filename"),
         (JWT_RE, "JWT-like value"),
         (KEY_RE, "private key material"),
         (SENSITIVE_ASSIGNMENT_RE, "sensitive assigned value"),

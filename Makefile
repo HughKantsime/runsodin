@@ -1,11 +1,13 @@
-.PHONY: build test test-contracts test-candidate test-database-parity test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-candidate test-database-parity test-hardware-certification test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
 CANDIDATE_PYTHON ?= python3.11
+HARDWARE_PYTHON ?= $(CANDIDATE_PYTHON)
 EDU_RUN_ID := $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)
 EDU_RUN_DIR := artifacts/edu-readiness/$(EDU_RUN_ID)
 BACKUP_NAME ?= latest
+HARDWARE_EVIDENCE_DIR ?=
 
 tokens: ## Regenerate design tokens (CSS + Swift) from design/tokens.json
 	node design/generate.mjs
@@ -29,6 +31,9 @@ test-candidate: ## Build and test one exact disposable ODIN candidate image
 
 test-database-parity: ## Build and test SQLite/PostgreSQL parity twice with HTML evidence
 	$(CANDIDATE_PYTHON) -m ops.database_parity.runner
+
+test-hardware-certification: ## Run four-protocol code-controlled replay with HTML evidence
+	$(HARDWARE_PYTHON) -m ops.hardware_certification.runner
 
 test-edu-sandbox-contracts: ## Run deterministic EDU sandbox lifecycle and productization contracts
 	PYTHONPATH=backend:. $(CANDIDATE_PYTHON) ops/demo/run_junit_gate.py -- $(CANDIDATE_PYTHON) -m pytest tests/edu_sandbox tests/test_license.py tests/test_contracts/test_license_pop.py tests/test_contracts/test_demo_seed_edu.py -q --tb=short -o xfail_strict=true --junitxml={junit}
@@ -101,7 +106,7 @@ test-edu-backup: ## Run SQLite backup/restore safety checks
 	PYTHONPATH=backend $(PYTHON) -m pytest tests/backup_restore/test_backup_service.py -q --tb=short -o xfail_strict=true
 
 test-edu-hardware: ## Run passive hardware protocol/transport checks
-	PYTHONPATH=backend $(PYTHON) -m pytest tests/hardware/test_read_only_certification.py -q --tb=short -o xfail_strict=true
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=backend:. $(HARDWARE_PYTHON) -m pytest tests/hardware/test_read_only_certification.py tests/hardware_certification -q --tb=short -o xfail_strict=true
 
 test-edu-load: ## Run isolated API/WebSocket load thresholds
 	$(PYTHON) ops/edu_readiness/api_load.py --run-id $(EDU_RUN_ID) --output $(EDU_RUN_DIR)/api_load.json
@@ -130,7 +135,11 @@ test-edu-readiness: ## Run all deterministic EDU readiness checks (currently fai
 verify-edu-live: ## Read-only TLS, legal-source, and physical-hardware readiness rows
 	@mkdir -p $(EDU_RUN_DIR)
 	@status=0; \
-	$(PYTHON) ops/edu_readiness/verify_live.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) || status=1; \
+	if { [ -n "$(HARDWARE_EVIDENCE_DIR)" ] && [ -z "$(HARDWARE_IDENTITY_FILE)" ]; } || { [ -z "$(HARDWARE_EVIDENCE_DIR)" ] && [ -n "$(HARDWARE_IDENTITY_FILE)" ]; }; then \
+		echo "hardware evidence import requires both HARDWARE_EVIDENCE_DIR and HARDWARE_IDENTITY_FILE"; status=1; \
+	else \
+		PYTHONPATH=backend:. $(PYTHON) -m ops.edu_readiness.verify_live --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) $(if $(HARDWARE_EVIDENCE_DIR),--hardware-evidence-dir "$(HARDWARE_EVIDENCE_DIR)" --hardware-identity-file "$(HARDWARE_IDENTITY_FILE)",) || status=1; \
+	fi; \
 	$(PYTHON) ops/edu_readiness/aggregate.py --run-dir $(EDU_RUN_DIR) --policy ops/edu_readiness/readiness-policy.json >/dev/null 2>&1 || true; \
 	$(PYTHON) ops/edu_readiness/generate_report.py --run-dir $(EDU_RUN_DIR) || status=1; \
 	$(PYTHON) ops/edu_readiness/artifact_scan.py --run-id $(EDU_RUN_ID) $(EDU_RUN_DIR) || status=1; \
@@ -163,8 +172,8 @@ security-secrets: ## Secret scanning (gitleaks)
 	gitleaks detect --source . --config .gitleaks.toml -v
 
 security-sast: ## Static analysis (bandit + semgrep)
-	$(SECURITY_PYTHON) -m bandit -r backend/ ops/edu_sandbox/ -lll --exclude backend/vision_models_default/ -q
-	semgrep --config auto --error --no-git-ignore --exclude='tests/*' --exclude='*.min.js' backend/ ops/edu_readiness/ ops/edu_sandbox/
+	$(SECURITY_PYTHON) -m bandit -r backend/ ops/edu_sandbox/ ops/hardware_certification/ -lll --exclude backend/vision_models_default/ -q
+	semgrep --config auto --error --no-git-ignore --exclude='tests/*' --exclude='*.min.js' backend/ ops/edu_readiness/ ops/edu_sandbox/ ops/hardware_certification/
 
 security-docker: ## Dockerfile lint (hadolint)
 	hadolint Dockerfile

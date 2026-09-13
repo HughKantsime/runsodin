@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runsodin.com/schemas/hardware-certification/identity-expectations-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "protocols"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "bambu": {"$ref": "#/$defs/identity"},
+        "elegoo": {"$ref": "#/$defs/identity"},
+        "moonraker": {"$ref": "#/$defs/identity"},
+        "prusalink": {"$ref": "#/$defs/identity"}
+      }
+    }
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_family", "firmware_version", "api_version"],
+      "properties": {
+        "model_family": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._+ -]+$"},
+        "firmware_version": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._+ -]+$"},
+        "api_version": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._+ -]+$"}
+      }
+    }
+  }
+}

@@ -50,9 +50,15 @@ jobs:
 
       - name: Install backend and browser test dependencies
         run: |
-          pip3.11 install --break-system-packages pytest playwright==1.58.0 bandit pip-audit semgrep
+          pip3.11 install --break-system-packages pytest==9.0.3 playwright==1.58.0 bandit pip-audit semgrep
           pip3.11 install --break-system-packages -r backend/requirements.txt
           python3.11 -m playwright install chromium
+
+      - name: Provision isolated exact hardware certification environment
+        run: |
+          python3.11 -m venv .hardware-cert-venv
+          .hardware-cert-venv/bin/pip install -r backend/requirements.txt -r ops/hardware_certification/requirements.txt
+          .hardware-cert-venv/bin/python -c "import importlib.metadata as m; assert m.version('pytest') == '9.0.3'"
 
       - name: Install native EDU audit tools
         run: brew install gitleaks hadolint 2>/dev/null || true
@@ -64,6 +70,7 @@ jobs:
       - name: Run deterministic EDU gate
         env:
           EDU_BROWSER_PYTHON: python3.11
+          HARDWARE_PYTHON: .hardware-cert-venv/bin/python
         run: make test-edu-readiness PYTHON=python3.11
 
   # Exact-image release candidate gate. Builds the checked-out Dockerfile,
@@ -149,6 +156,40 @@ jobs:
         with:
           name: odin-edu-sandbox-${{ github.run_id }}
           path: artifacts/edu-sandbox/**
+          if-no-files-found: error
+          retention-days: 14
+
+  hardware-certification-replay:
+    name: Hardware Certification Replay Gate
+    runs-on: mac-mini-runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Homebrew to PATH
+        run: echo "$HOME/homebrew/bin:/opt/homebrew/bin" | tr ':' '\n' >> $GITHUB_PATH
+
+      - name: Install hardware certification dependencies
+        run: |
+          command -v openssl
+          python3.11 -m venv .hardware-cert-venv
+          .hardware-cert-venv/bin/pip install -r backend/requirements.txt -r ops/hardware_certification/requirements.txt
+          .hardware-cert-venv/bin/python -c "import importlib.metadata as m; assert m.version('pytest') == '9.0.3'"
+
+      - name: Run four-protocol loopback certification
+        run: make test-hardware-certification HARDWARE_PYTHON=.hardware-cert-venv/bin/python
+
+      - name: Independently verify replay evidence
+        run: |
+          run_dir="$(find artifacts/hardware-certification -mindepth 1 -maxdepth 1 -type d ! -name '.*' | sort | tail -1)"
+          test -n "$run_dir"
+          .hardware-cert-venv/bin/python -m ops.hardware_certification verify-artifact "$run_dir" --mode replay
+
+      - name: Upload simulated replay evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odin-hardware-certification-${{ github.run_id }}
+          path: artifacts/hardware-certification/**
           if-no-files-found: error
           retention-days: 14
 

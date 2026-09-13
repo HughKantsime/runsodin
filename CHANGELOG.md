@@ -11,6 +11,12 @@ migration of the 10 `BambuPrinter` callsites to V2 behind an
 
 ### Added
 
+- `ops/hardware_certification/` — fail-closed Education hardware
+  certification for Bambu, Elegoo, Moonraker, and PrusaLink with isolated
+  loopback replay, protected passive observation, one-time exact-action active
+  authorization, strict evidence verification, privacy scanning, and clickable
+  HTML reports. The 241-test replay suite cannot satisfy live-device gates;
+  physical evidence and the Telemetry V2 soak remain blocked until performed.
 - `backend/modules/printers/telemetry/` — V2 pipeline (Pydantic raw
   models, pure state-machine `transition()`, HMS code catalog + lookup,
   UnmappedFieldObserver, replay, live-shadow parity gate, demo engine,

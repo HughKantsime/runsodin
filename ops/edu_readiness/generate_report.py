@@ -135,12 +135,12 @@ def _hardware_table(results: dict[str, dict]) -> str:
         live = results.get(f"hardware_{protocol_id}_live", {})
         rows.append(
             "<tr>"
-            f"<td>{_escape(protocol_id)}</td><td>{_escape(protocol.get('transport', 'unknown'))}</td>"
-            f"<td>{_escape(protocol.get('fixture_replay', 'unknown'))}</td>"
-            f"<td>{_escape(protocol.get('parser_state', 'unknown'))}</td>"
-            f"<td>{_escape(protocol.get('command_contract', 'unknown'))}</td>"
-            f"<td>{_escape(protocol.get('read_only_probe', 'unknown'))}</td>"
-            f"<td>{_escape(protocol.get('real_device', 'unknown'))}</td>"
+            f"<td>{_escape(protocol_id)}</td><td>{_escape(protocol.get('passive_transport', 'unknown'))}</td>"
+            f"<td>{_escape(protocol.get('replay', 'unknown'))}</td>"
+            f"<td>{_escape(protocol.get('parser', 'unknown'))}</td>"
+            f"<td>{_escape(', '.join(protocol.get('exercise', [])))}</td>"
+            f"<td>{_escape(protocol.get('observe', 'unknown'))}</td>"
+            f"<td>{_escape(protocol.get('physical_evidence', 'unknown'))}</td>"
             f"<td>{_status_badge(live.get('status', 'blocked'))}</td></tr>"
         )
     return "".join(rows) or '<tr><td colspan="8">No compatibility manifest was found.</td></tr>'
@@ -219,7 +219,7 @@ h1{{margin:0 0 4px}}h2{{margin-top:0}}.lede{{color:var(--muted)}}.overall{{font-
 <section><h2>API and WebSocket load</h2>{_load_table(results.get('api_load', {}))}</section>
 <section><h2>Compiled-browser privacy lifecycle</h2><p>{privacy_browser_passed} of {len(privacy_browser_results)} browser lifecycle cases passed. Covered flows are fresh login, reload, legacy-storage bootstrap, logout, session expiry, erasure, and post-erasure protected navigation; checks inspect local/session storage, Cache Storage, and IndexedDB.</p></section>
 <section><h2>Accessibility evidence</h2><p>{_escape(accessibility_note)}</p><p>{_escape(accessibility_findings)}</p><p>Automated accessibility checks are a release baseline, not a substitute for manual keyboard, screen-reader, zoom/reflow, cognitive, or assistive-technology conformance testing.</p></section>
-<section><h2>Hardware protocol compatibility</h2><div class="table-wrap"><table><thead><tr><th>Protocol</th><th>Transport</th><th>Fixture</th><th>Parser</th><th>Command contract</th><th>Read-only probe</th><th>Physical evidence</th><th>Live row</th></tr></thead><tbody>{_hardware_table(results)}</tbody></table></div></section>
+<section><h2>Hardware protocol compatibility</h2><div class="table-wrap"><table><thead><tr><th>Protocol</th><th>Passive transport</th><th>Replay</th><th>Parser</th><th>Authorized exercise</th><th>Observe</th><th>Physical evidence</th><th>Live row</th></tr></thead><tbody>{_hardware_table(results)}</tbody></table></div></section>
 <section><h2>All gate evidence</h2><div class="table-wrap"><table><thead><tr><th>Gate</th><th>Status</th><th>Executed</th><th>Findings</th></tr></thead><tbody>{_gate_rows(results)}</tbody></table></div></section>
 <section><h2>Primary legal and accessibility sources</h2><p>Dates below are repository attestation dates; live fetch dates appear only when the live source gate successfully records them. The DOJ Title II source records the applicable April 26, 2027 and April 26, 2028 compliance dates.</p><ul>{_source_items(results)}</ul></section>
 <section><h2>Scope and limitations</h2><ul>

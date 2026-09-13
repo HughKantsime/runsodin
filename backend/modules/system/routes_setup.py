@@ -309,18 +309,9 @@ def setup_test_printer(
         try:
             r = httpx_client.get(f"http://{request.api_host}/api/version", timeout=5)  # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host -- verified safe — admin-gated by require_role and SSRF-checked by _check_ssrf_blocklist (or setup-locked)
             if r.status_code == 200:
-                info = r.json()
-                detected_model = None
-                try:
-                    from modules.printers.printer_models import normalize_model_name
-                    printer_field = info.get("printer", None)
-                    if isinstance(printer_field, dict): raw_type = printer_field.get("type", "") or ""
-                    elif isinstance(printer_field, str): raw_type = printer_field
-                    else: raw_type = ""
-                    detected_model = normalize_model_name("prusalink", raw_type)
-                except Exception:
-                    detected_model = None
-                return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": detected_model}
+                # Official PrusaLink Version schema defines `printer` as a
+                # software-version string, not a hardware-model identifier.
+                return {"success": True, "state": "connected", "bed_temp": 0, "nozzle_temp": 0, "ams_slots": 0, "model": None}
             return {"success": False, "error": f"PrusaLink returned HTTP {r.status_code}"}
         except Exception as e:
             log.warning("Setup PrusaLink test-connection failed: %s", e)

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "git_commit", "generated_at", "prerequisites"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "git_commit": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "prerequisites": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["live_status", "pause_resume_stop", "ams_sync", "dispatch", "database_alert_transitions", "seven_day_staging_soak"],
+      "properties": {
+        "live_status": {"$ref": "#/$defs/prerequisite"},
+        "pause_resume_stop": {"$ref": "#/$defs/prerequisite"},
+        "ams_sync": {"$ref": "#/$defs/prerequisite"},
+        "dispatch": {"$ref": "#/$defs/prerequisite"},
+        "database_alert_transitions": {"$ref": "#/$defs/prerequisite"},
+        "seven_day_staging_soak": {"$ref": "#/$defs/prerequisite"}
+      }
+    }
+  },
+  "$defs": {
+    "prerequisite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source_artifact_sha256"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "blocked"]},
+        "source_artifact_sha256": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            {"type": "null"}
+          ]
+        }
+      }
+    }
+  }
+}

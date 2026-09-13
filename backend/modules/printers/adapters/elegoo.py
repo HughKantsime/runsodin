@@ -52,6 +52,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Callable
 from enum import IntEnum
 
+from modules.printers.parsing.elegoo import parse_status as parse_elegoo_status
+
 log = logging.getLogger(__name__)
 
 
@@ -287,70 +289,14 @@ class ElegooPrinter:
         """Parse sdcp/status message into ElegooStatus."""
         with self._status_lock:
             status = self._latest_status
-            status.connected = True
-            status.raw_data = data
-
-            status.mainboard_id = data.get("MainboardID", status.mainboard_id)
-
-            s = data.get("Status", {})
-            if not s:
-                # Some firmware nests under Data.Status
-                s = data.get("Data", {}).get("Status", {})
-            if not s:
+            parsed = parse_elegoo_status(data)
+            if not parsed:
                 return
-
-            # Current status code
-            cs = s.get("CurrentStatus", [0])
-            status.current_status = cs[0] if isinstance(cs, list) else cs
-
-            # Temperatures
-            status.bed_temp = s.get("TempOfHotbed", 0.0)
-            status.nozzle_temp = s.get("TempOfNozzle", 0.0)
-            status.box_temp = s.get("TempOfBox", 0.0)
-            status.bed_target = s.get("TempTargetHotbed", 0.0)
-            status.nozzle_target = s.get("TempTargetNozzle", 0.0)
-            status.box_target = s.get("TempTargetBox", 0.0)
-
-            # Fan speeds
-            fans = s.get("CurrentFanSpeed", {})
-            status.model_fan = fans.get("ModelFan", 0)
-            status.auxiliary_fan = fans.get("AuxiliaryFan", 0)
-            status.box_fan = fans.get("BoxFan", 0)
-
-            # Print info
-            pi = s.get("PrintInfo", {})
-            if pi:
-                status.print_status = pi.get("Status", 0)
-                status.current_layer = pi.get("CurrentLayer", 0)
-                status.total_layers = pi.get("TotalLayer", 0)
-                status.current_ticks = pi.get("CurrentTicks", 0)
-                status.total_ticks = pi.get("TotalTicks", 0)
-                status.filename = pi.get("Filename", "")
-                status.progress_percent = pi.get("Progress", 0.0)
-
-                # Calculate remaining time
-                if status.total_ticks > 0 and status.current_ticks > 0:
-                    status.time_remaining = max(0, status.total_ticks - status.current_ticks)
-                else:
-                    status.time_remaining = 0
-
-            # Map to O.D.I.N. internal state
-            if status.print_status == SDCPPrintStatus.PRINTING or status.current_status == SDCPCurrentStatus.PRINTING:
-                status.internal_state = "PRINTING"
-            elif status.print_status in (SDCPPrintStatus.PAUSED, SDCPPrintStatus.PAUSING):
-                status.internal_state = "PAUSED"
-            elif status.print_status == SDCPPrintStatus.COMPLETE:
-                status.internal_state = "FINISHED"
-            elif status.print_status == SDCPPrintStatus.STOPPING:
-                status.internal_state = "STOPPING"
-            elif status.current_status == SDCPCurrentStatus.HEATING:
-                status.internal_state = "HEATING"
-            elif status.current_status == SDCPCurrentStatus.HOMING:
-                status.internal_state = "HOMING"
-            elif status.current_status == SDCPCurrentStatus.LEVELING:
-                status.internal_state = "LEVELING"
-            else:
-                status.internal_state = "IDLE"
+            for name, value in parsed.items():
+                if name == "mainboard_id" and not value:
+                    continue
+                if hasattr(status, name):
+                    setattr(status, name, value)
 
         # Invoke callback if registered
         if self._on_status_callback:

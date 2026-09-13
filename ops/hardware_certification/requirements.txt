@@ -1,0 +1,2 @@
+# Exact test-runner dependency for deterministic replay/JUnit behavior.
+pytest==9.0.3

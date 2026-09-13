@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import socket
 import ssl
-import threading
 import time
 import urllib.request
+import subprocess
 from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -20,10 +19,17 @@ try:
 except ImportError:
     from common import utc_now, write_result
 
-try:
-    from .hardware_probe import PassiveMqttTransport, PassiveWebSocketTransport, ReadOnlyHttpTransport
-except ImportError:
-    from hardware_probe import PassiveMqttTransport, PassiveWebSocketTransport, ReadOnlyHttpTransport
+from ops.hardware_certification.evidence import (
+    EvidenceError, EvidenceExpired, import_live_gate, verify_artifact,
+)
+from ops.hardware_certification.security import load_protected_json
+from jsonschema import Draft202012Validator
+
+
+IDENTITY_SCHEMA = (
+    Path(__file__).resolve().parents[1]
+    / "hardware_certification" / "schemas" / "identity-expectations.schema.json"
+)
 
 
 def result(run_id: str, gate_id: str, status: str, started: float, findings: list[str], metrics: dict) -> dict:
@@ -135,90 +141,79 @@ def validate_elegoo_passive_frame(frame: str) -> str:
 
 
 def _probe_hardware(gate_id: str, endpoint: str) -> tuple[str, list[str], dict]:
-    """Perform one configured passive/read-only protocol observation."""
-    started = time.perf_counter()
+    """Retired compatibility entry point; it never reads credentials or connects."""
+    return (
+        "blocked",
+        ["legacy one-shot hardware probe is retired; use ops.hardware_certification observe"],
+        {"certification_level": "none", "endpoint_ignored": bool(endpoint), "gate_id_ignored": bool(gate_id)},
+    )
+
+
+def _identity_expectations(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None:
+        return {}
+    payload = load_protected_json(path)
+    schema = json.loads(IDENTITY_SCHEMA.read_text(encoding="utf-8"))
+    if list(Draft202012Validator(schema).iter_errors(payload)):
+        raise EvidenceError("hardware identity expectations are invalid")
+    return payload["protocols"]
+
+
+def hardware_rows(
+    run_id: str, run_dir: Path, evidence_dir: Path | None = None,
+    identity_file: Path | None = None,
+) -> None:
+    """Import verified physical artifacts; never infer permission from environment."""
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "--short", "HEAD"], text=True,
+        cwd=Path(__file__).resolve().parents[2],
+    ).strip()
     try:
-        if gate_id == "hardware_moonraker_live":
-            transport = ReadOnlyHttpTransport(endpoint, "moonraker")
-            server = transport.get("/server/info")
-            printer = transport.get("/printer/info")
-            objects = transport.get("/printer/objects/list")
-            transport.get("/printer/objects/query?print_stats")
-            metrics = {
-                "latency_ms": round((time.perf_counter() - started) * 1000, 2),
-                "api_version_observed": bool(server.get("result")),
-                "printer_info_observed": bool(printer.get("result")),
-                "object_list_observed": bool(objects.get("result")),
-            }
-        elif gate_id == "hardware_prusalink_live":
-            transport = ReadOnlyHttpTransport(endpoint, "prusalink")
-            observations = [transport.get(path) for path in ("/api/version", "/api/v1/status", "/api/printer", "/api/job")]
-            metrics = {
-                "latency_ms": round((time.perf_counter() - started) * 1000, 2),
-                "responses_observed": sum(isinstance(item, dict) for item in observations),
-            }
-        elif gate_id == "hardware_elegoo_live":
-            import websocket
-
-            url = endpoint if endpoint.startswith("ws://") else f"ws://{endpoint}:3030/websocket"  # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- Elegoo firmware certification protocol is LAN-only ws://
-            socket_client = websocket.create_connection(url, timeout=10)
-            transport = PassiveWebSocketTransport(socket_client)
-            try:
-                frame = transport.receive()
-            finally:
-                transport.close()
-            frame_type = validate_elegoo_passive_frame(frame)
-            metrics = {
-                "latency_ms": round((time.perf_counter() - started) * 1000, 2),
-                "passive_frame_observed": True,
-                "passive_frame_type": frame_type,
-            }
-        elif gate_id == "hardware_bambu_live":
-            import paho.mqtt.client as mqtt
-
-            device = os.environ.get("EDU_BAMBU_CERT_DEVICE_TOKEN")
-            access_code = os.environ.get("EDU_BAMBU_CERT_ACCESS_CODE")
-            if not device or not access_code:
-                return "blocked", ["Bambu passive topic token and access code are not configured"], {"endpoint_configured": True}
-            observed = threading.Event()
-            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-            client.username_pw_set("bblp", access_code)
-            client.tls_set()
-            client.on_message = lambda *_args: observed.set()
-            transport = PassiveMqttTransport(client, device)
-            try:
-                transport.connect(endpoint, 8883)
-                transport.subscribe(f"device/{device}/report")
-                client.loop_start()
-                if not observed.wait(10):
-                    return "blocked", ["no passive Bambu telemetry received"], {"endpoint_configured": True}
-            finally:
-                client.loop_stop()
-                transport.disconnect()
-            metrics = {"latency_ms": round((time.perf_counter() - started) * 1000, 2), "passive_report_observed": True}
-        else:
-            raise ValueError("unknown hardware gate")
-        return "pass", [], metrics
-    except (TimeoutError, OSError, ConnectionError) as exc:
-        return "blocked", [f"passive observation unavailable ({type(exc).__name__})"], {"endpoint_configured": True}
-    except Exception as exc:
-        return "fail", [f"passive observation failed ({type(exc).__name__})"], {"endpoint_configured": True}
-
-
-def hardware_rows(run_id: str, run_dir: Path) -> None:
-    env_names = {
-        "hardware_bambu_live": "EDU_BAMBU_CERT_HOST",
-        "hardware_moonraker_live": "EDU_MOONRAKER_CERT_URL",
-        "hardware_prusalink_live": "EDU_PRUSALINK_CERT_URL",
-        "hardware_elegoo_live": "EDU_ELEGOO_CERT_HOST",
-    }
-    for gate_id, env_name in env_names.items():
+        expectations = _identity_expectations(identity_file)
+    except (EvidenceError, OSError, ValueError):
+        expectations = {}
+        identity_input_invalid = True
+    else:
+        identity_input_invalid = False
+    for protocol in ("bambu", "moonraker", "prusalink", "elegoo"):
+        gate_id = f"hardware_{protocol}_live"
         started = time.perf_counter()
-        endpoint = os.environ.get(env_name)
-        if endpoint:
-            status, findings, metrics = _probe_hardware(gate_id, endpoint)
+        artifact_dir = evidence_dir / protocol if evidence_dir else None
+        if artifact_dir is None or not artifact_dir.is_dir():
+            status = "blocked"
+            findings = ["verified physical certification artifact is not configured"]
+            metrics = {"certification_level": "none", "valid_sample_count": 0}
         else:
-            status, findings, metrics = "blocked", [f"{env_name} is not configured"], {"endpoint_configured": False}
+            try:
+                expected_identity = expectations.get(protocol)
+                if identity_input_invalid or expected_identity is None:
+                    raise EvidenceError("current hardware identity expectation is required")
+                manifest, results = verify_artifact(
+                    artifact_dir, expected_mode="observe",
+                    expected_protocol=protocol,
+                    expected_model_family=expected_identity["model_family"],
+                    expected_firmware_version=expected_identity["firmware_version"],
+                    expected_api_version=expected_identity["api_version"],
+                )
+                protocol_result = results.get(protocol)
+                if protocol_result is None:
+                    raise EvidenceError("matching protocol result is missing")
+                imported = import_live_gate(
+                    manifest, expected_protocol=protocol, expected_commit=commit,
+                    result=protocol_result,
+                    source_manifest_sha256=hashlib.sha256((artifact_dir / "manifest.json").read_bytes()).hexdigest(),
+                )
+                status = imported["status"]
+                metrics = imported["metrics"]
+                findings = imported["findings"]
+            except EvidenceExpired:
+                status = "blocked"
+                findings = ["physical certification artifact expired and must be recaptured"]
+                metrics = {"certification_level": "expired", "valid_sample_count": 0}
+            except EvidenceError as exc:
+                status = "fail"
+                findings = [f"physical certification artifact rejected ({type(exc).__name__})"]
+                metrics = {"certification_level": "invalid", "valid_sample_count": 0}
         write_result(run_dir, result(run_id, gate_id, status, started, findings, metrics))
 
 
@@ -228,11 +223,18 @@ def main() -> int:
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--hostname", default="odin.subsystem.app")
     parser.add_argument("--sources", type=Path, default=Path("ops/edu_readiness/legal_sources.json"))
+    parser.add_argument("--hardware-evidence-dir", type=Path)
+    parser.add_argument("--hardware-identity-file", type=Path)
     args = parser.parse_args()
+    if bool(args.hardware_evidence_dir) != bool(args.hardware_identity_file):
+        parser.error("hardware evidence import requires both --hardware-evidence-dir and --hardware-identity-file")
     args.run_dir.mkdir(parents=True, exist_ok=True)
     tls_ok = verify_tls(args.run_id, args.run_dir, args.hostname)
     sources_ok = verify_sources(args.run_id, args.run_dir, args.sources)
-    hardware_rows(args.run_id, args.run_dir)
+    hardware_rows(
+        args.run_id, args.run_dir, args.hardware_evidence_dir,
+        args.hardware_identity_file,
+    )
     write_result(args.run_dir, result(
         args.run_id, "manual_legal_contract", "blocked", time.perf_counter(),
         ["school DPA/terms, breach notice, deletion certification, and W-9 acceptance require human approval"],

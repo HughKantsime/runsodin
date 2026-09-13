@@ -6,6 +6,7 @@ __pycache__/
 .Python
 venv/
 .venv*/
+.hardware-cert-venv/
 .env
 
 # Node
@@ -153,6 +154,7 @@ stress-out/
 artifacts/edu-readiness/
 artifacts/candidate-gate/
 artifacts/database-parity/
+artifacts/hardware-certification/
 .odin-pg-restore.*
 .odin-db-parity.*
 .odin-edu-sandboxes/

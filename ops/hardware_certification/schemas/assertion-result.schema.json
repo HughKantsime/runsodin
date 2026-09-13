@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runsodin.com/schemas/hardware-certification/assertion-result-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "status", "reason_code", "duration_ms"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "status": {
+      "enum": ["pass", "fail", "blocked"]
+    },
+    "reason_code": {
+      "enum": [
+        "action_failed", "capability_shape_invalid", "configured_model_bound",
+        "insufficient_samples", "malformed_or_unavailable", "malformed_telemetry", "mapped",
+        "model_family_mismatch", "observed", "passive_protocol_rejected",
+        "passive_samples_unavailable", "passive_transport_unavailable",
+        "payload_size_invalid", "read_only", "sample_freshness_invalid",
+        "strict_suite_failed", "strict_suite_passed", "transition_observed",
+        "unexpected_failure", "model_identity_unavailable", "target_identity_mismatch",
+        "device_version_mismatch", "unsupported_protocol"
+      ]
+    },
+    "duration_ms": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

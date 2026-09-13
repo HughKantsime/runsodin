@@ -2,8 +2,9 @@
 
 The `telemetry-v2-cutover_20260417` track shipped all 10 BambuPrinter
 callsite migrations + a full `BambuCommandAdapter` + `BambuV2StatusView`
-+ session helpers. V2 is ready. The remaining work requires operator
-decisions, not more autonomous code commits.
++ session helpers. The V2 code path is implemented, but it is not yet
+EDU- or production-ready. The remaining cutover work requires real-device
+evidence and operator-controlled staging validation.
 
 ## Current state
 
@@ -21,6 +22,14 @@ decisions, not more autonomous code commits.
 - **Hardware evidence:** not yet captured in this repo. Do not flip
   production by default and do not delete legacy paths until a real
   Bambu printer validates the checklist below.
+- **Certification tooling:** `python3.11 -m ops.hardware_certification`
+  now provides loopback replay, passive observation, one-time authorized
+  exercise, verified artifacts, and an evidence-linked
+  `telemetry-prerequisites` map. Replay evidence never satisfies this
+  checklist. Observe and exercise artifacts must prove the same target and
+  model. An `ams_read` exercise alone does not prove application slot
+  synchronization; AMS, database/alert transitions, and the seven-day
+  staging soak remain blocked until those paths are observed on staging.
 - **Legacy files** (`adapters/bambu.py`, `monitors/mqtt_printer.py`,
   `monitors/mqtt_telemetry.py`) still exist as fallback — cannot be
   deleted while legacy branches reference them.

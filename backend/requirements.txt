@@ -21,9 +21,15 @@ pydantic-settings==2.7.1
 
 # HTTP client (Moonraker, webhooks)
 httpx==0.28.1
+requests==2.33.1
 
 # MQTT (Bambu printers)
 paho-mqtt==2.1.0
+websockets==15.0.1
+websocket-client==1.9.2
+
+# Hardware certification schemas
+jsonschema==4.25.1
 
 # .3mf parsing
 lxml==6.1.0  # CVE-2026-41066 — XXE/local-file-read; 6.1.0 defaults parsers to resolve_entities='internal'

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runsodin.com/schemas/hardware-certification/target-config-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "protocol", "target_alias", "model_family", "evidence_correlation_key", "connection"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocol": {"enum": ["bambu", "elegoo", "moonraker", "prusalink"]},
+    "target_alias": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._ -]+$"},
+    "model_family": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._+ -]+$"},
+    "evidence_correlation_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "connection": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"protocol": {"const": "bambu"}}}, "then": {"properties": {"connection": {"type": "object", "additionalProperties": false, "required": ["host", "port", "device_token", "access_code"], "properties": {"host": {"type": "string", "minLength": 1, "maxLength": 253}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "ftps_port": {"type": "integer", "minimum": 1, "maximum": 65535}, "device_token": {"type": "string", "minLength": 1, "maxLength": 128}, "access_code": {"type": "string", "minLength": 1, "maxLength": 128}}}}}},
+    {"if": {"properties": {"protocol": {"const": "elegoo"}}}, "then": {"properties": {"connection": {"type": "object", "additionalProperties": false, "required": ["host", "port"], "properties": {"host": {"type": "string", "minLength": 1, "maxLength": 253}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "mainboard_id": {"type": "string", "minLength": 1, "maxLength": 128}}}}}},
+    {"if": {"properties": {"protocol": {"const": "moonraker"}}}, "then": {"properties": {"connection": {"type": "object", "additionalProperties": false, "required": ["host", "port"], "properties": {"host": {"type": "string", "minLength": 1, "maxLength": 253}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "api_key": {"type": "string", "minLength": 1, "maxLength": 256}, "tls": {"type": "boolean"}}}}}},
+    {"if": {"properties": {"protocol": {"const": "prusalink"}}}, "then": {"properties": {"connection": {"type": "object", "additionalProperties": false, "required": ["host", "port"], "properties": {"host": {"type": "string", "minLength": 1, "maxLength": 253}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "api_key": {"type": "string", "minLength": 1, "maxLength": 256}, "username": {"type": "string", "minLength": 1, "maxLength": 64}, "password": {"type": "string", "minLength": 1, "maxLength": 256}, "tls": {"type": "boolean"}}, "oneOf": [{"required": ["api_key"]}, {"required": ["username", "password"]}]}}}}
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://runsodin.com/schemas/hardware-certification/authorization-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "nonce", "challenge", "expires_at", "run_id", "target_config_sha256", "protocol", "target_alias", "authorization_state", "operator_confirmation", "operator_name", "physical_area_clear", "disposable_job_confirmed", "emergency_stop_ready", "actions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "nonce": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "challenge": {"type": "string", "pattern": "^[0-9a-f]{24}$"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "run_id": {"type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7,12}$"},
+    "target_config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "protocol": {"enum": ["bambu", "elegoo", "moonraker", "prusalink"]},
+    "target_alias": {"type": "string", "minLength": 1, "maxLength": 64},
+    "authorization_state": {"enum": ["DRAFT", "AUTHORIZED"]},
+    "operator_confirmation": {"type": "string", "maxLength": 24},
+    "operator_name": {"type": "string", "maxLength": 80},
+    "physical_area_clear": {"type": "boolean"},
+    "disposable_job_confirmed": {"type": "boolean"},
+    "emergency_stop_ready": {"type": "boolean"},
+    "test_asset_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "elegoo_filename_salt": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "elegoo_filename_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "actions": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["name", "approved"], "properties": {"name": {"enum": ["upload", "start", "upload_start", "pause", "resume", "stop", "cancel", "ams_read"]}, "approved": {"type": "boolean"}}}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"protocol": {"const": "bambu"}}, "required": ["protocol"]},
+      "then": {"properties": {"actions": {"items": {"properties": {"name": {"enum": ["upload", "start", "pause", "resume", "stop", "ams_read"]}}}}}}
+    },
+    {
+      "if": {"properties": {"protocol": {"const": "elegoo"}}, "required": ["protocol"]},
+      "then": {"properties": {"actions": {"items": {"properties": {"name": {"enum": ["pause", "resume", "stop"]}}}}}}
+    },
+    {
+      "if": {"properties": {"protocol": {"const": "moonraker"}}, "required": ["protocol"]},
+      "then": {"properties": {"actions": {"items": {"properties": {"name": {"enum": ["upload", "start", "pause", "resume", "cancel"]}}}}}}
+    },
+    {
+      "if": {"properties": {"protocol": {"const": "prusalink"}}, "required": ["protocol"]},
+      "then": {"properties": {"actions": {"items": {"properties": {"name": {"enum": ["upload_start", "pause", "resume", "stop"]}}}}}}
+    }
+  ]
+}

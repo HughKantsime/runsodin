@@ -1,41 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "claim_boundary": "Replay is code-controlled proof only; live EDU gates require fresh verified observe evidence.",
+  "artifact_expiry_days": 30,
   "protocols": [
-    {
-      "id": "bambu",
-      "transport": "TLS MQTT passive subscription",
-      "fixture_replay": "covered",
-      "parser_state": "covered",
-      "command_contract": "mocked",
-      "read_only_probe": "implemented",
-      "real_device": "blocked_until_recorded"
-    },
-    {
-      "id": "moonraker",
-      "transport": "HTTP GET allowlist",
-      "fixture_replay": "covered",
-      "parser_state": "covered",
-      "command_contract": "mocked",
-      "read_only_probe": "implemented",
-      "real_device": "blocked_until_recorded"
-    },
-    {
-      "id": "prusalink",
-      "transport": "HTTP GET allowlist",
-      "fixture_replay": "covered",
-      "parser_state": "covered",
-      "command_contract": "mocked",
-      "read_only_probe": "implemented",
-      "real_device": "blocked_until_recorded"
-    },
-    {
-      "id": "elegoo",
-      "transport": "passive WebSocket receive",
-      "fixture_replay": "covered",
-      "parser_state": "covered",
-      "command_contract": "mocked",
-      "read_only_probe": "implemented",
-      "real_device": "blocked_until_recorded"
-    }
+    {"id": "bambu", "passive_transport": "peer-pinned TLS MQTT report subscription", "parser": "Telemetry V2 raw model and canonical transition", "replay": "implemented", "observe": "implemented_not_executed", "exercise": ["upload", "start", "pause", "resume", "stop", "ams_read"], "physical_evidence": "blocked_until_recorded"},
+    {"id": "moonraker", "passive_transport": "peer-pinned HTTP(S) exact GET allowlist", "parser": "shared production Moonraker facade", "replay": "implemented", "observe": "implemented_not_executed", "exercise": ["upload", "start", "pause", "resume", "cancel"], "physical_evidence": "blocked_until_recorded"},
+    {"id": "prusalink", "passive_transport": "peer-pinned HTTP(S) exact GET allowlist", "parser": "shared production PrusaLink facade", "replay": "implemented", "observe": "implemented_not_executed", "exercise": ["upload_start", "pause", "resume", "stop"], "physical_evidence": "blocked_until_recorded"},
+    {"id": "elegoo", "passive_transport": "peer-pinned unsolicited WebSocket receive", "parser": "shared production Elegoo facade", "replay": "implemented", "observe": "implemented_not_executed", "exercise": ["pause", "resume", "stop"], "physical_evidence": "blocked_until_recorded"}
   ]
 }

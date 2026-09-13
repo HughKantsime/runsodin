@@ -1,6 +1,5 @@
 import inspect
 import json
-import sys
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -9,6 +8,7 @@ import pytest
 from modules.printers.adapters.elegoo import ElegooPrinter
 from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
 from modules.printers.adapters.prusalink import PrusaLinkPrinter, PrusaLinkState
+from modules.printers.parsing.prusalink import parse_legacy_status
 from ops.edu_readiness.hardware_probe import (
     CertificationMutationBlocked,
     PassiveMqttTransport,
@@ -47,13 +47,17 @@ def test_http_transport_enforces_exact_get_allowlists(monkeypatch):
     class Response:
         def __enter__(self): return self
         def __exit__(self, *_args): return None
-        def read(self): return b'{"ok": true}'
+        def read(self, _limit=None): return b'{"ok": true}'
+        headers = SimpleNamespace(get_content_type=lambda: "application/json")
 
     def fake_open(request, timeout):
         observed.append((request.get_method(), request.full_url, timeout))
         return Response()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    monkeypatch.setattr(
+        "ops.hardware_certification.passive.transports._open_no_redirect",
+        fake_open,
+    )
     moon = ReadOnlyHttpTransport("http://printer.test", "moonraker")
     assert moon.get("/server/info") == {"ok": True}
     assert moon.get("/printer/objects/query?heater_bed&extruder") == {"ok": True}
@@ -62,10 +66,8 @@ def test_http_transport_enforces_exact_get_allowlists(monkeypatch):
     assert all(method == "GET" for method, _, _ in observed)
 
     for call in (
-        lambda: moon.post("/printer/print/start"),
         lambda: moon.get("/printer/gcode/script?script=HOME"),
         lambda: moon.get("/printer/objects/query?configfile"),
-        lambda: prusa.put("/api/v1/job/1/pause"),
         lambda: prusa.get("/api/files"),
     ):
         with pytest.raises(CertificationMutationBlocked):
@@ -77,15 +79,33 @@ def test_mqtt_and_websocket_wrappers_cannot_send():
     mqtt = PassiveMqttTransport(network, "REDACTED")
     mqtt.connect("printer.test", 8883)
     mqtt.subscribe("device/REDACTED/report")
-    with pytest.raises(CertificationMutationBlocked):
-        mqtt.publish("device/REDACTED/request", "pushall")
+    assert not hasattr(mqtt, "publish")
     with pytest.raises(CertificationMutationBlocked):
         mqtt.subscribe("device/REDACTED/request")
 
     websocket = PassiveWebSocketTransport(network)
     assert websocket.receive() == "synthetic-status"
-    with pytest.raises(CertificationMutationBlocked):
-        websocket.send_json({"Cmd": 128})
+    assert not any(hasattr(websocket, name) for name in ("send", "send_text", "send_bytes", "send_json"))
+
+
+def test_passive_http_capabilities_have_no_mutation_or_raw_connection_surface():
+    for transport in (
+        ReadOnlyHttpTransport("http://printer.test", "moonraker"),
+        ReadOnlyHttpTransport("http://printer.test", "prusalink"),
+    ):
+        assert not any(
+            hasattr(transport, name)
+            for name in ("post", "put", "patch", "delete", "head", "request", "_connection")
+        )
+
+
+def test_prusalink_legacy_unknown_flags_remain_offline_and_ready_is_explicit():
+    unknown = parse_legacy_status({"state": {"flags": {"future": True}}}, {})
+    assert unknown["state"] == "DISCONNECTED"
+    assert unknown["internal_state"] == "OFFLINE"
+    ready = parse_legacy_status({"state": {"flags": {"operational": True}}}, {})
+    assert ready["state"] == "IDLE"
+    assert ready["internal_state"] == "IDLE"
 
 
 def test_elegoo_passive_frame_requires_unsolicited_telemetry_topic():
@@ -97,28 +117,13 @@ def test_elegoo_passive_frame_requires_unsolicited_telemetry_topic():
         verify_live.validate_elegoo_passive_frame("not-json")
 
 
-def test_elegoo_live_probe_rejects_arbitrary_json(monkeypatch):
-    class FakeSocket:
-        def recv(self):
-            return '{"ok": true}'
-
-        def close(self):
-            return None
-
-        def send(self, *_args, **_kwargs):
-            pytest.fail("read-only certification probe attempted to send")
-
-    monkeypatch.setitem(
-        sys.modules,
-        "websocket",
-        SimpleNamespace(create_connection=lambda *_args, **_kwargs: FakeSocket()),
-    )
+def test_legacy_live_probe_is_retired_without_network_or_credentials():
     status, findings, metrics = verify_live._probe_hardware(
         "hardware_elegoo_live", "printer.test"
     )
-    assert status == "fail"
-    assert findings == ["passive observation failed (ValueError)"]
-    assert metrics == {"endpoint_configured": True}
+    assert status == "blocked"
+    assert "retired" in findings[0]
+    assert metrics["certification_level"] == "none"
 
 
 def test_protocol_fixtures_drive_real_parsers(monkeypatch):
@@ -182,34 +187,8 @@ def test_report_redaction_and_no_raw_socket_surface():
     assert "sendto(" not in source
 
 
-@pytest.mark.parametrize(
-    "gate_id,expected_paths",
-    [
-        (
-            "hardware_moonraker_live",
-            ["/server/info", "/printer/info", "/printer/objects/list", "/printer/objects/query?print_stats"],
-        ),
-        (
-            "hardware_prusalink_live",
-            ["/api/version", "/api/v1/status", "/api/printer", "/api/job"],
-        ),
-    ],
-)
-def test_configured_http_live_probe_executes_only_allowlisted_gets(monkeypatch, gate_id, expected_paths):
-    calls = []
-
-    class FakeReadOnlyTransport:
-        def __init__(self, endpoint, protocol):
-            assert endpoint == "http://printer.test"
-            assert protocol in {"moonraker", "prusalink"}
-
-        def get(self, path):
-            calls.append(path)
-            return {"result": {"synthetic": True}}
-
-    monkeypatch.setattr(verify_live, "ReadOnlyHttpTransport", FakeReadOnlyTransport)
-    status, findings, metrics = verify_live._probe_hardware(gate_id, "http://printer.test")
-    assert status == "pass"
-    assert findings == []
-    assert calls == expected_paths
-    assert metrics["latency_ms"] >= 0
+@pytest.mark.parametrize("gate_id", ["hardware_moonraker_live", "hardware_prusalink_live"])
+def test_legacy_http_probe_does_not_execute_network(gate_id):
+    status, findings, _metrics = verify_live._probe_hardware(gate_id, "http://printer.test")
+    assert status == "blocked"
+    assert "ops.hardware_certification observe" in findings[0]

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ODIN Hardware Certification Runbook</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0f14;--card:#141b24;--border:#314052;--text:#eef5fc;--blue:#72c7ff;--amber:#ffd166;--green:#75e0a0}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top right,#14263b,var(--bg) 38%);color:var(--text);font:16px/1.55 system-ui,sans-serif}
+    main{max-width:1040px;margin:auto;padding:48px 24px 80px;overflow:hidden}h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.05;margin:.25rem 0}h2{margin-top:0}p{max-width:78ch}.eyebrow{color:var(--blue);font-weight:800;letter-spacing:.12em;text-transform:uppercase}.warning{border-left:4px solid var(--amber);padding:14px 18px;background:#2a2415;color:#ffe6a3;border-radius:8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px;margin:24px 0}.card,section{min-width:0;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;margin:18px 0;box-shadow:0 16px 40px #0004}.num{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#183955;color:var(--blue);font-weight:900}code{color:#b9e2ff}pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;background:#080b10;border:1px solid #283443;border-radius:10px;padding:16px}pre code{white-space:inherit}table{width:100%;table-layout:fixed;border-collapse:collapse}caption{position:absolute;clip:rect(0 0 0 0);clip-path:inset(50%);width:1px;height:1px;overflow:hidden;white-space:nowrap}th,td{text-align:left;padding:11px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}th{color:var(--blue)}.blocked{color:var(--amber);font-weight:800}.safe{color:var(--green);font-weight:800}@media(max-width:520px){main{padding:28px 12px 56px}.card,section{padding:16px}}
+  </style>
+</head>
+<body><main>
+  <p class="eyebrow">ODIN · Education readiness</p>
+  <h1>Hardware certification runbook</h1>
+  <p>Operator workflow for Bambu, Moonraker, PrusaLink, and Elegoo. Replay, passive observation, and authorized exercise are deliberately separate claims.</p>
+  <p class="warning"><strong>Current state:</strong> no physical-device evidence is recorded. All four EDU live-hardware gates remain <span class="blocked">BLOCKED</span>. A simulated replay can never clear them.</p>
+  <div class="grid">
+    <div class="card"><span class="num">1</span><h2>Replay</h2><p class="safe">Loopback only.</p><p>Proves protocol, parser, failure, redaction, and authorization contracts.</p></div>
+    <div class="card"><span class="num">2</span><h2>Observe</h2><p>Two receive/GET-only samples from one reviewed private target. No command or upload surface.</p></div>
+    <div class="card"><span class="num">3</span><h2>Exercise</h2><p>Consumes a 15-minute, mode-0600, exact-action authorization before connection.</p></div>
+  </div>
+  <section><h2>1 · Replay</h2><pre><code>make test-hardware-certification</code></pre><p>Open the printed artifact and confirm it says <strong>SIMULATED REPLAY ONLY</strong>.</p></section>
+  <section><h2>2 · Protect one target</h2><p>Keep its JSON outside the repository and artifact tree. It must be current-user-owned, nonsymlink, mode 0400 or 0600, and use one private-resolving host.</p><p>Run <code>openssl rand -hex 32</code> once per target and store the result as <code>evidence_correlation_key</code>. Reuse it only to prove that observe and exercise evidence concern the same target; rotate it to break that relationship. It is not a hardware identifier, and evidence retains only its domain-separated SHA-256.</p><pre><code>{"schema_version":1,"protocol":"bambu","target_alias":"lab-1",
+"model_family":"X1","evidence_correlation_key":"REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS",
+"connection":{"host":"PRIVATE_ADDRESS","port":8883,
+"ftps_port":990,"device_token":"REPLACE","access_code":"REPLACE"}}</code></pre></section>
+  <section><h2>3 · Passive observation</h2><pre><code>python3.11 -m ops.hardware_certification observe \
+  --target-config /secure/operator/path/target.json</code></pre><p>Evidence excludes endpoints, credentials, hardware IDs, topics, raw payloads, and filenames. Model identity must be device-reported; failed observations retain <code>unknown</code>, not the configured expectation. Elegoo identity comes from a separate unsolicited attributes frame correlated with two status frames. Moonraker and PrusaLink's documented allowlisted APIs do not expose printer model identity—PrusaLink's <code>/api/version.printer</code> is a software version—so both currently fail closed with <code>model_identity_unavailable</code>.</p></section>
+  <section><h2>4 · Default-deny authorization</h2><p>Use only <code>.3mf</code> for Bambu and <code>.gcode</code> for Moonraker or PrusaLink. PrusaLink <code>.bgcode</code> is not yet certified and is rejected.</p><pre><code>python3.11 -m ops.hardware_certification authorize-template \
+  --target-config /secure/operator/path/target.json \
+  --actions upload,start,pause,resume,stop \
+  --asset /secure/operator/path/disposable.3mf \
+  --output /secure/operator/path/authorization.json</code></pre><p>The operator must copy the challenge, affirm all three safety checks, and approve every action. Elegoo uses <code>--elegoo-filename</code> and retains only its salted hash.</p></section>
+  <section><h2>5 · Authorized exercise</h2><pre><code>python3.11 -m ops.hardware_certification exercise \
+  --target-config /secure/operator/path/target.json \
+  --authorization /secure/operator/path/authorization.json \
+  --ledger /secure/operator/path/used-nonces \
+  --asset /secure/operator/path/disposable.3mf</code></pre><p>The worker stops on the first receipt, state, or same-run identity mismatch. Setup, execution, cleanup, or interrupt failures after authorization consumption publish sanitized failure evidence.</p></section>
+  <section><h2>6 · Verify identity and import</h2><pre><code>python3.11 -m ops.hardware_certification verify-artifact /secure/operator/path/bambu-observe --mode observe --protocol bambu --model-family X1C --firmware-version 01.08.00.00 --api-version unknown
+
+make verify-edu-live HARDWARE_EVIDENCE_DIR=/secure/operator/path/verified-hardware HARDWARE_IDENTITY_FILE=/secure/operator/path/current-identities.json</code></pre><p>Verification derives the current ODIN HEAD itself and has no caller override. Import also requires a separate protected mode-0600 identity file with current model, firmware, and API expectations for every supplied protocol. Only clean observe artifacts from the current commit and implementation that match those expectations populate live rows. Any age or identity drift becomes BLOCKED pending recapture.</p></section>
+  <section><h2>7 · Telemetry V2 handoff</h2><pre><code>python3.11 -m ops.hardware_certification telemetry-prerequisites \
+  --observe-artifact /secure/operator/path/bambu-observe \
+  --exercise-artifact /secure/operator/path/bambu-exercise \
+  --output /secure/operator/path/telemetry_v2_prerequisites.json</code></pre><p>Only same-target, same-model live status, commands, and dispatch can map to pass. AMS remains blocked until ODIN's actual Telemetry V2 slot-synchronization path is directly observed; an <code>ams_read</code> action alone is insufficient. Database/alert transitions and the seven-day soak also remain blocked. No flag is changed.</p></section>
+  <section><h2>Protocol surface</h2><table><caption>Supported passive observation and active exercise actions by printer family</caption><thead><tr><th>Family</th><th>Observe</th><th>Exercise</th></tr></thead><tbody>
+    <tr><td>Bambu</td><td>TLS MQTT report</td><td>Upload/start/pause/resume/stop; AMS read does not certify app synchronization</td></tr>
+    <tr><td>Moonraker</td><td>Exact GET allowlist; live model identity unavailable</td><td>Upload/start/pause/resume/cancel</td></tr>
+    <tr><td>PrusaLink</td><td>Status + job GETs; live model identity unavailable</td><td>Atomic upload-start/pause/resume/stop</td></tr>
+    <tr><td>Elegoo</td><td>Correlated unsolicited attributes + status receive</td><td>Pause/resume/stop preauthorized job</td></tr>
+  </tbody></table></section>
+</main></body></html>

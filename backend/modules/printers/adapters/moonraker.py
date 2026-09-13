@@ -39,6 +39,8 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlencode
 
+from modules.printers.parsing.moonraker import parse_status as parse_moonraker_status
+
 log = logging.getLogger("moonraker_adapter")
 
 
@@ -52,6 +54,7 @@ class MoonrakerState(str, Enum):
     STARTUP = "startup"
     SHUTDOWN = "shutdown"
     DISCONNECTED = "disconnected"
+    UNKNOWN = "unknown"
 
 
 # Map Moonraker states to our internal states used by the dashboard/monitor
@@ -64,6 +67,7 @@ MOONRAKER_TO_INTERNAL_STATE = {
     MoonrakerState.STARTUP: "IDLE",
     MoonrakerState.SHUTDOWN: "IDLE",
     MoonrakerState.DISCONNECTED: "OFFLINE",
+    MoonrakerState.UNKNOWN: "UNKNOWN",
 }
 
 
@@ -264,8 +268,6 @@ class MoonrakerPrinter:
         status.device_type = self._device_type
         status.webcam_stream_url = self._webcam_stream
         status.webcam_snapshot_url = self._webcam_snapshot
-        
-        # Query all objects we care about in one request
         objects = [
             "heater_bed",
             "extruder",
@@ -282,112 +284,30 @@ class MoonrakerPrinter:
         objects.extend(self._temperature_sensors)
         objects.extend(self._filament_sensors)
         query = "&".join(objects)
-        
         try:
             data = self._get(f"/printer/objects/query?{query}")
             if not data or "result" not in data:
-                status.state = MoonrakerState.DISCONNECTED
-                status.internal_state = "OFFLINE"
                 return status
-            
             result = data["result"]["status"]
-            status.raw_data = result
-            
-            # Temperatures
-            bed = result.get("heater_bed", {})
-            status.bed_temp = bed.get("temperature", 0.0)
-            status.bed_target = bed.get("target", 0.0)
-            
-            extruder = result.get("extruder", {})
-            status.nozzle_temp = extruder.get("temperature", 0.0)
-            status.nozzle_target = extruder.get("target", 0.0)
-            
-            # Print stats
-            ps = result.get("print_stats", {})
-            status.filename = ps.get("filename", "")
-            status.print_duration = ps.get("print_duration", 0.0)
-            status.filament_used_mm = ps.get("filament_used", 0.0)
-            
-            layer_info = ps.get("info", {})
-            status.current_layer = layer_info.get("current_layer", 0)
-            status.total_layers = layer_info.get("total_layer", 0)
-            
-            # Progress from virtual_sdcard (more reliable than display_status)
-            vsd = result.get("virtual_sdcard", {})
-            if vsd:
-                status.progress_percent = round(vsd.get("progress", 0.0) * 100, 1)
-            
-            # State mapping
-            print_state = ps.get("state", "standby").lower()
-            idle_state = result.get("idle_timeout", {}).get("state", "").lower()
-            
-            if print_state == "printing":
-                status.state = MoonrakerState.PRINTING
-            elif print_state == "paused":
-                status.state = MoonrakerState.PAUSED
-            elif print_state == "error":
-                status.state = MoonrakerState.ERROR
-            elif print_state in ("standby", "complete", "cancelled"):
-                status.state = MoonrakerState.READY
-            else:
-                status.state = MoonrakerState.STANDBY
-            
-            status.internal_state = MOONRAKER_TO_INTERNAL_STATE.get(
-                status.state, "IDLE"
+            parsed = parse_moonraker_status(
+                result,
+                temperature_sensors=self._temperature_sensors,
+                environment_sensors=self._env_sensors,
+                filament_sensors=self._filament_sensors,
             )
-            
-            # MMU / ACE filament slots
+            for name, value in parsed.items():
+                if name == "state":
+                    status.state = MoonrakerState(value)
+                elif hasattr(status, name):
+                    setattr(status, name, value)
             mmu = result.get("mmu", {})
             if mmu and mmu.get("enabled"):
                 status.filament_slots = self._parse_mmu_slots(mmu)
-
-            # Fan speed (Klipper reports 0.0-1.0, convert to 0-100)
-            fan_data = result.get("fan", {})
-            if fan_data:
-                status.fan_speed = round(fan_data.get("speed", 0.0) * 100)
-
-            # Speed / extrusion factors
-            gcode_move = result.get("gcode_move", {})
-            if gcode_move:
-                status.speed_factor = gcode_move.get("speed_factor", 1.0)
-                status.extrude_factor = gcode_move.get("extrude_factor", 1.0)
-
-            # Nozzle diameter (cached on connect)
             status.nozzle_diameter = self._nozzle_diameter
-
-            # Error message from webhooks
-            webhooks = result.get("webhooks", {})
-            if webhooks:
-                status.error_message = webhooks.get("state_message", "")
-
-            # Temperature sensors (chamber + environment)
-            for sensor_name in self._temperature_sensors:
-                sensor_data = result.get(sensor_name, {})
-                if sensor_data:
-                    temp = sensor_data.get("temperature")
-                    if temp is not None:
-                        short_name = sensor_name.split(" ", 1)[1] if " " in sensor_name else sensor_name
-                        # First chamber-like sensor becomes chamber_temp
-                        if status.chamber_temp is None and any(
-                            kw in short_name.lower() for kw in ("chamber", "enclosure")
-                        ):
-                            status.chamber_temp = round(temp, 1)
-                        # All env sensors go into environment_sensors dict
-                        if sensor_name in self._env_sensors:
-                            status.environment_sensors[short_name] = round(temp, 1)
-
-            # Filament sensor(s)
-            for sensor_name in self._filament_sensors:
-                sensor_data = result.get(sensor_name, {})
-                if sensor_data and "filament_detected" in sensor_data:
-                    status.filament_detected = sensor_data["filament_detected"]
-                    break  # Use first sensor found
-
         except Exception as e:
             log.error(f"Failed to get status from {self.host}: {e}")
             status.state = MoonrakerState.DISCONNECTED
             status.internal_state = "OFFLINE"
-        
         return status
     
     def _parse_mmu_slots(self, mmu: Dict) -> List[MoonrakerFilamentSlot]:

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "summary", "assertion_count"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "summary": {"enum": ["sanitized_protocol_result", "sanitized_replay_summary"]},
+    "assertion_count": {"type": "integer", "minimum": 1},
+    "protocol_case_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bambu", "elegoo", "moonraker", "prusalink"],
+      "properties": {
+        "bambu": {"type": "integer", "minimum": 1},
+        "elegoo": {"type": "integer", "minimum": 1},
+        "moonraker": {"type": "integer", "minimum": 1},
+        "prusalink": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

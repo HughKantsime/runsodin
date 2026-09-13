@@ -34,10 +34,10 @@ _BAMBU_MODELS = {
 }
 
 # ---------------------------------------------------------------------------
-# PrusaLink: `printer` field from GET /api/version -> friendly names
-# Source: PrusaLink OpenAPI spec (github.com/prusa3d/Prusa-Link-Web)
-# The /api/version response includes a "printer" object with a "type" field,
-# or sometimes a top-level "printer" string key depending on firmware version.
+# PrusaLink: known hardware model codes -> friendly names.
+# Do not feed GET /api/version's `printer` field into this map: the official
+# PrusaLink schema defines that field as a printer software-version string,
+# not hardware identity. Callers must already have a documented model code.
 # ---------------------------------------------------------------------------
 _PRUSALINK_MODELS = {
     "MK4S": "MK4S",
