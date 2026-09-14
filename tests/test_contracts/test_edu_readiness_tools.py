@@ -39,11 +39,10 @@ def _result(gate_id: str, status: str = "pass", executed: int = 1) -> dict:
     }
 
 
-def test_makefile_freezes_one_default_readiness_run_id_per_invocation():
+def test_makefile_uses_one_overridable_readiness_run_id_per_invocation():
     source = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "EDU_RUN_ID := $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)" in source
-    assert "EDU_RUN_DIR := artifacts/edu-readiness/$(EDU_RUN_ID)" in source
-    assert "EDU_RUN_ID ?=" not in source
+    assert "EDU_RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)" in source
+    assert "EDU_RUN_DIR ?= artifacts/edu-readiness/$(EDU_RUN_ID)" in source
 
 
 def test_passing_result_cannot_hide_zero_or_skipped_checks():

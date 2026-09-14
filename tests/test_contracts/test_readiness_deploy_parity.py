@@ -59,30 +59,29 @@ def test_distributed_compose_and_shell_installer_support_guarded_candidate_image
 
 
 def test_install_smoke_builds_and_verifies_the_candidate_image() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "install-smoke.yml").read_text(encoding="utf-8")
-    assert "docker build" in workflow
-    assert "ODIN_COMPOSE_SOURCE=/install/docker-compose.yml" in workflow
-    assert "ODIN_UPDATE_SOURCE=/install/update.sh" in workflow
-    assert "ODIN_SKIP_IMAGE_PULL=1" in workflow
-    assert "/health/ready" in workflow
-    assert "docker inspect odin" in workflow
-    assert "docker image inspect" in workflow
-    assert "--add-host=host.docker.internal:host-gateway" in workflow
-    assert "ODIN_READINESS_URL=http://host.docker.internal:8000/health/ready" in workflow
-    pull_request_paths = workflow.split("workflow_dispatch:", 1)[0]
-    assert "- 'Dockerfile'" in pull_request_paths
+    smoke = (ROOT / "ops" / "release_control" / "installer_smoke.py").read_text(encoding="utf-8")
+    overlay = (ROOT / "install" / "docker-compose.test.yml").read_text(encoding="utf-8")
+    assert '"docker", "build"' in smoke
+    assert '"ODIN_COMPOSE_SOURCE"' in smoke
+    assert '"ODIN_UPDATE_SOURCE"' in smoke
+    assert '"ODIN_SKIP_IMAGE_PULL": "1"' in smoke
+    assert "actual_image != expected_image" in smoke
+    assert "record_owned(resources)" in smoke
+    assert "cleanup_owned(resources, records)" in smoke
+    assert "com.runsodin.install-smoke" in overlay
 
 
 def test_installers_wait_for_ready_true() -> None:
     shell = (ROOT / "install" / "install.sh").read_text(encoding="utf-8")
     powershell = (ROOT / "install" / "install.ps1").read_text(encoding="utf-8")
     assert (
-        'ODIN_READINESS_URL="${ODIN_READINESS_URL:-http://localhost:8000/health/ready}"'
+        'ODIN_READINESS_URL="${ODIN_READINESS_URL:-http://localhost:${ODIN_HTTP_PORT}/health/ready}"'
         in shell
     )
     assert 'curl -sf "${ODIN_READINESS_URL}"' in shell
+    assert 'http://127.0.0.1:${ODIN_HTTP_PORT}/health/ready' in shell
+    assert 'http://localhost:$HttpPort/health/ready' in powershell
     for source in (shell, powershell):
-        assert "http://localhost:8000/health/ready" in source
         assert '"ready"' in source or "ready" in source
 
 
@@ -90,7 +89,7 @@ def test_installers_fail_closed_when_readiness_is_not_confirmed() -> None:
     shell = (ROOT / "install" / "install.sh").read_text(encoding="utf-8")
     powershell = (ROOT / "install" / "install.ps1").read_text(encoding="utf-8")
 
-    assert 'die "API readiness was not confirmed on localhost:8000"' in shell
+    assert 'die "API readiness was not confirmed on localhost:${ODIN_HTTP_PORT}"' in shell
     assert 'Stop-WithError "O.D.I.N. readiness was not confirmed within ${maxAttempts}s"' in powershell
 
 

@@ -244,16 +244,16 @@ def test_candidate_preflight_rejects_preexisting_docker_resources(monkeypatch, e
 def test_candidate_make_and_ci_wiring_is_release_blocking():
     repo = Path(__file__).parents[2]
     makefile = (repo / "Makefile").read_text(encoding="utf-8")
-    workflow = (repo / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = (repo / ".github" / "workflows" / "trusted-validation.yml").read_text(encoding="utf-8")
+    inventory = (repo / "ops" / "release_control" / "inventory.json").read_text(encoding="utf-8")
     gitignore = (repo / ".gitignore").read_text(encoding="utf-8")
 
     assert "test-candidate:" in makefile
     assert "$(CANDIDATE_PYTHON) -m ops.release_gate.runner" in makefile
-    assert "candidate-full-stack:" in workflow
-    assert "runs-on: mac-mini-runner" in workflow
-    assert "make test-candidate CANDIDATE_PYTHON=python3.11" in workflow
+    assert "runs-on: [self-hosted, odin-isolated]" in workflow
+    assert '"make","test-candidate","CANDIDATE_PYTHON=python3.11"' in inventory
     assert "if: always()" in workflow
-    assert "artifacts/candidate-gate/**" in workflow
+    assert "make trusted-validation-gate PYTHON=python3.11" in workflow
     assert "docker push" not in workflow
     assert "artifacts/candidate-gate/" in gitignore
     requirements = (repo / "tests" / "requirements-test.txt").read_text(encoding="utf-8")

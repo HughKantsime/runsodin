@@ -11,6 +11,10 @@ migration of the 10 `BambuPrinter` callsites to V2 behind an
 
 ### Added
 
+- Local release-control foundation: manual-only trusted validation, strict
+  structured gate evidence, isolated installer/update smoke resources, and
+  one-to-one preservation of ten existing CI validation areas. This does not
+  claim remote runner installation, image publication, or production rollout.
 - `ops/hardware_certification/` — fail-closed Education hardware
   certification for Bambu, Elegoo, Moonraker, and PrusaLink with isolated
   loopback replay, protected passive observation, one-time exact-action active
@@ -51,6 +55,12 @@ Default behavior is unchanged until the operator flips to `1`:
 - `backend/modules/printers/adapters/bambu.py` — emits a
   `DeprecationWarning` on import. Scheduled for deletion per
   `backend/modules/printers/telemetry/CUTOVER.md`.
+
+### Changed — release entry points
+
+- `ops/bump-version.sh` now updates version files and creates a local commit
+  only. It rejects publish flags, creates no tag, and performs no network write.
+- `make release` fails closed until the reviewed promotion workflow exists.
 
 ### Operator action remaining
 

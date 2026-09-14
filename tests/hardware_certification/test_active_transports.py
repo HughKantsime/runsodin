@@ -297,10 +297,9 @@ def test_hardware_runtime_dependencies_are_exactly_pinned():
     makefile = Path("Makefile").read_text(encoding="utf-8")
     assert "HARDWARE_PYTHON ?=" in makefile
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=backend:. $(HARDWARE_PYTHON)" in makefile
-    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
-    assert workflow.count("python3.11 -m venv .hardware-cert-venv") == 2
-    assert "make test-hardware-certification HARDWARE_PYTHON=.hardware-cert-venv/bin/python" in workflow
-    assert "HARDWARE_PYTHON: .hardware-cert-venv/bin/python" in workflow
+    inventory = Path("ops/release_control/inventory.json").read_text(encoding="utf-8")
+    assert '"make","test-hardware-certification","HARDWARE_PYTHON=.hardware-cert-venv/bin/python"' in inventory
+    assert '"name":"hardware-certification"' in inventory
     assert ".hardware-cert-venv/" in Path(".gitignore").read_text(encoding="utf-8").splitlines()
     subprocess.run(
         ["git", "check-ignore", "-q", ".hardware-cert-venv/cleanliness-probe"],

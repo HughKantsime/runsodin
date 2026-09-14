@@ -7,10 +7,17 @@ if [ -n "${ODIN_IMAGE+x}" ]; then
 else
     ODIN_IMAGE_EXPLICIT=0
 fi
+if [ -n "${ODIN_COMPOSE_PROJECT+x}" ]; then ODIN_COMPOSE_PROJECT_EXPLICIT=1; else ODIN_COMPOSE_PROJECT_EXPLICIT=0; fi
+if [ -n "${ODIN_CONTAINER_NAME+x}" ]; then ODIN_CONTAINER_NAME_EXPLICIT=1; else ODIN_CONTAINER_NAME_EXPLICIT=0; fi
+if [ -n "${ODIN_HTTP_PORT+x}" ]; then ODIN_HTTP_PORT_EXPLICIT=1; else ODIN_HTTP_PORT_EXPLICIT=0; fi
 ODIN_IMAGE="${ODIN_IMAGE:-ghcr.io/hughkantsime/odin:latest}"
 ODIN_REPO="${ODIN_REPO:-https://raw.githubusercontent.com/HughKantsime/runsodin/master}"
 ODIN_UPDATE_SOURCE="${ODIN_UPDATE_SOURCE:-${ODIN_REPO}/install/update.sh}"
 ODIN_SKIP_IMAGE_PULL="${ODIN_SKIP_IMAGE_PULL:-0}"
+ODIN_INSTALL_TEST_MODE="${ODIN_INSTALL_TEST_MODE:-0}"
+ODIN_COMPOSE_PROJECT="${ODIN_COMPOSE_PROJECT:-odin}"
+ODIN_CONTAINER_NAME="${ODIN_CONTAINER_NAME:-odin}"
+ODIN_HTTP_PORT="${ODIN_HTTP_PORT:-8000}"
 FORCE=false
 
 for arg in "$@"; do
@@ -180,9 +187,42 @@ if [ "${ODIN_IMAGE_EXPLICIT}" = "0" ] && [ -f .env ]; then
     fi
 fi
 
+if [ -f .env ]; then
+    if [ "$ODIN_COMPOSE_PROJECT_EXPLICIT" = "0" ]; then
+        configured_project=$(grep -E '^ODIN_COMPOSE_PROJECT=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+        if [ -n "$configured_project" ]; then
+            case "$configured_project" in *[!a-z0-9_.-]*) die "Invalid ODIN_COMPOSE_PROJECT value in .env" ;; esac
+            ODIN_COMPOSE_PROJECT="$configured_project"
+        fi
+    fi
+    if [ "$ODIN_CONTAINER_NAME_EXPLICIT" = "0" ]; then
+        configured_container=$(grep -E '^ODIN_CONTAINER_NAME=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+        if [ -n "$configured_container" ]; then
+            case "$configured_container" in *[!a-zA-Z0-9_.-]*) die "Invalid ODIN_CONTAINER_NAME value in .env" ;; esac
+            ODIN_CONTAINER_NAME="$configured_container"
+        fi
+    fi
+    if [ "$ODIN_HTTP_PORT_EXPLICIT" = "0" ]; then
+        configured_http_port=$(grep -E '^ODIN_HTTP_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+        if [ -n "$configured_http_port" ]; then
+            case "$configured_http_port" in ''|*[!0-9]*) die "Invalid ODIN_HTTP_PORT value in .env" ;; esac
+            [ "$configured_http_port" -ge 1 ] && [ "$configured_http_port" -le 65535 ] || die "Invalid ODIN_HTTP_PORT value in .env"
+            ODIN_HTTP_PORT="$configured_http_port"
+        fi
+    fi
+fi
+
 START_TIME=$(date +%s)
 
 banner
+
+if docker compose version &>/dev/null; then
+    COMPOSE_CMD=(docker compose)
+elif command -v docker-compose &>/dev/null; then
+    COMPOSE_CMD=(docker-compose)
+else
+    die "Docker Compose not found" "Install Docker Compose and re-run the updater."
+fi
 
 # Verify we're in the right directory
 if [ ! -f docker-compose.yml ]; then
@@ -224,8 +264,8 @@ fi
 phase 1 $TOTAL "Checking current version"
 
 CURRENT_VERSION=""
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^odin$'; then
-    CURRENT_VERSION=$(docker exec odin cat /app/VERSION 2>/dev/null || echo "")
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$ODIN_CONTAINER_NAME"; then
+    CURRENT_VERSION=$(docker exec "$ODIN_CONTAINER_NAME" cat /app/VERSION 2>/dev/null || echo "")
 fi
 
 if [ -z "$CURRENT_VERSION" ]; then
@@ -294,7 +334,8 @@ ok "Pulled (${image_mb} MB)"
 
 phase 4 $TOTAL "Restarting O.D.I.N."
 
-compose_cmd=(docker compose)
+compose_cmd=("${COMPOSE_CMD[@]}" -p "$ODIN_COMPOSE_PROJECT" -f docker-compose.yml)
+[ "$ODIN_INSTALL_TEST_MODE" = "1" ] && compose_cmd+=(-f docker-compose.test.yml)
 [ -f .env ] && compose_cmd+=(--env-file .env)
 compose_cmd+=(up -d)
 
@@ -314,7 +355,7 @@ max_attempts=60
 
 spin_start "Waiting for health check..."
 while [ $attempts -lt $max_attempts ]; do
-    health=$(docker inspect --format='{{.State.Health.Status}}' odin 2>/dev/null || echo "starting")
+    health=$(docker inspect --format='{{.State.Health.Status}}' "$ODIN_CONTAINER_NAME" 2>/dev/null || echo "starting")
 
     if [ "$health" = "healthy" ]; then
         spin_stop
@@ -340,7 +381,7 @@ fi
 
 phase 6 $TOTAL "Verifying update"
 
-NEW_VERSION=$(docker exec odin cat /app/VERSION 2>/dev/null || echo "$LATEST_VERSION")
+NEW_VERSION=$(docker exec "$ODIN_CONTAINER_NAME" cat /app/VERSION 2>/dev/null || echo "$LATEST_VERSION")
 ok "Version: ${NEW_VERSION}"
 
 # ── Success ───────────────────────────────────────────────────────────────────
@@ -350,7 +391,7 @@ HOST_IP=$(detect_ip)
 
 draw_box "O.D.I.N. updated!" \
     "Version|${CURRENT_VERSION} → ${NEW_VERSION}" \
-    "URL|http://${HOST_IP}:8000" \
+    "URL|http://${HOST_IP}:${ODIN_HTTP_PORT}" \
     "Changelog|github.com/HughKantsime/runsodin/releases"
 
 printf "\n  ${DIM}Updated in %s seconds.${RESET}\n\n" "$ELAPSED"

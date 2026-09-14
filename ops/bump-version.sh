@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
-# bump-version.sh — Bump version, commit, tag, and optionally push
+# bump-version.sh — Bump version files and create one local commit
 #
 # Usage:
-#   ./ops/bump-version.sh 1.0.29            # bump + commit + tag (no push)
-#   ./ops/bump-version.sh 1.0.29 --push     # bump + commit + tag + push
+#   ./ops/bump-version.sh 1.9.13            # bump + local commit only
 #   ./ops/bump-version.sh                    # show current version
 #
-# This script ensures the version bump commit is created BEFORE
-# the git tag, so the Docker image always contains the correct
-# VERSION file.
+# Publication, tagging, pushing, and deployment are intentionally owned by the
+# reviewed promotion workflow, not by a developer-side helper.
 # ============================================================
 set -euo pipefail
 
@@ -32,32 +30,27 @@ ok()   { echo -e "${GREEN}✓${NC} $1"; }
 die()  { echo -e "${RED}✗ $1${NC}"; exit 1; }
 step() { echo -e "\n${CYAN}${BOLD}▶ $1${NC}"; }
 
-DO_PUSH=false
-
-# Parse args
-for arg in "$@"; do
-    case "$arg" in
-        --push) DO_PUSH=true ;;
-    esac
-done
-
-# Get version argument (first non-flag arg)
-VERSION=""
-for arg in "$@"; do
-    case "$arg" in
-        --*) ;; # skip flags
-        *) VERSION="$arg"; break ;;
-    esac
-done
+if [ "$#" -gt 1 ]; then
+    [ "${2:-}" = "--push" ] && die "--push is disabled; use the reviewed promotion workflow"
+    die "Unknown argument: ${2:-}"
+fi
+if [ "${1:-}" = "--push" ]; then
+    die "--push is disabled; use the reviewed promotion workflow"
+fi
+case "${1:-}" in
+    --*) die "Unknown argument: $1" ;;
+esac
+VERSION="${1:-}"
 
 # If no version given, show current and exit
 if [ -z "$VERSION" ]; then
     CURRENT="$(cat "$REPO_ROOT/VERSION" | tr -d '[:space:]')"
     echo "Current version: $CURRENT"
     echo ""
-    echo "Usage: ./ops/bump-version.sh <new-version> [--push]"
+    echo "Usage: ./ops/bump-version.sh <new-version>"
     exit 0
 fi
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must use X.Y.Z numeric format"
 
 CURRENT="$(cat "$REPO_ROOT/VERSION" | tr -d '[:space:]')"
 echo -e "${BOLD}Bumping O.D.I.N. version: ${CURRENT} → ${VERSION}${NC}"
@@ -78,12 +71,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
     die "Working tree is dirty — commit or stash changes first"
 fi
 
-# Tag must not already exist
-if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-    die "Tag v${VERSION} already exists. Delete it first if re-releasing."
-fi
-
-ok "On branch ${BRANCH}, clean tree, tag v${VERSION} is available"
+ok "On branch ${BRANCH} with a clean tree"
 
 # --- Step 1: Update version files ---
 step "Updating version files"
@@ -116,10 +104,10 @@ else
     echo "  ⚠ node not found — skipping frontend/package.json and package-lock.json"
 fi
 
-# backend/main.py fallback version
+# backend/core/app.py fallback version
 sedi "s/__version__ = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/__version__ = \"$VERSION\"/" \
-    "$REPO_ROOT/backend/main.py"
-ok "backend/main.py fallback → $VERSION"
+    "$REPO_ROOT/backend/core/app.py"
+ok "backend/core/app.py fallback → $VERSION"
 
 # docker-compose.yml image tag
 GHCR_IMAGE="ghcr.io/hughkantsime/odin"
@@ -130,6 +118,10 @@ ok "docker-compose.yml → v$VERSION"
 sedi "s/ODIN_VERSION=\"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/ODIN_VERSION=\"$VERSION\"/" \
     "$REPO_ROOT/install/install.sh"
 ok "install/install.sh → $VERSION"
+
+sedi "s/\$ODIN_VERSION = \"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\"/\$ODIN_VERSION = \"$VERSION\"/" \
+    "$REPO_ROOT/install/install.ps1"
+ok "install/install.ps1 → $VERSION"
 
 # frontend/public/sw.js cache version
 sedi "s/const CACHE_NAME = 'odin-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'/const CACHE_NAME = 'odin-v$VERSION'/" \
@@ -149,31 +141,14 @@ fi
 # --- Step 2: Commit ---
 step "Creating version bump commit"
 
-git add VERSION frontend/package.json frontend/package-lock.json backend/main.py docker-compose.yml install/install.sh frontend/public/sw.js frontend/src/design-tokens.css design/
+git add VERSION frontend/package.json frontend/package-lock.json backend/core/app.py docker-compose.yml install/install.sh install/install.ps1 frontend/public/sw.js frontend/src/design-tokens.css design/
 git commit -m "release: bump version to $VERSION"
 ok "Committed: release: bump version to $VERSION"
 
-# --- Step 3: Tag (on the bump commit, not before it) ---
-step "Creating git tag"
-
-git tag "v${VERSION}"
-ok "Tagged: v${VERSION} → $(git rev-parse --short HEAD)"
-
-# --- Step 4: Push (optional) ---
-if [[ "$DO_PUSH" == true ]]; then
-    step "Pushing to origin"
-    git push origin "$BRANCH" "v${VERSION}"
-    ok "Pushed branch ${BRANCH} and tag v${VERSION}"
-else
-    echo ""
-    echo -e "${BOLD}Ready to push. Run:${NC}"
-    echo "  git push origin ${BRANCH} v${VERSION}"
-fi
-
 echo ""
-echo -e "${GREEN}${BOLD}✅ Version $VERSION is ready${NC}"
+echo -e "${GREEN}${BOLD}✅ Version $VERSION committed locally${NC}"
 echo ""
 echo "  VERSION file:     $VERSION"
-echo "  Git tag:          v${VERSION} → $(git rev-parse --short HEAD)"
-echo "  Docker workflow:  will trigger on push of tag v${VERSION}"
+echo "  Commit:           $(git rev-parse --short HEAD)"
+echo "  Next step:        reviewed promotion workflow"
 echo ""

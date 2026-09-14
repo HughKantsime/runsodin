@@ -14,9 +14,32 @@
 
 $ErrorActionPreference = "Stop"
 
-$ODIN_VERSION = "1.3.70"
-$ODIN_IMAGE = "ghcr.io/hughkantsime/odin:latest"
+$ODIN_VERSION = "1.9.12"
+$ODIN_IMAGE = if ($env:ODIN_IMAGE) { $env:ODIN_IMAGE } else { "ghcr.io/hughkantsime/odin:latest" }
 $ODIN_REPO = "https://raw.githubusercontent.com/HughKantsime/runsodin/master"
+$TestMode = $env:ODIN_INSTALL_TEST_MODE -eq '1'
+$ContainerName = if ($env:ODIN_CONTAINER_NAME) { $env:ODIN_CONTAINER_NAME } else { 'odin' }
+$ComposeProject = if ($env:ODIN_COMPOSE_PROJECT) { $env:ODIN_COMPOSE_PROJECT } else { 'odin' }
+$HttpPort = if ($env:ODIN_HTTP_PORT) { [int]$env:ODIN_HTTP_PORT } else { 8000 }
+$Go2rtcPort = if ($env:ODIN_GO2RTC_PORT) { [int]$env:ODIN_GO2RTC_PORT } else { 1984 }
+$WebrtcPort = if ($env:ODIN_WEBRTC_PORT) { [int]$env:ODIN_WEBRTC_PORT } else { 8555 }
+
+if ($TestMode) {
+    $required = @('ODIN_TEST_ROOT','ODIN_TEST_RUN_ID','ODIN_TEST_CONTAINER_NAME','ODIN_TEST_NETWORK_NAME','ODIN_TEST_VOLUME_NAME','ODIN_TEST_DATA_PATH','ODIN_TEST_HTTP_PORT','ODIN_TEST_GO2RTC_PORT','ODIN_TEST_WEBRTC_PORT','ODIN_TEST_COMPOSE_SOURCE','ODIN_INSTALL_DIR')
+    foreach ($name in $required) { if (-not [Environment]::GetEnvironmentVariable($name)) { throw "$name is required in test mode" } }
+    foreach ($value in @($env:ODIN_TEST_RUN_ID,$env:ODIN_COMPOSE_PROJECT,$env:ODIN_TEST_CONTAINER_NAME,$env:ODIN_TEST_NETWORK_NAME,$env:ODIN_TEST_VOLUME_NAME)) {
+        if ($value -notmatch '^[a-z0-9_.-]+$') { throw 'Invalid test resource name' }
+    }
+    $root = [IO.Path]::GetFullPath($env:ODIN_TEST_ROOT)
+    $install = [IO.Path]::GetFullPath($env:ODIN_INSTALL_DIR)
+    $data = [IO.Path]::GetFullPath($env:ODIN_TEST_DATA_PATH)
+    if (-not $install.StartsWith($root + [IO.Path]::DirectorySeparatorChar) -or -not $data.StartsWith($root + [IO.Path]::DirectorySeparatorChar)) { throw 'Test paths must be below ODIN_TEST_ROOT' }
+    $ports = @([int]$env:ODIN_TEST_HTTP_PORT,[int]$env:ODIN_TEST_GO2RTC_PORT,[int]$env:ODIN_TEST_WEBRTC_PORT)
+    if (($ports | Select-Object -Unique).Count -ne 3 -or ($ports | Where-Object { $_ -lt 1024 -or $_ -gt 65535 }).Count) { throw 'Invalid test ports' }
+    $ContainerName = $env:ODIN_TEST_CONTAINER_NAME
+    $ComposeProject = $env:ODIN_COMPOSE_PROJECT
+    $HttpPort,$Go2rtcPort,$WebrtcPort = $ports
+}
 
 # ── Display Helpers ──────────────────────────────────────────────────────────
 
@@ -174,7 +197,7 @@ if ($freeGB -lt 5) {
 
 # Port check
 $portFail = $false
-foreach ($port in @(8000, 1984, 8555)) {
+foreach ($port in @($HttpPort, $Go2rtcPort, $WebrtcPort)) {
     $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     if ($listener) {
         Write-Err "Port $port in use"
@@ -183,13 +206,13 @@ foreach ($port in @(8000, 1984, 8555)) {
 }
 if ($portFail) {
     Stop-WithError "Required ports are in use" `
-        "Free ports 8000, 1984, and 8555 and re-run the installer."
+        "Free ports $HttpPort, $Go2rtcPort, and $WebrtcPort and re-run the installer."
 }
-Write-Ok "Ports 8000, 1984, 8555 free"
+Write-Ok "Ports $HttpPort, $Go2rtcPort, $WebrtcPort free"
 
 # v1.8.8 — public-exposure check (PowerShell parity with install.sh).
 # Same logic: fetch public IP, attempt a TCP connect back to that IP
-# on 8000, refuse if reachable unless $env:FORCE_PUBLIC = '1'.
+# on the configured HTTP port, refuse if reachable unless $env:FORCE_PUBLIC = '1'.
 if ($env:ODIN_SKIP_PUBLIC_CHECK -ne '1') {
     $publicIp = $null
     foreach ($svc in @('https://api.ipify.org', 'https://ifconfig.me/ip')) {
@@ -206,7 +229,7 @@ if ($env:ODIN_SKIP_PUBLIC_CHECK -ne '1') {
         if ($publicIp -ne $hostIp) {
             $reachable = $false
             try {
-                $reachable = Test-NetConnection -ComputerName $publicIp -Port 8000 `
+                $reachable = Test-NetConnection -ComputerName $publicIp -Port $HttpPort `
                                 -InformationLevel Quiet -WarningAction SilentlyContinue
             } catch { }
             if ($reachable -and $env:FORCE_PUBLIC -ne '1') {
@@ -216,7 +239,7 @@ if ($env:ODIN_SKIP_PUBLIC_CHECK -ne '1') {
                 Write-Host "  ============================================================" -ForegroundColor Red
                 Write-Host ""
                 Write-Host "  This host appears reachable from the public internet on"
-                Write-Host "  port 8000 (public IP: $publicIp)."
+                Write-Host "  port $HttpPort (public IP: $publicIp)."
                 Write-Host ""
                 Write-Host "  ODIN uses a first-user-wins setup flow (same model as"
                 Write-Host "  WordPress / Ghost / Immich). Until you create an admin"
@@ -225,7 +248,7 @@ if ($env:ODIN_SKIP_PUBLIC_CHECK -ne '1') {
                 Write-Host ""
                 Write-Host "  Recommended:" -ForegroundColor Green
                 Write-Host "    * Bind ODIN to your LAN only via the docker-compose"
-                Write-Host "      port mapping (e.g. 192.168.x.y:8000:8000)."
+                Write-Host "      port mapping (e.g. 192.168.x.y:${HttpPort}:8000)."
                 Write-Host "    * Or put ODIN behind a private reverse proxy"
                 Write-Host "      (Tailscale, Cloudflare Tunnel, Wireguard)."
                 Write-Host ""
@@ -240,7 +263,7 @@ if ($env:ODIN_SKIP_PUBLIC_CHECK -ne '1') {
 }
 
 # Existing install check
-$InstallDir = if (Test-IsAdmin) { "C:\odin" } else { Join-Path $env:USERPROFILE "odin" }
+$InstallDir = if ($TestMode) { $env:ODIN_INSTALL_DIR } elseif (Test-IsAdmin) { "C:\odin" } else { Join-Path $env:USERPROFILE "odin" }
 $composePath = Join-Path $InstallDir "docker-compose.yml"
 
 if (Test-Path $composePath) {
@@ -301,8 +324,10 @@ try {
 
 # Adjust volume mount path for Windows
 $composeContent = Get-Content $composePath -Raw
-$composeContent = $composeContent -replace '\./odin-data:/data', "$InstallDir\odin-data:/data"
+$composeContent = $composeContent -replace '\$\{ODIN_DATA_PATH:-\./odin-data\}', "$InstallDir\odin-data"
+$composeContent = $composeContent -replace '\$\{ODIN_GO2RTC_DATA_PATH:-\./odin-data/go2rtc\}', "$InstallDir\odin-data\go2rtc"
 Set-Content -Path $composePath -Value $composeContent -NoNewline
+if ($TestMode) { Copy-Item $env:ODIN_TEST_COMPOSE_SOURCE (Join-Path $InstallDir 'docker-compose.test.yml') -Force }
 
 # ── Phase 5: Generate environment ────────────────────────────────────────────
 
@@ -313,7 +338,13 @@ $envContent = @"
 # O.D.I.N. Environment — generated by Windows installer
 ODIN_HOST_IP=$HostIP
 TZ=$tz
-CORS_ORIGINS=http://${HostIP}:8000,http://localhost:8000,http://localhost:3000
+CORS_ORIGINS=http://${HostIP}:$HttpPort,http://localhost:$HttpPort,http://localhost:3000
+ODIN_IMAGE=$ODIN_IMAGE
+ODIN_COMPOSE_PROJECT=$ComposeProject
+ODIN_CONTAINER_NAME=$ContainerName
+ODIN_HTTP_PORT=$HttpPort
+ODIN_GO2RTC_PORT=$Go2rtcPort
+ODIN_WEBRTC_PORT=$WebrtcPort
 "@
 
 Set-Content -Path $envPath -Value $envContent -NoNewline
@@ -338,7 +369,10 @@ try {
 Write-Phase 7 $TOTAL "Starting O.D.I.N."
 
 try {
-    $output = docker compose -f $composePath --env-file $envPath up -d 2>&1
+    $composeArgs = @('compose','-p',$ComposeProject,'-f',$composePath)
+    if ($TestMode) { $composeArgs += @('-f',(Join-Path $InstallDir 'docker-compose.test.yml')) }
+    $composeArgs += @('--env-file',$envPath,'up','-d')
+    $output = & docker @composeArgs 2>&1
     Write-Ok "Container started"
 } catch {
     Stop-WithError "Failed to start container" `
@@ -356,7 +390,7 @@ $healthy = $false
 
 while ($attempts -lt $maxAttempts) {
     try {
-        $resp = Invoke-RestMethod -Uri "http://localhost:8000/health/ready" -TimeoutSec 2 -ErrorAction SilentlyContinue
+        $resp = Invoke-RestMethod -Uri "http://localhost:$HttpPort/health/ready" -TimeoutSec 2 -ErrorAction SilentlyContinue
         if ($resp.ready -eq $true) {
             $healthy = $true
             break
@@ -372,7 +406,7 @@ while ($attempts -lt $maxAttempts) {
 
 if ($healthy) {
     Write-Ok "O.D.I.N. is healthy"
-    Write-Ok "API responding on port 8000"
+    Write-Ok "API responding on port $HttpPort"
 } else {
     Stop-WithError "O.D.I.N. readiness was not confirmed within ${maxAttempts}s" `
         "Check logs: docker compose -f $composePath logs" `
@@ -390,7 +424,7 @@ Write-Host "  ╔═════════════════════
 Write-Host "  ║  O.D.I.N. is ready!                      ║" -ForegroundColor Cyan
 Write-Host "  ╠══════════════════════════════════════════╣" -ForegroundColor Cyan
 Write-Host "  ║                                          ║" -ForegroundColor Cyan
-Write-Host "  ║  URL     http://${HostIP}:8000" -ForegroundColor Cyan -NoNewline
+Write-Host "  ║  URL     http://${HostIP}:$HttpPort" -ForegroundColor Cyan -NoNewline
 Write-Host "$(' ' * [math]::Max(0, 28 - $HostIP.Length))║" -ForegroundColor Cyan
 Write-Host "  ║  Setup   Create admin account in browser ║" -ForegroundColor Cyan
 Write-Host "  ║  Data    $InstallDir\odin-data\" -ForegroundColor Cyan -NoNewline
@@ -405,11 +439,11 @@ Write-Host "  Installed in $elapsed seconds." -ForegroundColor DarkGray
 
 # Firewall reminder
 Write-Host ""
-Write-Warn "Windows Firewall may block port 8000. If you can't access ODIN from other devices:"
-Write-Dim "Run as Administrator: netsh advfirewall firewall add rule name=`"ODIN`" dir=in action=allow protocol=tcp localport=8000"
+Write-Warn "Windows Firewall may block port $HttpPort. If you can't access ODIN from other devices:"
+Write-Dim "Run as Administrator: netsh advfirewall firewall add rule name=`"ODIN`" dir=in action=allow protocol=tcp localport=$HttpPort"
 Write-Host ""
 
 # Open browser
 try {
-    Start-Process "http://localhost:8000"
+    Start-Process "http://localhost:$HttpPort"
 } catch {}

@@ -55,7 +55,7 @@ These are the numbers at which a human is woken up. Anything noisier belongs in 
 
 | Surface | Page when | Source | Channel |
 |---|---|---|---|
-| `install-smoke` CI workflow | failure on `main` or any PR touching `install/**` or `backend/**` | GitHub Actions | GitHub email + ntfy on release pipeline |
+| installer-isolation gate | failure during manual trusted validation | GitHub Actions | retained trusted-validation evidence |
 | Real-world install completion | < 80% over rolling 7-day window | **NOT YET INSTRUMENTED** — installer is local-only with no phone-home | TBD (see child issue: "Decide install completion telemetry") |
 | GHCR pull count drop | > 50% week-over-week | GHCR metrics | none yet (manual dashboard) |
 | Support ticket spike with `install` keyword | > 3 in 24h | runsodin.com chatbot → GitHub Issues | GitHub email + ntfy |
@@ -81,7 +81,7 @@ These are the numbers at which a human is woken up. Anything noisier belongs in 
                     │   2. ntfy webhook → mobile push  │
                     └──────────────────────────────────┘
 
-  GitHub Actions ──► ntfy push (deploy.yml line 329 + verify-prod result)
+  GitHub Actions ──► retained validation artifact (notification wiring pending promotion spec)
 
   Vercel functions ─► Vercel dashboard alerts (TBD wiring)
                    └► /api/cron/close-tickets writes KV cron:close-tickets:last-run
@@ -100,8 +100,8 @@ These are the numbers at which a human is woken up. Anything noisier belongs in 
 
 | Check | Where it runs | What it catches |
 |---|---|---|
-| `install-smoke` workflow | GitHub Actions on PR | Installer breakage on clean Ubuntu — does **not** catch real-world install friction |
-| `verify-prod` workflow | GitHub Actions post-deploy | New `:latest` actually serves the expected version within 10 min |
+| installer-isolation gate | Manual trusted validation | Installer/update behavior with unique owned resources — does **not** catch real-world install friction |
+| production verification | Not installed yet | Owned by the later production-promotion spec |
 | `prod_verify_public.sh` | Same as above (no secrets) | Public `/health` reports the deployed version |
 | Kuma HTTP monitor on `/health` | Kuma instance | Continuous availability between deploys |
 | Kuma cert monitor | Kuma instance | TLS expiry warning ≥ 14d out |

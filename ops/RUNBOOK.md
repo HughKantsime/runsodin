@@ -13,14 +13,17 @@ has rough edges, say so; do not paper them over.
 ## 0. TL;DR — 90-second orientation
 
 O.D.I.N. is a single Docker container running FastAPI + supervisord-
-managed background workers against a local SQLite database. It pulls
-its image from the GitHub Container Registry and is restarted by
-Watchtower when a new `:latest` is pushed. Data lives in a mounted
-volume.
+managed background workers against a local SQLite database. Published
+images live in the GitHub Container Registry. Data lives in a mounted volume.
+
+> **Release-control migration:** this repository now contains only a manual,
+> non-publishing trusted-validation workflow. The reviewed publish and
+> production-promotion workflows are not installed yet. Do not treat a branch
+> push, version commit, or mutable image tag as a release action.
 
 ```
                   ┌──────────────────────┐
-  GitHub repo ──► │  CI: Deploy workflow │ ──► ghcr.io/hughkantsime/odin:latest
+  GitHub repo ──► │ Trusted validation   │ ──► signed evidence (no publish)
                   └──────────────────────┘
                                               │
                            Watchtower polls   ▼
@@ -45,7 +48,7 @@ volume.
 
 **What you need before operating:**
 - SSH access (or web console) to the Docker host
-- Access to the GitHub repo (for deploys)
+- Access to the GitHub repo (for reviewed candidate validation)
 - Admin account on the ODIN instance (for token minting, user mgmt)
 - An email inbox for failure alerts
 
@@ -75,27 +78,23 @@ volume.
 
 ## 2. Normal operations
 
-### 2.1 Deploy a new version
+### 2.1 Prepare and validate a candidate
 
 ```
-# On your laptop:
-git checkout main
-git pull
-# bump backend/VERSION (or run ops/bump-version.sh)
-git commit -am "release: vX.Y.Z"
-git push origin main
+./ops/bump-version.sh X.Y.Z
+# Creates a local commit only. Candidate-ref creation and remote dispatch are
+# owned by the later immutable-evidence workflow.
 ```
 
-GitHub Actions:
-1. **Validate Build** — frontend builds, backend deps install clean, design tokens in sync.
-2. **Auto-Tag Release** — creates `vX.Y.Z` git tag from `VERSION` file.
-3. **Build & Push Docker** — multi-arch image to `ghcr.io/hughkantsime/odin:latest` + `:vX.Y.Z`.
-4. **Create GitHub Release** — tag + auto-generated notes.
-5. **Sync odin-site** — triggers a downstream workflow in the marketing site repo.
-6. **Verify Prod** — polls `/health` for 10 minutes waiting for the version to appear live. **Blocks the workflow if prod doesn't update.**
-7. **Notify** — ntfy push with pass/fail status.
+Current GitHub Actions surface:
+1. **Trusted Validation** — manual dispatch only, exact owner and candidate ref/SHA.
+2. **Ten local gates** — release control, contracts, security, candidate, database
+   parity, EDU readiness, EDU sandbox, hardware replay, and both Telemetry V2 gates.
+3. **No release side effects** — no tag, image publication, downstream dispatch,
+   production write, or deployment is performed by this foundation.
 
-Expected end-to-end time: ~10 min from push to prod serving the new version.
+The later promotion runbook will replace this section when publishing and
+production promotion have been implemented and verified remotely.
 
 ### 2.2 Verify a deploy actually landed
 

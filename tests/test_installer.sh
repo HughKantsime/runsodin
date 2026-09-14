@@ -450,15 +450,15 @@ else
     fail "compose restart" "Missing restart policy"
 fi
 
-for port in 8000 1984 8555; do
-    if grep -q "\"$port:" "$compose_file"; then
-        pass "docker-compose.yml exposes port $port"
+for mapping in '${ODIN_HTTP_PORT:-8000}:8000' '${ODIN_GO2RTC_PORT:-1984}:1984' '${ODIN_WEBRTC_PORT:-8555}:8555'; do
+    if grep -Fq "$mapping" "$compose_file"; then
+        pass "docker-compose.yml exposes parameterized mapping $mapping"
     else
-        fail "compose port $port" "Port $port not exposed"
+        fail "compose port mapping" "Mapping $mapping not exposed"
     fi
 done
 
-if grep -q 'odin-data:/data' "$compose_file"; then
+if grep -Fq '${ODIN_DATA_PATH:-./odin-data}:/data' "$compose_file"; then
     pass "docker-compose.yml mounts data volume"
 else
     fail "compose volume" "Missing /data volume mount"

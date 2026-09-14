@@ -1,0 +1,75 @@
+name: Trusted Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Full 40-character candidate commit SHA
+        required: true
+        type: string
+      target_ref:
+        description: Candidate branch name (release-candidate/<SHA>)
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Validate immutable release candidate
+    runs-on: [self-hosted, odin-isolated]
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      TARGET_SHA: ${{ inputs.target_sha }}
+      TARGET_REF: ${{ inputs.target_ref }}
+      RELEASE_CONTROL_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Validate dispatch identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_ACTOR" = "HughKantsime"
+          test "$GITHUB_ACTOR_ID" = "201174638"
+          test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$TARGET_REF" = "release-candidate/$TARGET_SHA"
+
+      - name: Check out immutable candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bootstrap clean-checkout validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3.11 -m venv .hardware-cert-venv
+          .hardware-cert-venv/bin/pip install --disable-pip-version-check \
+            -r backend/requirements.txt -r ops/hardware_certification/requirements.txt
+          python3.11 -m venv .venv-stress
+          .venv-stress/bin/pip install --disable-pip-version-check -r backend/requirements.txt
+          npm --prefix frontend ci
+          python3.11 -m playwright install chromium
+
+      - name: Verify candidate ref and run aggregate gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          remote_sha="$(git ls-remote --heads origin "refs/heads/$TARGET_REF" | awk '{print $1}')"
+          test "$remote_sha" = "$TARGET_SHA"
+          make trusted-validation-gate PYTHON=python3.11
+
+      - name: Upload sanitized validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: odin-trusted-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/
+          if-no-files-found: error
+          retention-days: 30

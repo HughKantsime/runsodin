@@ -15,15 +15,15 @@
 services:
   odin:
     image: ${ODIN_IMAGE:-ghcr.io/hughkantsime/odin:latest}
-    container_name: odin
+    container_name: ${ODIN_CONTAINER_NAME:-odin}
     restart: unless-stopped
     ports:
-      - "8000:8000"   # Web UI + API
-      - "1984:1984"   # go2rtc API
-      - "8555:8555"   # go2rtc WebRTC
+      - "${ODIN_HTTP_PORT:-8000}:8000"   # Web UI + API
+      - "${ODIN_GO2RTC_PORT:-1984}:1984" # go2rtc API
+      - "${ODIN_WEBRTC_PORT:-8555}:8555" # go2rtc WebRTC
     volumes:
-      - ./odin-data:/data
-      - ./odin-data/go2rtc:/app/go2rtc
+      - ${ODIN_DATA_PATH:-./odin-data}:/data
+      - ${ODIN_GO2RTC_DATA_PATH:-./odin-data/go2rtc}:/app/go2rtc
     environment:
       # These are auto-generated on first run if left blank.
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}

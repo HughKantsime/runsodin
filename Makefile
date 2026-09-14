@@ -1,11 +1,13 @@
-.PHONY: build test test-contracts test-candidate test-database-parity test-hardware-certification test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-operational security-audit security-secrets security-sast security-docker verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
 CANDIDATE_PYTHON ?= python3.11
 HARDWARE_PYTHON ?= $(CANDIDATE_PYTHON)
-EDU_RUN_ID := $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)
-EDU_RUN_DIR := artifacts/edu-readiness/$(EDU_RUN_ID)
+EDU_SANDBOX_ARTIFACT_ROOT ?= artifacts/edu-sandbox
+EDU_SANDBOX_ID ?=
+EDU_RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEAD)
+EDU_RUN_DIR ?= artifacts/edu-readiness/$(EDU_RUN_ID)
 BACKUP_NAME ?= latest
 HARDWARE_EVIDENCE_DIR ?=
 
@@ -26,6 +28,9 @@ test: ## Run main + RBAC pytest suites (RBAC runs separately)
 test-contracts: ## Run contract tests (module boundaries, no container required)
 	$(PYTHON) -m pytest tests/test_contracts/ -v --tb=short
 
+test-contracts-structured: ## Run contract tests with strict structured evidence
+	$(PYTHON) -m ops.release_control.structured_targets contracts
+
 test-candidate: ## Build and test one exact disposable ODIN candidate image
 	$(CANDIDATE_PYTHON) -m ops.release_gate.runner
 
@@ -35,11 +40,14 @@ test-database-parity: ## Build and test SQLite/PostgreSQL parity twice with HTML
 test-hardware-certification: ## Run four-protocol code-controlled replay with HTML evidence
 	$(HARDWARE_PYTHON) -m ops.hardware_certification.runner
 
+test-installer-isolation: ## Exercise installer and updater with isolated owned Docker resources
+	$(PYTHON) -m ops.release_control.installer_smoke
+
 test-edu-sandbox-contracts: ## Run deterministic EDU sandbox lifecycle and productization contracts
 	PYTHONPATH=backend:. $(CANDIDATE_PYTHON) ops/demo/run_junit_gate.py -- $(CANDIDATE_PYTHON) -m pytest tests/edu_sandbox tests/test_license.py tests/test_contracts/test_license_pop.py tests/test_contracts/test_demo_seed_edu.py -q --tb=short -o xfail_strict=true --junitxml={junit}
 
 test-edu-sandbox: test-edu-sandbox-contracts ## Build, prepare, inspect, and purge an unlicensed exact-image EDU sandbox
-	$(CANDIDATE_PYTHON) -m ops.edu_sandbox.certify
+	$(CANDIDATE_PYTHON) -m ops.edu_sandbox.certify $(if $(EDU_SANDBOX_ID),--sandbox-id "$(EDU_SANDBOX_ID)",) --artifact-root "$(EDU_SANDBOX_ARTIFACT_ROOT)"
 
 edu-sandbox-prepare: ## Prepare exact-image sandbox (EDU_SANDBOX_ID required)
 	@test -n "$(EDU_SANDBOX_ID)" || (echo "EDU_SANDBOX_ID is required" && exit 1)
@@ -161,6 +169,9 @@ test-coverage: ## RBAC route coverage gate — fails if new routes not in RBAC m
 security: security-operational security-secrets security-audit security-sast security-docker ## Run operational and scanner security checks (hard fail)
 	@echo "4 passed in security scanners"
 
+security-structured: ## Run every security subgate with structured fail-closed evidence
+	$(PYTHON) -m ops.release_control.structured_targets security
+
 security-operational: ## Verify EDU HTTP, host, cache, backup-capacity, and failure behavior
 	PYTHONPATH=backend $(PYTHON) -m pytest tests/privacy/test_operational_security.py tests/test_contracts/test_readiness_deploy_parity.py -q --tb=short -o xfail_strict=true
 
@@ -180,6 +191,18 @@ security-docker: ## Dockerfile lint (hadolint)
 
 scan: security ## Alias for backward compatibility
 
+test-telemetry-contracts-structured: ## Run Telemetry V2 contracts with strict JUnit evidence
+	$(PYTHON) -m ops.release_control.structured_targets telemetry-contracts
+
+test-telemetry-v2-smoke-structured: ## Run Telemetry V2 live-broker smoke with structured evidence
+	$(PYTHON) -m ops.release_control.structured_targets telemetry-smoke
+
+release-control-local-gate: ## Validate local workflow, results, installer isolation, and release controls
+	$(PYTHON) -m ops.release_control.local_gate
+
+trusted-validation-gate: ## Run the ten ordered trusted validation components
+	$(PYTHON) -m ops.release_control.aggregate
+
 test-e2e: ## Run E2E Playwright tests
 	pytest tests/test_e2e/ -v --tb=short
 
@@ -190,9 +213,9 @@ bump: ## Bump version (requires VERSION=X.Y.Z)
 	@test -n "$(VERSION)" || (echo "Usage: make bump VERSION=X.Y.Z" && exit 1)
 	./ops/bump-version.sh $(VERSION)
 
-release: ## Bump + push (requires VERSION=X.Y.Z)
-	@test -n "$(VERSION)" || (echo "Usage: make release VERSION=X.Y.Z" && exit 1)
-	./ops/bump-version.sh $(VERSION) --push
+release: ## Disabled locally; use the reviewed promotion workflow
+	@echo "Local release is disabled. Use the reviewed promotion workflow." >&2
+	@exit 2
 
 logs: ## Tail container logs
 	docker compose logs -f --tail=100

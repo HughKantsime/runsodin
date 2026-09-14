@@ -1,0 +1,31 @@
+# Test-only isolation overlay. The installer refuses to use these inputs unless
+# ODIN_INSTALL_TEST_MODE=1 and every name/path/port has passed its bounds checks.
+services:
+  odin:
+    container_name: ${ODIN_TEST_CONTAINER_NAME:?test container name required}
+    labels:
+      com.runsodin.install-smoke: ${ODIN_TEST_RUN_ID:?test run ID required}
+      com.runsodin.install-smoke.kind: container
+    ports:
+      - "${ODIN_TEST_HTTP_PORT:?test HTTP port required}:8000"
+      - "${ODIN_TEST_GO2RTC_PORT:?test go2rtc port required}:1984"
+      - "${ODIN_TEST_WEBRTC_PORT:?test WebRTC port required}:8555"
+    volumes:
+      - odin-test-data:/data
+      - ${ODIN_TEST_DATA_PATH:?test data path required}/go2rtc:/app/go2rtc
+    networks:
+      - odin-test-network
+
+volumes:
+  odin-test-data:
+    name: ${ODIN_TEST_VOLUME_NAME:?test volume name required}
+    labels:
+      com.runsodin.install-smoke: ${ODIN_TEST_RUN_ID:?test run ID required}
+      com.runsodin.install-smoke.kind: volume
+
+networks:
+  odin-test-network:
+    name: ${ODIN_TEST_NETWORK_NAME:?test network name required}
+    labels:
+      com.runsodin.install-smoke: ${ODIN_TEST_RUN_ID:?test run ID required}
+      com.runsodin.install-smoke.kind: network

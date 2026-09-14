@@ -1,0 +1,7 @@
+self-hosted-runner:
+  labels:
+    - odin-isolated
+
+config-variables: null
+
+paths:

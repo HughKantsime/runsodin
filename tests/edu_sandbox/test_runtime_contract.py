@@ -1137,8 +1137,9 @@ def test_every_one_shot_docker_helper_has_ownership_labels():
 
 
 def test_ci_semgrep_scans_edu_sandbox_controller():
-    source = Path(__file__).parents[2].joinpath(".github/workflows/ci.yml").read_text()
-    assert "backend/ ops/edu_readiness/ ops/edu_sandbox/" in source
+    source = Path(__file__).parents[2].joinpath("ops/release_control/structured_targets.py").read_text()
+    assert '"ops/edu_sandbox/"' in source
+    assert '"ops/edu_readiness/"' in source
 
 
 def test_runbooks_do_not_put_license_challenge_values_in_shell_arguments():

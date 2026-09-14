@@ -1,31 +1,28 @@
 # O.D.I.N. Release Checklist
 
-## Pre-Release (Local)
+> **Current state:** local foundation only. Publishing and production promotion
+> are disabled until the reviewed successor workflows are installed.
 
-- [ ] Code changes committed and pushed to main
+## Candidate Preparation (Local)
+
+- [ ] Code changes committed locally
 - [ ] Container running: `make build`
 - [ ] Health checks pass: `make verify`
-- [ ] Tests pass: `make test`
+- [ ] Trusted aggregate passes: `make trusted-validation-gate`
 - [ ] Manual smoke test in browser if UI changes (http://localhost:8000)
 
-## Tag & Publish
+## Immutable Candidate Evidence
 
-- [ ] Bump + push: `make release VERSION=1.3.XX`
-- [ ] Verify GHCR workflow completes (GitHub Actions → green check)
-- [ ] Verify image exists: `docker pull ghcr.io/hughkantsime/odin:v1.3.XX`
+- [ ] Create the version commit with `make bump VERSION=X.Y.Z`
+- [ ] Confirm the local helper created no tag and performed no network write
+- [ ] After remote bootstrap exists, manually dispatch `Trusted Validation` for
+      the protected `release-candidate/<40hex>` ref and matching SHA
+- [ ] Retain the aggregate JSON, JUnit, and HTML evidence
 
-## Production (as end user)
+## Publish and Production
 
-- [ ] SSH to prod: `ssh root@YOUR_SERVER_IP`
-- [ ] Pull and restart:
-  ```bash
-  cd /opt/odin/runsodin/runsodin
-  # Update image tag in docker-compose.yml if pinning
-  docker compose pull
-  docker compose up -d
-  ```
-- [ ] Verify in browser: http://YOUR_SERVER_IP:8000
-- [ ] Check container health: `docker inspect odin --format '{{.State.Health.Status}}'`
+- [ ] Stop here until the immutable-evidence and production-promotion specs are
+      implemented, reviewed, and explicitly authorized at their ship gates
 
 ## Rollback (if needed)
 
@@ -47,6 +44,6 @@ curl -fsS http://localhost:8000/health    # confirm rolled-back version
 ## Known Gotchas
 
 1. **NEVER** use `build:` in production compose.
-2. GHCR workflow only triggers on tags (not branch pushes). No tag = no image.
-3. `:latest` is a moving target. Pin to version tags for production.
+2. Local version helpers never tag or push.
+3. `:latest` is a moving target and is not candidate evidence.
 4. All 6 supervisord services should show RUNNING (monitors sleep+retry when no printers configured).

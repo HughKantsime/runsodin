@@ -1,4 +1,11 @@
+---
+historical: true
+---
+
 # ODIN Blocker Cleanup Spec
+
+> Historical record only. Commands and workflow state below are non-operative;
+> use the current release-control specs and runbooks.
 
 ## Purpose
 

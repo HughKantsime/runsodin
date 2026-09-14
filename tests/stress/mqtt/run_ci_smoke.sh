@@ -25,7 +25,7 @@ cd "$REPO"
 
 N=5
 DURATION=30
-CELL_DIR="stress-out/ci-smoke-$(date -u +%Y%m%dT%H%M%SZ)"
+CELL_DIR="${ODIN_TELEMETRY_SMOKE_CELL_DIR:-stress-out/ci-smoke-$(date -u +%Y%m%dT%H%M%SZ)}"
 MOSQ_DIR="$(mktemp -d -t odin-ci-smoke.XXXXXX)"
 
 cleanup() {
@@ -114,3 +114,29 @@ if [ "$ROWS" -eq 0 ]; then
 fi
 
 echo "OK: $ROWS rows ingested under ODIN_TELEMETRY_V2=1 (port=$MOSQ_PORT)"
+
+if [ -n "${ODIN_TELEMETRY_SMOKE_RESULT:-}" ]; then
+    mkdir -p "$(dirname "$ODIN_TELEMETRY_SMOKE_RESULT")"
+    "$REPO/.venv-stress/bin/python3" - "$ODIN_TELEMETRY_SMOKE_RESULT" "$CELL_DIR" "$ROWS" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+target = pathlib.Path(sys.argv[1])
+cell = pathlib.Path(sys.argv[2])
+files = []
+for path in sorted(cell.rglob("*")):
+    if path.is_file():
+        files.append({"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+payload = {
+    "schema_version": 1,
+    "status": "pass",
+    "telemetry_v2": True,
+    "broker_scope": "ephemeral-loopback",
+    "rows_ingested": int(sys.argv[3]),
+    "cell_artifacts": files,
+}
+target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+fi

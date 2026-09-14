@@ -159,3 +159,7 @@ artifacts/hardware-certification/
 .odin-db-parity.*
 .odin-edu-sandboxes/
 artifacts/edu-sandbox/
+artifacts/install-smoke/
+artifacts/release-control-local/
+artifacts/release-control-standalone/
+artifacts/trusted-validation/

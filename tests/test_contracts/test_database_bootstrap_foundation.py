@@ -288,7 +288,7 @@ def test_database_parity_runner_is_exact_repeatable_and_emits_html() -> None:
     runner = (ROOT / "ops" / "database_parity" / "runner.py").read_text(
         encoding="utf-8"
     )
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+    inventory = (ROOT / "ops" / "release_control" / "inventory.json").read_text(
         encoding="utf-8"
     )
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
@@ -314,7 +314,8 @@ def test_database_parity_runner_is_exact_repeatable_and_emits_html() -> None:
     assert "_cleanup_resources(leaked)" in runner
     assert 'render_report(manifest, artifact_dir / "index.html")' in runner
     assert "test-database-parity:" in makefile
-    assert "SQLite/PostgreSQL Parity Gate" in workflow
+    assert '"name":"database-parity"' in inventory
+    assert '"make","test-database-parity","CANDIDATE_PYTHON=python3.11"' in inventory
     runtime_probe = (
         ROOT / "ops" / "database_parity" / "runtime_probe.py"
     ).read_text(encoding="utf-8")

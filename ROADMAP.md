@@ -2,6 +2,16 @@
 
 Updated — see CHANGELOG for current version.
 
+## Completed locally — release-control foundation (unreleased)
+
+- Ordinary push and pull-request workflows replaced by one owner-only manual
+  trusted-validation definition for immutable candidate refs.
+- Ten validation areas preserved behind a strict structured aggregate.
+- Installer smoke resources are uniquely named/labeled and cleanup is bound to
+  recorded identity plus ownership labels.
+- Local version bump creates a commit only; publish and production promotion
+  remain intentionally unavailable pending their successor specs.
+
 ## Completed locally — EDU hardware certification (unreleased)
 
 - Four-protocol Bambu, Elegoo, Moonraker, and PrusaLink certification harness

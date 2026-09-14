@@ -1,6 +1,10 @@
 # O.D.I.N. — Ops Scripts
 
-Verification and release automation for the O.D.I.N. print farm management system.
+Verification and controlled promotion tooling for the O.D.I.N. print farm management system.
+
+> Release-control migration (local foundation): ordinary pushes and pull
+> requests no longer run ODIN repository workflows. Publication and production
+> promotion remain disabled until the later reviewed workflows are installed.
 
 ## Scripts
 
@@ -37,17 +41,19 @@ export ODIN_ADMIN_PASSWORD="<your-password>"
 
 ---
 
-### `bump-version.sh` — Version Bump + Tag
+### `bump-version.sh` — Local Version Commit
 
-Bumps version across all files, commits, and tags.
+Bumps version across all files and creates one local commit. It never tags,
+pushes, publishes, or deploys.
 
 ```bash
-./ops/bump-version.sh 1.3.46          # bump + commit + tag (no push)
-./ops/bump-version.sh 1.3.46 --push   # bump + commit + tag + push
-./ops/bump-version.sh                  # show current version
+./ops/bump-version.sh 1.9.13          # update files + local commit
+./ops/bump-version.sh                 # show current version
 ```
 
-**Files updated:** `VERSION`, `frontend/package.json`, `backend/main.py`, `docker-compose.yml`, `install/install.sh`, `frontend/public/sw.js`
+**Files updated:** `VERSION`, frontend package metadata,
+`backend/core/app.py`, Compose/install version references, service-worker cache,
+and generated design tokens.
 
 ---
 
@@ -65,12 +71,9 @@ make build                          # docker compose up -d --build
 make verify                         # Phase 0 health checks
 make test                           # main + RBAC tests
 
-# Release
-make release VERSION=1.3.46        # bump + commit + tag + push
-# GHCR workflow triggers on tag push
+# Candidate validation (manual trusted workflow after remote bootstrap)
+make trusted-validation-gate
 
-# Production (manual, as end user)
-ssh root@YOUR_SERVER_IP
-cd /opt/odin/runsodin/runsodin
-docker compose pull && docker compose up -d
+# Local release entry point is deliberately disabled
+make release                       # fails with promotion-workflow guidance
 ```

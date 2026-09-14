@@ -23,8 +23,48 @@ ODIN_REPO="${ODIN_REPO:-https://raw.githubusercontent.com/HughKantsime/runsodin/
 ODIN_COMPOSE_SOURCE="${ODIN_COMPOSE_SOURCE:-${ODIN_REPO}/install/docker-compose.yml}"
 ODIN_UPDATE_SOURCE="${ODIN_UPDATE_SOURCE:-${ODIN_REPO}/install/update.sh}"
 ODIN_SKIP_IMAGE_PULL="${ODIN_SKIP_IMAGE_PULL:-0}"
-ODIN_READINESS_URL="${ODIN_READINESS_URL:-http://localhost:8000/health/ready}"
-INSTALL_DIR="./odin"
+ODIN_INSTALL_TEST_MODE="${ODIN_INSTALL_TEST_MODE:-0}"
+ODIN_COMPOSE_PROJECT="${ODIN_COMPOSE_PROJECT:-odin}"
+ODIN_CONTAINER_NAME="${ODIN_CONTAINER_NAME:-odin}"
+ODIN_HTTP_PORT="${ODIN_HTTP_PORT:-8000}"
+ODIN_GO2RTC_PORT="${ODIN_GO2RTC_PORT:-1984}"
+ODIN_WEBRTC_PORT="${ODIN_WEBRTC_PORT:-8555}"
+ODIN_READINESS_URL="${ODIN_READINESS_URL:-http://localhost:${ODIN_HTTP_PORT}/health/ready}"
+INSTALL_DIR="${ODIN_INSTALL_DIR:-./odin}"
+
+if [ "$ODIN_INSTALL_TEST_MODE" = "1" ]; then
+    : "${ODIN_TEST_ROOT:?ODIN_TEST_ROOT is required in test mode}"
+    : "${ODIN_TEST_RUN_ID:?ODIN_TEST_RUN_ID is required in test mode}"
+    : "${ODIN_TEST_CONTAINER_NAME:?ODIN_TEST_CONTAINER_NAME is required in test mode}"
+    : "${ODIN_TEST_NETWORK_NAME:?ODIN_TEST_NETWORK_NAME is required in test mode}"
+    : "${ODIN_TEST_VOLUME_NAME:?ODIN_TEST_VOLUME_NAME is required in test mode}"
+    : "${ODIN_TEST_DATA_PATH:?ODIN_TEST_DATA_PATH is required in test mode}"
+    : "${ODIN_TEST_HTTP_PORT:?ODIN_TEST_HTTP_PORT is required in test mode}"
+    : "${ODIN_TEST_GO2RTC_PORT:?ODIN_TEST_GO2RTC_PORT is required in test mode}"
+    : "${ODIN_TEST_WEBRTC_PORT:?ODIN_TEST_WEBRTC_PORT is required in test mode}"
+    : "${ODIN_TEST_COMPOSE_SOURCE:?ODIN_TEST_COMPOSE_SOURCE is required in test mode}"
+    for test_name in "$ODIN_TEST_RUN_ID" "$ODIN_COMPOSE_PROJECT" "$ODIN_TEST_CONTAINER_NAME" "$ODIN_TEST_NETWORK_NAME" "$ODIN_TEST_VOLUME_NAME"; do
+        case "$test_name" in ''|*[!a-z0-9_.-]*) echo "Invalid test resource name" >&2; exit 2 ;; esac
+    done
+    case "$ODIN_TEST_ROOT:$INSTALL_DIR:$ODIN_TEST_DATA_PATH" in
+        *$'\n'*|*$'\r'*) echo "Invalid test path" >&2; exit 2 ;;
+    esac
+    case "$ODIN_TEST_ROOT" in /*) ;; *) echo "ODIN_TEST_ROOT must be absolute" >&2; exit 2 ;; esac
+    case "$INSTALL_DIR" in "$ODIN_TEST_ROOT"/*) ;; *) echo "ODIN_INSTALL_DIR must be below ODIN_TEST_ROOT" >&2; exit 2 ;; esac
+    case "$ODIN_TEST_DATA_PATH" in "$ODIN_TEST_ROOT"/*) ;; *) echo "ODIN_TEST_DATA_PATH must be below ODIN_TEST_ROOT" >&2; exit 2 ;; esac
+    for test_port in "$ODIN_TEST_HTTP_PORT" "$ODIN_TEST_GO2RTC_PORT" "$ODIN_TEST_WEBRTC_PORT"; do
+        case "$test_port" in ''|*[!0-9]*) echo "Invalid test port" >&2; exit 2 ;; esac
+        [ "$test_port" -ge 1024 ] && [ "$test_port" -le 65535 ] || { echo "Test port out of range" >&2; exit 2; }
+    done
+    [ "$ODIN_TEST_HTTP_PORT" != "$ODIN_TEST_GO2RTC_PORT" ] && \
+        [ "$ODIN_TEST_HTTP_PORT" != "$ODIN_TEST_WEBRTC_PORT" ] && \
+        [ "$ODIN_TEST_GO2RTC_PORT" != "$ODIN_TEST_WEBRTC_PORT" ] || { echo "Test ports must be unique" >&2; exit 2; }
+    ODIN_CONTAINER_NAME="$ODIN_TEST_CONTAINER_NAME"
+    ODIN_HTTP_PORT="$ODIN_TEST_HTTP_PORT"
+    ODIN_GO2RTC_PORT="$ODIN_TEST_GO2RTC_PORT"
+    ODIN_WEBRTC_PORT="$ODIN_TEST_WEBRTC_PORT"
+    ODIN_READINESS_URL="http://127.0.0.1:${ODIN_HTTP_PORT}/health/ready"
+fi
 
 # ─── Display Library ───────────────────────────────────────────────────────────
 
@@ -272,9 +312,11 @@ ok "Docker $docker_version"
 
 # Docker Compose
 if docker compose version &>/dev/null; then
+    COMPOSE_CMD=(docker compose)
     compose_version=$(docker compose version --short 2>/dev/null)
     ok "Docker Compose $compose_version"
 elif command -v docker-compose &>/dev/null; then
+    COMPOSE_CMD=(docker-compose)
     compose_version=$(docker-compose version --short 2>/dev/null)
     ok "Docker Compose $compose_version (standalone)"
 else
@@ -292,7 +334,7 @@ ok "curl available"
 
 # Ports
 port_fail=0
-for port in 8000 1984 8555; do
+for port in "$ODIN_HTTP_PORT" "$ODIN_GO2RTC_PORT" "$ODIN_WEBRTC_PORT"; do
     if ! check_port "$port"; then
         err "Port $port in use"
         dim "$(port_user "$port")"
@@ -313,7 +355,7 @@ fi
 # public internet, where anyone can race the install.
 #
 # We probe: fetch the host's public IP, then attempt a TCP connect
-# from this host back to that public IP on port 8000. If it succeeds
+# from this host back to that public IP on the configured HTTP port. If it succeeds
 # the box is reachable from the internet — warn loudly and refuse
 # unless FORCE_PUBLIC=1 is explicitly set.
 #
@@ -336,9 +378,9 @@ if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
     fi
 
     if [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "$HOST_IP_FOR_CHECK" ]; then
-        # Attempt a TCP connect back to the public IP on 8000. If it
+        # Attempt a TCP connect back to the public IP on the configured port. If it
         # succeeds the box is publicly reachable on that port.
-        if timeout 3 bash -c "</dev/tcp/$PUBLIC_IP/8000" 2>/dev/null; then
+        if timeout 3 bash -c "</dev/tcp/$PUBLIC_IP/$ODIN_HTTP_PORT" 2>/dev/null; then
             if [ "${FORCE_PUBLIC:-0}" != "1" ]; then
                 printf "\n"
                 printf "  ${RED}${BOLD}============================================================${RESET}\n"
@@ -346,7 +388,7 @@ if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
                 printf "  ${RED}${BOLD}============================================================${RESET}\n"
                 printf "\n"
                 printf "  This host appears to be reachable from the public internet\n"
-                printf "  on port 8000 (public IP: ${BOLD}%s${RESET}).\n" "$PUBLIC_IP"
+                printf "  on port %s (public IP: ${BOLD}%s${RESET}).\n" "$ODIN_HTTP_PORT" "$PUBLIC_IP"
                 printf "\n"
                 printf "  ODIN uses a first-user-wins setup flow (same model as\n"
                 printf "  WordPress, Ghost, Immich). Until you create an admin\n"
@@ -357,7 +399,7 @@ if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
                 printf "    * Bind ODIN to your LAN only by editing the port map\n"
                 printf "      in docker-compose.yml:\n"
                 printf "          ports:\n"
-                printf "            - \"${BOLD}192.168.x.y${RESET}:8000:8000\"\n"
+                printf "            - \"${BOLD}192.168.x.y${RESET}:%s:8000\"\n" "$ODIN_HTTP_PORT"
                 printf "    * Or put ODIN behind a reverse proxy on a private\n"
                 printf "      interface (Tailscale, Cloudflare Tunnel, Wireguard).\n"
                 printf "\n"
@@ -374,7 +416,7 @@ if [ "${ODIN_SKIP_PUBLIC_CHECK:-0}" != "1" ]; then
         fi
     fi
 fi
-ok "Ports 8000, 1984, 8555 free"
+ok "Ports ${ODIN_HTTP_PORT}, ${ODIN_GO2RTC_PORT}, ${ODIN_WEBRTC_PORT} free"
 
 # Architecture
 arch=$(uname -m)
@@ -451,6 +493,14 @@ fi
 spin_stop
 ok "docker-compose.yml"
 
+if [ "$ODIN_INSTALL_TEST_MODE" = "1" ]; then
+    if [ ! -f "$ODIN_TEST_COMPOSE_SOURCE" ]; then
+        die "Test compose overlay is missing" "$ODIN_TEST_COMPOSE_SOURCE"
+    fi
+    cp "$ODIN_TEST_COMPOSE_SOURCE" "${INSTALL_DIR}/docker-compose.test.yml"
+    ok "docker-compose.test.yml"
+fi
+
 spin_start "Downloading update.sh..."
 if [ -f "${ODIN_UPDATE_SOURCE}" ]; then
     cp "${ODIN_UPDATE_SOURCE}" "${INSTALL_DIR}/update.sh"
@@ -471,9 +521,29 @@ cat > "${INSTALL_DIR}/.env" << EOF
 # O.D.I.N. Environment — generated by installer
 ODIN_HOST_IP=${HOST_IP}
 TZ=${TIMEZONE}
-CORS_ORIGINS=http://${HOST_IP}:8000,http://localhost:8000,http://localhost:3000
+CORS_ORIGINS=http://${HOST_IP}:${ODIN_HTTP_PORT},http://localhost:${ODIN_HTTP_PORT},http://localhost:3000
 ODIN_IMAGE=${ODIN_IMAGE}
+ODIN_COMPOSE_PROJECT=${ODIN_COMPOSE_PROJECT}
+ODIN_CONTAINER_NAME=${ODIN_CONTAINER_NAME}
+ODIN_HTTP_PORT=${ODIN_HTTP_PORT}
+ODIN_GO2RTC_PORT=${ODIN_GO2RTC_PORT}
+ODIN_WEBRTC_PORT=${ODIN_WEBRTC_PORT}
 EOF
+
+if [ "$ODIN_INSTALL_TEST_MODE" = "1" ]; then
+cat >> "${INSTALL_DIR}/.env" << EOF
+ODIN_INSTALL_TEST_MODE=1
+ODIN_COMPOSE_PROJECT=${ODIN_COMPOSE_PROJECT}
+ODIN_TEST_RUN_ID=${ODIN_TEST_RUN_ID}
+ODIN_TEST_CONTAINER_NAME=${ODIN_TEST_CONTAINER_NAME}
+ODIN_TEST_NETWORK_NAME=${ODIN_TEST_NETWORK_NAME}
+ODIN_TEST_VOLUME_NAME=${ODIN_TEST_VOLUME_NAME}
+ODIN_TEST_DATA_PATH=${ODIN_TEST_DATA_PATH}
+ODIN_TEST_HTTP_PORT=${ODIN_TEST_HTTP_PORT}
+ODIN_TEST_GO2RTC_PORT=${ODIN_TEST_GO2RTC_PORT}
+ODIN_TEST_WEBRTC_PORT=${ODIN_TEST_WEBRTC_PORT}
+EOF
+fi
 
 chmod 600 "${INSTALL_DIR}/.env"
 ok ".env written"
@@ -505,7 +575,10 @@ ok "Pulled ${ODIN_IMAGE} (${image_mb} MB)"
 
 phase 7 $TOTAL "Starting O.D.I.N."
 
-compose_output=$(docker compose -f "${INSTALL_DIR}/docker-compose.yml" --env-file "${INSTALL_DIR}/.env" up -d 2>&1) || {
+compose_args=("${COMPOSE_CMD[@]}" -p "$ODIN_COMPOSE_PROJECT" -f "${INSTALL_DIR}/docker-compose.yml")
+[ "$ODIN_INSTALL_TEST_MODE" = "1" ] && compose_args+=(-f "${INSTALL_DIR}/docker-compose.test.yml")
+compose_args+=(--env-file "${INSTALL_DIR}/.env")
+compose_output=$("${compose_args[@]}" up -d 2>&1) || {
     die "Failed to start container" \
         "$compose_output" \
         "Check: docker compose -f ${INSTALL_DIR}/docker-compose.yml logs"
@@ -523,7 +596,7 @@ max_attempts=60
 
 spin_start "${messages[$msg_idx]}"
 while [ $attempts -lt $max_attempts ]; do
-    health=$(docker inspect --format='{{.State.Health.Status}}' odin 2>/dev/null || echo "starting")
+    health=$(docker inspect --format='{{.State.Health.Status}}' "$ODIN_CONTAINER_NAME" 2>/dev/null || echo "starting")
 
     if [ "$health" = "healthy" ]; then
         spin_stop
@@ -553,9 +626,9 @@ fi
 # Verify API
 readiness_json=$(curl -sf "${ODIN_READINESS_URL}" 2>/dev/null || true)
 if printf '%s' "${readiness_json}" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
-    ok "API responding on port 8000"
+    ok "API responding on port ${ODIN_HTTP_PORT}"
 else
-    die "API readiness was not confirmed on localhost:8000" \
+    die "API readiness was not confirmed on localhost:${ODIN_HTTP_PORT}" \
         "Check logs: docker compose -f ${INSTALL_DIR}/docker-compose.yml logs" \
         "The installation was started but is not ready for use."
 fi
@@ -567,7 +640,7 @@ phase 9 $TOTAL "Complete!"
 ELAPSED=$(( $(date +%s) - START_TIME ))
 
 draw_box "O.D.I.N. is ready!" \
-    "URL|http://${HOST_IP}:8000" \
+    "URL|http://${HOST_IP}:${ODIN_HTTP_PORT}" \
     "Setup|Create your admin account in the browser" \
     "Data|${INSTALL_DIR}/odin-data/" \
     "Logs|cd odin && docker compose logs -f" \

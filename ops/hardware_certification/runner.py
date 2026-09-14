@@ -28,7 +28,7 @@ from ops.hardware_certification.replay_contracts import REPLAY_ASSERTION_CASES
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ARTIFACT_ROOT = ROOT / "artifacts" / "hardware-certification"
+ARTIFACT_ROOT = Path(os.getenv("ODIN_HARDWARE_ARTIFACT_ROOT", ROOT / "artifacts" / "hardware-certification"))
 PROTOCOLS = ("bambu", "elegoo", "moonraker", "prusalink")
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -137,7 +137,7 @@ def _render(run_id: str, commit: str, status: str, counts: dict[str, int], proto
 def main() -> int:
     started = _now()
     commit = _git("rev-parse", "--short", "HEAD")
-    run_id = f"{started.strftime('%Y%m%dT%H%M%SZ')}-{commit}"
+    run_id = os.getenv("ODIN_HARDWARE_RUN_ID") or f"{started.strftime('%Y%m%dT%H%M%SZ')}-{commit}"
     ARTIFACT_ROOT.mkdir(parents=True, mode=0o700, exist_ok=True)
     ARTIFACT_ROOT.chmod(0o700)
     run_dir = ARTIFACT_ROOT / run_id
