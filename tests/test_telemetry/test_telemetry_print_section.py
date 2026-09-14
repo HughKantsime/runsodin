@@ -7,17 +7,17 @@ first-class. Tests validate:
 1. Key canonical fields parse correctly.
 2. Polymorphic int/float temperatures normalize.
 3. Polymorphic int/str stg_cur normalizes.
-4. Full-corpus: every `print` payload across all 4 captures parses with
-   zero errors.
+4. Corpus: every `print` payload in committed per-model slices (or an
+   explicitly configured exhaustive corpus) parses with zero errors.
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from modules.printers.telemetry.bambu.raw import BambuPrintSection
+from tests.test_telemetry.capture_corpus import capture_path
 
 
 # ---- Representative real payloads (trimmed to top-level scalars) ----
@@ -205,8 +205,8 @@ class TestExtraFields:
         assert "another_unknown" in p.model_extra
 
 
-class TestAgainstFullCapture:
-    """Parse 100% of print payloads across all Bambu captures."""
+class TestAgainstCaptureCorpus:
+    """Parse every print payload in the available Bambu corpus."""
 
     @pytest.mark.parametrize("printer_file", [
         "bambu-a1.jsonl",
@@ -215,10 +215,7 @@ class TestAgainstFullCapture:
         "bambu-x1c.jsonl",
     ])
     def test_print_section_parses_every_captured_payload(self, printer_file):
-        capture_dir = Path.home() / "Documents/Claude/odin-e2e/captures/run-2026-04-16"
-        path = capture_dir / printer_file
-        if not path.exists():
-            pytest.skip(f"capture not available at {path}")
+        path = capture_path(printer_file)
 
         seen = 0
         errors = []

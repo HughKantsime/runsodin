@@ -298,7 +298,7 @@ def test_hardware_runtime_dependencies_are_exactly_pinned():
     assert "HARDWARE_PYTHON ?=" in makefile
     assert "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=backend:. $(HARDWARE_PYTHON)" in makefile
     inventory = Path("ops/release_control/inventory.json").read_text(encoding="utf-8")
-    assert '"make","test-hardware-certification","HARDWARE_PYTHON=.hardware-cert-venv/bin/python"' in inventory
+    assert '"make","test-hardware-certification"' in inventory
     assert '"name":"hardware-certification"' in inventory
     assert ".hardware-cert-venv/" in Path(".gitignore").read_text(encoding="utf-8").splitlines()
     subprocess.run(

@@ -3,13 +3,12 @@
 Tests parse REAL AMS payloads extracted from
 odin-e2e/captures/run-2026-04-16 across all 4 Bambu models. The
 fixtures are stored as constants below (representative, not
-exhaustive); full-corpus validation lives in
-test_ams_against_full_capture.
+exhaustive); corpus validation uses committed sanitized slices by
+default and an explicitly configured exhaustive corpus when available.
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -18,6 +17,7 @@ from modules.printers.telemetry.bambu.raw import (
     BambuAMSTray,
     BambuAMSUnit,
 )
+from tests.test_telemetry.capture_corpus import capture_path
 
 # ---------- Representative real payloads ----------
 
@@ -256,8 +256,8 @@ class TestBambuAMSRoot:
         assert root.version == 17
 
 
-class TestAMSAgainstFullCapture:
-    """Parse 100% of `print.ams` payloads across all Bambu captures without error."""
+class TestAMSAgainstCaptureCorpus:
+    """Parse every `print.ams` payload in the available Bambu corpus."""
 
     @pytest.mark.parametrize("printer_file", [
         "bambu-a1.jsonl",
@@ -266,15 +266,12 @@ class TestAMSAgainstFullCapture:
         "bambu-x1c.jsonl",
     ])
     def test_ams_parses_every_captured_payload(self, printer_file):
-        """Walk the capture file, parse every `print.ams` object, assert zero failures.
+        """Walk the corpus file, parse every `print.ams` object, assert zero failures.
 
         This is the acceptance test for T1.4: the AMS models must accept
-        100% of real Bambu payloads. Any parse failure is a model bug.
+        every selected real Bambu payload. Any parse failure is a model bug.
         """
-        capture_dir = Path.home() / "Documents/Claude/odin-e2e/captures/run-2026-04-16"
-        path = capture_dir / printer_file
-        if not path.exists():
-            pytest.skip(f"capture not available at {path}")
+        path = capture_path(printer_file)
 
         seen = 0
         errors = []
@@ -300,5 +297,4 @@ class TestAMSAgainstFullCapture:
             f"{printer_file}: {len(errors)} parse errors in AMS models. "
             f"First 3: {errors[:3]}"
         )
-        # Every Bambu capture has at least some ams payloads.
-        assert seen > 0, f"{printer_file}: no ams payloads found — capture or test bug"
+        assert seen > 0, f"{printer_file}: no ams payloads found — corpus or test bug"

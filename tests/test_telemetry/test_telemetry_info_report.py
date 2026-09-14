@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -12,6 +11,7 @@ from modules.printers.telemetry.bambu.raw import (
     BambuReport,
     InvalidBambuReport,
 )
+from tests.test_telemetry.capture_corpus import capture_path
 
 
 # Real `info` module records extracted from captures
@@ -150,8 +150,8 @@ class TestBambuReport:
             BambuReport.model_validate({})
 
 
-class TestReportAgainstFullCapture:
-    """Every captured line with a recognized payload must parse as a BambuReport."""
+class TestReportAgainstCaptureCorpus:
+    """Every corpus line with a recognized payload must parse as a BambuReport."""
 
     @pytest.mark.parametrize("printer_file", [
         "bambu-a1.jsonl",
@@ -160,10 +160,7 @@ class TestReportAgainstFullCapture:
         "bambu-x1c.jsonl",
     ])
     def test_report_parses_every_print_or_info_line(self, printer_file):
-        capture_dir = Path.home() / "Documents/Claude/odin-e2e/captures/run-2026-04-16"
-        path = capture_dir / printer_file
-        if not path.exists():
-            pytest.skip(f"capture not available at {path}")
+        path = capture_path(printer_file)
 
         seen = 0
         errors = []

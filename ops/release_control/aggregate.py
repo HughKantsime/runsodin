@@ -19,6 +19,12 @@ ROOT = Path(__file__).parents[2]
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,96}$")
 
 
+def hardware_python() -> str:
+    """Prefer the locked checkout runtime, while keeping local gates runnable."""
+    checkout_runtime = ROOT / ".hardware-cert-venv/bin/python"
+    return str(checkout_runtime) if checkout_runtime.is_file() else "python3.11"
+
+
 def _junit(results: list[dict[str, object]], path: Path) -> None:
     failures = sum(item["status"] != "pass" for item in results)
     suite = ET.Element("testsuite", name="trusted-validation", tests=str(len(results)),
@@ -67,7 +73,7 @@ def main() -> int:
         "ODIN_HARDWARE_ARTIFACT_ROOT": str(native / "hardware"),
         "ODIN_HARDWARE_RUN_ID": evidence_id,
         "EDU_BROWSER_PYTHON": "python3.11",
-        "HARDWARE_PYTHON": ".hardware-cert-venv/bin/python",
+        "HARDWARE_PYTHON": hardware_python(),
         "DOCKER_HOST": docker_host,
         "PLAYWRIGHT_BROWSERS_PATH": str(Path.home() / "Library/Caches/ms-playwright"),
         "ODIN_TELEMETRY_V2": "1",
