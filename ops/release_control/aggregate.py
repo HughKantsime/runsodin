@@ -70,6 +70,7 @@ def main() -> int:
         "HARDWARE_PYTHON": ".hardware-cert-venv/bin/python",
         "DOCKER_HOST": docker_host,
         "PLAYWRIGHT_BROWSERS_PATH": str(Path.home() / "Library/Caches/ms-playwright"),
+        "ODIN_TELEMETRY_V2": "1",
     }
     native_rel = str(native.relative_to(ROOT))
     for component in inventory["components"]:
