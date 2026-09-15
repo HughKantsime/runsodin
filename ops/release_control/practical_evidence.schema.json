@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "run_id", "generated_at", "source_commit", "candidate_ref", "aggregate", "source_identities", "components", "files"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"const": "eligible"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{2,96}$"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_ref": {"type": "string", "pattern": "^release-candidate/[0-9a-f]{40}$"},
+    "aggregate": {"$ref": "#/$defs/resultSummary"},
+    "source_identities": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/identity"}},
+    "components": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/component"}},
+    "files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}}
+  },
+  "$defs": {
+    "counts": {"type": "object", "additionalProperties": false, "required": ["tests", "passed", "failures", "errors", "skipped", "xfailed"], "properties": {"tests": {"type": "integer", "minimum": 0}, "passed": {"type": "integer", "minimum": 0}, "failures": {"type": "integer", "minimum": 0}, "errors": {"type": "integer", "minimum": 0}, "skipped": {"type": "integer", "minimum": 0}, "xfailed": {"type": "integer", "minimum": 0}}},
+    "resultSummary": {"type": "object", "additionalProperties": false, "required": ["status", "started_at", "ended_at", "duration_seconds", "counts", "result_sha256"], "properties": {"status": {"const": "pass"}, "started_at": {"type": "string", "format": "date-time"}, "ended_at": {"type": "string", "format": "date-time"}, "duration_seconds": {"type": "number", "minimum": 0}, "counts": {"$ref": "#/$defs/counts"}, "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "identity": {"type": "object", "additionalProperties": false, "required": ["role", "path", "reported_commit", "dirty", "manifest_sha256"], "properties": {"role": {"enum": ["candidate", "database_parity", "edu_sandbox", "hardware"]}, "path": {"type": "string", "minLength": 1}, "reported_commit": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"}, "dirty": {"const": false}, "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "component": {"type": "object", "additionalProperties": false, "required": ["id", "status", "started_at", "ended_at", "duration_seconds", "counts", "result_sha256"], "properties": {"id": {"type": "string", "pattern": "^CV(?:0[1-9]|10)$"}, "status": {"const": "pass"}, "started_at": {"type": "string", "format": "date-time"}, "ended_at": {"type": "string", "format": "date-time"}, "duration_seconds": {"type": "number", "minimum": 0}, "counts": {"$ref": "#/$defs/counts"}, "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "sha256"], "properties": {"path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"}, "bytes": {"type": "integer", "minimum": 0, "maximum": 8388608}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+  }
+}

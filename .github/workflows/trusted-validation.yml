@@ -65,11 +65,17 @@ jobs:
           test "$remote_sha" = "$TARGET_SHA"
           make trusted-validation-gate PYTHON=python3.11
 
+      - name: Build practical release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          make practical-evidence SOURCE_RUN_DIR=artifacts/trusted-validation/${RELEASE_CONTROL_RUN_ID} EXPECTED_SHA=${TARGET_SHA} PYTHON=python3.11
+
       - name: Upload sanitized validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: odin-trusted-validation-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/
+          path: artifacts/trusted-validation/${{ env.RELEASE_CONTROL_RUN_ID }}/evidence/
           if-no-files-found: error
           retention-days: 30

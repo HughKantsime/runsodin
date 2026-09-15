@@ -74,6 +74,24 @@ make test                           # main + RBAC tests
 # Candidate validation (manual trusted workflow after remote bootstrap)
 make trusted-validation-gate
 
+# Build/verify a sanitized, content-addressed bundle from a passing run
+make practical-evidence SOURCE_RUN_DIR=artifacts/trusted-validation/<run-id> EXPECTED_SHA=<40hex>
+make verify-practical-evidence EVIDENCE_DIR=artifacts/trusted-validation/<run-id>/evidence
+
 # Local release entry point is deliberately disabled
 make release                       # fails with promotion-workflow guidance
 ```
+
+## Practical release evidence
+
+`make practical-evidence` accepts one completed 10/10 trusted-validation run.
+It validates every component digest, reconciles source identity across candidate,
+database, EDU sandbox, and hardware manifests, and writes canonical
+`manifest.json`, `manifest.sha256`, and a human-readable `index.html`.
+
+The passing GitHub workflow uploads only that `evidence/` directory. Raw logs and
+JUnit files are hashed into its inventory but are not included in the promotion
+artifact. The bundle proves validation integrity; it does not authorize a deploy.
+Every stage, demo, or production action still requires a separate owner-dispatched
+promotion workflow. Production additionally requires its protected GitHub
+environment approval.

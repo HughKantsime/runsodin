@@ -95,7 +95,7 @@ def test_replay_runner_cleans_staging_on_keyboard_interrupt(tmp_path: Path, monk
     monkeypatch.setattr(runner_module, "ARTIFACT_ROOT", output)
     monkeypatch.setattr(
         runner_module, "_git",
-        lambda *args: "7d46cf1" if args[:2] == ("rev-parse", "--short") else "dirty",
+        lambda *args: "7d46cf1" * 5 + "7d46c" if args == ("rev-parse", "HEAD") else "dirty",
     )
 
     def fake_pytest(command, **_kwargs):
@@ -119,6 +119,12 @@ def test_replay_runner_cleans_staging_on_keyboard_interrupt(tmp_path: Path, monk
     with pytest.raises(KeyboardInterrupt):
         runner_module.main()
     assert list(output.iterdir()) == []
+
+
+def test_replay_runner_records_full_commit_but_keeps_short_default_run_suffix():
+    source = Path(runner_module.__file__).read_text(encoding="utf-8")
+    assert 'commit = _git("rev-parse", "HEAD")' in source
+    assert "f\"{started.strftime('%Y%m%dT%H%M%SZ')}-{commit[:7]}\"" in source
 
 
 def test_replay_junit_reconstruction_discards_failure_text_paths_and_properties(tmp_path: Path):

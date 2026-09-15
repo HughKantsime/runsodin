@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "repository", "run_id", "run_attempt", "actor_login", "actor_id", "triggering_actor", "event", "workflow_path", "workflow_ref", "workflow_sha", "action", "environment", "evidence_sha256", "nonce", "authorization_text_sha256", "environment_review"],
+  "properties": {
+    "schema_version": {"const": 1}, "repository_id": {"type": "integer", "minimum": 1}, "repository": {"type": "string"},
+    "run_id": {"type": "integer", "minimum": 1}, "run_attempt": {"type": "integer", "minimum": 1},
+    "actor_login": {"type": "string"}, "actor_id": {"type": "integer", "minimum": 1}, "triggering_actor": {"type": "string"}, "event": {"type": "string"},
+    "workflow_path": {"type": "string"}, "workflow_ref": {"type": "string"}, "workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "action": {"enum": ["stage", "demo", "production"]}, "environment": {"enum": ["stage", "demo", "production"]},
+    "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$"},
+    "authorization_text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "environment_review": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["state", "actor_login", "actor_id", "run_id"], "properties": {"state": {"const": "approved"}, "actor_login": {"type": "string"}, "actor_id": {"type": "integer", "minimum": 1}, "run_id": {"type": "integer", "minimum": 1}}}]}
+  }
+}

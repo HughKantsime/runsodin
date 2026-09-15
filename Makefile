@@ -1,4 +1,4 @@
-.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate test-practical-evidence practical-evidence verify-practical-evidence verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
@@ -10,6 +10,12 @@ EDU_RUN_ID ?= $(shell date -u +%Y%m%dT%H%M%SZ)-$(shell git rev-parse --short HEA
 EDU_RUN_DIR ?= artifacts/edu-readiness/$(EDU_RUN_ID)
 BACKUP_NAME ?= latest
 HARDWARE_EVIDENCE_DIR ?=
+SOURCE_RUN_DIR ?=
+EXPECTED_SHA ?=
+EVIDENCE_DIR ?=
+PROMOTION_REQUEST ?=
+VALIDATION_RUN_OBSERVATION ?=
+PROMOTION_CONTEXT ?=
 
 tokens: ## Regenerate design tokens (CSS + Swift) from design/tokens.json
 	node design/generate.mjs
@@ -202,6 +208,25 @@ release-control-local-gate: ## Validate local workflow, results, installer isola
 
 trusted-validation-gate: ## Run the ten ordered trusted validation components
 	$(PYTHON) -m ops.release_control.aggregate
+
+test-practical-evidence: ## Run the exact 34-case practical evidence contract
+	@mkdir -p artifacts/practical-evidence-tests
+	$(PYTHON) -m pytest tests/test_release_control/test_practical_evidence.py -q --tb=short -o xfail_strict=true --junitxml=artifacts/practical-evidence-tests/junit.xml
+	$(PYTHON) -c 'from collections import Counter; from xml.etree import ElementTree as E; p="artifacts/practical-evidence-tests/junit.xml"; c=list(E.parse(p).getroot().iter("testcase")); e=[*(f"test_PE{i:02d}" for i in range(1,15)),*(f"test_PA{i:02d}" for i in range(1,15)),*(f"test_PW{i:02d}" for i in range(1,7))]; a=[next((x for x in e if t.get("name","").startswith(x)),"") for t in c]; assert len(c)==34 and Counter(a)==Counter(e) and all(t.find("failure") is None and t.find("error") is None and t.find("skipped") is None for t in c), (len(c),a)'
+
+practical-evidence: ## Build sanitized evidence for one completed trusted-validation run
+	@test -n "$(SOURCE_RUN_DIR)" -a -n "$(EXPECTED_SHA)" || (echo "SOURCE_RUN_DIR and EXPECTED_SHA are required" && exit 1)
+	$(PYTHON) -m ops.release_control.practical_evidence build --source-run-dir "$(SOURCE_RUN_DIR)" --expected-sha "$(EXPECTED_SHA)"
+
+verify-practical-evidence: ## Verify evidence integrity or all promotion inputs together
+	@test -n "$(EVIDENCE_DIR)" || (echo "EVIDENCE_DIR is required" && exit 1)
+	@if [ -z "$(PROMOTION_REQUEST)$(VALIDATION_RUN_OBSERVATION)$(PROMOTION_CONTEXT)" ]; then \
+		$(PYTHON) -m ops.release_control.practical_evidence verify --evidence-dir "$(EVIDENCE_DIR)"; \
+	elif [ -n "$(PROMOTION_REQUEST)" ] && [ -n "$(VALIDATION_RUN_OBSERVATION)" ] && [ -n "$(PROMOTION_CONTEXT)" ]; then \
+		$(PYTHON) -m ops.release_control.promotion_eligibility --evidence-dir "$(EVIDENCE_DIR)" --promotion-request "$(PROMOTION_REQUEST)" --validation-run-observation "$(VALIDATION_RUN_OBSERVATION)" --promotion-context "$(PROMOTION_CONTEXT)"; \
+	else \
+		echo "PROMOTION_REQUEST, VALIDATION_RUN_OBSERVATION, and PROMOTION_CONTEXT are all-or-none" >&2; exit 2; \
+	fi
 
 test-e2e: ## Run E2E Playwright tests
 	pytest tests/test_e2e/ -v --tb=short

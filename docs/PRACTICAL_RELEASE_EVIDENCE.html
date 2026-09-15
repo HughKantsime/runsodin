@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ODIN Practical Release Evidence</title>
+<style>body{font:16px/1.55 system-ui;max-width:900px;margin:auto;padding:36px;color:#17212b}h1,h2{line-height:1.2}.good{border-left:5px solid #158a50;background:#eefaf3;padding:14px}.warn{border-left:5px solid #cb7a00;background:#fff8e8;padding:14px}code{background:#edf1f4;padding:2px 5px;border-radius:4px}li{margin:.45rem 0}</style></head>
+<body><h1>ODIN Practical Release Evidence</h1>
+<p class="good"><strong>Purpose:</strong> turn one complete trusted-validation run into a small, deterministic, tamper-evident artifact that can be checked before promotion.</p>
+<h2>What the bundle proves</h2><ul>
+<li>The aggregate and all ten CV01–CV10 component results passed without failures, skips, xfails, timeouts, or findings.</li>
+<li>Candidate, database-parity, EDU-sandbox, and hardware evidence resolve to the expected source commit and a clean source tree.</li>
+<li>Every raw validation file was hashed on the trusted runner. Raw logs are not included in the promotion artifact.</li>
+<li>The canonical manifest's exact bytes are bound to <code>manifest.sha256</code>.</li>
+</ul>
+<h2>What it does not prove</h2>
+<p class="warn">A passing validation run does not authorize stage, demo, or production changes. Each action requires a separate owner-dispatched promotion run. Production also requires the protected GitHub environment review.</p>
+<h2>Files</h2><ul><li><code>manifest.json</code> — authoritative canonical evidence</li><li><code>manifest.sha256</code> — digest of those exact bytes</li><li><code>index.html</code> — readable mirror for operators</li></ul>
+<h2>Local verification</h2><p><code>make verify-practical-evidence EVIDENCE_DIR=&lt;run&gt;/evidence PYTHON=python3.11</code></p>
+</body></html>

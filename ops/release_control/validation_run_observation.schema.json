@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "repository", "run_id", "run_attempt", "actor_login", "actor_id", "triggering_actor", "event", "conclusion", "path", "head_sha", "head_branch", "artifact"],
+  "properties": {
+    "schema_version": {"const": 1}, "repository_id": {"type": "integer", "minimum": 1}, "repository": {"type": "string"},
+    "run_id": {"type": "integer", "minimum": 1}, "run_attempt": {"type": "integer", "minimum": 1},
+    "actor_login": {"type": "string"}, "actor_id": {"type": "integer", "minimum": 1}, "triggering_actor": {"type": "string"},
+    "event": {"type": "string"}, "conclusion": {"type": "string"},
+    "path": {"type": "string"},
+    "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "head_branch": {"type": "string"},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["name", "digest"], "properties": {"name": {"type": "string"}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
+  }
+}

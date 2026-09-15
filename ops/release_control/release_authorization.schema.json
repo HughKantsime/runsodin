@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "action", "repository_id", "repository", "candidate_sha", "candidate_ref", "evidence_sha256", "validation_run_id", "validation_run_attempt", "validation_workflow_sha", "validation_artifact_name", "validation_artifact_digest", "promotion_run_id", "promotion_run_attempt", "promotion_workflow_sha", "actor_login", "actor_id", "triggering_actor", "environment", "nonce", "issued_at", "expires_at", "authorization_text", "authorization_text_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "action": {"enum": ["stage", "demo", "production"]},
+    "repository_id": {"type": "integer", "minimum": 1},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_ref": {"type": "string", "pattern": "^release-candidate/[0-9a-f]{40}$"},
+    "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "validation_run_id": {"type": "integer", "minimum": 1},
+    "validation_run_attempt": {"const": 1},
+    "validation_workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "validation_artifact_name": {"type": "string", "minLength": 1},
+    "validation_artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "promotion_run_id": {"type": "integer", "minimum": 1},
+    "promotion_run_attempt": {"const": 1},
+    "promotion_workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "actor_login": {"type": "string", "minLength": 1},
+    "actor_id": {"type": "integer", "minimum": 1},
+    "triggering_actor": {"type": "string", "minLength": 1},
+    "environment": {"enum": ["stage", "demo", "production"]},
+    "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$"},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "authorization_text": {"type": "string", "minLength": 8, "maxLength": 1000},
+    "authorization_text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

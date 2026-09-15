@@ -136,8 +136,8 @@ def _render(run_id: str, commit: str, status: str, counts: dict[str, int], proto
 
 def main() -> int:
     started = _now()
-    commit = _git("rev-parse", "--short", "HEAD")
-    run_id = os.getenv("ODIN_HARDWARE_RUN_ID") or f"{started.strftime('%Y%m%dT%H%M%SZ')}-{commit}"
+    commit = _git("rev-parse", "HEAD")
+    run_id = os.getenv("ODIN_HARDWARE_RUN_ID") or f"{started.strftime('%Y%m%dT%H%M%SZ')}-{commit[:7]}"
     ARTIFACT_ROOT.mkdir(parents=True, mode=0o700, exist_ok=True)
     ARTIFACT_ROOT.chmod(0o700)
     run_dir = ARTIFACT_ROOT / run_id

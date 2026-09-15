@@ -11,18 +11,23 @@
 - [ ] Trusted aggregate passes: `make trusted-validation-gate`
 - [ ] Manual smoke test in browser if UI changes (http://localhost:8000)
 
-## Immutable Candidate Evidence
+## Candidate Evidence
 
 - [ ] Create the version commit with `make bump VERSION=X.Y.Z`
 - [ ] Confirm the local helper created no tag and performed no network write
 - [ ] After remote bootstrap exists, manually dispatch `Trusted Validation` for
       the protected `release-candidate/<40hex>` ref and matching SHA
-- [ ] Retain the aggregate JSON, JUnit, and HTML evidence
+- [ ] Confirm the workflow produced the three-file sanitized `evidence/` bundle
+- [ ] Verify `manifest.sha256` against the exact downloaded `manifest.json`
+- [ ] Confirm all ten component summaries are passing and source SHA is exact
 
 ## Publish and Production
 
-- [ ] Stop here until the immutable-evidence and production-promotion specs are
-      implemented, reviewed, and explicitly authorized at their ship gates
+- [ ] Treat validation as evidence only; it is not promotion authorization
+- [ ] Require a distinct owner-dispatched promotion workflow for stage/demo/prod
+- [ ] Require protected `production` environment approval before prod mutation
+- [ ] Stop here until the promotion workflow is implemented, reviewed, and
+      explicitly authorized at its ship gate
 
 ## Rollback (if needed)
 

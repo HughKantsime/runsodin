@@ -94,6 +94,18 @@ def main() -> int:
             cwd=(ROOT / str(component["working_directory"])).resolve(),
             environment_allowlist=allowlist, environment_overrides=overrides,
         )
+        # A component command is one release gate even when it does not emit a
+        # top-level JUnit file; its native artifacts retain the detailed counts.
+        if result["counts"]["tests"] == 0:
+            passed = result["status"] == "pass"
+            result["counts"] = {
+                "tests": 1, "passed": 1 if passed else 0, "failures": 0 if passed else 1,
+                "errors": 0, "skipped": 0, "xfailed": 0,
+            }
+            validate_result(result)
+            (output_dir / "result.json").write_text(
+                json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
         results.append(result)
 
     final_junit = run_dir / "junit.xml"
