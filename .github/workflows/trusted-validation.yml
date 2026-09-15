@@ -57,7 +57,7 @@ jobs:
           python3.11 -m venv .venv-stress
           .venv-stress/bin/pip install --disable-pip-version-check -r backend/requirements.txt
           npm --prefix frontend ci
-          python3.11 -m playwright install chromium
+          PLAYWRIGHT_SKIP_BROWSER_GC=1 python3.11 -m playwright install chromium
 
       - name: Verify candidate ref and run aggregate gate
         shell: bash
