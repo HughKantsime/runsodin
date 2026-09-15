@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ODIN Authenticated Promotion Eligibility</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.55 system-ui, sans-serif; color: #17212b; background: #f4f7f9; }
+    body { margin: 0; } main { max-width: 960px; margin: auto; padding: 48px 24px 72px; }
+    h1 { line-height: 1.1; } h2 { margin-top: 2rem; } code { overflow-wrap: anywhere; }
+    .card { background: white; border: 1px solid #d8e0e6; border-radius: 12px; padding: 20px; margin: 16px 0; }
+    .ready { color: #08783e; font-weight: 800; } .stop { color: #a13b15; font-weight: 800; }
+    li { margin: .45rem 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>ODIN Authenticated Promotion Eligibility</h1>
+  <p class="ready">Implemented locally; remote bootstrap requires the controlled ship gate.</p>
+  <div class="card">
+    <h2>What it proves</h2>
+    <p>A manual, owner-dispatched workflow can bind one stage, demo, or production authorization to one immutable candidate SHA and one exact Trusted Validation evidence bundle.</p>
+  </div>
+  <div class="card">
+    <h2>Trust chain</h2>
+    <ol>
+      <li>Require the exact owner login and numeric GitHub user ID.</li>
+      <li>Observe a successful, first-attempt, manually dispatched Trusted Validation run.</li>
+      <li>Download exactly one linked three-file evidence artifact and verify the canonical manifest SHA-256.</li>
+      <li>Bind candidate, workflow, repository, run, action, nonce, authorization text, expiry, and environment approval into schema-valid records.</li>
+      <li>Upload a five-file decision artifact with accessible HTML.</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h2>What it cannot do</h2>
+    <p class="stop">It cannot build or publish a package, create a tag or release, deploy ODIN, mutate Kubernetes, change DNS/TLS, write secrets, reset demo data, or touch production.</p>
+  </div>
+  <div class="card">
+    <h2>Runner boundary</h2>
+    <p>The workflow runs only on the established M4 self-hosted runner and executes reviewed owner-only code. It does not describe that runner as isolated. The eligibility job never checks out candidate content; it imports a fixed, hash-verified helper closure fetched from the workflow's own exact SHA.</p>
+  </div>
+</main>
+</body>
+</html>

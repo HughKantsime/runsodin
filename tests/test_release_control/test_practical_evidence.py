@@ -113,7 +113,7 @@ def _promotion_files(source: Path, tmp_path: Path, action: str = "stage") -> tup
     validation = {
         "workflow_run": {
             "id": 100, "run_attempt": 1, "event": "workflow_dispatch", "conclusion": "success",
-            "path": ".github/workflows/trusted-validation.yml@main", "head_sha": "d" * 40,
+            "path": ".github/workflows/trusted-validation.yml", "head_sha": "d" * 40,
             "head_branch": "main", "repository": {"id": 77, "full_name": "HughKantsime/odin"},
             "actor": {"login": "HughKantsime", "id": 201174638},
             "triggering_actor": {"login": "HughKantsime", "id": 201174638},
@@ -344,7 +344,7 @@ def test_PW01_evidence_between_aggregate_and_upload():
 
 
 def test_PW02_evidence_receives_exact_run_and_sha():
-    assert "SOURCE_RUN_DIR=artifacts/trusted-validation/${RELEASE_CONTROL_RUN_ID} EXPECTED_SHA=${TARGET_SHA}" in _workflow()
+    assert 'SOURCE_RUN_DIR="artifacts/trusted-validation/${RELEASE_CONTROL_RUN_ID}" EXPECTED_SHA="$TARGET_SHA"' in _workflow()
 
 
 def test_PW03_upload_is_always_and_evidence_only():
@@ -358,10 +358,12 @@ def test_PW04_evidence_is_not_continue_on_error():
     assert "continue-on-error" not in section
 
 
-def test_PW05_workflow_trust_boundary_is_unchanged():
+def test_PW05_workflow_uses_established_trusted_m4_boundary():
     workflow = _workflow_data(); job = workflow["jobs"]["validate"]
     assert set(workflow["on"]) == {"workflow_dispatch"} and workflow["permissions"] == {}
-    assert job["permissions"] == {"contents": "read"} and job["runs-on"] == ["self-hosted", "odin-isolated"]
+    assert job["permissions"] == {"contents": "read"}
+    assert job["runs-on"] == ["self-hosted", "mac-mini-runner", "m4"]
+    assert "isolated" not in job["name"].lower()
     assert job["steps"][1]["uses"] == "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
     assert job["steps"][1]["with"]["persist-credentials"] == "false"
     assert job["steps"][-1]["uses"] == "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"

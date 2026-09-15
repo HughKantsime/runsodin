@@ -77,6 +77,12 @@ def _load_validation(path: Path) -> dict[str, Any]:
         raise EligibilityError("OBSERVATION_INVALID", str(path)) from exc
     if not isinstance(payload, dict):
         raise EligibilityError("OBSERVATION_INVALID", str(path))
+    if payload.get("schema_version") == 1:
+        schema = json.loads(Path(__file__).with_name("validation_run_observation.schema.json").read_text(encoding="utf-8"))
+        errors = sorted(Draft202012Validator(schema).iter_errors(payload), key=lambda item: list(item.path))
+        if errors:
+            raise EligibilityError("OBSERVATION_INVALID", errors[0].message)
+        return payload
     return normalize_validation_observation(payload)
 
 
@@ -120,7 +126,7 @@ def verify_eligibility(
         raise EligibilityError("CANDIDATE_MISMATCH", "request does not match evidence source")
     if request["evidence_sha256"] != evidence["evidence_sha256"] or promotion["evidence_sha256"] != evidence["evidence_sha256"]:
         raise EligibilityError("EVIDENCE_DIGEST_MISMATCH", "promotion did not hash these evidence bytes")
-    if validation["path"] != ".github/workflows/trusted-validation.yml@main" \
+    if validation["path"] != ".github/workflows/trusted-validation.yml" \
             or validation["head_branch"] != "main" or request["validation_workflow_sha"] != validation["head_sha"]:
         raise EligibilityError("WORKFLOW_IDENTITY_MISMATCH", "validation workflow identity mismatch")
     if request["validation_artifact_name"] != validation["artifact"]["name"] \

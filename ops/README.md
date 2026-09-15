@@ -2,9 +2,9 @@
 
 Verification and controlled promotion tooling for the O.D.I.N. print farm management system.
 
-> Release-control migration (local foundation): ordinary pushes and pull
-> requests no longer run ODIN repository workflows. Publication and production
-> promotion remain disabled until the later reviewed workflows are installed.
+> Release-control migration: ordinary pushes and pull requests do not run ODIN
+> repository workflows. Trusted Validation and Promotion Eligibility are manual,
+> owner-dispatched evidence workflows. Publication and deployment remain disabled.
 
 ## Scripts
 
@@ -73,6 +73,7 @@ make test                           # main + RBAC tests
 
 # Candidate validation (manual trusted workflow after remote bootstrap)
 make trusted-validation-gate
+make test-promotion-workflow
 
 # Build/verify a sanitized, content-addressed bundle from a passing run
 make practical-evidence SOURCE_RUN_DIR=artifacts/trusted-validation/<run-id> EXPECTED_SHA=<40hex>
@@ -95,3 +96,18 @@ artifact. The bundle proves validation integrity; it does not authorize a deploy
 Every stage, demo, or production action still requires a separate owner-dispatched
 promotion workflow. Production additionally requires its protected GitHub
 environment approval.
+
+## Authenticated promotion eligibility
+
+`.github/workflows/promote.yml` is a read-only decision workflow for `stage`,
+`demo`, or `production`. It downloads one exact Trusted Validation artifact,
+verifies its canonical manifest digest, binds it to owner identity and immutable
+workflow/run metadata, and uploads five decision files. Selecting an environment
+creates GitHub approval/deployment audit metadata, but the workflow has no package,
+repository-write, release, deployment, cluster, DNS, TLS, or secret mutation path.
+
+The eligibility job does not check out the candidate. It fetches a fixed helper
+closure from its own workflow SHA through the Contents API and verifies every
+path, decoded byte count, and Git blob hash before importing from a fresh isolated
+directory. It runs on the established M4 self-hosted runner; that runner is
+trusted for owner-reviewed code but is not represented as VM-isolated.

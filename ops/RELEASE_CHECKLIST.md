@@ -1,7 +1,7 @@
 # O.D.I.N. Release Checklist
 
-> **Current state:** local foundation only. Publishing and production promotion
-> are disabled until the reviewed successor workflows are installed.
+> **Current state:** validation and promotion-eligibility evidence only.
+> Publishing and deployment remain disabled.
 
 ## Candidate Preparation (Local)
 
@@ -24,10 +24,13 @@
 ## Publish and Production
 
 - [ ] Treat validation as evidence only; it is not promotion authorization
-- [ ] Require a distinct owner-dispatched promotion workflow for stage/demo/prod
-- [ ] Require protected `production` environment approval before prod mutation
-- [ ] Stop here until the promotion workflow is implemented, reviewed, and
-      explicitly authorized at its ship gate
+- [ ] Dispatch the distinct owner-only Promotion Eligibility workflow with the
+      exact validation run ID, candidate SHA/ref, manifest digest, nonce, and
+      verbatim authorization text
+- [ ] Confirm its five-file decision artifact is schema-valid and `eligible`
+- [ ] Require exact protected `production` environment approval evidence
+- [ ] Stop after eligibility: a later reviewed workflow and explicit ship gate
+      are still required for package publication or any deployment mutation
 
 ## Rollback (if needed)
 

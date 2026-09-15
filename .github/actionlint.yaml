@@ -1,6 +1,7 @@
 self-hosted-runner:
   labels:
-    - odin-isolated
+    - mac-mini-runner
+    - m4
 
 config-variables: null
 

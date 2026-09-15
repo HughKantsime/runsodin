@@ -1,0 +1,288 @@
+name: Promotion Eligibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Eligibility scope only; this workflow never deploys
+        required: true
+        type: choice
+        options: [stage, demo, production]
+      validation_run_id:
+        description: Successful Trusted Validation run ID
+        required: true
+        type: string
+      candidate_sha:
+        description: Full lowercase 40-character candidate SHA
+        required: true
+        type: string
+      candidate_ref:
+        description: Immutable release-candidate/<SHA> branch
+        required: true
+        type: string
+      evidence_sha256:
+        description: SHA-256 of the canonical validation manifest.json
+        required: true
+        type: string
+      nonce:
+        description: Unique 16-128 character authorization nonce
+        required: true
+        type: string
+      authorization_text:
+        description: Verbatim 8-1000 character owner authorization
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  eligibility:
+    name: Authenticate promotion eligibility
+    runs-on: [self-hosted, mac-mini-runner, m4]
+    timeout-minutes: 30
+    environment: ${{ inputs.action }}
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_ACTION: ${{ inputs.action }}
+      INPUT_VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+      INPUT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      INPUT_CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      INPUT_EVIDENCE_SHA256: ${{ inputs.evidence_sha256 }}
+      INPUT_NONCE: ${{ inputs.nonce }}
+      INPUT_AUTHORIZATION_TEXT: ${{ inputs.authorization_text }}
+      CURRENT_REPOSITORY_ID: ${{ github.repository_id }}
+      CURRENT_RUN_ID: ${{ github.run_id }}
+      CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+      CURRENT_ACTOR: ${{ github.actor }}
+      CURRENT_ACTOR_ID: ${{ github.actor_id }}
+      CURRENT_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+      CURRENT_EVENT: ${{ github.event_name }}
+      CURRENT_WORKFLOW_REF: ${{ github.workflow_ref }}
+      CURRENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      PROMOTION_READY: "0"
+      PROMOTION_OUTPUT: ${{ github.workspace }}/.odin-promotion-uninitialized-${{ github.run_id }}-${{ github.run_attempt }}/output
+    steps:
+      - name: Establish fresh run root
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CURRENT_RUN_ATTEMPT" = "1"
+          test "$CURRENT_ACTOR" = "HughKantsime"
+          test "$CURRENT_ACTOR_ID" = "201174638"
+          test "$CURRENT_TRIGGERING_ACTOR" = "$CURRENT_ACTOR"
+          promotion_root="$RUNNER_TEMP/odin-promotion-${CURRENT_RUN_ID}-${CURRENT_RUN_ATTEMPT}"
+          test "$promotion_root" != "/"
+          case "$promotion_root" in "$RUNNER_TEMP"/odin-promotion-*) ;; *) exit 2 ;; esac
+          test ! -e "$promotion_root"
+          mkdir -m 700 "$promotion_root"
+          {
+            echo "PROMOTION_ROOT=$promotion_root"
+            echo "PROMOTION_BUNDLE=$promotion_root/bundle"
+            echo "PROMOTION_EVIDENCE=$promotion_root/evidence"
+            echo "PROMOTION_OUTPUT=$promotion_root/output"
+            echo "PROMOTION_READY=1"
+          } >> "$GITHUB_ENV"
+
+      - name: Fetch and verify reviewed helper closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROMOTION_ROOT"
+          response_dir="$PROMOTION_ROOT/contents-api"
+          mkdir -m 700 "$response_dir"
+          allowlist=(
+            ops/__init__.py
+            ops/release_control/__init__.py
+            ops/edu_readiness/__init__.py
+            ops/release_control/promotion_workflow.py
+            ops/release_control/promotion_eligibility.py
+            ops/release_control/practical_evidence.py
+            ops/release_control/release_authorization.py
+            ops/release_control/policy.py
+            ops/release_control/run_gate.py
+            ops/edu_readiness/artifact_scan.py
+            ops/edu_readiness/common.py
+            ops/release_control/practical_evidence.schema.json
+            ops/release_control/release_authorization.schema.json
+            ops/release_control/validation_run_observation.schema.json
+            ops/release_control/promotion_context.schema.json
+            ops/release_control/result.schema.json
+          )
+          index=0
+          for relative in "${allowlist[@]}"; do
+            gh api --method GET \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/contents/${relative}?ref=${CURRENT_WORKFLOW_SHA}" \
+              > "$response_dir/$index.json"
+            index=$((index + 1))
+          done
+          export CONTENTS_RESPONSE_DIR="$response_dir"
+          python3.11 -P <<'PY'
+          import base64, hashlib, json, os, tempfile
+          from pathlib import Path
+
+          expected = (
+              "ops/__init__.py", "ops/release_control/__init__.py", "ops/edu_readiness/__init__.py",
+              "ops/release_control/promotion_workflow.py", "ops/release_control/promotion_eligibility.py",
+              "ops/release_control/practical_evidence.py", "ops/release_control/release_authorization.py",
+              "ops/release_control/policy.py", "ops/release_control/run_gate.py",
+              "ops/edu_readiness/artifact_scan.py", "ops/edu_readiness/common.py",
+              "ops/release_control/practical_evidence.schema.json",
+              "ops/release_control/release_authorization.schema.json",
+              "ops/release_control/validation_run_observation.schema.json",
+              "ops/release_control/promotion_context.schema.json",
+              "ops/release_control/result.schema.json",
+          )
+          response_dir = Path(os.environ["CONTENTS_RESPONSE_DIR"])
+          bundle = Path(os.environ["PROMOTION_BUNDLE"])
+          responses = sorted(response_dir.glob("*.json"), key=lambda path: int(path.stem))
+          if len(responses) != len(expected) or bundle.exists() or bundle.is_symlink():
+              raise SystemExit("invalid helper response count or pre-existing bundle")
+          decoded = {}
+          for expected_path, response_path in zip(expected, responses):
+              payload = json.loads(response_path.read_text(encoding="utf-8"))
+              if payload.get("path") != expected_path or payload.get("type") != "file" or payload.get("encoding") != "base64":
+                  raise SystemExit(f"invalid Contents response for {expected_path}")
+              data = base64.b64decode("".join(payload["content"].split()), validate=True)
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data).hexdigest()
+              if payload.get("size") != len(data) or payload.get("sha") != blob:
+                  raise SystemExit(f"Contents integrity mismatch for {expected_path}")
+              decoded[expected_path] = data
+          staging = Path(tempfile.mkdtemp(prefix=".promotion-bundle-", dir=bundle.parent))
+          try:
+              for relative in expected:
+                  target = staging / relative
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(decoded[relative])
+              os.replace(staging, bundle)
+          except BaseException:
+              import shutil
+              shutil.rmtree(staging, ignore_errors=True)
+              raise
+          PY
+          index=0
+          for relative in "${allowlist[@]}"; do
+            expected_blob="$(python3.11 -P -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["sha"])' "$response_dir/$index.json")"
+            test "$(git hash-object --stdin < "$PROMOTION_BUNDLE/$relative")" = "$expected_blob"
+            index=$((index + 1))
+          done
+          test "$(python3.11 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')" = "3.11"
+          PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P -c \
+            'import importlib.metadata; assert importlib.metadata.version("jsonschema") == "4.25.1"'
+          PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P -c \
+            'import ops.release_control.promotion_workflow as p; assert tuple(p.FETCH_ALLOWLIST)'
+
+      - name: Validate authenticated inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROMOTION_ROOT"
+          mkdir -m 700 "$PROMOTION_OUTPUT"
+          export INPUTS_JSON="$PROMOTION_ROOT/inputs.json"
+          export CURRENT_JSON="$PROMOTION_ROOT/current.json"
+          python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+
+          inputs = {
+              "action": os.environ["INPUT_ACTION"],
+              "validation_run_id": int(os.environ["INPUT_VALIDATION_RUN_ID"]),
+              "candidate_sha": os.environ["INPUT_CANDIDATE_SHA"],
+              "candidate_ref": os.environ["INPUT_CANDIDATE_REF"],
+              "evidence_sha256": os.environ["INPUT_EVIDENCE_SHA256"],
+              "nonce": os.environ["INPUT_NONCE"],
+              "authorization_text": os.environ["INPUT_AUTHORIZATION_TEXT"],
+          }
+          current = {
+              "repository_id": int(os.environ["CURRENT_REPOSITORY_ID"]),
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_id": int(os.environ["CURRENT_RUN_ID"]),
+              "run_attempt": int(os.environ["CURRENT_RUN_ATTEMPT"]),
+              "actor_login": os.environ["CURRENT_ACTOR"],
+              "actor_id": int(os.environ["CURRENT_ACTOR_ID"]),
+              "triggering_actor": os.environ["CURRENT_TRIGGERING_ACTOR"],
+              "event": os.environ["CURRENT_EVENT"],
+              "workflow_path": ".github/workflows/promote.yml",
+              "workflow_ref": os.environ["CURRENT_WORKFLOW_REF"],
+              "workflow_sha": os.environ["CURRENT_WORKFLOW_SHA"],
+          }
+          Path(os.environ["INPUTS_JSON"]).write_text(json.dumps(inputs), encoding="utf-8")
+          Path(os.environ["CURRENT_JSON"]).write_text(json.dumps(current), encoding="utf-8")
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P \
+            -m ops.release_control.promotion_workflow validate-inputs \
+            --inputs "$INPUTS_JSON" --current-context "$CURRENT_JSON"
+
+      - name: Observe validation and download exact evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROMOTION_ROOT"
+          validation_json="$PROMOTION_ROOT/validation-run-api.json"
+          artifacts_json="$PROMOTION_ROOT/artifacts-api.json"
+          observation_json="$PROMOTION_ROOT/validation-observation.json"
+          artifact_zip="$PROMOTION_ROOT/evidence.zip"
+          gh api --method GET -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_VALIDATION_RUN_ID}" > "$validation_json"
+          gh api --method GET -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_VALIDATION_RUN_ID}/artifacts?per_page=100&name=odin-trusted-validation-${INPUT_VALIDATION_RUN_ID}-1" > "$artifacts_json"
+          artifact_id="$(PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P \
+            -m ops.release_control.promotion_workflow select-observation \
+            --workflow-run "$validation_json" --artifacts "$artifacts_json" \
+            --validation-run-id "$INPUT_VALIDATION_RUN_ID" --output "$observation_json")"
+          [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]
+          gh api --method GET -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$artifact_zip"
+          PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P \
+            -m ops.release_control.promotion_workflow verify-download \
+            --artifact-zip "$artifact_zip" --evidence-dir "$PROMOTION_EVIDENCE" \
+            --expected-sha256 "$INPUT_EVIDENCE_SHA256"
+
+      - name: Build records and decide eligibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROMOTION_ROOT"
+          approvals_json="$PROMOTION_ROOT/approvals.json"
+          if [ "$INPUT_ACTION" = "production" ]; then
+            gh api --method GET -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${CURRENT_RUN_ID}/approvals" > "$approvals_json"
+          else
+            echo '[]' > "$approvals_json"
+          fi
+          PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P \
+            -m ops.release_control.promotion_workflow build-records \
+            --inputs "$PROMOTION_ROOT/inputs.json" --current-context "$PROMOTION_ROOT/current.json" \
+            --validation-observation "$PROMOTION_ROOT/validation-observation.json" \
+            --approvals "$approvals_json" --request-out "$PROMOTION_ROOT/request.json" \
+            --context-out "$PROMOTION_ROOT/promotion-context.json"
+          PYTHONSAFEPATH=1 PYTHONPATH="$PROMOTION_BUNDLE" python3.11 -P \
+            -m ops.release_control.promotion_workflow render-decision \
+            --evidence-dir "$PROMOTION_EVIDENCE" --request "$PROMOTION_ROOT/request.json" \
+            --validation-observation "$PROMOTION_ROOT/validation-observation.json" \
+            --promotion-context "$PROMOTION_ROOT/promotion-context.json" \
+            --output-dir "$PROMOTION_OUTPUT"
+
+      - name: Upload eligibility evidence
+        if: always() && env.PROMOTION_READY == '1'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: odin-promotion-eligibility-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PROMOTION_OUTPUT }}/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove fresh run root
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${PROMOTION_READY:-0}" = "1" ]; then
+            test -n "$PROMOTION_ROOT"
+            test "$PROMOTION_ROOT" != "/"
+            case "$PROMOTION_ROOT" in "$RUNNER_TEMP"/odin-promotion-*) ;; *) exit 2 ;; esac
+            rm -rf -- "$PROMOTION_ROOT"
+          fi

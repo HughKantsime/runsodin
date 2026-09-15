@@ -16,8 +16,8 @@ permissions: {}
 
 jobs:
   validate:
-    name: Validate immutable release candidate
-    runs-on: [self-hosted, odin-isolated]
+    name: Trusted candidate validation
+    runs-on: [self-hosted, mac-mini-runner, m4]
     timeout-minutes: 360
     permissions:
       contents: read
@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          make practical-evidence SOURCE_RUN_DIR=artifacts/trusted-validation/${RELEASE_CONTROL_RUN_ID} EXPECTED_SHA=${TARGET_SHA} PYTHON=python3.11
+          make practical-evidence SOURCE_RUN_DIR="artifacts/trusted-validation/${RELEASE_CONTROL_RUN_ID}" EXPECTED_SHA="$TARGET_SHA" PYTHON=python3.11
 
       - name: Upload sanitized validation evidence
         if: always()
