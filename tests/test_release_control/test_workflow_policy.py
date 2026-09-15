@@ -57,8 +57,10 @@ def test_WF10_candidate_sha_is_full_lowercase_hex():
 
 
 def test_WF11_runner_labels_are_exact():
-    assert "runs-on: [self-hosted, mac-mini-runner, m4]" in workflow_text()
-    assert "odin-isolated" not in workflow_text()
+    source = workflow_text()
+    assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
+    assert "odin-isolated" not in source
+    assert "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\"" in source
 
 
 def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():

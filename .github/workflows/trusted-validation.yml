@@ -36,6 +36,9 @@ jobs:
           test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$TARGET_REF" = "release-candidate/$TARGET_SHA"
+          test -x /Users/ollama/homebrew/bin/python3.11
+          test -x /opt/homebrew/bin/npm
+          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
 
       - name: Check out immutable candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
