@@ -241,6 +241,174 @@ def test_candidate_preflight_rejects_preexisting_docker_resources(monkeypatch, e
     assert all("--format" in args for args in calls)
 
 
+def test_DI06_candidate_build_failure_keeps_resource_cleanup_without_image_deletion(
+    tmp_path: Path, monkeypatch
+):
+    calls: list[list[str]] = []
+
+    def fake_command(args, **kwargs):
+        calls.append(list(args))
+        if args[:3] == ["docker", "image", "inspect"]:
+            return subprocess.CompletedProcess(args, 1, "No such image: candidate\n")
+        if args[:2] == ["docker", "build"]:
+            raise GatePolicyError("simulated build failure")
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, "a" * 40 + "\n")
+        if args[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args, 0, "")
+        if args[:3] in (
+            ["docker", "rm", "-f"],
+            ["docker", "network", "rm"],
+            ["docker", "volume", "rm"],
+        ):
+            return subprocess.CompletedProcess(args, 1, "No such resource\n")
+        return subprocess.CompletedProcess(args, 0, "")
+
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: "/usr/local/bin/docker")
+    monkeypatch.setattr(runner, "assert_candidate_suite_has_no_skip_mechanisms", lambda _path: None)
+    monkeypatch.setattr(runner, "_command", fake_command)
+
+    result = runner.run_gate(
+        "candidate-unit", tmp_path / "artifacts", "odin-candidate:candidate-unit"
+    )
+
+    assert result == 1
+    assert not any(call[:3] == ["docker", "image", "rm"] for call in calls)
+    assert ["docker", "rm", "-f", "odin-candidate-candidate-unit"] in calls
+    assert ["docker", "network", "rm", "odin-candidate-candidate-unit"] in calls
+    assert ["docker", "volume", "rm", "odin-candidate-candidate-unit-data"] in calls
+
+
+@pytest.mark.parametrize("observed", [None, "sha256:" + "b" * 64])
+def test_DI04_DI05_candidate_iid_tag_failure_records_cleanup_failure_without_delete(
+    tmp_path: Path, monkeypatch, observed: str | None
+):
+    calls: list[list[str]] = []
+    built = False
+    image_id = "sha256:" + "a" * 64
+
+    def fake_command(args, **_kwargs):
+        nonlocal built
+        calls.append(list(args))
+        if args[:3] == ["docker", "image", "inspect"]:
+            if not built or observed is None:
+                return subprocess.CompletedProcess(args, 1, "No such image: candidate\n")
+            return subprocess.CompletedProcess(args, 0, observed + "\n")
+        if args[:2] == ["docker", "build"]:
+            Path(args[args.index("--iidfile") + 1]).write_text(
+                image_id + "\n", encoding="ascii"
+            )
+            built = True
+            return subprocess.CompletedProcess(args, 0, "built\n")
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, "a" * 40 + "\n")
+        if args[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args, 0, "")
+        if args[:3] in (
+            ["docker", "rm", "-f"],
+            ["docker", "network", "rm"],
+            ["docker", "volume", "rm"],
+        ):
+            return subprocess.CompletedProcess(args, 1, "No such resource\n")
+        return subprocess.CompletedProcess(args, 0, "")
+
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: "/usr/local/bin/docker")
+    monkeypatch.setattr(runner, "assert_candidate_suite_has_no_skip_mechanisms", lambda _path: None)
+    monkeypatch.setattr(runner, "_command", fake_command)
+
+    result = runner.run_gate(
+        "candidate-iid", tmp_path / "artifacts", "odin-candidate:candidate-iid"
+    )
+
+    manifest = json.loads(
+        (tmp_path / "artifacts" / "candidate-iid" / "manifest.json").read_text()
+    )
+    assert result == 1
+    assert manifest["status"] == "FAIL"
+    assert manifest["phases"][-1]["name"] == "cleanup"
+    assert "image ownership verification failed" in manifest["phases"][-1]["detail"]
+    assert not any(call[:3] == ["docker", "image", "rm"] for call in calls)
+
+
+def test_candidate_finalization_error_does_not_skip_exact_image_cleanup(
+    tmp_path: Path, monkeypatch
+):
+    calls: list[list[str]] = []
+    image_id = "sha256:" + "a" * 64
+    image_present = False
+    owner_token = ""
+
+    def fake_command(args, **_kwargs):
+        nonlocal image_present, owner_token
+        calls.append(list(args))
+        if args == ["docker", "image", "ls", "-a", "--no-trunc", "--quiet"]:
+            return subprocess.CompletedProcess(
+                args, 0, image_id + "\n" if image_present else ""
+            )
+        if args[:3] == ["docker", "image", "inspect"]:
+            if image_present:
+                output = (
+                    image_id + "\n"
+                    if "--format" in args
+                    else json.dumps([{
+                        "Id": image_id,
+                        "RepoTags": ["odin-candidate:candidate-finalize"],
+                        "RepoDigests": [],
+                        "Config": {"Labels": {
+                            "com.runsodin.validation-image-owner": owner_token
+                        }},
+                    }]) + "\n"
+                )
+                return subprocess.CompletedProcess(args, 0, output)
+            return subprocess.CompletedProcess(args, 1, "No such image: candidate\n")
+        if args[:3] == ["docker", "history", "--no-trunc"]:
+            return subprocess.CompletedProcess(args, 0, image_id + "\n")
+        if args[:2] == ["docker", "build"]:
+            owner_token = args[args.index("--build-arg") + 1].split("=", 1)[1]
+            Path(args[args.index("--iidfile") + 1]).write_text(
+                image_id + "\n", encoding="ascii"
+            )
+            image_present = True
+            return subprocess.CompletedProcess(args, 0, "built\n")
+        if args[:3] == ["docker", "network", "create"]:
+            raise GatePolicyError("stop after image ownership")
+        if args[:2] == ["docker", "logs"]:
+            raise OSError("simulated Docker transport failure")
+        if args[:3] == ["docker", "image", "rm"]:
+            image_present = False
+            return subprocess.CompletedProcess(args, 0, "untagged\n")
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args, 0, "a" * 40 + "\n")
+        if args[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args, 0, "")
+        if args[:3] in (
+            ["docker", "rm", "-f"],
+            ["docker", "network", "rm"],
+            ["docker", "volume", "rm"],
+        ):
+            return subprocess.CompletedProcess(args, 1, "No such resource\n")
+        return subprocess.CompletedProcess(args, 0, "")
+
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: "/usr/local/bin/docker")
+    monkeypatch.setattr(runner, "assert_candidate_suite_has_no_skip_mechanisms", lambda _path: None)
+    monkeypatch.setattr(runner, "_command", fake_command)
+
+    result = runner.run_gate(
+        "candidate-finalize",
+        tmp_path / "artifacts",
+        "odin-candidate:candidate-finalize",
+    )
+
+    assert result == 1
+    assert ["docker", "image", "rm", "odin-candidate:candidate-finalize"] in calls
+    assert image_present is False
+    manifest = json.loads(
+        (tmp_path / "artifacts" / "candidate-finalize" / "manifest.json").read_text()
+    )
+    assert manifest["status"] == "FAIL"
+    assert "log retention failed" in manifest["phases"][-1]["detail"]
+
+
 def test_candidate_make_and_ci_wiring_is_release_blocking():
     repo = Path(__file__).parents[2]
     makefile = (repo / "Makefile").read_text(encoding="utf-8")

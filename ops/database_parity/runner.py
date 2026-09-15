@@ -21,6 +21,11 @@ from ops.release_gate.policy import (
     redact_text,
     scan_text_for_secrets,
 )
+from ops.release_control.validation_image_cleanup import (
+    DisposableImageLifecycle,
+    read_iidfile,
+    verify_built_image,
+)
 
 from .report import render_report
 
@@ -30,7 +35,12 @@ RUN_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
 
 
 def _command(
-    command: list[str], *, env: dict[str, str] | None = None, timeout: int = 1800
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: int = 1800,
+    capture: bool = True,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     try:
         result = subprocess.run(
@@ -38,8 +48,8 @@ def _command(
             cwd=ROOT,
             env=env,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.STDOUT if capture else None,
             check=False,
             timeout=timeout,
         )
@@ -47,7 +57,7 @@ def _command(
         raise GatePolicyError(
             f"command timed out after {timeout}s: {' '.join(command[:4])}"
         ) from exc
-    if result.returncode:
+    if check and result.returncode:
         raise GatePolicyError(
             f"command failed ({result.returncode}): {' '.join(command[:4])}\n"
             + (result.stdout or "")[-1600:]
@@ -452,6 +462,10 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
     secret_bundle = _write_secret_bundle(parity_secrets)
     error: BaseException | None = None
     image_id = ""
+    owned_image_id: str | None = None
+    iid_file_path: Path | None = None
+    image_ownership_failed = False
+    image_lifecycle = DisposableImageLifecycle(image, command=_command)
     active_phase = "preflight"
     preexisting = _docker_resources(run_id)
     try:
@@ -468,20 +482,47 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
             raise GatePolicyError(
                 "pre-existing database parity containers: " + ", ".join(sorted(preexisting))
             )
+        image_lifecycle.begin()
         _phase(
             phases,
             active_phase,
             started,
-            "dependencies available; SQLite compatibility inventory current; isolated namespace clean",
+            "dependencies available; SQLite inventory current; isolated namespace and image tag clean",
         )
 
         active_phase = "candidate-build"
         started = time.monotonic()
-        build = _command(["docker", "build", "--pull", "-t", image, "."])
-        (artifact_dir / "build.log").write_text(
-            redact_text(build.stdout, known_secrets), encoding="utf-8"
-        )
-        image_id = _assert_image_metadata(image)
+        with tempfile.NamedTemporaryFile(prefix="odin-dbparity-iid-", delete=False) as handle:
+            iid_file_path = Path(handle.name)
+        iid_file_path.unlink()
+        image_lifecycle.mark_build_attempted()
+        try:
+            build = _command(
+                [
+                    "docker", "build", "--pull", "--iidfile", str(iid_file_path),
+                    *image_lifecycle.docker_build_owner_args(),
+                    "-t", image, ".",
+                ]
+            )
+            (artifact_dir / "build.log").write_text(
+                redact_text(build.stdout, known_secrets), encoding="utf-8"
+            )
+            read_iidfile(iid_file_path)
+            image_id = verify_built_image(image, iid_file_path, command=_command)
+            owned_image_id = image_id
+            image_lifecycle.establish_final_image(image_id)
+            image_lifecycle.freeze_ownership()
+        except BaseException:
+            if not image_lifecycle.ownership_capture_attempted:
+                try:
+                    image_lifecycle.freeze_ownership()
+                except Exception:
+                    pass
+            if not image_lifecycle.final_image_id:
+                image_ownership_failed = True
+            raise
+        if _assert_image_metadata(image) != image_id:
+            raise GatePolicyError("candidate image metadata identity changed after build")
         client_probe = _command(
             [
                 "docker",
@@ -596,7 +637,7 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
             raise GatePolicyError(
                 "database parity containers leaked: " + ", ".join(sorted(remaining))
             )
-        _phase(phases, active_phase, started, "all disposable PostgreSQL resources removed")
+        _phase(phases, active_phase, started, "all disposable database resources removed")
     except BaseException as exc:
         error = exc
         phases.append(
@@ -608,34 +649,80 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
             }
         )
     finally:
-        secret_bundle.unlink(missing_ok=True)
-        leaked = _docker_resources(run_id) - preexisting
-        if leaked:
-            cleanup_errors = _cleanup_resources(leaked)
-            still_present = _docker_resources(run_id) - preexisting
-            if cleanup_errors or still_present:
-                cleanup_failure = GatePolicyError(
-                    "database parity cleanup recovery failed: "
-                    + "; ".join(cleanup_errors + sorted(still_present))
-                )
-                error = cleanup_failure
-                phases.append(
-                    {
-                        "name": "cleanup-recovery",
-                        "status": "FAIL",
-                        "duration_seconds": 0,
-                        "detail": str(cleanup_failure),
-                    }
-                )
-            else:
-                phases.append(
-                    {
-                        "name": "cleanup-recovery",
-                        "status": "PASS",
-                        "duration_seconds": 0,
-                        "detail": "removed resources left by an interrupted drill",
-                    }
-                )
+        resource_cleanup_errors: list[str] = []
+        try:
+            secret_bundle.unlink(missing_ok=True)
+        except OSError as exc:
+            resource_cleanup_errors.append(f"secret file cleanup failed: {exc}")
+        if iid_file_path is not None:
+            try:
+                iid_file_path.unlink(missing_ok=True)
+            except OSError as exc:
+                resource_cleanup_errors.append(f"IID file cleanup failed: {exc}")
+        try:
+            leaked = _docker_resources(run_id) - preexisting
+            if leaked:
+                resource_cleanup_errors.extend(_cleanup_resources(leaked))
+                still_present = _docker_resources(run_id) - preexisting
+                resource_cleanup_errors.extend(sorted(still_present))
+                if not resource_cleanup_errors:
+                    phases.append(
+                        {
+                            "name": "cleanup-recovery",
+                            "status": "PASS",
+                            "duration_seconds": 0,
+                            "detail": "removed resources left by an interrupted drill",
+                        }
+                    )
+        except Exception as exc:
+            resource_cleanup_errors.append(f"resource cleanup observation failed: {exc}")
+        if resource_cleanup_errors:
+            cleanup_failure = GatePolicyError(
+                "database parity cleanup recovery failed: "
+                + "; ".join(resource_cleanup_errors)
+            )
+            error = cleanup_failure
+            phases.append(
+                {
+                    "name": "cleanup-recovery",
+                    "status": "FAIL",
+                    "duration_seconds": 0,
+                    "detail": str(cleanup_failure),
+                }
+            )
+        image_cleanup_errors: list[str] = []
+        if image_ownership_failed:
+            image_cleanup_errors.append(
+                "image ownership verification failed; tag deletion was not attempted"
+            )
+        image_cleanup_errors.extend(image_lifecycle.finalize())
+        if image_cleanup_errors:
+            cleanup_failure = GatePolicyError(
+                "database parity image cleanup failed: "
+                + "; ".join(image_cleanup_errors)
+            )
+            error = cleanup_failure
+            phases.append(
+                {
+                    "name": "cleanup-image",
+                    "status": "FAIL",
+                    "duration_seconds": 0,
+                    "detail": str(cleanup_failure),
+                }
+            )
+        else:
+            phases.append(
+                {
+                    "name": "cleanup-image",
+                    "status": "PASS",
+                    "duration_seconds": 0,
+                    "detail": (
+                        "exact owned image tag removed"
+                        if owned_image_id is not None
+                        else "no owned image tag established or removed"
+                    ),
+                }
+            )
         manifest = {
             "schema_version": 1,
             "run_id": run_id,
@@ -644,6 +731,7 @@ def run(run_id: str, artifact_root: Path, image: str) -> int:
             "dirty": bool(_command(["git", "status", "--porcelain"]).stdout.strip()),
             "candidate_image": image,
             "candidate_image_id": image_id,
+            "image_lifecycle": image_lifecycle.evidence(),
             "phases": phases,
             "database_evidence": database_evidence,
             "topology_evidence": topology_evidence,

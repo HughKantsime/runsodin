@@ -292,7 +292,11 @@ def test_database_parity_runner_is_exact_repeatable_and_emits_html() -> None:
         encoding="utf-8"
     )
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert '["docker", "build", "--pull", "-t", image, "."]' in runner
+    assert '"docker", "build", "--pull", "--iidfile", str(iid_file_path)' in runner
+    assert "verify_built_image(image, iid_file_path, command=_command)" in runner
+    assert "DisposableImageLifecycle(image, command=_command)" in runner
+    assert "image_lifecycle.finalize()" in runner
+    assert '"image_lifecycle": image_lifecycle.evidence()' in runner
     assert "for attempt in (1, 2)" in runner
     assert "inspect_junit(junit)" in runner
     assert "_assert_image_metadata(image)" in runner

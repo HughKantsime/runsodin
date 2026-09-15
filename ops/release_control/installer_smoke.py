@@ -17,6 +17,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ops.release_control.validation_image_cleanup import (
+    DisposableImageLifecycle,
+    read_iidfile,
+    verify_built_image,
+)
+
 ROOT = Path(__file__).parents[2]
 LABEL = "com.runsodin.install-smoke"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,62}$")
@@ -37,6 +43,13 @@ def _run(command: list[str], *, env: dict[str, str] | None = None, cwd: Path = R
     if check and result.returncode:
         raise InstallerSmokeError(f"command failed ({result.returncode}): {' '.join(command[:4])}\n{result.stdout[-1200:]}")
     return result
+
+
+def _image_command(
+    command: list[str], *, capture: bool = True, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    del capture
+    return _run(command, check=check)
 
 
 def validate_name(value: str) -> str:
@@ -198,15 +211,39 @@ def run(run_id: str, artifact_root: Path) -> int:
     image = f"odin-install-smoke:{run_id}"
     records: dict[str, dict[str, str]] = {}
     image_built = False
+    iid_file_path: Path | None = None
+    image_lifecycle = DisposableImageLifecycle(image, command=_image_command)
     started = time.monotonic()
     phases: list[dict[str, object]] = []
     error: Exception | None = None
     try:
         assert_ports_free(ports)
-        assert_absent(resources, install_dir, data_path, image)
-        _run(["docker", "build", "--label", f"{LABEL}={run_id}", "-t", image, "."], timeout=1800)
-        image_built = True
-        expected_image = str(_inspect("image", image).get("Id", ""))  # type: ignore[union-attr]
+        assert_absent(resources, install_dir, data_path)
+        image_lifecycle.begin()
+        with tempfile.NamedTemporaryFile(prefix="odin-install-smoke-iid-", delete=False) as handle:
+            iid_file_path = Path(handle.name)
+        iid_file_path.unlink()
+        image_lifecycle.mark_build_attempted()
+        try:
+            _run([
+                "docker", "build", "--iidfile", str(iid_file_path),
+                *image_lifecycle.docker_build_owner_args(),
+                "--label", f"{LABEL}={run_id}", "-t", image, ".",
+            ], timeout=1800)
+            image_built = True
+            read_iidfile(iid_file_path)
+            expected_image = verify_built_image(
+                image, iid_file_path, command=_image_command
+            )
+            image_lifecycle.establish_final_image(expected_image)
+            image_lifecycle.freeze_ownership()
+        except Exception:
+            if not image_lifecycle.ownership_capture_attempted:
+                try:
+                    image_lifecycle.freeze_ownership()
+                except Exception:
+                    pass
+            raise
         env = os.environ.copy()
         env.update({
             "ODIN_INSTALL_TEST_MODE": "1", "ODIN_TEST_ROOT": str(run_root),
@@ -247,20 +284,47 @@ def run(run_id: str, artifact_root: Path) -> int:
         except Exception as cleanup_error:
             error = error or cleanup_error
             phases.append({"name": "cleanup", "status": "fail", "detail": str(cleanup_error)})
-        if image_built:
-            image_payload = _inspect("image", image)
-            image_labels = image_payload.get("Config", {}).get("Labels", {}) if image_payload else {}
-            if isinstance(image_labels, dict) and image_labels.get(LABEL) == run_id:
-                _run(["docker", "image", "rm", image], check=False)
-            else:
-                error = error or InstallerSmokeError("image cleanup refused ownership-label mismatch")
+        image_cleanup_errors = image_lifecycle.finalize()
+        if image_cleanup_errors:
+            cleanup_error = InstallerSmokeError(
+                "image cleanup failed: " + "; ".join(image_cleanup_errors)
+            )
+            error = error or cleanup_error
+            phases.append(
+                {"name": "image-cleanup", "status": "fail", "detail": str(cleanup_error)}
+            )
+        else:
+            phases.append(
+                {
+                    "name": "image-cleanup",
+                    "status": "pass",
+                    "detail": (
+                        "fixed disposable image tag/history cleaned"
+                        if image_built
+                        else "no image build completed; fixed post-attempt history cleaned or absent"
+                    ),
+                }
+            )
+        if iid_file_path is not None:
+            try:
+                iid_file_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                error = error or cleanup_error
+                phases.append(
+                    {
+                        "name": "iid-cleanup",
+                        "status": "fail",
+                        "detail": str(cleanup_error),
+                    }
+                )
         for path in (install_dir, data_path):
             if path.exists():
                 shutil.rmtree(path)
     manifest = {
         "schema_version": 1, "run_id": run_id, "status": "pass" if error is None else "fail",
         "duration_seconds": round(time.monotonic() - started, 3), "resources": records,
-        "ports": ports, "candidate_image": image, "phases": phases,
+        "ports": ports, "candidate_image": image,
+        "image_lifecycle": image_lifecycle.evidence(), "phases": phases,
     }
     (run_root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(run_root / "manifest.json")

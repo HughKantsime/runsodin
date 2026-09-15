@@ -21,6 +21,12 @@ from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 
+from ops.release_control.validation_image_cleanup import (
+    DisposableImageLifecycle,
+    read_iidfile,
+    verify_built_image,
+)
+
 from .policy import (
     GatePolicyError,
     assert_candidate_suite_has_no_skip_mechanisms,
@@ -299,7 +305,11 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
     active_phase = "preflight"
     run_error: BaseException | None = None
     env_file_path: Path | None = None
+    iid_file_path: Path | None = None
     owns_resources = False
+    owned_image_id: str | None = None
+    image_ownership_failed = False
+    image_lifecycle = DisposableImageLifecycle(candidate_image, command=_command)
 
     try:
         started = time.monotonic()
@@ -308,22 +318,45 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
         assert_candidate_suite_has_no_skip_mechanisms(repo_root / "tests" / "candidate_gate")
         _command([sys.executable, "-c", "import pytest, requests, playwright, websocket"])
         _assert_resources_absent(resources)
+        image_lifecycle.begin()
         owns_resources = True
         _phase(
             phases,
             "preflight",
             started,
-            "Docker and host test dependencies available; no skip mechanisms or pre-existing resources",
+            "Docker and host test dependencies available; no skip mechanisms, resources, or image tag",
         )
 
         active_phase = "candidate-build"
         started = time.monotonic()
-        _command(["docker", "build", "--pull", "-t", candidate_image, "."])
-        candidate_image_id = _command(
-            ["docker", "image", "inspect", "--format", "{{.Id}}", candidate_image], capture=True
-        ).stdout.strip()
-        if not candidate_image_id.startswith("sha256:"):
-            raise GatePolicyError("built candidate image did not expose a content ID")
+        with tempfile.NamedTemporaryFile(prefix="odin-candidate-iid-", delete=False) as handle:
+            iid_file_path = Path(handle.name)
+        iid_file_path.unlink()
+        image_lifecycle.mark_build_attempted()
+        try:
+            _command(
+                [
+                    "docker", "build", "--pull", "--iidfile", str(iid_file_path),
+                    *image_lifecycle.docker_build_owner_args(),
+                    "-t", candidate_image, ".",
+                ]
+            )
+            read_iidfile(iid_file_path)
+            candidate_image_id = verify_built_image(
+                candidate_image, iid_file_path, command=_command
+            )
+            owned_image_id = candidate_image_id
+            image_lifecycle.establish_final_image(candidate_image_id)
+            image_lifecycle.freeze_ownership()
+        except BaseException:
+            if not image_lifecycle.ownership_capture_attempted:
+                try:
+                    image_lifecycle.freeze_ownership()
+                except Exception:
+                    pass
+            if not image_lifecycle.final_image_id:
+                image_ownership_failed = True
+            raise
         _phase(phases, active_phase, started, f"built {candidate_image} as {candidate_image_id}")
 
         active_phase = "candidate-boot"
@@ -439,43 +472,75 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
         run_error = exc
         _failure(phases, active_phase, exc)
     finally:
+        cleanup_errors: list[str] = []
         if env_file_path is not None:
-            env_file_path.unlink(missing_ok=True)
+            try:
+                env_file_path.unlink(missing_ok=True)
+            except OSError as exc:
+                cleanup_errors.append(f"environment file cleanup failed: {exc}")
+        if iid_file_path is not None:
+            try:
+                iid_file_path.unlink(missing_ok=True)
+            except OSError as exc:
+                cleanup_errors.append(f"IID file cleanup failed: {exc}")
         retained_logs: dict[str, str] = {}
         if owns_resources:
-            logs = _command(
-                ["docker", "logs", "--tail", "700", resources.container], capture=True, check=False
-            ).stdout or ""
-            retained_logs["candidate.log"] = logs
-            for service_log in (
-                "backend.log",
-                "mqtt_monitor.log",
-                "moonraker_monitor.log",
-                "prusalink_monitor.log",
-                "elegoo_monitor.log",
-                "vision_monitor.log",
-            ):
-                service_output = _command(
-                    ["docker", "exec", resources.container, "tail", "-n", "1500", f"/data/{service_log}"],
+            try:
+                logs = _command(
+                    ["docker", "logs", "--tail", "700", resources.container],
                     capture=True,
                     check=False,
-                )
-                if service_output.returncode == 0 and service_output.stdout:
-                    retained_logs[service_log] = service_output.stdout
+                ).stdout or ""
+                retained_logs["candidate.log"] = logs
+                for service_log in (
+                    "backend.log",
+                    "mqtt_monitor.log",
+                    "moonraker_monitor.log",
+                    "prusalink_monitor.log",
+                    "elegoo_monitor.log",
+                    "vision_monitor.log",
+                ):
+                    service_output = _command(
+                        [
+                            "docker", "exec", resources.container, "tail", "-n", "1500",
+                            f"/data/{service_log}",
+                        ],
+                        capture=True,
+                        check=False,
+                    )
+                    if service_output.returncode == 0 and service_output.stdout:
+                        retained_logs[service_log] = service_output.stdout
+            except Exception as exc:
+                cleanup_errors.append(f"log retention failed: {exc}")
 
-        for log_name, log_text in retained_logs.items():
-            (artifact_dir / log_name).write_text(
-                redact_text(log_text, secrets_for_run.values), encoding="utf-8"
+        if owns_resources:
+            try:
+                cleanup_errors.extend(_cleanup(resources))
+            except Exception as exc:
+                cleanup_errors.append(f"resource cleanup failed: {exc}")
+        if image_ownership_failed:
+            cleanup_errors.append(
+                "image ownership verification failed; tag deletion was not attempted"
             )
-
-        cleanup_errors = _cleanup(resources) if owns_resources else []
+        cleanup_errors.extend(image_lifecycle.finalize())
+        try:
+            for log_name, log_text in retained_logs.items():
+                (artifact_dir / log_name).write_text(
+                    redact_text(log_text, secrets_for_run.values), encoding="utf-8"
+                )
+        except OSError as exc:
+            cleanup_errors.append(f"retained log write failed: {exc}")
         if cleanup_errors:
             cleanup_error = GatePolicyError("candidate cleanup failed: " + "; ".join(cleanup_errors))
             if run_error is None:
                 run_error = cleanup_error
             _failure(phases, "cleanup", cleanup_error)
         else:
-            detail = "exact disposable resources removed" if owns_resources else "no resources created or removed"
+            detail = (
+                "exact disposable resources and owned image tag removed"
+                if owned_image_id is not None
+                else "no owned image tag created; disposable resources removed or absent"
+            )
             phases.append({"name": "cleanup", "status": "PASS", "detail": detail})
 
         manifest = {
@@ -487,6 +552,7 @@ def run_gate(run_id: str, artifact_root: Path, candidate_image: str) -> int:
             "candidate_image": candidate_image,
             "candidate_image_id": candidate_image_id,
             "running_image_id": running_image_id,
+            "image_lifecycle": image_lifecycle.evidence(),
             "fixtures": fixture_counts,
             "phases": phases,
         }

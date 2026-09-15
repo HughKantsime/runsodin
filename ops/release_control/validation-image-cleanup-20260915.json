@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "probe_image_id": "sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534",
+  "host_min_free_bytes": 5368709120,
+  "docker_min_free_kib": 3145728,
+  "targets": [
+    {"tag": "odin-candidate:candidate-gha-34964750789-1", "image_id": "sha256:4829081c02409f7998f1f9dd967dd43c758ca390c7aad9ac7e1884e973051b06"},
+    {"tag": "odin-dbparity:parity-gha-34964750789-1", "image_id": "sha256:4829081c02409f7998f1f9dd967dd43c758ca390c7aad9ac7e1884e973051b06"},
+    {"tag": "odin-candidate:candidate-gha-34965989876-1", "image_id": "sha256:2fa9060f9b015df6a515550c483f25eae4a35c0b081a3f2961324fa3c37a1d25"},
+    {"tag": "odin-dbparity:parity-gha-34965989876-1", "image_id": "sha256:2fa9060f9b015df6a515550c483f25eae4a35c0b081a3f2961324fa3c37a1d25"},
+    {"tag": "odin-candidate:candidate-gha-34968490625-1", "image_id": "sha256:76fdff4ecd215ffab05a69a7e87bff3a0db220ab04768cdc7fe6dd87306b3236"}
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "probe_image_id": "sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534",
+  "host_min_free_bytes": 5368709120,
+  "docker_min_free_kib": 3145728,
+  "targets": [
+    {
+      "image_id": "sha256:1e9ff690fc9e86b66250676ff3579306e13467f627ad80d19cfa5f5a90a6bb17",
+      "created": "2026-09-15T07:44:35.913111582-04:00",
+      "working_dir": "/app",
+      "entrypoint": ["/app/entrypoint.sh"]
+    },
+    {
+      "image_id": "sha256:e111d2d6d7ebb364957132d2e48c3168088b6af922924d6817b6d71740a048d2",
+      "created": "2026-09-15T08:00:57.38444628-04:00",
+      "working_dir": "/app",
+      "entrypoint": ["/app/entrypoint.sh"]
+    },
+    {
+      "image_id": "sha256:747aa17e0ac64b92e2c2b6aea447a182598c313ed76ad762a3f03c91bf252a14",
+      "created": "2026-09-15T08:28:52.181318614-04:00",
+      "working_dir": "/app",
+      "entrypoint": ["/app/entrypoint.sh"]
+    }
+  ]
+}

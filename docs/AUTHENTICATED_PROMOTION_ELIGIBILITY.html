@@ -16,7 +16,7 @@
 <body>
 <main>
   <h1>ODIN Authenticated Promotion Eligibility</h1>
-  <p class="ready">Implemented locally; remote bootstrap requires the controlled ship gate.</p>
+  <p class="ready">Local release controls pass; the next controlled action is a new immutable candidate and Trusted Validation run.</p>
   <div class="card">
     <h2>What it proves</h2>
     <p>A manual, owner-dispatched workflow can bind one stage, demo, or production authorization to one immutable candidate SHA and one exact Trusted Validation evidence bundle.</p>
@@ -38,6 +38,26 @@
   <div class="card">
     <h2>Runner boundary</h2>
     <p>The workflow runs only on the established M4 self-hosted runner and executes reviewed owner-only code. It does not describe that runner as isolated. The eligibility job never checks out candidate content; it imports a fixed, hash-verified helper closure fetched from the workflow's own exact SHA.</p>
+  </div>
+  <div class="card">
+    <h2>Practical readiness evidence — September 15, 2026</h2>
+    <ul>
+      <li>The final local release-control aggregate passed 164 of 164 tests with zero skips, expected failures, errors, failures, or findings.</li>
+      <li>Its real installer build, install, forced update, and owned-resource cleanup passed in 131.265 seconds.</li>
+      <li>The aggregate froze three owner-labelled provenance roots and 41 owned Docker history identities. It removed the one live child and verified 40 ancestors were already absent, with no cleanup errors.</li>
+      <li>No unrelated new image was attributed to ODIN, and the visible image inventory returned to 101.</li>
+      <li>The exact promotion contract passed 33 of 33; the exact practical-evidence contract passed 34 of 34. Python compilation, actionlint, Bandit, diff checks, and a full-worktree gitleaks scan were clean.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>Docker lifecycle safety</h2>
+    <p>Installer, candidate, and database builds now share one exclusive host-user lock. Cleanup can act only on the fixed set proven new during that locked build attempt. Pre-existing history is protected by count and SHA-256 digest; tagged, digested, container-referenced, malformed, or identity-drifted records are refused without force or broad pruning.</p>
+  </div>
+  <div class="card">
+    <h2>Current boundary</h2>
+    <p class="ready">Hugh authorized only the 22 exact, non-shared, reclaimable BuildKit records from the superseded proof. Every record was rechecked, individually deleted by exact ID, and verified absent. Docker-internal free is 3,153,068 KiB after the fresh aggregate, above the 3 GiB gate; no broad prune, image, container, or volume deletion was part of that action.</p>
+    <p>The reviewed tree is ready for a normal fast-forward push, a new immutable candidate ref, and one manual Trusted Validation run. That remote validation is the next evidence gate.</p>
+    <p>This evidence authorizes validation only. It does not authorize package publication, a Git tag or GitHub release, staging/demo/production deployment, Kubernetes changes, DNS/TLS changes, or production data mutation.</p>
   </div>
 </main>
 </body>
