@@ -72,6 +72,14 @@ def test_IN11_database_backed_readiness_is_mandatory():
     assert "ready\"[[:space:]]*:[[:space:]]*true" in (ROOT / "install/install.sh").read_text()
 
 
+def test_unix_install_and_update_poll_authoritative_readiness_directly():
+    for relative in ("install/install.sh", "install/update.sh"):
+        source = (ROOT / relative).read_text()
+        assert ".State.Health.Status" not in source
+        assert "curl -sf" in source
+        assert "ready\"[[:space:]]*:[[:space:]]*true" in source
+
+
 def test_IN12_cleanup_refuses_identity_or_label_mismatch(monkeypatch):
     resources = Resources.from_run_id("abc-123")
     records = {"container": {"name": resources.container, "identity": "expected"}}

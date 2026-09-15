@@ -15,7 +15,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from defusedxml import ElementTree
 
 from ops.edu_readiness.artifact_scan import scan_tree
-from ops.hardware_certification.artifact import git_identity
+from ops.hardware_certification.artifact import git_full_commit, git_identity
 from ops.hardware_certification.implementation import (
     certification_fixture_sha256, certification_implementation_sha256,
     certification_simulator_sha256,
@@ -173,8 +173,9 @@ def verify_artifact(
     _assert_private(root / "manifest.json", 0o600)
     manifest = _load_object(root / "manifest.json")
     _validate(manifest, "manifest.schema.json")
-    current_commit, _current_dirty = git_identity()
-    if manifest["git_commit"] != current_commit:
+    current_short_commit, _current_dirty = git_identity()
+    current_commits = {current_short_commit, git_full_commit()}
+    if manifest["git_commit"] not in current_commits:
         raise EvidenceExpired("evidence commit identity mismatch")
     if manifest["git_dirty"] is not False:
         raise EvidenceError("evidence dirty-state identity mismatch")

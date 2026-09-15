@@ -596,9 +596,9 @@ max_attempts=60
 
 spin_start "${messages[$msg_idx]}"
 while [ $attempts -lt $max_attempts ]; do
-    health=$(docker inspect --format='{{.State.Health.Status}}' "$ODIN_CONTAINER_NAME" 2>/dev/null || echo "starting")
+    readiness_json=$(curl -sf "${ODIN_READINESS_URL}" 2>/dev/null || true)
 
-    if [ "$health" = "healthy" ]; then
+    if printf '%s' "${readiness_json}" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
         spin_stop
         ok "O.D.I.N. is healthy"
         break

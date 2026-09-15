@@ -14,7 +14,7 @@ from ops.hardware_certification import artifact as artifact_module
 from ops.hardware_certification import cli as cli_module
 from ops.hardware_certification import evidence as evidence_module
 from ops.hardware_certification import runner as runner_module
-from ops.hardware_certification.artifact import git_identity, publish_result
+from ops.hardware_certification.artifact import git_full_commit, git_identity, publish_result
 from ops.hardware_certification.cli import main
 from ops.hardware_certification.evidence import verify_artifact
 from ops.hardware_certification.runner import _sanitize_junit
@@ -125,6 +125,12 @@ def test_replay_runner_records_full_commit_but_keeps_short_default_run_suffix():
     source = Path(runner_module.__file__).read_text(encoding="utf-8")
     assert 'commit = _git("rev-parse", "HEAD")' in source
     assert "f\"{started.strftime('%Y%m%dT%H%M%SZ')}-{commit[:7]}\"" in source
+
+
+def test_replay_verifier_full_commit_helper_records_full_identity():
+    commit = git_full_commit()
+    assert len(commit) == 40
+    int(commit, 16)
 
 
 def test_replay_junit_reconstruction_discards_failure_text_paths_and_properties(tmp_path: Path):

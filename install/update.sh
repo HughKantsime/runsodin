@@ -352,12 +352,13 @@ phase 5 $TOTAL "Waiting for healthy"
 
 attempts=0
 max_attempts=60
+readiness_url="${ODIN_READINESS_URL:-http://localhost:${ODIN_HTTP_PORT}/health/ready}"
 
 spin_start "Waiting for health check..."
 while [ $attempts -lt $max_attempts ]; do
-    health=$(docker inspect --format='{{.State.Health.Status}}' "$ODIN_CONTAINER_NAME" 2>/dev/null || echo "starting")
+    readiness_json=$(curl -sf "${readiness_url}" 2>/dev/null || true)
 
-    if [ "$health" = "healthy" ]; then
+    if printf '%s' "${readiness_json}" | grep -Eq '"ready"[[:space:]]*:[[:space:]]*true'; then
         spin_stop
         ok "O.D.I.N. is healthy"
         break
