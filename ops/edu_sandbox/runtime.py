@@ -20,6 +20,22 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+from ops.release_control.validation_image_cleanup import (
+    DisposableImageLifecycle,
+    PROBE_IMAGE_ID,
+    ProtectedImageHistory,
+    VALIDATION_CAPACITY_COMMAND,
+    VALIDATION_DOCKER_MIN_FREE_KIB,
+    acquire_image_lifecycle_lock,
+    cleanup_owned_image_history,
+    inspect_image_id,
+    read_iidfile,
+    release_image_lifecycle_lock,
+    remove_owned_image,
+    verify_owned_image_history_absent,
+    verify_built_image,
+)
+
 from .errors import OwnershipError, SandboxError, SecretInputError, StateError, ValidationError
 from .executor import Executor
 from .identity import compose_project, sandbox_directory, validate_sandbox_id, validate_state_root
@@ -62,12 +78,22 @@ class SandboxPaths:
     state: Path
     secrets: Path
     public: Path
+    image_journal: Path
+    image_iid: Path
 
     @classmethod
     def create(cls, state_root: Path, sandbox_id: str) -> "SandboxPaths":
         root = validate_state_root(state_root)
         directory = sandbox_directory(root, sandbox_id)
-        return cls(root, directory, directory / "state.json", directory / "secrets", directory / "public")
+        return cls(
+            root,
+            directory,
+            directory / "state.json",
+            directory / "secrets",
+            directory / "public",
+            directory / "image-ownership.json",
+            directory / "image.iid",
+        )
 
 
 @dataclass(frozen=True)
@@ -383,6 +409,204 @@ def _public_json(path: Path, value: dict[str, object]) -> None:
         raise
 
 
+def _private_file_metadata(path: Path, *, maximum: int) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise OwnershipError(f"private controller artifact is unreadable: {path.name}") from exc
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or metadata.st_uid != os.geteuid()
+        or metadata.st_nlink != 1
+        or (metadata.st_mode & 0o777) != 0o600
+        or metadata.st_size > maximum
+    ):
+        raise OwnershipError(f"private controller artifact is unsafe: {path.name}")
+    return metadata
+
+
+def _private_json(path: Path, value: dict[str, object]) -> None:
+    _public_json(path, value)
+    _private_file_metadata(path, maximum=4 * 1024 * 1024)
+
+
+def _journal_digest(path: Path) -> str:
+    _private_file_metadata(path, maximum=4 * 1024 * 1024)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise OwnershipError("image ownership journal is unreadable") from exc
+    if not isinstance(value, dict):
+        raise OwnershipError("image ownership journal is invalid")
+    immutable = {
+        key: item
+        for key, item in value.items()
+        if key not in {"cleanup", "recovery_error", "cleanup_errors"}
+    }
+    payload = json.dumps(
+        immutable, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _load_image_journal(path: Path) -> dict[str, object]:
+    _private_file_metadata(path, maximum=4 * 1024 * 1024)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise OwnershipError("image ownership journal is unreadable") from exc
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        raise OwnershipError("image ownership journal schema is invalid")
+    status = value.get("capture_status")
+    if status not in {"pending", "succeeded"}:
+        raise OwnershipError("image ownership journal status is invalid")
+    if value.get("iid_artifact") != "image.iid":
+        raise OwnershipError("image ownership journal IID artifact is invalid")
+    protected = value.get("protected_history")
+    if not isinstance(protected, dict):
+        raise OwnershipError("image ownership protected history is invalid")
+    protected_ids = protected.get("ids")
+    if (
+        not isinstance(protected_ids, list)
+        or not all(isinstance(item, str) and _IMAGE_ID.fullmatch(item) for item in protected_ids)
+        or len(set(protected_ids)) != len(protected_ids)
+        or protected.get("count") != len(protected_ids)
+    ):
+        raise OwnershipError("image ownership protected identities are invalid")
+    digest = hashlib.sha256(
+        "".join(f"{item}\n" for item in sorted(protected_ids)).encode("ascii")
+    ).hexdigest()
+    if protected.get("sha256") != digest:
+        raise OwnershipError("image ownership protected digest is invalid")
+    capacity = value.get("capacity")
+    if not isinstance(capacity, dict) or set(capacity) != {
+        "probe_image_id",
+        "command_argv",
+        "required_free_kib",
+        "observed_free_kib",
+        "passed",
+        "observed_at",
+    }:
+        raise OwnershipError("image ownership capacity evidence is invalid")
+    observed_free = capacity.get("observed_free_kib")
+    if (
+        capacity.get("probe_image_id") != PROBE_IMAGE_ID
+        or capacity.get("command_argv") != list(VALIDATION_CAPACITY_COMMAND)
+        or capacity.get("required_free_kib") != VALIDATION_DOCKER_MIN_FREE_KIB
+        or not isinstance(observed_free, int)
+        or isinstance(observed_free, bool)
+        or observed_free < 0
+        or not isinstance(capacity.get("passed"), bool)
+        or capacity.get("passed") is not True
+        or observed_free < VALIDATION_DOCKER_MIN_FREE_KIB
+        or not isinstance(capacity.get("observed_at"), str)
+    ):
+        raise OwnershipError("image ownership capacity evidence is inconsistent")
+    try:
+        observed_at = datetime.fromisoformat(
+            str(capacity["observed_at"]).replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise OwnershipError("image ownership capacity timestamp is invalid") from exc
+    if observed_at.tzinfo is None:
+        raise OwnershipError("image ownership capacity timestamp is invalid")
+    final_image_id = value.get("final_image_id")
+    if final_image_id is not None and (
+        not isinstance(final_image_id, str) or not _IMAGE_ID.fullmatch(final_image_id)
+    ):
+        raise OwnershipError("image ownership final identity is invalid")
+    if status == "pending":
+        token = value.get("owner_token")
+        if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+            raise OwnershipError("pending image ownership token is invalid")
+    else:
+        if value.get("owner_token") is not None or not re.fullmatch(
+            r"[0-9a-f]{64}", str(value.get("owner_token_sha256", ""))
+        ):
+            raise OwnershipError("succeeded image ownership token digest is invalid")
+        for key in ("owned_root_ids", "owned_history_ids", "unowned_new_ids"):
+            items = value.get(key)
+            if not isinstance(items, list) or not all(
+                isinstance(item, str) and _IMAGE_ID.fullmatch(item) for item in items
+            ) or len(set(items)) != len(items):
+                raise OwnershipError(f"image ownership {key} is invalid")
+        cleanup = value.get("cleanup")
+        if not isinstance(cleanup, dict) or not set(cleanup).issubset(
+            {"tag", "history", "errors"}
+        ):
+            raise OwnershipError("image ownership cleanup progress is invalid")
+        if cleanup.get("tag") not in {
+            "pending",
+            "removed",
+            "already_absent",
+            "unauthorized",
+            "refused",
+        }:
+            raise OwnershipError("image ownership tag cleanup progress is invalid")
+        history = cleanup.get("history")
+        owned_history = value.get("owned_history_ids")
+        assert isinstance(owned_history, list)
+        if not isinstance(history, list) or len(history) > len(owned_history):
+            raise OwnershipError("image ownership history cleanup progress is invalid")
+        expected_record_fields = {
+            "image_id",
+            "status",
+            "observed_image_id",
+            "repo_tags",
+            "repo_digests",
+            "container_conflicts",
+            "removed",
+            "absent_after",
+            "error",
+        }
+        for index, record in enumerate(history):
+            if (
+                not isinstance(record, dict)
+                or set(record) != expected_record_fields
+                or record.get("image_id") != owned_history[index]
+                or record.get("status") not in {"REMOVED", "ALREADY_ABSENT", "FAIL"}
+                or not isinstance(record.get("container_conflicts"), list)
+                or not all(
+                    isinstance(item, str)
+                    for item in record.get("container_conflicts", [])
+                )
+                or not isinstance(record.get("removed"), bool)
+                or not isinstance(record.get("absent_after"), bool)
+            ):
+                raise OwnershipError(
+                    "image ownership history cleanup record is invalid"
+                )
+            if record["status"] == "REMOVED" and not (
+                record["observed_image_id"] == record["image_id"]
+                and record["repo_tags"] == []
+                and record["repo_digests"] == []
+                and record["container_conflicts"] == []
+                and record["removed"] is True
+                and record["absent_after"] is True
+                and record["error"] is None
+            ):
+                raise OwnershipError("removed image history evidence is invalid")
+            if record["status"] == "ALREADY_ABSENT" and not (
+                record["observed_image_id"] is None
+                and record["repo_tags"] is None
+                and record["repo_digests"] is None
+                and record["container_conflicts"] == []
+                and record["removed"] is False
+                and record["absent_after"] is True
+                and record["error"] is None
+            ):
+                raise OwnershipError("absent image history evidence is invalid")
+            if record["status"] == "FAIL" and not isinstance(record["error"], str):
+                raise OwnershipError("failed image history evidence is invalid")
+        cleanup_errors = cleanup.get("errors", [])
+        if not isinstance(cleanup_errors, list) or not all(
+            isinstance(item, str) for item in cleanup_errors
+        ):
+            raise OwnershipError("image ownership cleanup errors are invalid")
+    return value
+
+
 def _decode_json_output(output: str, label: str) -> dict[str, object]:
     try:
         value = json.loads(output.strip().splitlines()[-1])
@@ -447,6 +671,254 @@ class SandboxRuntime:
 
     def _try_run(self, args: list[str], **kwargs):
         return self.executor.run(args, cwd=ROOT, check=False, **kwargs)
+
+    def _image_command(
+        self, args: list[str], *, capture: bool = True, check: bool = True
+    ):
+        del capture
+        return self.executor.run(args, cwd=ROOT, check=check, timeout=120)
+
+    def _create_private_iid(self, paths: SandboxPaths) -> None:
+        descriptor = os.open(
+            paths.image_iid,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        os.close(descriptor)
+        _private_file_metadata(paths.image_iid, maximum=80)
+
+    def _read_private_iid(self, paths: SandboxPaths) -> str:
+        _private_file_metadata(paths.image_iid, maximum=80)
+        return read_iidfile(paths.image_iid)
+
+    def _pending_image_journal(
+        self, lifecycle: DisposableImageLifecycle, paths: SandboxPaths
+    ) -> dict[str, object]:
+        if lifecycle.protected is None or lifecycle.capacity is None:
+            raise SandboxError("image lifecycle evidence is incomplete before build")
+        journal: dict[str, object] = {
+            "schema_version": 1,
+            "capture_status": "pending",
+            "candidate_tag": lifecycle.tag,
+            "owner_token": lifecycle.owner_token,
+            "owner_token_sha256": None,
+            "iid_artifact": paths.image_iid.name,
+            "final_image_id": None,
+            "protected_history": {
+                "ids": list(lifecycle.protected.protected_ids),
+                "count": len(lifecycle.protected.protected_ids),
+                "sha256": lifecycle.protected.protected_sha256,
+            },
+            "capacity": dict(lifecycle.capacity),
+            "owned_root_ids": [],
+            "owned_history_ids": [],
+            "unowned_new_ids": [],
+            "cleanup": {"tag": "pending", "history": []},
+        }
+        _private_json(paths.image_journal, journal)
+        return journal
+
+    def _succeeded_image_journal(
+        self,
+        lifecycle: DisposableImageLifecycle,
+        paths: SandboxPaths,
+        journal: dict[str, object],
+    ) -> dict[str, object]:
+        if not lifecycle.ownership_capture_succeeded:
+            raise SandboxError("image ownership capture did not succeed")
+        value = dict(journal)
+        value.update(
+            {
+                "capture_status": "succeeded",
+                "owner_token": None,
+                "owner_token_sha256": hashlib.sha256(
+                    lifecycle.owner_token.encode("ascii")
+                ).hexdigest(),
+                "final_image_id": lifecycle.final_image_id,
+                "owned_root_ids": list(lifecycle.owned_root_ids),
+                "owned_history_ids": list(lifecycle.owned_history_ids),
+                "unowned_new_ids": list(lifecycle.unowned_new_ids),
+                "cleanup": {"tag": "pending", "history": []},
+            }
+        )
+        _private_json(paths.image_journal, value)
+        return value
+
+    def _lifecycle_from_journal(
+        self, journal: dict[str, object]
+    ) -> DisposableImageLifecycle:
+        if journal.get("capture_status") != "succeeded":
+            raise OwnershipError("fixed image ownership capture is not available")
+        protected = journal["protected_history"]
+        assert isinstance(protected, dict)
+        protected_ids = tuple(str(item) for item in protected["ids"])
+        lifecycle = DisposableImageLifecycle(
+            str(journal["candidate_tag"]), command=self._image_command
+        )
+        lifecycle.lock = acquire_image_lifecycle_lock()
+        lifecycle.capacity = dict(journal["capacity"])  # type: ignore[arg-type]
+        lifecycle.protected = ProtectedImageHistory(
+            visible_ids=(),
+            protected_ids=protected_ids,
+            protected_sha256=str(protected["sha256"]),
+        )
+        lifecycle.build_attempted = True
+        final_image_id = journal.get("final_image_id")
+        lifecycle.final_image_id = str(final_image_id) if final_image_id else None
+        lifecycle.ownership_capture_attempted = True
+        lifecycle.ownership_capture_succeeded = True
+        lifecycle.owned_root_ids = tuple(str(item) for item in journal["owned_root_ids"])
+        lifecycle.owned_history_ids = tuple(
+            str(item) for item in journal["owned_history_ids"]
+        )
+        lifecycle.unowned_new_ids = tuple(
+            str(item) for item in journal["unowned_new_ids"]
+        )
+        return lifecycle
+
+    def _cleanup_fixed_image_journal(
+        self, paths: SandboxPaths, journal: dict[str, object]
+    ) -> tuple[dict[str, object], list[str]]:
+        lifecycle = self._lifecycle_from_journal(journal)
+        errors: list[str] = []
+        cleanup = dict(journal.get("cleanup", {}))
+        history_progress = list(cleanup.get("history", []))
+        history_by_id = {
+            str(item["image_id"]): item
+            for item in history_progress
+            if isinstance(item, dict) and isinstance(item.get("image_id"), str)
+        }
+        completed_history = {
+            str(item.get("image_id"))
+            for item in history_progress
+            if isinstance(item, dict) and item.get("status") in {"REMOVED", "ALREADY_ABSENT"}
+        }
+        try:
+            final_image_id = lifecycle.final_image_id
+            if cleanup.get("tag") not in {"removed", "already_absent"}:
+                if final_image_id is None:
+                    cleanup["tag"] = "unauthorized"
+                else:
+                    current = inspect_image_id(lifecycle.tag, command=self._image_command)
+                    if current is None:
+                        cleanup["tag"] = "already_absent"
+                    elif current != final_image_id:
+                        errors.append("image tag identity changed; deletion refused")
+                        cleanup["tag"] = "refused"
+                    else:
+                        remove_owned_image(
+                            lifecycle.tag,
+                            final_image_id,
+                            command=self._image_command,
+                        )
+                        cleanup["tag"] = "removed"
+                journal["cleanup"] = cleanup
+                _private_json(paths.image_journal, journal)
+            if not errors:
+                for image_id in lifecycle.owned_history_ids:
+                    if image_id in completed_history:
+                        continue
+                    records, item_errors = cleanup_owned_image_history(
+                        (image_id,), command=self._image_command
+                    )
+                    if len(records) != 1 or records[0].get("image_id") != image_id:
+                        raise OwnershipError(
+                            "image history cleanup returned malformed progress"
+                        )
+                    history_by_id[image_id] = records[0]
+                    history_progress = [
+                        history_by_id[owned_id]
+                        for owned_id in lifecycle.owned_history_ids
+                        if owned_id in history_by_id
+                    ]
+                    cleanup["history"] = history_progress
+                    journal["cleanup"] = cleanup
+                    _private_json(paths.image_journal, journal)
+                    errors.extend(item_errors)
+                    if item_errors:
+                        break
+            if not errors:
+                errors.extend(
+                    verify_owned_image_history_absent(
+                        lifecycle.owned_history_ids,
+                        command=self._image_command,
+                    )
+                )
+            cleanup["errors"] = list(errors)
+            journal["cleanup"] = cleanup
+            _private_json(paths.image_journal, journal)
+        finally:
+            errors.extend(release_image_lifecycle_lock(lifecycle.lock))
+            lifecycle.lock = None
+        return journal, errors
+
+    def _record_lifecycle_cleanup(
+        self,
+        paths: SandboxPaths,
+        journal: dict[str, object],
+        lifecycle: DisposableImageLifecycle,
+        errors: list[str],
+    ) -> dict[str, object]:
+        cleanup = dict(journal.get("cleanup", {}))
+        if lifecycle.final_image_id is None:
+            cleanup["tag"] = "unauthorized"
+        elif not any(message.startswith("image tag:") for message in errors):
+            cleanup["tag"] = "removed"
+        else:
+            cleanup["tag"] = "refused"
+        cleanup["history"] = list(lifecycle.history_cleanup or [])
+        cleanup["errors"] = list(errors)
+        journal["cleanup"] = cleanup
+        _private_json(paths.image_journal, journal)
+        return journal
+
+    def _cleanup_failed_prepare_resources(
+        self, state: LifecycleState, resources: ResourceSet
+    ) -> list[str]:
+        errors: list[str] = []
+        try:
+            container_ids = self._try_run(
+                [
+                    "docker",
+                    "ps",
+                    "-aq",
+                    "--filter",
+                    f"label={OWNER_LABEL}={state.sandbox_id}",
+                ],
+                timeout=30,
+            ).stdout.splitlines()
+            for container_id in filter(None, container_ids):
+                name = self._run(
+                    ["docker", "inspect", "--format", "{{.Name}}", container_id]
+                ).stdout.strip().lstrip("/")
+                if not name.startswith(resources.project + "-"):
+                    raise OwnershipError(
+                        "failed prepare has a foreign labelled container name"
+                    )
+                self._assert_owned("container", container_id, state.sandbox_id)
+                self._run(["docker", "rm", "-f", container_id], timeout=60)
+            for kind, names in (
+                (
+                    "volume",
+                    (
+                        resources.data_volume,
+                        resources.secret_volume,
+                        resources.heartbeat_volume,
+                    ),
+                ),
+                (
+                    "network",
+                    (resources.internal_network, resources.edge_network),
+                ),
+            ):
+                for name in names:
+                    if self._assert_owned(
+                        kind, name, state.sandbox_id, expected_generation=0
+                    ):
+                        self._run(["docker", kind, "rm", name], timeout=60)
+        except Exception as exc:
+            errors.append(str(exc))
+        return errors
 
     def _git(self, *args: str) -> str:
         return self._run(["git", *args]).stdout.strip()
@@ -532,11 +1004,65 @@ class SandboxRuntime:
             resources=resources.state_value(),
         )
         save_state(paths.state, state, paths.directory)
+        image_lifecycle = DisposableImageLifecycle(
+            state.candidate_tag, command=self._image_command
+        )
+        image_journal: dict[str, object] | None = None
+        lease_committed = False
         try:
-            self._run(["docker", "build", "--pull", "-t", state.candidate_tag, "."], timeout=1800)
-            image_id = self._run(["docker", "image", "inspect", "--format", "{{.Id}}", state.candidate_tag]).stdout.strip()
-            if not _IMAGE_ID.fullmatch(image_id):
-                raise SandboxError("candidate image did not expose an immutable content ID")
+            try:
+                image_lifecycle.begin()
+            except Exception:
+                if image_lifecycle.capacity is not None:
+                    state.verification["image_capacity"] = image_lifecycle.capacity
+                    save_state(paths.state, state, paths.directory)
+                raise
+            self._create_private_iid(paths)
+            image_journal = self._pending_image_journal(
+                image_lifecycle, paths
+            )
+            image_lifecycle.mark_build_attempted()
+            try:
+                self._run(
+                    [
+                        "docker",
+                        "build",
+                        "--pull",
+                        "--iidfile",
+                        str(paths.image_iid),
+                        *image_lifecycle.docker_build_owner_args(),
+                        "-t",
+                        state.candidate_tag,
+                        ".",
+                    ],
+                    timeout=1800,
+                )
+                image_id = self._read_private_iid(paths)
+                if verify_built_image(
+                    state.candidate_tag,
+                    paths.image_iid,
+                    command=self._image_command,
+                ) != image_id:
+                    raise SandboxError("candidate image IID verification changed")
+                image_lifecycle.establish_final_image(image_id)
+                image_journal["final_image_id"] = image_id
+                _private_json(paths.image_journal, image_journal)
+                image_lifecycle.freeze_ownership()
+                image_journal = self._succeeded_image_journal(
+                    image_lifecycle, paths, image_journal
+                )
+                paths.image_iid.unlink()
+            except BaseException:
+                if not image_lifecycle.ownership_capture_attempted:
+                    try:
+                        image_lifecycle.freeze_ownership()
+                        image_journal = self._succeeded_image_journal(
+                            image_lifecycle, paths, image_journal
+                        )
+                        paths.image_iid.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                raise
             state.candidate_image_id = image_id
             self._run(["docker", "pull", BROKER_IMAGE], timeout=600)
             broker_image_id = self._run(
@@ -589,8 +1115,15 @@ class SandboxRuntime:
             state.verification = {
                 "prepare_network_isolation": self._assert_network_isolation(
                     state, preparing=True
-                )
+                ),
+                "image_capacity": image_lifecycle.capacity,
+                "image_ownership_journal_sha256": _journal_digest(
+                    paths.image_journal
+                ),
             }
+            state.image_ownership_journal_sha256 = str(
+                state.verification["image_ownership_journal_sha256"]
+            )
             self._wait_ready(state.loopback_port)
             running_image = self._run(["docker", "inspect", "--format", "{{.Image}}", resources.prepare_container]).stdout.strip()
             if running_image != image_id:
@@ -625,10 +1158,53 @@ class SandboxRuntime:
             _public_json(paths.public / "activation-receipt.json", receipt)
             state.transition(Phase.PREPARED, detail="exact candidate stopped with installation identity intact")
             save_state(paths.state, state, paths.directory)
+            lease_committed = True
+            lease_release_errors = image_lifecycle.defer_cleanup_for_lease()
+            if lease_release_errors:
+                raise SandboxError(
+                    "image lifecycle lease lock release failed: "
+                    + "; ".join(lease_release_errors)
+                )
             return state
         except BaseException as exc:
+            resource_cleanup_errors: list[str] = []
+            image_cleanup_errors: list[str] = []
+            if lease_committed:
+                image_cleanup_errors.extend(
+                    release_image_lifecycle_lock(image_lifecycle.lock)
+                )
+                image_lifecycle.lock = None
+            else:
+                resource_cleanup_errors = self._cleanup_failed_prepare_resources(
+                    state, resources
+                )
+            if not lease_committed and image_lifecycle.lock is not None:
+                if (
+                    image_journal is not None
+                    and image_journal.get("capture_status") == "succeeded"
+                ):
+                    image_cleanup_errors = image_lifecycle.finalize()
+                    image_journal = self._record_lifecycle_cleanup(
+                        paths,
+                        image_journal,
+                        image_lifecycle,
+                        image_cleanup_errors,
+                    )
+                else:
+                    image_cleanup_errors = [
+                        "image ownership capture was not durably journaled; "
+                        "no image deletion issued"
+                    ]
+                    image_cleanup_errors.extend(
+                        release_image_lifecycle_lock(image_lifecycle.lock)
+                    )
+                    image_lifecycle.lock = None
             if state.phase == Phase.PREPARING:
-                state.transition(Phase.DEGRADED, detail=f"prepare failed: {type(exc).__name__}")
+                detail = f"prepare failed: {type(exc).__name__}"
+                cleanup_errors = resource_cleanup_errors + image_cleanup_errors
+                if cleanup_errors:
+                    detail += "; cleanup: " + "; ".join(cleanup_errors)
+                state.transition(Phase.DEGRADED, detail=detail)
                 save_state(paths.state, state, paths.directory)
             raise
 
@@ -1915,27 +2491,121 @@ class SandboxRuntime:
             raise OwnershipError("interrupted prepare directory contains a symlink")
 
         self._assert_named_containers_owned(state, allow_absent=True, include_prepare=True)
+        resource_errors = self._cleanup_failed_prepare_resources(state, resources)
+        if resource_errors:
+            raise SandboxError(
+                "interrupted prepare resource cleanup failed: "
+                + "; ".join(resource_errors)
+            )
 
-        container_ids = self._try_run(
-            ["docker", "ps", "-aq", "--filter", f"label={OWNER_LABEL}={state.sandbox_id}"],
-            timeout=30,
-        ).stdout.splitlines()
-        for container_id in filter(None, container_ids):
-            name = self._run(
-                ["docker", "inspect", "--format", "{{.Name}}", container_id]
-            ).stdout.strip().lstrip("/")
-            if not name.startswith(resources.project + "-"):
-                raise OwnershipError("interrupted prepare has a foreign container name")
-            self._assert_owned("container", container_id, state.sandbox_id)
-            self._run(["docker", "rm", "-f", container_id], timeout=60)
-        for kind, names in (
-            ("volume", (resources.data_volume, resources.secret_volume, resources.heartbeat_volume)),
-            ("network", (resources.internal_network, resources.edge_network)),
-        ):
-            for name in names:
-                if self._assert_owned(kind, name, state.sandbox_id):
-                    self._run(["docker", kind, "rm", name], timeout=60)
-        self._try_run(["docker", "image", "rm", state.candidate_tag], timeout=120)
+        if paths.image_journal.exists() or paths.image_journal.is_symlink():
+            journal = _load_image_journal(paths.image_journal)
+            if journal.get("candidate_tag") != state.candidate_tag:
+                raise OwnershipError("image ownership journal candidate tag changed")
+            if journal["capture_status"] == "pending":
+                protected = journal["protected_history"]
+                assert isinstance(protected, dict)
+                lifecycle = DisposableImageLifecycle(
+                    state.candidate_tag,
+                    command=self._image_command,
+                    owner_token=str(journal["owner_token"]),
+                )
+                lifecycle.lock = acquire_image_lifecycle_lock()
+                lifecycle.capacity = dict(journal["capacity"])  # type: ignore[arg-type]
+                lifecycle.protected = ProtectedImageHistory(
+                    visible_ids=(),
+                    protected_ids=tuple(str(item) for item in protected["ids"]),
+                    protected_sha256=str(protected["sha256"]),
+                )
+                lifecycle.build_attempted = True
+                iid_error: BaseException | None = None
+                try:
+                    image_id = self._read_private_iid(paths)
+                    if verify_built_image(
+                        state.candidate_tag,
+                        paths.image_iid,
+                        command=self._image_command,
+                    ) != image_id:
+                        raise OwnershipError("recovered build IID changed")
+                    lifecycle.establish_final_image(image_id)
+                    journal["final_image_id"] = image_id
+                    _private_json(paths.image_journal, journal)
+                except BaseException as exc:
+                    iid_error = exc
+                    journal["final_image_id"] = None
+                    _private_json(paths.image_journal, journal)
+                try:
+                    lifecycle.freeze_ownership()
+                    journal = self._succeeded_image_journal(
+                        lifecycle, paths, journal
+                    )
+                    paths.image_iid.unlink()
+                    cleanup_errors = lifecycle.finalize()
+                    journal = self._record_lifecycle_cleanup(
+                        paths, journal, lifecycle, cleanup_errors
+                    )
+                except BaseException as exc:
+                    if (
+                        lifecycle.lock is not None
+                        and journal.get("capture_status") == "succeeded"
+                    ):
+                        cleanup_errors = lifecycle.finalize()
+                    elif lifecycle.lock is not None:
+                        cleanup_errors = [
+                            "image ownership capture was not durably journaled; "
+                            "no image deletion issued"
+                        ]
+                        cleanup_errors.extend(
+                            release_image_lifecycle_lock(lifecycle.lock)
+                        )
+                        lifecycle.lock = None
+                    else:
+                        cleanup_errors = list(lifecycle.cleanup_errors or [])
+                    journal["recovery_error"] = type(exc).__name__
+                    journal["cleanup_errors"] = cleanup_errors
+                    _private_json(paths.image_journal, journal)
+                    raise OwnershipError(
+                        "pending image ownership capture could not be completed safely"
+                    ) from exc
+                if cleanup_errors:
+                    raise SandboxError(
+                        "recovered image cleanup failed: "
+                        + "; ".join(cleanup_errors)
+                    )
+                if iid_error is not None:
+                    journal["recovery_error"] = type(iid_error).__name__
+                    _private_json(paths.image_journal, journal)
+                    raise OwnershipError(
+                        "pending ownership history was cleaned but image tag "
+                        "authority could not be established"
+                    ) from iid_error
+            else:
+                _journal, cleanup_errors = self._cleanup_fixed_image_journal(
+                    paths, journal
+                )
+                if cleanup_errors:
+                    raise SandboxError(
+                        "recovered image cleanup failed: "
+                        + "; ".join(cleanup_errors)
+                    )
+        else:
+            # Legacy/incomplete states have no deletion authority. Recovery is
+            # safe only when the exact candidate tag is already absent.
+            observed = self._try_run(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}}",
+                    state.candidate_tag,
+                ],
+                timeout=30,
+            )
+            if observed.returncode == 0:
+                raise OwnershipError(
+                    "interrupted prepare has an image tag but no ownership journal"
+                )
         self._docker_absence_evidence(
             state.sandbox_id, candidate_tag=state.candidate_tag, loopback_port=None
         )
@@ -2097,6 +2767,43 @@ class SandboxRuntime:
         if paths.state.exists():
             raise StateError("cannot finalize purge while controller state exists")
         if paths.directory.exists():
+            if paths.image_journal.exists() or paths.image_journal.is_symlink():
+                ownership = _load_image_journal(paths.image_journal)
+                expected_digest = journal.get("image_ownership_journal_sha256")
+                if (
+                    not isinstance(expected_digest, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+                    or _journal_digest(paths.image_journal) != expected_digest
+                    or ownership.get("capture_status") != "succeeded"
+                ):
+                    raise StateError("purge ownership-journal recovery is invalid")
+                cleanup = ownership.get("cleanup")
+                assert isinstance(cleanup, dict)
+                history = cleanup.get("history")
+                owned_history = ownership.get("owned_history_ids")
+                if (
+                    cleanup.get("tag")
+                    not in {"removed", "already_absent", "unauthorized"}
+                    or not isinstance(history, list)
+                    or not isinstance(owned_history, list)
+                    or len(history) != len(owned_history)
+                    or any(
+                        record.get("status") not in {"REMOVED", "ALREADY_ABSENT"}
+                        for record in history
+                        if isinstance(record, dict)
+                    )
+                ):
+                    raise StateError("purge ownership cleanup is incomplete")
+                history_errors = verify_owned_image_history_absent(
+                    tuple(str(item) for item in owned_history),
+                    command=self._image_command,
+                )
+                if history_errors:
+                    raise StateError(
+                        "purge ownership history remains: "
+                        + "; ".join(history_errors)
+                    )
+                paths.image_journal.unlink()
             remnants, _ = self._assert_unpublished_prepare(
                 paths, ResourceSet.from_id(sandbox_id)
             )
@@ -2249,11 +2956,47 @@ class SandboxRuntime:
             raise OwnershipError("persisted candidate tag does not match the sandbox ID")
         if state.candidate_image_id and not _IMAGE_ID.fullmatch(state.candidate_image_id):
             raise OwnershipError("persisted candidate image identity is invalid")
-        # Validate the entire controller-owned tree before deleting Docker
-        # resources so a hostile symlink cannot turn a partial purge into an
-        # unsafe host deletion or strand secrets after resource cleanup.
+        # Validate the complete controller tree before any Docker observation
+        # or mutation so hostile links cannot influence a bounded purge.
         if any(path.is_symlink() for path in paths.directory.rglob("*")):
             raise OwnershipError("sandbox directory contains a symlink during purge")
+        image_ownership_journal: dict[str, object] | None = None
+        if paths.image_journal.exists() or paths.image_journal.is_symlink():
+            image_ownership_journal = _load_image_journal(paths.image_journal)
+            if image_ownership_journal.get("capture_status") != "succeeded":
+                raise OwnershipError("purge requires a succeeded image ownership capture")
+            if image_ownership_journal.get("candidate_tag") != state.candidate_tag:
+                raise OwnershipError("purge image ownership tag changed")
+            journal_image_id = image_ownership_journal.get("final_image_id")
+            if state.candidate_image_id and journal_image_id != state.candidate_image_id:
+                raise OwnershipError("purge image ownership identity changed")
+            actual_journal_digest = _journal_digest(paths.image_journal)
+            if state.image_ownership_journal_sha256:
+                if actual_journal_digest != state.image_ownership_journal_sha256:
+                    raise OwnershipError("purge image ownership journal digest changed")
+            elif state.phase not in {Phase.PREPARING, Phase.DEGRADED, Phase.PURGING}:
+                raise OwnershipError("sandbox image lease is missing its journal digest")
+        elif state.image_ownership_journal_sha256:
+            raise OwnershipError("sandbox image ownership journal is missing")
+        else:
+            legacy_image = self._try_run(
+                [
+                    "docker",
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}}",
+                    state.candidate_tag,
+                ],
+                timeout=30,
+            )
+            legacy_output = (legacy_image.stdout + legacy_image.stderr).lower()
+            if legacy_image.returncode == 0:
+                raise OwnershipError(
+                    "legacy sandbox image tag has no bounded deletion authority"
+                )
+            if "no such" not in legacy_output and "not found" not in legacy_output:
+                raise SandboxError("legacy sandbox image absence could not be proven")
         self._assert_named_containers_owned(state, allow_absent=True, include_prepare=True)
         if state.phase != Phase.PURGING:
             state.transition(Phase.PURGING, detail="bounded purge started")
@@ -2290,9 +3033,22 @@ class SandboxRuntime:
                 if self._assert_owned(kind, name, sandbox_id, expected_generation=0):
                     self._run(["docker", kind, "rm", name], timeout=60)
                     removed[removed_key].append(name)
-        image_remove = self._try_run(["docker", "image", "rm", state.candidate_tag], timeout=120)
-        if image_remove.returncode == 0:
-            removed["image_tags"].append(state.candidate_tag)
+        image_cleanup_evidence: dict[str, object] | None = None
+        if image_ownership_journal is not None:
+            image_ownership_journal, image_cleanup_errors = (
+                self._cleanup_fixed_image_journal(
+                    paths, image_ownership_journal
+                )
+            )
+            if image_cleanup_errors:
+                raise SandboxError(
+                    "purge image cleanup failed: " + "; ".join(image_cleanup_errors)
+                )
+            image_cleanup_evidence = dict(
+                image_ownership_journal.get("cleanup", {})
+            )
+            if image_cleanup_evidence.get("tag") == "removed":
+                removed["image_tags"].append(state.candidate_tag)
         residue = []
         for kind, name in (
             ("volume", resources.data_volume), ("volume", resources.secret_volume),
@@ -2308,6 +3064,11 @@ class SandboxRuntime:
             candidate_tag=state.candidate_tag,
             loopback_port=state.loopback_port,
         )
+        tombstone_ownership_digest = (
+            _journal_digest(paths.image_journal)
+            if image_ownership_journal is not None
+            else ""
+        )
         journal = {
             "schema_version": 1,
             "sandbox_id": sandbox_id,
@@ -2321,6 +3082,8 @@ class SandboxRuntime:
             "device_public_key_sha256": state.device_public_key_sha256,
             "license_sha256": state.license_sha256,
             "removed": removed,
+            "image_ownership_cleanup": image_cleanup_evidence,
+            "image_ownership_journal_sha256": tombstone_ownership_digest,
             "residue": [],
             "absence": docker_absence,
         }
@@ -2333,12 +3096,13 @@ class SandboxRuntime:
             key=lambda item: len(item.parts),
             reverse=True,
         ):
-            if path == paths.state:
+            if path in {paths.state, paths.image_journal}:
                 continue
             if path.is_dir():
                 path.rmdir()
             else:
                 path.unlink()
         paths.state.unlink()
+        paths.image_journal.unlink(missing_ok=True)
         paths.directory.rmdir()
         return self._finish_purge_tombstone(paths, journal)

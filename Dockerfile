@@ -6,8 +6,6 @@
 #           MQTT monitor, Moonraker monitor, go2rtc
 # ============================================================
 
-ARG ODIN_BUILD_OWNER=unowned
-
 FROM python:3.11-slim@sha256:0b23cfb7425d065008b778022a17b1551c82f8b4866ee5a7a200084b7e2eafbf AS backend-base
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -54,7 +52,7 @@ COPY frontend/ ./
 COPY design/ /build/design/
 COPY VERSION /build/VERSION
 RUN npm run build
-ARG ODIN_BUILD_OWNER
+ARG ODIN_BUILD_OWNER=unowned
 LABEL com.runsodin.validation-image-owner=${ODIN_BUILD_OWNER}
 
 # ── Final image ──
@@ -115,5 +113,5 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/conf.d/odin.conf"]
-ARG ODIN_BUILD_OWNER
+ARG ODIN_BUILD_OWNER=unowned
 LABEL com.runsodin.validation-image-owner=${ODIN_BUILD_OWNER}

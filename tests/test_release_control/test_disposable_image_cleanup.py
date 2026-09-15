@@ -97,6 +97,10 @@ class HistoryDockerSimulation:
         }
         self.containers: list[dict[str, str]] = []
         self.calls: list[list[str]] = []
+        self.df_output = (
+            "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+            "overlay 40000000 30000000 10000000 75% /\n"
+        )
 
     def __call__(
         self, args: list[str], *, capture: bool = True, check: bool = True
@@ -136,6 +140,8 @@ class HistoryDockerSimulation:
         elif args[:2] == ["docker", "inspect"]:
             container = next(item for item in self.containers if item["id"] == args[-1])
             output = f"{container['image_id']}\t{container['configured_image']}\n"
+        elif args[:2] == ["docker", "run"]:
+            output = self.df_output
         else:
             raise AssertionError(f"unexpected command: {args}")
         result = subprocess.CompletedProcess(args, returncode, output)
@@ -306,16 +312,89 @@ def test_DI13_lock_contention_rejects_before_a_second_lifecycle(tmp_path: Path) 
     assert lifecycle.release_image_lifecycle_lock(second) == []
 
 
-def test_DI13_frontend_and_final_owner_labels_are_terminal_cache_metadata() -> None:
+def test_DI15_frontend_and_final_owner_labels_are_terminal_cache_metadata() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     terminal_owner = (
-        "ARG ODIN_BUILD_OWNER\n"
+        "ARG ODIN_BUILD_OWNER=unowned\n"
         "LABEL com.runsodin.validation-image-owner=${ODIN_BUILD_OWNER}"
     )
     assert dockerfile.count(terminal_owner) == 2
-    assert "ARG ODIN_BUILD_OWNER=unowned\n\nFROM " in dockerfile
+    assert dockerfile.count("ARG ODIN_BUILD_OWNER") == 2
+    assert not dockerfile.startswith("ARG ODIN_BUILD_OWNER")
+    assert "\nARG ODIN_BUILD_OWNER=unowned\n\nFROM " not in dockerfile
     assert f"RUN npm run build\n{terminal_owner}\n\n# ── Final image" in dockerfile
     assert dockerfile.endswith(terminal_owner + "\n")
+
+    instructions = [
+        line.strip()
+        for line in dockerfile.splitlines()
+        if line and not line.lstrip().startswith("#")
+    ]
+    token_positions = [
+        index
+        for index, value in enumerate(instructions)
+        if value == "ARG ODIN_BUILD_OWNER=unowned"
+    ]
+    assert len(token_positions) == 2
+    assert all(
+        instructions[index + 1]
+        == "LABEL com.runsodin.validation-image-owner=${ODIN_BUILD_OWNER}"
+        for index in token_positions
+    )
+    # Simulate token-sensitive cache keys: only the terminal metadata pair
+    # consumes the build arg, so every earlier instruction remains identical.
+    for token in ("a" * 64, "b" * 64):
+        rendered = [
+            value.replace("${ODIN_BUILD_OWNER}", token)
+            if index - 1 in token_positions
+            else value
+            for index, value in enumerate(instructions)
+        ]
+        if token.startswith("a"):
+            first = rendered
+        else:
+            assert [
+                index for index, (left, right) in enumerate(zip(first, rendered))
+                if left != right
+            ] == [position + 1 for position in token_positions]
+
+
+def test_DI16_validation_capacity_preflight_is_common_and_fail_closed() -> None:
+    docker = HistoryDockerSimulation([], {})
+    docker.df_output = (
+        "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+        "overlay 40000000 35000000 5000000 88% /\n"
+    )
+    lifecycle_run = lifecycle.DisposableImageLifecycle(
+        "odin-candidate:candidate-low-capacity", command=docker
+    )
+
+    with pytest.raises(lifecycle.ValidationImageError, match="below 6291456 KiB"):
+        lifecycle_run.begin()
+
+    assert lifecycle_run.lock is None
+    assert lifecycle_run.capacity == {
+        "probe_image_id": lifecycle.PROBE_IMAGE_ID,
+        "command_argv": list(lifecycle.VALIDATION_CAPACITY_COMMAND),
+        "required_free_kib": 6291456,
+        "observed_free_kib": 5000000,
+        "passed": False,
+        "observed_at": lifecycle_run.capacity["observed_at"],
+    }
+    assert docker.calls == [list(lifecycle.VALIDATION_CAPACITY_COMMAND)]
+
+
+def test_DI16_all_four_validation_builders_use_the_shared_lifecycle() -> None:
+    sources = {
+        "installer": ROOT / "ops/release_control/installer_smoke.py",
+        "candidate": ROOT / "ops/release_gate/runner.py",
+        "database": ROOT / "ops/database_parity/runner.py",
+        "edu": ROOT / "ops/edu_sandbox/runtime.py",
+    }
+    for path in sources.values():
+        source = path.read_text(encoding="utf-8")
+        assert "DisposableImageLifecycle(" in source
+        assert ".begin()" in source
 
 
 def test_DI13_all_gate_runners_freeze_before_later_work() -> None:
@@ -439,6 +518,69 @@ def test_DI14_failed_ownership_capture_issues_no_image_deletion() -> None:
     assert lifecycle_run.ownership_capture_succeeded is False
     assert FRONTEND_ID in docker.metadata
     assert not any(call[:3] == ["docker", "image", "rm"] for call in docker.calls)
+
+
+def test_DI18_finalize_tag_identity_drift_stops_frozen_history_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle_run = lifecycle.DisposableImageLifecycle(
+        "odin-edu-candidate:school-one"
+    )
+    lifecycle_run.final_image_id = FINAL_ID
+    lifecycle_run.build_attempted = True
+    lifecycle_run.ownership_capture_attempted = True
+    lifecycle_run.ownership_capture_succeeded = True
+    lifecycle_run.owned_history_ids = (FRONTEND_PARENT_ID,)
+    history_calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        lifecycle,
+        "cleanup_owned_image",
+        lambda *_args, **_kwargs: ["owned validation image identity changed"],
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "cleanup_owned_image_history",
+        lambda ids, **_kwargs: history_calls.append(ids) or ([], []),
+    )
+
+    errors = lifecycle_run.finalize()
+
+    assert errors == ["image tag: owned validation image identity changed"]
+    assert history_calls == []
+    assert lifecycle_run.history_cleanup == []
+
+
+def test_DI18_finalize_already_absent_verified_tag_still_cleans_fixed_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle_run = lifecycle.DisposableImageLifecycle(
+        "odin-edu-candidate:school-one"
+    )
+    lifecycle_run.final_image_id = FINAL_ID
+    lifecycle_run.build_attempted = True
+    lifecycle_run.ownership_capture_attempted = True
+    lifecycle_run.ownership_capture_succeeded = True
+    lifecycle_run.owned_history_ids = (FRONTEND_PARENT_ID,)
+    monkeypatch.setattr(
+        lifecycle,
+        "cleanup_owned_image",
+        lambda *_args, **_kwargs: ["owned validation image tag is missing"],
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "cleanup_owned_image_history",
+        lambda ids, **_kwargs: (
+            [{"image_id": ids[0], "status": "ALREADY_ABSENT"}],
+            [],
+        ),
+    )
+
+    errors = lifecycle_run.finalize()
+
+    assert errors == ["image tag: owned validation image tag is missing"]
+    assert lifecycle_run.history_cleanup == [
+        {"image_id": FRONTEND_PARENT_ID, "status": "ALREADY_ABSENT"}
+    ]
 
 
 def test_DI09_exact_allowlist_cleanup_writes_bounded_pass_record(

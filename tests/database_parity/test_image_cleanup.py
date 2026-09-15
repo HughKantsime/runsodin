@@ -8,9 +8,21 @@ import pytest
 
 from ops.database_parity import runner
 from ops.release_gate.policy import GatePolicyError
+from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND
 
 
 IMAGE_ID = "sha256:" + "a" * 64
+
+
+def _capacity_probe(args: list[str]):
+    if tuple(args) != VALIDATION_CAPACITY_COMMAND:
+        return None
+    return subprocess.CompletedProcess(
+        args,
+        0,
+        "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+        "overlay 40000000 30000000 10000000 75% /\n",
+    )
 
 
 @pytest.mark.parametrize("observed", [None, "sha256:" + "b" * 64])
@@ -24,6 +36,9 @@ def test_DI04_DI05_database_iid_tag_failure_reports_without_deletion(
     def fake_command(args, **_kwargs):
         nonlocal built
         commands.append(list(args))
+        capacity = _capacity_probe(args)
+        if capacity is not None:
+            return capacity
         if args[:3] == ["docker", "image", "inspect"]:
             if not built or observed is None:
                 return subprocess.CompletedProcess(args, 1, f"No such image: {image}\n")
@@ -88,6 +103,9 @@ def test_DI08_database_failure_cleans_resources_and_exact_owned_image(
     def fake_command(args, **kwargs):
         nonlocal image_present, owner_token
         commands.append(list(args))
+        capacity = _capacity_probe(args)
+        if capacity is not None:
+            return capacity
         if args == ["docker", "image", "ls", "-a", "--no-trunc", "--quiet"]:
             return subprocess.CompletedProcess(
                 args, 0, IMAGE_ID + "\n" if image_present else ""
@@ -166,6 +184,9 @@ def test_database_cleanup_observation_failure_still_removes_owned_image_and_repo
     def fake_command(args, **_kwargs):
         nonlocal image_present, owner_token
         commands.append(list(args))
+        capacity = _capacity_probe(args)
+        if capacity is not None:
+            return capacity
         if args == ["docker", "image", "ls", "-a", "--no-trunc", "--quiet"]:
             return subprocess.CompletedProcess(
                 args, 0, IMAGE_ID + "\n" if image_present else ""

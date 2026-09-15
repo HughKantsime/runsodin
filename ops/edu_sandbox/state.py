@@ -68,6 +68,7 @@ class LifecycleState:
     source_dirty: bool = False
     candidate_tag: str = ""
     candidate_image_id: str = ""
+    image_ownership_journal_sha256: str = ""
     broker_image_id: str = ""
     broker_digest: str = ""
     compose_project: str = ""

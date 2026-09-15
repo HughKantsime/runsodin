@@ -9,14 +9,18 @@ import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ops.edu_readiness.artifact_scan import scan_text as scan_text_for_pii
+from ops.release_gate.policy import redact_text, scan_text_for_secrets
 from ops.release_control.validation_image_cleanup import (
     DisposableImageLifecycle,
     read_iidfile,
@@ -26,6 +30,28 @@ from ops.release_control.validation_image_cleanup import (
 ROOT = Path(__file__).parents[2]
 LABEL = "com.runsodin.install-smoke"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,62}$")
+ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+IPV4_RE = re.compile(r"(?<![A-Za-z0-9])(?:\d{1,3}\.){3}\d{1,3}(?![A-Za-z0-9])")
+HOST_RE = re.compile(
+    r"(?i)\b[A-Z0-9][A-Z0-9.-]{0,251}\.(?:local|internal|lan|home|corp|localdomain)\b"
+)
+SECRET_ENV_KEYS = frozenset(
+    {
+        "API_KEY",
+        "JWT_SECRET_KEY",
+        "ENCRYPTION_KEY",
+        "ADMIN_PASSWORD",
+        "POSTGRES_PASSWORD",
+    }
+)
+ENV_MAX_BYTES = 65_536
+LOG_MAX_LINES = 700
+LOG_MAX_BYTES = 262_144
+HEALTH_MAX_PROBES = 5
+HEALTH_PROBE_MAX_BYTES = 4_096
+HEALTH_DOCUMENT_MAX_BYTES = 32_768
+HEALTH_INSPECT_MAX_BYTES = 262_144
 
 
 class InstallerSmokeError(RuntimeError):
@@ -194,6 +220,289 @@ def assert_zero_residue(resources: Resources) -> None:
             raise InstallerSmokeError(f"run-owned {kind} residue remains")
 
 
+def _bounded_command_output(
+    args: list[str], *, maximum: int, timeout: int, reject_overflow: bool
+) -> bytes:
+    """Drain command output with fixed memory instead of communicate()."""
+    try:
+        process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            args,
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except OSError as exc:
+        raise InstallerSmokeError("bounded Docker evidence command could not start") from exc
+    if process.stdout is None:
+        process.kill()
+        raise InstallerSmokeError("bounded Docker evidence command has no output pipe")
+    retained = bytearray()
+    total = 0
+    reader_error: list[BaseException] = []
+
+    def drain() -> None:
+        nonlocal total
+        try:
+            while True:
+                chunk = process.stdout.read(65_536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if len(chunk) >= maximum:
+                    retained[:] = chunk[-maximum:]
+                else:
+                    retained.extend(chunk)
+                    overflow = len(retained) - maximum
+                    if overflow > 0:
+                        del retained[:overflow]
+        except BaseException as exc:
+            reader_error.append(exc)
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    try:
+        returncode = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.wait()
+        reader.join(timeout=5)
+        raise InstallerSmokeError("bounded Docker evidence command timed out") from exc
+    reader.join(timeout=5)
+    if reader.is_alive() or reader_error:
+        raise InstallerSmokeError("bounded Docker evidence output could not be drained")
+    if returncode:
+        raise InstallerSmokeError("bounded Docker evidence command failed")
+    if reject_overflow and total > maximum:
+        raise InstallerSmokeError("bounded Docker evidence response is oversized")
+    return bytes(retained)
+
+
+def _stream_docker_logs(container: str) -> str:
+    payload = _bounded_command_output(
+        ["docker", "logs", "--tail", str(LOG_MAX_LINES), container],
+        maximum=LOG_MAX_BYTES,
+        timeout=30,
+        reject_overflow=False,
+    )
+    return payload.decode("utf-8", errors="replace")
+
+
+def _inspect_startup_state(container: str) -> dict[str, object]:
+    payload = _bounded_command_output(
+        ["docker", "inspect", "--format", "{{json .State}}", container],
+        maximum=HEALTH_INSPECT_MAX_BYTES,
+        timeout=30,
+        reject_overflow=True,
+    )
+    try:
+        state = json.loads(payload.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise InstallerSmokeError("Docker startup state is malformed") from exc
+    if not isinstance(state, dict):
+        raise InstallerSmokeError("Docker startup state is malformed")
+    return state
+
+
+def _known_env_secrets(path: Path) -> tuple[str, ...]:
+    """Read only exact secret keys from a private, controller-owned installer env."""
+    if not path.exists() and not path.is_symlink():
+        return ()
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise InstallerSmokeError("installer env metadata is unreadable") from exc
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or path.is_symlink()
+        or metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_size > ENV_MAX_BYTES
+    ):
+        raise InstallerSmokeError("installer env metadata is unsafe")
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise InstallerSmokeError("installer env is unreadable UTF-8") from exc
+    seen: set[str] = set()
+    secrets_found: list[str] = []
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise InstallerSmokeError("installer env contains a malformed line")
+        key, value = line.split("=", 1)
+        if not ENV_KEY_RE.fullmatch(key) or key in seen:
+            raise InstallerSmokeError("installer env contains an invalid or duplicate key")
+        seen.add(key)
+        if key in SECRET_ENV_KEYS and value:
+            secrets_found.append(value)
+    return tuple(secrets_found)
+
+
+def _bounded_utf8_tail(text: str, maximum: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= maximum:
+        return text
+    return encoded[-maximum:].decode("utf-8", errors="ignore")
+
+
+def _sanitize_evidence_text(text: str, known_secrets: tuple[str, ...]) -> str:
+    sanitized = redact_text(text, known_secrets)
+    sanitized = EMAIL_RE.sub("[REDACTED-EMAIL]", sanitized)
+    sanitized = IPV4_RE.sub("[REDACTED-IP]", sanitized)
+    sanitized = HOST_RE.sub("[REDACTED-HOST]", sanitized)
+    return sanitized
+
+
+def _safe_evidence_bytes(
+    text: str, *, known_secrets: tuple[str, ...], relative_name: str, maximum: int
+) -> bytes:
+    candidate = _bounded_utf8_tail(
+        _sanitize_evidence_text(_bounded_utf8_tail(text, maximum), known_secrets),
+        maximum,
+    )
+    findings = scan_text_for_secrets(candidate, known_secrets)
+    findings.extend(scan_text_for_pii(candidate, relative_name))
+    if findings:
+        raise InstallerSmokeError(
+            "retained startup evidence failed secret/PII scan: "
+            + ", ".join(sorted(set(findings)))
+        )
+    payload = candidate.encode("utf-8")
+    if len(payload) > maximum:
+        raise InstallerSmokeError("retained startup evidence exceeds its byte bound")
+    return payload
+
+
+def _safe_failure_detail(install_dir: Path, detail: str) -> str:
+    try:
+        known_secrets = _known_env_secrets(install_dir / ".env")
+        payload = _safe_evidence_bytes(
+            detail,
+            known_secrets=known_secrets,
+            relative_name="manifest.json",
+            maximum=1_600,
+        )
+        return payload.decode("utf-8")
+    except Exception:
+        return "installer failed; unsafe diagnostic detail omitted"
+
+
+def _write_private_evidence(path: Path, payload: bytes) -> dict[str, object]:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return {
+        "filename": path.name,
+        "byte_count": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def retain_startup_failure_evidence(
+    run_root: Path, install_dir: Path, resources: Resources
+) -> tuple[list[dict[str, object]], list[str]]:
+    """Retain bounded diagnostics before cleanup; never weaken cleanup on failure."""
+    retained: list[dict[str, object]] = []
+    errors: list[str] = []
+    try:
+        known_secrets = _known_env_secrets(install_dir / ".env")
+    except Exception as exc:
+        return retained, [str(exc)]
+    try:
+        log_text = "\n".join(
+            _stream_docker_logs(resources.container).splitlines()[-LOG_MAX_LINES:]
+        )
+        log_bytes = _safe_evidence_bytes(
+            log_text,
+            known_secrets=known_secrets,
+            relative_name="startup.log",
+            maximum=LOG_MAX_BYTES,
+        )
+        retained.append(_write_private_evidence(run_root / "startup.log", log_bytes))
+    except Exception as exc:
+        errors.append(f"startup.log: {exc}")
+    try:
+        state = _inspect_startup_state(resources.container)
+        status = state.get("Status", "")
+        running = state.get("Running", False)
+        restarting = state.get("Restarting", False)
+        oom_killed = state.get("OOMKilled", False)
+        exit_code = state.get("ExitCode", 0)
+        if (
+            not isinstance(status, str)
+            or not all(isinstance(item, bool) for item in (running, restarting, oom_killed))
+            or not isinstance(exit_code, int)
+            or isinstance(exit_code, bool)
+        ):
+            raise InstallerSmokeError("Docker startup health state types are invalid")
+        health = state.get("Health")
+        health_status: str | None = None
+        probes: list[dict[str, object]] = []
+        if health is not None:
+            if not isinstance(health, dict):
+                raise InstallerSmokeError("Docker startup health state is malformed")
+            raw_health_status = health.get("Status", "")
+            if not isinstance(raw_health_status, str):
+                raise InstallerSmokeError("Docker startup health status is invalid")
+            health_status = raw_health_status[:64]
+            health_log = health.get("Log", [])
+            if not isinstance(health_log, list):
+                raise InstallerSmokeError("Docker startup health log is malformed")
+            for entry in health_log[-HEALTH_MAX_PROBES:]:
+                if not isinstance(entry, dict):
+                    raise InstallerSmokeError("Docker startup health probe is malformed")
+                probe_exit_code = entry.get("ExitCode", 0)
+                probe_output = entry.get("Output", "")
+                if (
+                    not isinstance(probe_exit_code, int)
+                    or isinstance(probe_exit_code, bool)
+                    or not isinstance(probe_output, str)
+                ):
+                    raise InstallerSmokeError("Docker startup health probe types are invalid")
+                output = _safe_evidence_bytes(
+                    probe_output,
+                    known_secrets=known_secrets,
+                    relative_name="startup-health.json",
+                    maximum=HEALTH_PROBE_MAX_BYTES,
+                ).decode("utf-8")
+                probes.append({"exit_code": probe_exit_code, "output": output})
+        document = {
+            "status": status[:64],
+            "running": running,
+            "restarting": restarting,
+            "oom_killed": oom_killed,
+            "exit_code": exit_code,
+            "health_status": health_status,
+            "health_probes": probes,
+        }
+        health_bytes = json.dumps(
+            document, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        if len(health_bytes) > HEALTH_DOCUMENT_MAX_BYTES:
+            raise InstallerSmokeError("Docker startup health evidence exceeds its byte bound")
+        # Probe outputs were scanned individually; scan canonical bytes once more.
+        _safe_evidence_bytes(
+            health_bytes.decode("utf-8"),
+            known_secrets=known_secrets,
+            relative_name="startup-health.json",
+            maximum=HEALTH_DOCUMENT_MAX_BYTES,
+        )
+        retained.append(
+            _write_private_evidence(run_root / "startup-health.json", health_bytes)
+        )
+    except Exception as exc:
+        errors.append(f"startup-health.json: {exc}")
+    return retained, errors
+
+
 def _default_run_id() -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dt%H%M%Sz").lower()
     return f"{stamp}-{os.getpid():x}"
@@ -215,6 +524,8 @@ def run(run_id: str, artifact_root: Path) -> int:
     image_lifecycle = DisposableImageLifecycle(image, command=_image_command)
     started = time.monotonic()
     phases: list[dict[str, object]] = []
+    startup_evidence: list[dict[str, object]] = []
+    startup_evidence_errors: list[str] = []
     error: Exception | None = None
     try:
         assert_ports_free(ports)
@@ -272,7 +583,32 @@ def run(run_id: str, artifact_root: Path) -> int:
         phases.append({"name": "update", "status": "pass"})
     except Exception as exc:  # retain deterministic failure evidence, then clean only owned objects
         error = exc
-        phases.append({"name": "failure", "status": "fail", "detail": str(exc)})
+        phases.append(
+            {
+                "name": "failure",
+                "status": "fail",
+                "detail": _safe_failure_detail(install_dir, str(exc)),
+            }
+        )
+        try:
+            startup_evidence, startup_evidence_errors = retain_startup_failure_evidence(
+                run_root, install_dir, resources
+            )
+        except Exception as evidence_error:
+            startup_evidence_errors = [
+                f"startup evidence retention failed: {evidence_error}"
+            ]
+        phases.append(
+            {
+                "name": "startup-evidence",
+                "status": "pass" if not startup_evidence_errors else "fail",
+                "detail": (
+                    f"retained {len(startup_evidence)} bounded startup artifacts"
+                    if not startup_evidence_errors
+                    else "; ".join(startup_evidence_errors)
+                ),
+            }
+        )
     finally:
         try:
             if not records:
@@ -325,6 +661,8 @@ def run(run_id: str, artifact_root: Path) -> int:
         "duration_seconds": round(time.monotonic() - started, 3), "resources": records,
         "ports": ports, "candidate_image": image,
         "image_lifecycle": image_lifecycle.evidence(), "phases": phases,
+        "startup_evidence": startup_evidence,
+        "startup_evidence_errors": startup_evidence_errors,
     }
     (run_root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(run_root / "manifest.json")

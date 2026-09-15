@@ -13,6 +13,7 @@ import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -25,8 +26,23 @@ Command = Callable[..., subprocess.CompletedProcess[str]]
 PROBE_IMAGE_ID = "sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534"
 HOST_MIN_FREE_BYTES = 5 * 1024**3
 DOCKER_MIN_FREE_KIB = 3 * 1024**2
+VALIDATION_DOCKER_MIN_FREE_KIB = 6 * 1024**2
 OWNER_LABEL = "com.runsodin.validation-image-owner"
 OWNER_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
+VALIDATION_CAPACITY_COMMAND = (
+    "docker",
+    "run",
+    "--pull=never",
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--entrypoint",
+    "/bin/df",
+    PROBE_IMAGE_ID,
+    "-Pk",
+    "/",
+)
 LIFECYCLE_LOCK_PATH = Path(tempfile.gettempdir()) / (
     f"odin-docker-image-lifecycle-{os.geteuid()}.lock"
 )
@@ -469,6 +485,21 @@ def cleanup_owned_image_history(
     return records, errors
 
 
+def verify_owned_image_history_absent(
+    owned_ids: tuple[str, ...], *, command: Command = _command
+) -> list[str]:
+    """Prove every frozen history identity is absent without discovering targets."""
+    errors: list[str] = []
+    for image_id in owned_ids:
+        image_id = _validate_image_id(image_id)
+        try:
+            if _inspect_image_metadata(image_id, command=command) is not None:
+                errors.append(f"{image_id}: owned image-history identity remains")
+        except Exception as exc:
+            errors.append(f"{image_id}: absence verification failed: {exc}")
+    return errors
+
+
 @dataclass
 class DisposableImageLifecycle:
     """One locked build attempt and its fixed, fail-closed image cleanup evidence."""
@@ -478,6 +509,7 @@ class DisposableImageLifecycle:
     owner_token: str = field(default_factory=generate_owner_token)
     lock: ImageLifecycleLock | None = None
     protected: ProtectedImageHistory | None = None
+    capacity: dict[str, object] | None = None
     build_attempted: bool = False
     final_image_id: str | None = None
     ownership_capture_attempted: bool = False
@@ -493,8 +525,24 @@ class DisposableImageLifecycle:
         self.tag = _validate_tag(self.tag)
         self.owner_token = _validate_owner_token(self.owner_token)
         self.lock = acquire_image_lifecycle_lock()
-        self.protected = capture_protected_image_history(command=self.command)
-        assert_image_absent(self.tag, command=self.command)
+        try:
+            self.capacity, capacity_error = validation_capacity_observation(
+                command=self.command
+            )
+            if capacity_error:
+                raise ValidationImageError(
+                    f"Docker validation capacity observation failed: {capacity_error}"
+                )
+            if not self.capacity["passed"]:
+                raise ValidationImageError(
+                    "Docker validation capacity is below 6291456 KiB"
+                )
+            self.protected = capture_protected_image_history(command=self.command)
+            assert_image_absent(self.tag, command=self.command)
+        except BaseException:
+            release_image_lifecycle_lock(self.lock)
+            self.lock = None
+            raise
 
     def docker_build_owner_args(self) -> list[str]:
         return ["--build-arg", f"ODIN_BUILD_OWNER={self.owner_token}"]
@@ -538,20 +586,36 @@ class DisposableImageLifecycle:
                 detail = self.ownership_capture_error or "ownership was not frozen immediately"
                 errors.append(f"owned image-history capture failed: {detail}")
             if not ownership_capture_failed:
-                errors.extend(
-                    f"image tag: {message}"
-                    for message in cleanup_owned_image(
-                        self.tag, self.final_image_id, command=self.command
+                tag_errors = cleanup_owned_image(
+                    self.tag, self.final_image_id, command=self.command
+                )
+                errors.extend(f"image tag: {message}" for message in tag_errors)
+                tag_was_already_absent = tag_errors == [
+                    "owned validation image tag is missing"
+                ]
+                if self.final_image_id is None or not tag_errors or tag_was_already_absent:
+                    history_cleanup, history_errors = cleanup_owned_image_history(
+                        self.owned_history_ids, command=self.command
                     )
-                )
-                history_cleanup, history_errors = cleanup_owned_image_history(
-                    self.owned_history_ids, command=self.command
-                )
-                errors.extend(f"image history: {message}" for message in history_errors)
+                    errors.extend(
+                        f"image history: {message}" for message in history_errors
+                    )
         finally:
             errors.extend(release_image_lifecycle_lock(self.lock))
             self.lock = None
             self.history_cleanup = history_cleanup
+            self.cleanup_errors = list(errors)
+        return errors
+
+    def defer_cleanup_for_lease(self) -> list[str]:
+        """Release the build lock after a fixed ownership set is durable."""
+        if not self.ownership_capture_succeeded:
+            raise ValidationImageError(
+                "image cleanup cannot be deferred before ownership is frozen"
+            )
+        errors = release_image_lifecycle_lock(self.lock)
+        self.lock = None
+        if errors:
             self.cleanup_errors = list(errors)
         return errors
 
@@ -563,6 +627,7 @@ class DisposableImageLifecycle:
             "owner_token_sha256": hashlib.sha256(
                 self.owner_token.encode("ascii")
             ).hexdigest(),
+            "capacity": dict(self.capacity) if self.capacity is not None else None,
             "protected_history": protected_image_history_evidence(self.protected),
             "final_image_id": self.final_image_id,
             "ownership_capture_attempted": self.ownership_capture_attempted,
@@ -695,6 +760,27 @@ def _docker_free_kib(probe_image_id: str, *, command: Command = _command) -> int
     ):
         raise ValidationImageError("Docker capacity row is malformed")
     return int(fields[3])
+
+
+def validation_capacity_observation(
+    *, command: Command = _command
+) -> tuple[dict[str, object], str | None]:
+    """Return one bounded, common pre-build capacity observation."""
+    evidence: dict[str, object] = {
+        "probe_image_id": PROBE_IMAGE_ID,
+        "command_argv": list(VALIDATION_CAPACITY_COMMAND),
+        "required_free_kib": VALIDATION_DOCKER_MIN_FREE_KIB,
+        "observed_free_kib": None,
+        "passed": False,
+        "observed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    try:
+        observed = _docker_free_kib(PROBE_IMAGE_ID, command=command)
+    except Exception as exc:
+        return evidence, str(exc)
+    evidence["observed_free_kib"] = observed
+    evidence["passed"] = observed >= VALIDATION_DOCKER_MIN_FREE_KIB
+    return evidence, None
 
 
 def _assert_fresh_output(path: Path) -> None:

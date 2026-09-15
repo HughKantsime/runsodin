@@ -15,11 +15,23 @@ from ops.release_gate.policy import (
 from ops.release_gate.report import render_report
 from ops.release_gate import runner
 from ops.release_gate.runner import ResourceNames, validate_run_id
+from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND
 
 
 def _write_junit(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def _capacity_probe(args: list[str]):
+    if tuple(args) != VALIDATION_CAPACITY_COMMAND:
+        return None
+    return subprocess.CompletedProcess(
+        args,
+        0,
+        "Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+        "overlay 40000000 30000000 10000000 75% /\n",
+    )
 
 
 @pytest.mark.parametrize(
@@ -248,6 +260,9 @@ def test_DI06_candidate_build_failure_keeps_resource_cleanup_without_image_delet
 
     def fake_command(args, **kwargs):
         calls.append(list(args))
+        capacity = _capacity_probe(args)
+        if capacity is not None:
+            return capacity
         if args[:3] == ["docker", "image", "inspect"]:
             return subprocess.CompletedProcess(args, 1, "No such image: candidate\n")
         if args[:2] == ["docker", "build"]:
@@ -290,6 +305,9 @@ def test_DI04_DI05_candidate_iid_tag_failure_records_cleanup_failure_without_del
     def fake_command(args, **_kwargs):
         nonlocal built
         calls.append(list(args))
+        capacity = _capacity_probe(args)
+        if capacity is not None:
+            return capacity
         if args[:3] == ["docker", "image", "inspect"]:
             if not built or observed is None:
                 return subprocess.CompletedProcess(args, 1, "No such image: candidate\n")
@@ -341,6 +359,9 @@ def test_candidate_finalization_error_does_not_skip_exact_image_cleanup(
     def fake_command(args, **_kwargs):
         nonlocal image_present, owner_token
         calls.append(list(args))
+        capacity = _capacity_probe(args)
+        if capacity is not None:
+            return capacity
         if args == ["docker", "image", "ls", "-a", "--no-trunc", "--quiet"]:
             return subprocess.CompletedProcess(
                 args, 0, image_id + "\n" if image_present else ""

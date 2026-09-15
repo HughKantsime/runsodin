@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "status": "PROPOSAL_REQUIRES_EXPLICIT_APPROVAL",
+  "executable": false,
+  "observed_at": "2026-09-15T18:40:26-04:00",
+  "capacity": {
+    "host_available_kib": 7410456,
+    "colima_disk_bytes": 32212254720,
+    "docker_available_kib": 715436,
+    "validation_required_kib": 6291456,
+    "docker_shortfall_kib": 5576020
+  },
+  "image_action": "REMOVE_EXACT_TOP_DOWN_AFTER_SEPARATE_APPROVAL",
+  "image_targets": [
+    {
+      "image_id": "sha256:c0ad14ee645349d3cdad7f1263ef347864c5d5e77f200054269a820c3859ccc9",
+      "created": "2026-09-15T17:47:24.745248706-04:00",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 210127812,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {"com.runsodin.validation-image-owner": "unowned"},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:8e2e0c87cf871d84a0a10e4d8ed9135ebd65dc71af8a9212be17fd7480ec55ca",
+      "created": "2026-09-15T17:47:23.983273683-04:00",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 210127600,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:243127267736a61ecfe66bff034d17dc6f7053468573767eeae18b6b73c25fe1",
+      "created": "2026-09-15T17:47:23.191493836-04:00",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 210127476,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:ae2da8214079c55458131c5c55efd2be0307cb1918d63b059e57fc3d4a631671",
+      "created": "2026-09-15T21:47:21.016607809Z",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 207024967,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:222ff19025ec4311560997c45ad6b35dd892a5c803843ad0a45454c3ea8fb109",
+      "created": "2026-09-15T21:47:20.262561034Z",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 207024348,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:3a9349a714a2d7d348dffdadc22cb14aef7d9efef4758d93036770335b91722a",
+      "created": "2026-09-15T21:47:19.490120288Z",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 207017967,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:2b61d65ea24a03ab51d03ed9c3e13c5fb3494a20b2f2188c408b6277575e8786",
+      "created": "2026-09-15T17:47:16.614703972-04:00",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 206716345,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:e5cd292947318163833d3d8ead57af758b61eb1da7ef0e621443bbf38b70147d",
+      "created": "2026-09-15T21:47:07.313880306Z",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 70821882,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    },
+    {
+      "image_id": "sha256:6359c3caafb8524a8c0e93e8fd96e9bd3868e8e2e5d94bb15afdc64822414b8b",
+      "created": "2026-09-15T17:47:07.071838193-04:00",
+      "repo_tags": [],
+      "repo_digests": [],
+      "size_bytes": 70772908,
+      "working_dir": "/build/frontend",
+      "entrypoint": ["docker-entrypoint.sh"],
+      "labels": {},
+      "container_references": []
+    }
+  ],
+  "protected_history_boundary": {
+    "image_id": "sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687",
+    "repo_tags": [
+      "node:20-slim@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687",
+      "node@sha256:c6585df72c34172bebd8d36abed961e231d7d3b5cee2e01294c4495e8a03f687"
+    ],
+    "action": "RETAIN"
+  },
+  "buildkit_action": "RETAIN_ALL_LISTED_RECORDS",
+  "buildkit_reason": "These records are the corrected Dockerfile cache-reuse proof graph; shared or mutable records are never deletion candidates, and deleting the large dependency records would recreate the cache-loss failure.",
+  "buildkit_records": {
+    "observation_window_utc": "2026-09-15T21:52:43Z/2026-09-15T21:53:35Z",
+    "exact_ids": [
+      "1uzoz07t160ezevzm809h5f5e",
+      "7yjr6uh1oxeuc0fnb3xxmb7uk",
+      "j7sgb7illfkb6tyy9avs63awt",
+      "loau2577mebh1cc45cqxhykhj",
+      "yplds4wu00d8tb3y8tuojqelm",
+      "iiareu70stakrkbnpkssdxaup",
+      "xjxbqa1orh8frbh6uggrybc9f",
+      "i378esx9yy5wsejuf9edo4vuc",
+      "znan0z81u36qxrcsluulrotyw",
+      "ackhcdiuo75gmm0mpkjv7os94",
+      "ri238inqpe5g6mb7zvkr8olge",
+      "5frpmckplmlggvoczvwzrojvq",
+      "1g8tkbmacyn99c6pn04q7rfxf",
+      "6qaivyts8we1vluhnitjsgq07",
+      "ptxmy2m6s8gqru53p0z6148z1",
+      "slbto20oanjrkyxcmmiosesak",
+      "xsqmja4okok6wvdnw6qa49vm6",
+      "lby3hv7bwdcot0o339ehfek13",
+      "1u8nob0zfv8pdhba8xhfglyxp",
+      "zi8yu3f6d3j8mf4hutfcprhf1",
+      "li5nwjmk5ueav7masyp76yhkk",
+      "4dql885vma3qknrc7yu66di8q",
+      "sw2obwp5f69iarh6wvjrkqh80",
+      "la9rr7d4zope65dh0th41iat3",
+      "z05scwmv6m66za5j0hd686428",
+      "2ds7a2a7rz7gxqucq4uk6gw44",
+      "xlqj6awbqiti25gp16nbk6yi1",
+      "qntycpp5v5nwehlyqvyax31rg",
+      "tfu967ej01h21k94b3fudehye"
+    ],
+    "large_records": [
+      {
+        "id": "j7sgb7illfkb6tyy9avs63awt",
+        "description": "npm ci --no-audit --no-fund",
+        "size": "432.5MB",
+        "shared": true,
+        "mutable": false,
+        "reclaimable": true
+      },
+      {
+        "id": "i378esx9yy5wsejuf9edo4vuc",
+        "description": "ODIN system dependencies",
+        "size": "750.7MB",
+        "shared": false,
+        "mutable": false,
+        "reclaimable": true
+      },
+      {
+        "id": "5frpmckplmlggvoczvwzrojvq",
+        "description": "pip install --no-cache-dir -r requirements.txt",
+        "size": "667.1MB",
+        "shared": false,
+        "mutable": false,
+        "reclaimable": true
+      }
+    ]
+  },
+  "forbidden_actions": [
+    "docker image prune",
+    "docker system prune",
+    "docker builder prune",
+    "docker buildx prune without exact record IDs",
+    "volume deletion",
+    "container deletion",
+    "removal of tagged images",
+    "removal of the protected Node base",
+    "removal of any image or cache record not listed by exact identity"
+  ],
+  "capacity_decision": {
+    "nine_image_cleanup_is_sufficient": false,
+    "recommended_next_step": "Free at least 25 GiB on the macOS Data volume, then separately approve a controlled Colima stop and disk increase from 30 GiB to 48 GiB. Re-observe all identities before any image removal.",
+    "requires_colima_downtime": true,
+    "requires_separate_user_approval": true
+  }
+}

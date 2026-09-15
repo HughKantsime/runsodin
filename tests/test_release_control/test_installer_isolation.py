@@ -1,4 +1,6 @@
 import subprocess
+import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -84,7 +86,9 @@ def test_IN12_cleanup_refuses_identity_or_label_mismatch(monkeypatch):
     resources = Resources.from_run_id("abc-123")
     records = {"container": {"name": resources.container, "identity": "expected"}}
     payload = {"Id": "different", "Config": {"Labels": {installer_smoke.LABEL: resources.run_id, f"{installer_smoke.LABEL}.kind": "container"}}}
-    monkeypatch.setattr(installer_smoke, "_inspect", lambda *_: payload)
+    monkeypatch.setattr(
+        installer_smoke, "_inspect_startup_state", lambda *_: payload["State"]
+    )
     with pytest.raises(InstallerSmokeError):
         installer_smoke.cleanup_owned(resources, records)
 
@@ -136,3 +140,111 @@ def test_installer_outer_timeout_covers_uncached_build():
     inventory = (ROOT / "ops/release_control/inventory.json").read_text()
     assert '"id":"CV01"' in inventory
     assert '"timeout_seconds":2700' in inventory
+
+
+def test_DI17_startup_failure_evidence_is_bounded_sanitized_and_hashed(
+    monkeypatch, tmp_path
+):
+    resources = Resources.from_run_id("abc-123")
+    run_root = tmp_path / "run"
+    install = run_root / "install"
+    install.mkdir(parents=True)
+    secret = "installer-secret-value-123456"
+    env_path = install / ".env"
+    env_path.write_text(f"API_KEY={secret}\nODIN_HTTP_PORT=1234\n", encoding="utf-8")
+    env_path.chmod(0o600)
+    health_output = (secret + " 10.20.30.40 ") * 500
+    payload = {
+        "State": {
+            "Status": "running",
+            "Running": True,
+            "Restarting": False,
+            "OOMKilled": False,
+            "ExitCode": 0,
+            "Health": {
+                "Status": "starting",
+                "Log": [
+                    {"ExitCode": index, "Output": health_output}
+                    for index in range(9)
+                ],
+            },
+        }
+    }
+    monkeypatch.setattr(
+        installer_smoke, "_inspect_startup_state", lambda *_: payload["State"]
+    )
+    log_text = "\n".join(
+        f"line-{index} {secret} user@school.edu 10.20.30.40"
+        for index in range(900)
+    )
+    monkeypatch.setattr(installer_smoke, "_stream_docker_logs", lambda *_: log_text)
+
+    retained, errors = installer_smoke.retain_startup_failure_evidence(
+        run_root, install, resources
+    )
+
+    assert errors == []
+    assert {item["filename"] for item in retained} == {
+        "startup.log",
+        "startup-health.json",
+    }
+    for item in retained:
+        artifact = run_root / str(item["filename"])
+        content = artifact.read_bytes()
+        assert len(content) == item["byte_count"]
+        assert installer_smoke.hashlib.sha256(content).hexdigest() == item["sha256"]
+        assert secret.encode() not in content
+        assert b"user@school.edu" not in content
+        assert b"10.20.30.40" not in content
+        assert artifact.stat().st_mode & 0o777 == 0o600
+    assert len((run_root / "startup.log").read_text().splitlines()) <= 700
+    assert (run_root / "startup.log").stat().st_size <= 262_144
+    health = json.loads((run_root / "startup-health.json").read_text())
+    assert len(health["health_probes"]) == 5
+    assert all(
+        len(probe["output"].encode("utf-8")) <= 4_096
+        for probe in health["health_probes"]
+    )
+    assert (run_root / "startup-health.json").stat().st_size <= 32_768
+
+
+def test_DI17_unsafe_env_omits_evidence_without_touching_cleanup_targets(
+    monkeypatch, tmp_path
+):
+    resources = Resources.from_run_id("abc-123")
+    run_root = tmp_path / "run"
+    install = run_root / "install"
+    install.mkdir(parents=True)
+    env_path = install / ".env"
+    env_path.write_text("API_KEY=first\nAPI_KEY=second\n", encoding="utf-8")
+    env_path.chmod(0o600)
+    inspected = False
+
+    def unexpected_inspect(*_args):
+        nonlocal inspected
+        inspected = True
+        return None
+
+    monkeypatch.setattr(installer_smoke, "_inspect_startup_state", unexpected_inspect)
+    retained, errors = installer_smoke.retain_startup_failure_evidence(
+        run_root, install, resources
+    )
+
+    assert retained == []
+    assert errors == ["installer env contains an invalid or duplicate key"]
+    assert inspected is False
+    assert not (run_root / "startup.log").exists()
+
+
+def test_DI17_command_capture_bounds_one_pathological_line_before_retention():
+    command = [sys.executable, "-c", "import sys; sys.stdout.write('x' * 1000000)"]
+
+    retained = installer_smoke._bounded_command_output(
+        command, maximum=4096, timeout=10, reject_overflow=False
+    )
+    assert retained == b"x" * 4096
+
+    with pytest.raises(InstallerSmokeError, match="oversized"):
+        installer_smoke._bounded_command_output(
+            command, maximum=4096, timeout=10, reject_overflow=True
+        )
