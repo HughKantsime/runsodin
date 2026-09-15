@@ -367,6 +367,7 @@ def test_PW05_workflow_uses_established_trusted_m4_boundary():
     identity = job["steps"][0]["run"]
     assert "test -x /Users/ollama/homebrew/bin/python3.11" in identity
     assert "test -x /opt/homebrew/bin/npm" in identity
+    assert "test -x /Users/ollama/homebrew/sbin/mosquitto" in identity
     assert "GITHUB_PATH" in identity
     assert "PLAYWRIGHT_SKIP_BROWSER_GC=1 python3.11 -m playwright install chromium" in _workflow()
     assert job["steps"][1]["uses"] == "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"

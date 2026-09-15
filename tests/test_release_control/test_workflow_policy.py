@@ -60,7 +60,7 @@ def test_WF11_runner_labels_are_exact():
     source = workflow_text()
     assert "runs-on: [self-hosted, mac-mini-runner, m4]" in source
     assert "odin-isolated" not in source
-    assert "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\"" in source
+    assert "printf '%s\\n' /Users/ollama/homebrew/bin /Users/ollama/homebrew/sbin /opt/homebrew/bin >> \"$GITHUB_PATH\"" in source
 
 
 def test_WF12_workflow_has_no_release_side_effect_or_secret_surface():

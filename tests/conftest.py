@@ -39,8 +39,8 @@ _load_env()
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 API_KEY = os.environ.get("API_KEY", "")
-ADMIN_USERNAME = os.environ["ADMIN_USERNAME"]
-ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "ci-admin@example.invalid")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "CiOnly-Test-Password1!")
 
 TEST_VIEWER_USER = os.environ.get("TEST_VIEWER_USERNAME", "test_viewer_rbac")
 TEST_VIEWER_PASS = os.environ.get("TEST_VIEWER_PASSWORD", "ViewerTestPass1!")
