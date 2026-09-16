@@ -2,9 +2,10 @@
 
 Verification and controlled promotion tooling for the O.D.I.N. print farm management system.
 
-> Release-control migration: ordinary pushes and pull requests do not run ODIN
-> repository workflows. Trusted Validation and Promotion Eligibility are manual,
-> owner-dispatched evidence workflows. Publication and deployment remain disabled.
+> Release control is manual and owner-dispatched. Trusted Validation and Promotion
+> Eligibility remain read-only. Immutable Image Publication builds once to a unique
+> staging tag, tests both exact platform manifests, and then attaches immutable tags.
+> Production Promotion moves `latest` to that tested digest without rebuilding.
 
 ## Scripts
 
@@ -74,13 +75,15 @@ make test                           # main + RBAC tests
 # Candidate validation (manual trusted workflow after remote bootstrap)
 make trusted-validation-gate
 make test-promotion-workflow
+make test-mutation-workflows
+make test-registry-contract
 
 # Build/verify a sanitized, content-addressed bundle from a passing run
 make practical-evidence SOURCE_RUN_DIR=artifacts/trusted-validation/<run-id> EXPECTED_SHA=<40hex>
 make verify-practical-evidence EVIDENCE_DIR=artifacts/trusted-validation/<run-id>/evidence
 
-# Local release entry point is deliberately disabled
-make release                       # fails with promotion-workflow guidance
+# Version changes stay local until the explicit remote workflow sequence
+make bump VERSION=1.9.13
 ```
 
 ## Practical release evidence
@@ -111,3 +114,21 @@ closure from its own workflow SHA through the Contents API and verifies every
 path, decoded byte count, and Git blob hash before importing from a fresh isolated
 directory. It runs on the established M4 self-hosted runner; that runner is
 trusted for owner-reviewed code but is not represented as VM-isolated.
+
+## Immutable publication and production promotion
+
+`.github/workflows/publish-image.yml` accepts an exact successful validation run
+and `stage` eligibility run. It builds once to a run-unique staging tag, exercises
+the amd64 and arm64 manifests by digest, then attaches `sha-<SHA>` and `vX.Y.Z`
+only when absent or already equal. It never writes `latest`.
+
+`.github/workflows/promote-production.yml` requires a fresh `production`
+eligibility decision and exact successful publication receipt. It requires valid
+public TLS and healthy production before mutation, creates and verifies a unique
+rollback tag for the prior `latest` digest, and then copies the tested digest to
+`latest` without source checkout or rebuild. Both mutation workflows serialize on
+`odin-release-mutation`, isolate registry credentials, and upload HTML receipts.
+
+The workflow receipt's rollback tag, digest, and registry-native restoration
+command are the primary rollback path. Direct host access and semver compose
+pinning are break-glass procedures only.

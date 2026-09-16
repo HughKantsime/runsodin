@@ -16,10 +16,10 @@ O.D.I.N. is a single Docker container running FastAPI + supervisord-
 managed background workers against a local SQLite database. Published
 images live in the GitHub Container Registry. Data lives in a mounted volume.
 
-> **Release-control migration:** this repository now contains only a manual,
-> non-publishing trusted-validation workflow. The reviewed publish and
-> production-promotion workflows are not installed yet. Do not treat a branch
-> push, version commit, or mutable image tag as a release action.
+> **Release control:** every step is manual and owner-dispatched. Validation and
+> eligibility are read-only. Publication tests one exact multi-platform digest
+> before immutable tagging; production promotion moves that digest to `latest`
+> without rebuilding. A branch push or version commit is never a release action.
 
 ```
                   ┌──────────────────────┐
@@ -90,11 +90,12 @@ Current GitHub Actions surface:
 1. **Trusted Validation** — manual dispatch only, exact owner and candidate ref/SHA.
 2. **Ten local gates** — release control, contracts, security, candidate, database
    parity, EDU readiness, EDU sandbox, hardware replay, and both Telemetry V2 gates.
-3. **No release side effects** — no tag, image publication, downstream dispatch,
-   production write, or deployment is performed by this foundation.
-
-The later promotion runbook will replace this section when publishing and
-production promotion have been implemented and verified remotely.
+3. **Promotion Eligibility** — read-only exact evidence/authorization decision.
+4. **Publish Immutable Image** — builds once to a unique staging tag, tests exact
+   amd64/arm64 manifests, then attaches `sha-<SHA>` and `vX.Y.Z`; never `latest`.
+5. **Promote Image to Production** — requires fresh production eligibility,
+   valid TLS, healthy current production, and an exact publication receipt;
+   creates a durable rollback tag and moves `latest` without rebuilding.
 
 ### 2.2 Verify a deploy actually landed
 
@@ -216,9 +217,28 @@ If a SQL syntax error appears on a specific migration:
 
 ### 4.4 Rolling back
 
-If a version is actively breaking prod, the rollback target is the
-previous semver tag in GHCR (e.g., if `:latest` resolved to `:v1.9.4`
-and that's broken, pin to `:v1.9.3`).
+If a promoted version is breaking production, the primary rollback target is
+the exact prior digest preserved as `rollback-<production-run-id>-1`. The
+production receipt contains that tag, digest, and restoration command.
+
+```bash
+# Run from an authenticated release-control workstation/runner.
+# Copy these exact values from the production receipt.
+IMAGE=ghcr.io/hughkantsime/odin
+ROLLBACK_TAG=rollback-<production-run-id>-1
+PRIOR_DIGEST=sha256:<prior-digest>
+
+test "$(docker buildx imagetools inspect "$IMAGE:$ROLLBACK_TAG" --format '{{.Manifest.Digest}}')" = "$PRIOR_DIGEST"
+docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$PRIOR_DIGEST"
+test "$(docker buildx imagetools inspect "$IMAGE:latest" --format '{{.Manifest.Digest}}')" = "$PRIOR_DIGEST"
+# Watchtower now reconciles the exact prior digest. Verify through normal TLS:
+curl -fsS https://odin.subsystem.app/health | python3 -m json.tool
+```
+
+### Break-glass direct-host pin
+
+Use this only when the registry-control path itself cannot run and direct host
+access has been explicitly authorized. Pin the previous known-good semver tag:
 
 ```bash
 # 1. SSH to the Docker host
@@ -247,7 +267,9 @@ curl -fsS http://localhost:8000/health | python3 -m json.tool
 # expect: {"status":"ok","version":"1.9.3", ...}
 ```
 
-**Watchtower interaction.** Once compose is pinned to `:vX.Y.Z`,
+**Watchtower interaction.** The primary digest rollback keeps compose on
+`:latest`; Watchtower observes the restored manifest and reconciles it. Once a
+break-glass compose file is pinned to `:vX.Y.Z`,
 Watchtower checks for updates against that immutable tag and finds
 none — it does not fight the pin. You do **not** need to stop
 Watchtower to hold the rollback. To unpin later, revert the `sed` edit

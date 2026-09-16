@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "status", "phase", "repository", "repository_id", "run_id", "run_attempt", "workflow_sha", "actor_login", "candidate_sha", "candidate_ref", "validation_run_id", "promotion_run_id", "evidence_sha256", "version", "image_repository", "staging_tag", "sha_tag", "version_tag", "target_digest", "platform_manifests", "tag_writes", "tool_versions", "started_at", "updated_at", "error", "cleanup"],
+  "properties": {
+    "schema_version": {"const": 1}, "kind": {"const": "publication"}, "status": {"enum": ["success", "failed"]},
+    "phase": {"enum": ["preflight", "mutation_started", "tag_written", "registry_verified"]},
+    "repository": {"const": "HughKantsime/runsodin"}, "repository_id": {"type": "integer", "minimum": 1},
+    "run_id": {"type": "integer", "minimum": 1}, "run_attempt": {"const": 1}, "workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "actor_login": {"const": "HughKantsime"},
+    "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "candidate_ref": {"type": "string", "pattern": "^release-candidate/[0-9a-f]{40}$"},
+    "validation_run_id": {"type": "integer", "minimum": 1}, "promotion_run_id": {"type": "integer", "minimum": 1}, "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"}, "image_repository": {"const": "ghcr.io/hughkantsime/odin"},
+    "staging_tag": {"type": "string", "minLength": 1}, "sha_tag": {"type": "string", "pattern": "^sha-[0-9a-f]{40}$"}, "version_tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "target_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "platform_manifests": {"type": "array", "maxItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["os", "architecture", "digest", "status"], "properties": {"os": {"const": "linux"}, "architecture": {"enum": ["amd64", "arm64"]}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "status": {"const": "passed"}}}},
+    "tag_writes": {"type": "array", "items": {"$ref": "#/$defs/tagWrite"}},
+    "tool_versions": {"$ref": "#/$defs/toolVersions"},
+    "started_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"},
+    "error": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/error"}]}, "cleanup": {"$ref": "#/$defs/cleanup"}
+  },
+  "allOf": [{"if": {"properties": {"status": {"const": "success"}}}, "then": {"properties": {"target_digest": {"type": "string"}, "platform_manifests": {"minItems": 2, "maxItems": 2}, "error": {"type": "null"}}}}],
+  "$defs": {
+    "tagWrite": {"type": "object", "additionalProperties": false, "required": ["tag", "before", "after", "status"], "properties": {"tag": {"type": "string"}, "before": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}, "after": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}, "status": {"enum": ["attempted", "written", "noop", "failed"]}}},
+    "error": {"type": "object", "additionalProperties": false, "required": ["code", "detail"], "properties": {"code": {"type": "string", "minLength": 1}, "detail": {"type": "string", "minLength": 1}}},
+    "cleanup": {"type": "object", "additionalProperties": false, "required": ["registry_logout", "auth_removed"], "properties": {"registry_logout": {"type": "boolean"}, "auth_removed": {"type": "boolean"}}}
+    ,"toolVersions": {"type": "object", "additionalProperties": false, "required": ["python", "docker", "buildx"], "properties": {"python": {"type": "string", "minLength": 1}, "docker": {"type": "string", "minLength": 1}, "buildx": {"type": "string", "minLength": 1}}}
+  }
+}

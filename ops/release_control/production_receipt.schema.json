@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "status", "phase", "repository", "repository_id", "run_id", "run_attempt", "workflow_sha", "actor_login", "candidate_sha", "candidate_ref", "validation_run_id", "promotion_run_id", "publication_run_id", "publication_receipt_sha256", "evidence_sha256", "version", "image_repository", "target_digest", "prior_latest_digest", "rollback_tag", "rollback_command", "observed_latest_digest", "tag_writes", "public_health", "tool_versions", "started_at", "updated_at", "error", "cleanup"],
+  "properties": {
+    "schema_version": {"const": 1}, "kind": {"const": "production"}, "status": {"enum": ["success", "failed"]},
+    "phase": {"enum": ["preflight", "mutation_started", "tag_written", "registry_verified", "production_observed"]},
+    "repository": {"const": "HughKantsime/runsodin"}, "repository_id": {"type": "integer", "minimum": 1}, "run_id": {"type": "integer", "minimum": 1}, "run_attempt": {"const": 1},
+    "workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "actor_login": {"const": "HughKantsime"}, "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "candidate_ref": {"type": "string", "pattern": "^release-candidate/[0-9a-f]{40}$"},
+    "validation_run_id": {"type": "integer", "minimum": 1}, "promotion_run_id": {"type": "integer", "minimum": 1}, "publication_run_id": {"type": "integer", "minimum": 1}, "publication_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"}, "image_repository": {"const": "ghcr.io/hughkantsime/odin"}, "target_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "prior_latest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "rollback_tag": {"type": "string", "pattern": "^rollback-[1-9][0-9]*-1$"}, "rollback_command": {"type": "string", "minLength": 1}, "observed_latest_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "tag_writes": {"type": "array", "items": {"$ref": "#/$defs/tagWrite"}}, "public_health": {"type": "object", "additionalProperties": false, "required": ["url", "tls_valid", "status", "version", "ready_observation"], "properties": {"url": {"type": "string", "format": "uri"}, "tls_valid": {"type": "boolean"}, "status": {"type": ["string", "null"]}, "version": {"type": ["string", "null"]}, "ready_observation": {"type": "string"}}}, "tool_versions": {"$ref": "#/$defs/toolVersions"},
+    "started_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "error": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/error"}]}, "cleanup": {"$ref": "#/$defs/cleanup"}
+  },
+  "$defs": {
+    "tagWrite": {"type": "object", "additionalProperties": false, "required": ["tag", "before", "after", "status"], "properties": {"tag": {"type": "string"}, "before": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}, "after": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}, "status": {"enum": ["attempted", "written", "noop", "failed"]}}},
+    "error": {"type": "object", "additionalProperties": false, "required": ["code", "detail"], "properties": {"code": {"type": "string", "minLength": 1}, "detail": {"type": "string", "minLength": 1}}},
+    "cleanup": {"type": "object", "additionalProperties": false, "required": ["registry_logout", "auth_removed"], "properties": {"registry_logout": {"type": "boolean"}, "auth_removed": {"type": "boolean"}}}
+    ,"toolVersions": {"type": "object", "additionalProperties": false, "required": ["python", "docker", "buildx"], "properties": {"python": {"type": "string", "minLength": 1}, "docker": {"type": "string", "minLength": 1}, "buildx": {"type": "string", "minLength": 1}}}
+  }
+}

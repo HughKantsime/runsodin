@@ -1,0 +1,439 @@
+name: Publish Immutable Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      validation_run_id:
+        description: Successful Trusted Validation run ID
+        required: true
+        type: string
+      promotion_run_id:
+        description: Successful stage Promotion Eligibility run ID
+        required: true
+        type: string
+      candidate_sha:
+        description: Full validated candidate SHA
+        required: true
+        type: string
+      candidate_ref:
+        description: Immutable release-candidate/<SHA> branch
+        required: true
+        type: string
+      evidence_sha256:
+        description: Canonical validation manifest SHA-256
+        required: true
+        type: string
+      version:
+        description: Strict release version X.Y.Z
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: odin-release-mutation
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish tested immutable image
+    runs-on: [self-hosted, mac-mini-runner, m4]
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+      INPUT_PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+      INPUT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      INPUT_CANDIDATE_REF: ${{ inputs.candidate_ref }}
+      INPUT_EVIDENCE_SHA256: ${{ inputs.evidence_sha256 }}
+      INPUT_VERSION: ${{ inputs.version }}
+      CURRENT_REPOSITORY_ID: ${{ github.repository_id }}
+      CURRENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      MUTATION_STARTED: "0"
+      IMAGE_REPOSITORY: ghcr.io/hughkantsime/odin
+    steps:
+      - name: Establish isolated publication root
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_ACTOR" = "HughKantsime"
+          test "$GITHUB_ACTOR_ID" = "201174638"
+          test "$GITHUB_TRIGGERING_ACTOR" = "$GITHUB_ACTOR"
+          [[ "$INPUT_VALIDATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$INPUT_PROMOTION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$INPUT_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$INPUT_CANDIDATE_REF" = "release-candidate/$INPUT_CANDIDATE_SHA"
+          [[ "$INPUT_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test -x /Users/ollama/homebrew/bin/python3.11
+          test -x /opt/homebrew/bin/gh
+          test -x /usr/local/bin/docker || test -x /opt/homebrew/bin/docker || command -v docker >/dev/null
+          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
+          root="$RUNNER_TEMP/odin-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "$root"
+          mkdir -m 700 "$root"
+          mkdir -m 700 "$root/auth"
+          {
+            echo "MUTATION_ROOT=$root"
+            echo "HELPER_ROOT=$root/helper"
+            echo "EVIDENCE_DIR=$root/evidence"
+            echo "PROMOTION_DIR=$root/promotion"
+            echo "STATE_FILE=$root/state.json"
+            echo "RECEIPT_DIR=$root/receipt"
+            echo "DOCKER_CONFIG=$root/auth"
+            echo "STAGING_TAG=candidate-${INPUT_CANDIDATE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "SHA_TAG=sha-${INPUT_CANDIDATE_SHA}"
+            echo "VERSION_TAG=v${INPUT_VERSION}"
+          } >> "$GITHUB_ENV"
+
+      - name: Fetch and verify workflow helper closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          allowlist=(
+            ops/__init__.py
+            ops/release_control/__init__.py
+            ops/edu_readiness/__init__.py
+            ops/release_control/mutation_workflow.py
+            ops/release_control/promotion_workflow.py
+            ops/release_control/promotion_eligibility.py
+            ops/release_control/practical_evidence.py
+            ops/release_control/release_authorization.py
+            ops/release_control/policy.py
+            ops/release_control/run_gate.py
+            ops/edu_readiness/artifact_scan.py
+            ops/edu_readiness/common.py
+            ops/release_control/practical_evidence.schema.json
+            ops/release_control/release_authorization.schema.json
+            ops/release_control/validation_run_observation.schema.json
+            ops/release_control/promotion_context.schema.json
+            ops/release_control/result.schema.json
+            ops/release_control/publication_receipt.schema.json
+            ops/release_control/production_receipt.schema.json
+          )
+          responses="$MUTATION_ROOT/helper-responses"
+          mkdir -m 700 "$responses"
+          index=0
+          for relative in "${allowlist[@]}"; do
+            gh api --method GET -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/contents/${relative}?ref=${CURRENT_WORKFLOW_SHA}" > "$responses/$index.json"
+            index=$((index + 1))
+          done
+          RESPONSES="$responses" HELPER_ROOT="$HELPER_ROOT" python3.11 -P <<'PY'
+          import base64, hashlib, json, os, tempfile
+          from pathlib import Path
+          expected = [
+              "ops/__init__.py", "ops/release_control/__init__.py", "ops/edu_readiness/__init__.py",
+              "ops/release_control/mutation_workflow.py", "ops/release_control/promotion_workflow.py",
+              "ops/release_control/promotion_eligibility.py", "ops/release_control/practical_evidence.py",
+              "ops/release_control/release_authorization.py", "ops/release_control/policy.py",
+              "ops/release_control/run_gate.py", "ops/edu_readiness/artifact_scan.py",
+              "ops/edu_readiness/common.py", "ops/release_control/practical_evidence.schema.json",
+              "ops/release_control/release_authorization.schema.json",
+              "ops/release_control/validation_run_observation.schema.json",
+              "ops/release_control/promotion_context.schema.json", "ops/release_control/result.schema.json",
+              "ops/release_control/publication_receipt.schema.json",
+              "ops/release_control/production_receipt.schema.json",
+          ]
+          responses = Path(os.environ["RESPONSES"]); target = Path(os.environ["HELPER_ROOT"])
+          decoded = {}
+          files = sorted(responses.glob("*.json"), key=lambda path: int(path.stem))
+          if len(files) != len(expected) or target.exists(): raise SystemExit("helper set mismatch")
+          for relative, response in zip(expected, files):
+              payload = json.loads(response.read_text())
+              if payload.get("path") != relative or payload.get("type") != "file" or payload.get("encoding") != "base64": raise SystemExit("helper identity mismatch")
+              data = base64.b64decode("".join(payload["content"].split()), validate=True)
+              blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+              if payload.get("size") != len(data) or payload.get("sha") != blob: raise SystemExit("helper integrity mismatch")
+              decoded[relative] = data
+          staging = Path(tempfile.mkdtemp(prefix=".helper-", dir=target.parent))
+          for relative in expected:
+              path = staging / relative; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(decoded[relative])
+          os.replace(staging, target)
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -c 'import ops.release_control.mutation_workflow as m; assert m.IMAGE_REPOSITORY'
+
+      - name: Validate dispatch and authenticated evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          python3.11 -P <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+          inputs = {
+              "validation_run_id": int(os.environ["INPUT_VALIDATION_RUN_ID"]),
+              "promotion_run_id": int(os.environ["INPUT_PROMOTION_RUN_ID"]),
+              "candidate_sha": os.environ["INPUT_CANDIDATE_SHA"], "candidate_ref": os.environ["INPUT_CANDIDATE_REF"],
+              "evidence_sha256": os.environ["INPUT_EVIDENCE_SHA256"], "version": os.environ["INPUT_VERSION"],
+          }
+          current = {
+              "repository_id": int(os.environ["CURRENT_REPOSITORY_ID"]), "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]), "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "actor_login": os.environ["GITHUB_ACTOR"], "actor_id": int(os.environ["GITHUB_ACTOR_ID"]),
+              "triggering_actor": os.environ["GITHUB_TRIGGERING_ACTOR"], "event": os.environ["GITHUB_EVENT_NAME"],
+              "workflow_path": ".github/workflows/publish-image.yml", "workflow_sha": os.environ["CURRENT_WORKFLOW_SHA"],
+          }
+          Path("inputs.json").write_text(json.dumps(inputs)); Path("current.json").write_text(json.dumps(current))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow validate-dispatch --kind publication --inputs inputs.json --current current.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_VALIDATION_RUN_ID}" > validation-run.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_VALIDATION_RUN_ID}/artifacts?per_page=100&name=odin-trusted-validation-${INPUT_VALIDATION_RUN_ID}-1" > validation-artifacts.json
+          validation_artifact_id="$(PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.promotion_workflow select-observation --workflow-run validation-run.json --artifacts validation-artifacts.json --validation-run-id "$INPUT_VALIDATION_RUN_ID" --output validation-observation.json)"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${validation_artifact_id}/zip" > validation.zip
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.promotion_workflow verify-download --artifact-zip validation.zip --evidence-dir "$EVIDENCE_DIR" --expected-sha256 "$INPUT_EVIDENCE_SHA256"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_PROMOTION_RUN_ID}" > promotion-run.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_PROMOTION_RUN_ID}/artifacts?per_page=100&name=odin-promotion-eligibility-${INPUT_PROMOTION_RUN_ID}-1" > promotion-artifacts.json
+          promotion_artifact_id="$(PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow select-artifact --workflow-run promotion-run.json --artifacts promotion-artifacts.json --run-id "$INPUT_PROMOTION_RUN_ID" --workflow-path .github/workflows/promote.yml --artifact-name "odin-promotion-eligibility-${INPUT_PROMOTION_RUN_ID}-1" --output promotion-observation.json)"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${promotion_artifact_id}/zip" > promotion.zip
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow verify-promotion --artifact-zip promotion.zip --output-dir "$PROMOTION_DIR" --evidence-dir "$EVIDENCE_DIR" --action stage --candidate-sha "$INPUT_CANDIDATE_SHA" --evidence-sha256 "$INPUT_EVIDENCE_SHA256" --promotion-run-id "$INPUT_PROMOTION_RUN_ID"
+
+      - name: Check out exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate
+
+      - name: Verify candidate and version before registry login
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$INPUT_CANDIDATE_SHA"
+          test -z "$(git status --short)"
+          test "$(cat VERSION)" = "$INPUT_VERSION"
+          remote_sha="$(git ls-remote --heads origin "refs/heads/$INPUT_CANDIDATE_REF" | awk '{print $1}')"
+          test "$remote_sha" = "$INPUT_CANDIDATE_SHA"
+          if tag_sha="$(git rev-list -n 1 "$VERSION_TAG" 2>/dev/null)"; then test "$tag_sha" = "$INPUT_CANDIDATE_SHA"; fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Login with isolated registry configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build once to unique staging tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; export started_at
+          python3.11 -P <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+          state = {
+              "schema_version": 1, "kind": "publication", "status": "failed", "phase": "mutation_started",
+              "repository": os.environ["GITHUB_REPOSITORY"], "repository_id": int(os.environ["CURRENT_REPOSITORY_ID"]),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]), "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "workflow_sha": os.environ["CURRENT_WORKFLOW_SHA"], "actor_login": os.environ["GITHUB_ACTOR"],
+              "candidate_sha": os.environ["INPUT_CANDIDATE_SHA"], "candidate_ref": os.environ["INPUT_CANDIDATE_REF"],
+              "validation_run_id": int(os.environ["INPUT_VALIDATION_RUN_ID"]), "promotion_run_id": int(os.environ["INPUT_PROMOTION_RUN_ID"]),
+              "evidence_sha256": os.environ["INPUT_EVIDENCE_SHA256"], "version": os.environ["INPUT_VERSION"],
+              "image_repository": os.environ["IMAGE_REPOSITORY"], "staging_tag": os.environ["STAGING_TAG"],
+              "sha_tag": os.environ["SHA_TAG"], "version_tag": os.environ["VERSION_TAG"], "target_digest": None,
+              "platform_manifests": [], "tag_writes": [{"tag":os.environ["STAGING_TAG"],"before":None,"after":None,"status":"attempted"}],
+              "tool_versions":{"python":platform.python_version(),"docker":subprocess.check_output(["docker","version","--format","{{.Client.Version}}"],text=True).strip(),"buildx":subprocess.check_output(["docker","buildx","version"],text=True).strip()}, "started_at": os.environ["started_at"], "updated_at": os.environ["started_at"],
+              "error": {"code": "PUBLICATION_INCOMPLETE", "detail": "workflow stopped after registry mutation began"},
+              "cleanup": {"registry_logout": False, "auth_removed": False},
+          }
+          Path(os.environ["STATE_FILE"]).write_text(json.dumps(state))
+          PY
+          echo "MUTATION_STARTED=1" >> "$GITHUB_ENV"
+          record_failure() {
+            status=$?
+            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE" --error-code STAGING_BUILD_FAILED --error-detail "docker buildx exited $status" || true
+            exit "$status"
+          }
+          trap record_failure ERR
+          docker buildx build --push --platform linux/amd64,linux/arm64 --provenance=false \
+            --tag "$IMAGE_REPOSITORY:$STAGING_TAG" --metadata-file "$MUTATION_ROOT/build-metadata.json" "$GITHUB_WORKSPACE/candidate"
+          digest="$(python3.11 -c 'import json,sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "$MUTATION_ROOT/build-metadata.json")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "TARGET_DIGEST=$digest" >> "$GITHUB_ENV"
+          TARGET_DIGEST="$digest" python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+          state=json.load(open(os.environ["STATE_FILE"])); writes=state["tag_writes"]
+          writes[-1]={"tag":os.environ["STAGING_TAG"],"before":None,"after":os.environ["TARGET_DIGEST"],"status":"written"}
+          Path(os.environ["MUTATION_ROOT"]+"/values.json").write_text(json.dumps({"phase":"mutation_started","target_digest":os.environ["TARGET_DIGEST"],"tag_writes":writes}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values "$MUTATION_ROOT/values.json"
+
+      - name: Exercise exact amd64 and arm64 manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          record_failure() {
+            status=$?
+            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE" --error-code PLATFORM_PROBE_FAILED --error-detail "exact platform probe exited $status" || true
+            exit "$status"
+          }
+          trap record_failure ERR
+          manifest_json="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$TARGET_DIGEST" --format '{{json .Manifest}}')"
+          MANIFEST_JSON="$manifest_json" python3.11 -P <<'PY'
+          import json, os
+          payload=json.loads(os.environ["MANIFEST_JSON"])
+          rows={(item.get("platform",{}).get("os"),item.get("platform",{}).get("architecture")):item.get("digest") for item in payload.get("manifests",[])}
+          assert set(rows)=={("linux","amd64"),("linux","arm64")}
+          json.dump([{"os":os_,"architecture":arch,"digest":rows[(os_,arch)],"status":"passed"} for os_,arch in (("linux","amd64"),("linux","arm64"))],open(os.environ["MUTATION_ROOT"]+"/platforms.json","w"))
+          PY
+          for arch in amd64 arm64; do
+            name="odin-publication-${GITHUB_RUN_ID}-${arch}"
+            docker rm -f "$name" >/dev/null 2>&1 || true
+            docker run -d --platform "linux/$arch" --name "$name" -e ADMIN_USERNAME=releasecheck -e ADMIN_PASSWORD=releasecheck "$IMAGE_REPOSITORY@$TARGET_DIGEST" >/dev/null
+            healthy=0
+            for _ in $(seq 1 120); do
+              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name")"
+              if [ "$status" = healthy ]; then healthy=1; break; fi
+              if [ "$status" = exited ] || [ "$status" = unhealthy ]; then break; fi
+              sleep 2
+            done
+            test "$healthy" = 1
+            observed="$(docker exec "$name" python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen("http://127.0.0.1:8000/health"))["version"])')"
+            test "$observed" = "$INPUT_VERSION"
+            docker rm -f "$name" >/dev/null
+          done
+          python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+          Path(os.environ["MUTATION_ROOT"]+"/values.json").write_text(json.dumps({"phase":"mutation_started","target_digest":os.environ["TARGET_DIGEST"],"platform_manifests":json.load(open(os.environ["MUTATION_ROOT"]+"/platforms.json"))}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values "$MUTATION_ROOT/values.json"
+
+      - name: Remove exact-manifest probe containers
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          docker rm -f "odin-publication-${GITHUB_RUN_ID}-amd64" "odin-publication-${GITHUB_RUN_ID}-arm64" >/dev/null 2>&1
+          if [ -n "${TARGET_DIGEST:-}" ]; then docker image rm "$IMAGE_REPOSITORY@$TARGET_DIGEST" >/dev/null 2>&1 || true; fi
+          exit 0
+
+      - name: Attach collision-safe immutable tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+          attempted={"tag":os.environ["SHA_TAG"],"before":None,"after":os.environ["TARGET_DIGEST"],"status":"attempted"}
+          state=json.load(open("state.json")); Path("values.json").write_text(json.dumps({"phase":"mutation_started","tag_writes":state["tag_writes"]+[attempted]}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
+          set +e
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$SHA_TAG" --digest "$TARGET_DIGEST" > sha-write.json
+          attach_status=$?
+          set -e
+          if [ "$attach_status" != 0 ]; then
+            code="$(python3.11 -c 'import json; print(json.load(open("sha-write.json"))["code"])')"
+            detail="$(python3.11 -c 'import json; print(json.load(open("sha-write.json"))["detail"])')"
+            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE" --error-code "$code" --error-detail "$detail"
+            exit "$attach_status"
+          fi
+          python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+          state=json.load(open("state.json")); Path("values.json").write_text(json.dumps({"phase":"tag_written","tag_writes":state["tag_writes"][:-1]+[json.load(open("sha-write.json"))]}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
+
+      - name: Attach collision-safe version tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+          state=json.load(open("state.json")); attempted={"tag":os.environ["VERSION_TAG"],"before":None,"after":os.environ["TARGET_DIGEST"],"status":"attempted"}
+          Path("values.json").write_text(json.dumps({"phase":"tag_written","tag_writes":state["tag_writes"]+[attempted]}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
+          set +e
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$VERSION_TAG" --digest "$TARGET_DIGEST" > version-write.json
+          attach_status=$?
+          set -e
+          if [ "$attach_status" != 0 ]; then
+            code="$(python3.11 -c 'import json; print(json.load(open("version-write.json"))["code"])')"
+            detail="$(python3.11 -c 'import json; print(json.load(open("version-write.json"))["detail"])')"
+            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE" --error-code "$code" --error-detail "$detail"
+            exit "$attach_status"
+          fi
+          python3.11 -P <<'PY'
+          import json
+          from pathlib import Path
+          state=json.load(open("state.json")); writes=state["tag_writes"][:-1]+[json.load(open("version-write.json"))]
+          Path("values.json").write_text(json.dumps({"phase":"registry_verified","status":"success","tag_writes":writes,"error":None}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
+
+      - name: Capture truthful publication failure state
+        if: failure() && env.MUTATION_STARTED == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE"
+
+      - name: Logout and remove registry credentials
+        if: always()
+        shell: bash
+        run: |
+          if [ -z "${MUTATION_ROOT:-}" ]; then exit 0; fi
+          case "$MUTATION_ROOT" in "$RUNNER_TEMP"/odin-publication-*) ;; *) exit 2 ;; esac
+          set +e
+          docker logout ghcr.io >/dev/null 2>&1
+          logout_status=$?
+          rm -rf -- "$DOCKER_CONFIG"
+          test ! -e "$DOCKER_CONFIG"
+          auth_status=$?
+          set -e
+          python3.11 -P <<PY
+          import json
+          from pathlib import Path
+          Path("$MUTATION_ROOT/cleanup.json").write_text(json.dumps({"cleanup":{"registry_logout":${logout_status} == 0,"auth_removed":${auth_status} == 0}}))
+          PY
+          if [ -f "$STATE_FILE" ]; then
+            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values "$MUTATION_ROOT/cleanup.json"
+          fi
+
+      - name: Render publication receipt
+        if: always() && env.MUTATION_STARTED == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow render-receipt --state "$STATE_FILE" --output-dir "$RECEIPT_DIR"
+
+      - name: Upload publication receipt
+        if: always() && env.MUTATION_STARTED == '1'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: odin-image-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/odin-publication-${{ github.run_id }}-${{ github.run_attempt }}/receipt/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove isolated publication root
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${MUTATION_ROOT:-}" ]; then
+            case "$MUTATION_ROOT" in "$RUNNER_TEMP"/odin-publication-*) ;; *) exit 2 ;; esac
+            rm -rf -- "$MUTATION_ROOT"
+          fi
+          rm -rf -- "$GITHUB_WORKSPACE/candidate"

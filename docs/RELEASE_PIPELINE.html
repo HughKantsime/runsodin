@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ODIN Release Pipeline</title>
+  <style>
+    :root{color-scheme:light dark;font-family:system-ui,sans-serif}body{max-width:980px;margin:auto;padding:32px;line-height:1.55}code{overflow-wrap:anywhere}section{border:1px solid #80808055;border-radius:12px;padding:20px;margin:18px 0}.gate{font-weight:750}.warn{color:#c46b00}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #80808055}
+  </style>
+</head>
+<body>
+<main>
+  <h1>ODIN release pipeline</h1>
+  <p class="gate">Manual, evidence-bound, build-once, and rollback-preserving.</p>
+  <section>
+    <h2>1. Validate and authorize</h2>
+    <ol><li>Bump and commit the version.</li><li>Create the exact <code>release-candidate/&lt;SHA&gt;</code> ref.</li><li>Run Trusted Validation; all ten components must pass.</li><li>Run Promotion Eligibility for <code>stage</code>.</li></ol>
+  </section>
+  <section>
+    <h2>2. Publish immutable image</h2>
+    <p>The publication workflow builds once to a run-unique staging tag, starts and checks the exact amd64 and arm64 manifests by digest, then attaches <code>sha-&lt;SHA&gt;</code> and <code>vX.Y.Z</code>. Conflicting immutable tags fail closed. It never writes <code>latest</code>.</p>
+  </section>
+  <section>
+    <h2>3. Promote production</h2>
+    <p>A fresh production eligibility decision, protected-environment approval, valid public TLS, healthy current production, and the exact publication receipt are mandatory. The workflow preserves prior <code>latest</code> as <code>rollback-&lt;run&gt;-1</code>, then copies the already-tested OCI digest to <code>latest</code> without rebuilding.</p>
+  </section>
+  <section>
+    <h2>Rollback</h2>
+    <p>The production receipt is authoritative. Use its prior digest and registry-native restoration command to move <code>latest</code> back, verify the registry digest, and observe public health after Watchtower reconciles. Direct-host semver pinning is break-glass only.</p>
+  </section>
+  <table><thead><tr><th>Workflow</th><th>Mutation</th><th>Evidence</th></tr></thead><tbody><tr><td>Trusted Validation</td><td>None</td><td>10/10 manifest bundle</td></tr><tr><td>Promotion Eligibility</td><td>None</td><td>Authorization decision</td></tr><tr><td>Publish Immutable Image</td><td>Unique staging + immutable tags</td><td>Publication receipt</td></tr><tr><td>Promote Image to Production</td><td>Rollback tag + <code>latest</code></td><td>Production receipt</td></tr></tbody></table>
+  <p class="warn">Production currently cannot be promoted while public TLS is invalid; the workflow checks this before changing any tag.</p>
+</main>
+</body>
+</html>
