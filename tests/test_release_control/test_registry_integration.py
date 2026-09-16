@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -15,7 +16,13 @@ from ops.release_control import mutation_workflow as mutation
 
 
 def _run(*command: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, text=True, capture_output=True, check=check)
+    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    if check and result.returncode != 0:
+        raise AssertionError(
+            f"command failed ({result.returncode}): {' '.join(command)}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+    return result
 
 
 def _port() -> int:
@@ -25,9 +32,29 @@ def _port() -> int:
 
 
 @pytest.mark.integration
-def test_RG01_disposable_registry_preserves_digest_and_rollback(tmp_path: Path):
+def test_RG01_disposable_registry_preserves_digest_and_rollback(tmp_path: Path, monkeypatch):
     if not shutil.which("docker"):
         pytest.fail("docker is required for the release registry contract")
+    buildx = shutil.which("docker-buildx")
+    if not buildx:
+        pytest.fail("standalone docker-buildx is required for the release registry contract")
+
+    docker_host = os.environ.get("DOCKER_HOST")
+    if not docker_host:
+        docker_host = _run(
+            "docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}",
+        ).stdout.strip()
+    if not docker_host:
+        pytest.fail("active Docker context has no daemon endpoint")
+
+    docker_config = tmp_path / "docker-config"
+    plugin_dir = docker_config / "cli-plugins"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "docker-buildx").symlink_to(buildx)
+    monkeypatch.setenv("DOCKER_HOST", docker_host)
+    monkeypatch.setenv("DOCKER_CONFIG", str(docker_config))
+    _run("docker", "buildx", "version")
+
     suffix = uuid.uuid4().hex[:10]
     registry_name = f"odin-registry-contract-{suffix}"
     registry_volume = f"odin-registry-contract-volume-{suffix}"
