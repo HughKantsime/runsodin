@@ -24,6 +24,7 @@ const DARK_MAP = {
   // Brand
   '--brand-primary':             'brand.primary',
   '--brand-accent':              'brand.accent',
+  '--brand-on-primary':          'brand.onPrimary',
   // Sidebar
   '--brand-sidebar-bg':          'sidebar.dark.bg',
   '--brand-sidebar-border':      'sidebar.dark.border',
@@ -73,6 +74,7 @@ const MODE_MAP = {
   // Brand
   'brand.primary':       '--brand-primary',
   'brand.accent':        '--brand-accent',
+  'brand.onPrimary':     '--brand-on-primary',
   'brand.focusRing':     '--brand-focus-ring',
   'brand.selectionBg':   '--brand-selection-bg',
   'brand.selectionText': '--brand-selection-text',
