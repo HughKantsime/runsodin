@@ -14,7 +14,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$ODIN_VERSION = "1.9.12"
+$ODIN_VERSION = "1.9.13"
 $ODIN_IMAGE = if ($env:ODIN_IMAGE) { $env:ODIN_IMAGE } else { "ghcr.io/hughkantsime/odin:latest" }
 $ODIN_REPO = "https://raw.githubusercontent.com/HughKantsime/runsodin/master"
 $TestMode = $env:ODIN_INSTALL_TEST_MODE -eq '1'
