@@ -48,6 +48,9 @@ SECRET_ENV_KEYS = frozenset(
 ENV_MAX_BYTES = 65_536
 LOG_MAX_LINES = 700
 LOG_MAX_BYTES = 262_144
+EVIDENCE_INSPECT_MAX_BYTES = 512
+EVIDENCE_DOCKER_TIMEOUT = 30
+CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 HEALTH_MAX_PROBES = 5
 HEALTH_PROBE_MAX_BYTES = 4_096
 HEALTH_DOCUMENT_MAX_BYTES = 32_768
@@ -287,6 +290,64 @@ def _stream_docker_logs(container: str) -> str:
     return payload.decode("utf-8", errors="replace")
 
 
+def _validated_evidence_container_id(resources: Resources) -> str:
+    """Return an immutable ID only when the expected container is owned by this run."""
+    inspect_format = (
+        f'{{{{.Id}}}}\t{{{{index .Config.Labels "{LABEL}"}}}}\t'
+        f'{{{{index .Config.Labels "{LABEL}.kind"}}}}'
+    )
+    payload = _bounded_command_output(
+        [
+            "docker",
+            "container",
+            "inspect",
+            "--format",
+            inspect_format,
+            resources.container,
+        ],
+        maximum=EVIDENCE_INSPECT_MAX_BYTES,
+        timeout=EVIDENCE_DOCKER_TIMEOUT,
+        reject_overflow=True,
+    )
+    try:
+        lines = payload.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise InstallerSmokeError("Docker evidence ownership inspection is malformed") from exc
+    if len(lines) != 1:
+        raise InstallerSmokeError("Docker evidence ownership inspection is malformed")
+    fields = lines[0].split("\t")
+    if len(fields) != 3:
+        raise InstallerSmokeError("Docker evidence ownership inspection is malformed")
+    container_id, owner, kind = fields
+    if not CONTAINER_ID_RE.fullmatch(container_id):
+        raise InstallerSmokeError("Docker evidence container ID is malformed")
+    if owner != resources.run_id or kind != "container":
+        raise InstallerSmokeError("Docker evidence container ownership is not established")
+    return container_id
+
+
+def _stream_backend_log(container_id: str) -> str:
+    """Read a bounded backend tail from one already-validated immutable container ID."""
+    payload = _bounded_command_output(
+        [
+            "docker",
+            "exec",
+            container_id,
+            "tail",
+            "-n",
+            str(LOG_MAX_LINES),
+            "/data/backend.log",
+        ],
+        maximum=LOG_MAX_BYTES,
+        timeout=EVIDENCE_DOCKER_TIMEOUT,
+        reject_overflow=True,
+    )
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InstallerSmokeError("backend startup log is not valid UTF-8") from exc
+
+
 def _inspect_startup_state(container: str) -> dict[str, object]:
     payload = _bounded_command_output(
         ["docker", "inspect", "--format", "{{json .State}}", container],
@@ -429,6 +490,20 @@ def retain_startup_failure_evidence(
         retained.append(_write_private_evidence(run_root / "startup.log", log_bytes))
     except Exception as exc:
         errors.append(f"startup.log: {exc}")
+    try:
+        container_id = _validated_evidence_container_id(resources)
+        backend_text = "\n".join(
+            _stream_backend_log(container_id).splitlines()[-LOG_MAX_LINES:]
+        )
+        backend_bytes = _safe_evidence_bytes(
+            backend_text,
+            known_secrets=known_secrets,
+            relative_name="backend.log",
+            maximum=LOG_MAX_BYTES,
+        )
+        retained.append(_write_private_evidence(run_root / "backend.log", backend_bytes))
+    except Exception as exc:
+        errors.append(f"backend.log: {exc}")
     try:
         state = _inspect_startup_state(resources.container)
         status = state.get("Status", "")

@@ -179,6 +179,16 @@ def test_DI17_startup_failure_evidence_is_bounded_sanitized_and_hashed(
         for index in range(900)
     )
     monkeypatch.setattr(installer_smoke, "_stream_docker_logs", lambda *_: log_text)
+    immutable_id = "a" * 64
+    monkeypatch.setattr(
+        installer_smoke, "_validated_evidence_container_id", lambda *_: immutable_id
+    )
+    backend_text = "\n".join(
+        f"backend-{index} {secret} user@school.edu 10.20.30.40 lab.internal "
+        "Authorization: Bearer scanneronlytoken123456"
+        for index in range(700)
+    )
+    monkeypatch.setattr(installer_smoke, "_stream_backend_log", lambda *_: backend_text)
 
     retained, errors = installer_smoke.retain_startup_failure_evidence(
         run_root, install, resources
@@ -187,6 +197,7 @@ def test_DI17_startup_failure_evidence_is_bounded_sanitized_and_hashed(
     assert errors == []
     assert {item["filename"] for item in retained} == {
         "startup.log",
+        "backend.log",
         "startup-health.json",
     }
     for item in retained:
@@ -200,6 +211,10 @@ def test_DI17_startup_failure_evidence_is_bounded_sanitized_and_hashed(
         assert artifact.stat().st_mode & 0o777 == 0o600
     assert len((run_root / "startup.log").read_text().splitlines()) <= 700
     assert (run_root / "startup.log").stat().st_size <= 262_144
+    assert len((run_root / "backend.log").read_text().splitlines()) <= 700
+    assert (run_root / "backend.log").stat().st_size <= 262_144
+    assert b"lab.internal" not in (run_root / "backend.log").read_bytes()
+    assert b"scanneronlytoken123456" not in (run_root / "backend.log").read_bytes()
     health = json.loads((run_root / "startup-health.json").read_text())
     assert len(health["health_probes"]) == 5
     assert all(
@@ -227,6 +242,9 @@ def test_DI17_unsafe_env_omits_evidence_without_touching_cleanup_targets(
         return None
 
     monkeypatch.setattr(installer_smoke, "_inspect_startup_state", unexpected_inspect)
+    monkeypatch.setattr(
+        installer_smoke, "_validated_evidence_container_id", unexpected_inspect
+    )
     retained, errors = installer_smoke.retain_startup_failure_evidence(
         run_root, install, resources
     )
@@ -235,6 +253,211 @@ def test_DI17_unsafe_env_omits_evidence_without_touching_cleanup_targets(
     assert errors == ["installer env contains an invalid or duplicate key"]
     assert inspected is False
     assert not (run_root / "startup.log").exists()
+
+
+def test_BE03_owned_container_inspection_is_bounded_and_returns_immutable_id(
+    monkeypatch,
+):
+    resources = Resources.from_run_id("abc-123")
+    immutable_id = "b" * 64
+    observed = {}
+
+    def bounded(args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return f"{immutable_id}\t{resources.run_id}\tcontainer\n".encode()
+
+    monkeypatch.setattr(installer_smoke, "_bounded_command_output", bounded)
+
+    assert installer_smoke._validated_evidence_container_id(resources) == immutable_id
+    assert observed["args"][:4] == ["docker", "container", "inspect", "--format"]
+    assert observed["args"][-1] == resources.container
+    assert installer_smoke.LABEL in observed["args"][4]
+    assert observed["kwargs"] == {
+        "maximum": 512,
+        "timeout": 30,
+        "reject_overflow": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "payload, message",
+    [
+        (b"", "inspection is malformed"),
+        (b"not-an-id\tabc-123\tcontainer\n", "container ID is malformed"),
+        (("c" * 64 + "\twrong-run\tcontainer\n").encode(), "ownership is not established"),
+        (("c" * 64 + "\tabc-123\tvolume\n").encode(), "ownership is not established"),
+        (("c" * 64 + "\tabc-123\tcontainer\textra\n").encode(), "inspection is malformed"),
+        (b"\xff\xfe", "inspection is malformed"),
+    ],
+)
+def test_BE03_owned_container_inspection_rejects_malformed_or_foreign_output(
+    monkeypatch, payload, message
+):
+    resources = Resources.from_run_id("abc-123")
+    monkeypatch.setattr(
+        installer_smoke, "_bounded_command_output", lambda *_args, **_kwargs: payload
+    )
+
+    with pytest.raises(InstallerSmokeError, match=message):
+        installer_smoke._validated_evidence_container_id(resources)
+
+
+def test_BE01_backend_log_exec_uses_only_validated_immutable_id(monkeypatch):
+    immutable_id = "d" * 64
+    observed = {}
+
+    def bounded(args, **kwargs):
+        observed["args"] = args
+        observed["kwargs"] = kwargs
+        return b"backend traceback\n"
+
+    monkeypatch.setattr(installer_smoke, "_bounded_command_output", bounded)
+
+    assert installer_smoke._stream_backend_log(immutable_id) == "backend traceback\n"
+    assert observed["args"] == [
+        "docker",
+        "exec",
+        immutable_id,
+        "tail",
+        "-n",
+        "700",
+        "/data/backend.log",
+    ]
+    assert observed["kwargs"] == {
+        "maximum": 262_144,
+        "timeout": 30,
+        "reject_overflow": True,
+    }
+
+
+def test_BE03_retain_path_executes_original_id_after_container_name_rebind(
+    monkeypatch, tmp_path
+):
+    resources = Resources.from_run_id("abc-123")
+    original_id = "1" * 64
+    replacement_id = "2" * 64
+    run_root = tmp_path / "run"
+    install = run_root / "install"
+    install.mkdir(parents=True)
+    (install / ".env").write_text("ODIN_HTTP_PORT=1234\n", encoding="utf-8")
+    (install / ".env").chmod(0o600)
+    name_binding = {resources.container: original_id}
+    exec_commands = []
+
+    def bounded(args, **_kwargs):
+        if args[:2] == ["docker", "logs"]:
+            return b"docker startup log\n"
+        if args[:4] == ["docker", "container", "inspect", "--format"]:
+            inspected_id = name_binding[resources.container]
+            name_binding[resources.container] = replacement_id
+            return f"{inspected_id}\t{resources.run_id}\tcontainer\n".encode()
+        if args[:2] == ["docker", "exec"]:
+            exec_commands.append(args)
+            return b"original backend traceback\n"
+        raise AssertionError(args)
+
+    monkeypatch.setattr(installer_smoke, "_bounded_command_output", bounded)
+    monkeypatch.setattr(
+        installer_smoke,
+        "_inspect_startup_state",
+        lambda *_: {
+            "Status": "running",
+            "Running": True,
+            "Restarting": False,
+            "OOMKilled": False,
+            "ExitCode": 0,
+        },
+    )
+
+    retained, errors = installer_smoke.retain_startup_failure_evidence(
+        run_root, install, resources
+    )
+
+    assert errors == []
+    assert {item["filename"] for item in retained} == {
+        "startup.log",
+        "backend.log",
+        "startup-health.json",
+    }
+    assert name_binding[resources.container] == replacement_id
+    assert len(exec_commands) == 1
+    assert exec_commands[0][2] == original_id
+    assert resources.container not in exec_commands[0]
+    assert replacement_id not in exec_commands[0]
+
+
+def test_BE02_backend_log_rejects_malformed_utf8_before_sanitization(monkeypatch):
+    monkeypatch.setattr(
+        installer_smoke,
+        "_bounded_command_output",
+        lambda *_args, **_kwargs: b"installer-secret-value-123456\xff\xfftail",
+    )
+
+    with pytest.raises(InstallerSmokeError, match="not valid UTF-8"):
+        installer_smoke._stream_backend_log("e" * 64)
+
+
+def test_BE02_backend_log_overflow_rejects_secret_at_cutoff_before_retention():
+    secret = "installer-secret-value-123456"
+    command = [
+        sys.executable,
+        "-c",
+        (
+            "import sys; "
+            f"sys.stdout.write('x' * {installer_smoke.LOG_MAX_BYTES} + {secret!r})"
+        ),
+    ]
+
+    with pytest.raises(InstallerSmokeError, match="oversized"):
+        installer_smoke._bounded_command_output(
+            command,
+            maximum=installer_smoke.LOG_MAX_BYTES,
+            timeout=10,
+            reject_overflow=True,
+        )
+
+
+def test_BE03_backend_evidence_failure_preserves_existing_artifacts(
+    monkeypatch, tmp_path
+):
+    resources = Resources.from_run_id("abc-123")
+    run_root = tmp_path / "run"
+    install = run_root / "install"
+    install.mkdir(parents=True)
+    (install / ".env").write_text("ODIN_HTTP_PORT=1234\n", encoding="utf-8")
+    (install / ".env").chmod(0o600)
+    monkeypatch.setattr(installer_smoke, "_stream_docker_logs", lambda *_: "docker log")
+    monkeypatch.setattr(
+        installer_smoke,
+        "_inspect_startup_state",
+        lambda *_: {
+            "Status": "running",
+            "Running": True,
+            "Restarting": False,
+            "OOMKilled": False,
+            "ExitCode": 0,
+        },
+    )
+    monkeypatch.setattr(
+        installer_smoke, "_validated_evidence_container_id", lambda *_: "f" * 64
+    )
+    monkeypatch.setattr(
+        installer_smoke,
+        "_stream_backend_log",
+        lambda *_: (_ for _ in ()).throw(InstallerSmokeError("bounded Docker evidence response is oversized")),
+    )
+
+    retained, errors = installer_smoke.retain_startup_failure_evidence(
+        run_root, install, resources
+    )
+
+    assert {item["filename"] for item in retained} == {
+        "startup.log",
+        "startup-health.json",
+    }
+    assert errors == ["backend.log: bounded Docker evidence response is oversized"]
+    assert not (run_root / "backend.log").exists()
 
 
 def test_LA03_LA04_installer_emits_unique_test_environment(tmp_path):
