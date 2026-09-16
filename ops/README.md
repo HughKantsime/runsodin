@@ -122,6 +122,14 @@ and `stage` eligibility run. It builds once to a run-unique staging tag, exercis
 the amd64 and arm64 manifests by digest, then attaches `sha-<SHA>` and `vX.Y.Z`
 only when absent or already equal. It never writes `latest`.
 
+If a publication uploaded a schema-valid success receipt but GitHub marked the
+run failed during later action cleanup, the same workflow can recover without a
+rebuild. Supply the failed publication run ID and exact receipt SHA-256 together.
+The workflow verifies the failed run and receipt binding, confirms both immutable
+tags still resolve to the receipt digest, recreates only a run-unique staging
+alias, and reruns both exact-platform health probes. Either recovery input by
+itself, a non-failed run, or any digest/scope mismatch fails closed.
+
 `.github/workflows/promote-production.yml` requires a fresh `production`
 eligibility decision and exact successful publication receipt. It requires valid
 public TLS and healthy production before mutation, creates and verifies a unique

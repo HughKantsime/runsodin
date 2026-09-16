@@ -33,6 +33,9 @@
       `Publish Immutable Image` with the exact candidate/version/evidence inputs
 - [ ] Confirm its receipt reports both platform manifests passed and both
       immutable tags resolve to the same OCI index digest
+- [ ] If recovering a cleanup-only failed publication, provide both the failed
+      publication run ID and its exact successful-receipt SHA-256; confirm the
+      recovery path skips the build and re-probes both existing manifests
 - [ ] Renew/verify public TLS before production; promotion fails before mutation
       when TLS or current public health is invalid
 - [ ] For production, create a fresh `production` eligibility decision (one-hour

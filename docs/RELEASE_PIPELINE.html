@@ -19,6 +19,7 @@
   <section>
     <h2>2. Publish immutable image</h2>
     <p>The publication workflow builds once to a run-unique staging tag, starts and checks the exact amd64 and arm64 manifests by digest, then attaches <code>sha-&lt;SHA&gt;</code> and <code>vX.Y.Z</code>. Conflicting immutable tags fail closed. It never writes <code>latest</code>.</p>
+    <p>If GitHub reports failure only after a schema-valid success receipt was uploaded, paired recovery inputs can adopt that exact receipt digest without rebuilding. Recovery verifies the failed run, receipt hash and scope, both live immutable tags, and both exact platform manifests before producing a new receipt.</p>
   </section>
   <section>
     <h2>3. Promote production</h2>

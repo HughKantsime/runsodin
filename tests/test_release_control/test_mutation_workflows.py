@@ -79,6 +79,9 @@ def _run_payload(path: str, run_id: int, artifact_name: str) -> tuple[dict, dict
 
 def test_MW01_dispatch_validation_accepts_exact_publication_and_production():
     mutation.validate_dispatch(_inputs(), _current(), kind="publication")
+    recovery = _inputs()
+    recovery.update({"recovery_publication_run_id": 300, "recovery_receipt_sha256": "f" * 64})
+    mutation.validate_dispatch(recovery, _current(), kind="publication")
     mutation.validate_dispatch(_inputs("production"), _current("production"), kind="production")
 
 
@@ -117,6 +120,30 @@ def test_MW04_exact_artifact_observation_and_binding():
     _expect(
         "ARTIFACT_MISMATCH", mutation.select_artifact, run, artifacts, run_id=200,
         workflow_path=mutation.PROMOTION_WORKFLOW, artifact_name="odin-promotion-eligibility-200-1",
+    )
+
+
+def test_MW04b_recovery_inputs_and_failed_run_are_fail_closed():
+    inputs = _inputs(); inputs["recovery_publication_run_id"] = 300
+    _expect("RECOVERY_INPUT_MISMATCH", mutation.validate_dispatch, inputs, _current(), kind="publication")
+    inputs["recovery_receipt_sha256"] = "f" * 64
+    inputs["recovery_publication_run_id"] = 400
+    _expect("RECOVERY_RUN_INVALID", mutation.validate_dispatch, inputs, _current(), kind="publication")
+
+    run, artifacts = _run_payload(
+        mutation.PUBLICATION_WORKFLOW, 300, "odin-image-publication-300-1",
+    )
+    run["conclusion"] = "failure"
+    observed, artifact_id = mutation.select_artifact(
+        run, artifacts, run_id=300, workflow_path=mutation.PUBLICATION_WORKFLOW,
+        artifact_name="odin-image-publication-300-1", expected_conclusion="failure",
+    )
+    assert artifact_id == 123 and observed["conclusion"] == "failure"
+    run["conclusion"] = "success"
+    _expect(
+        "RUN_CONCLUSION_MISMATCH", mutation.select_artifact, run, artifacts, run_id=300,
+        workflow_path=mutation.PUBLICATION_WORKFLOW, artifact_name="odin-image-publication-300-1",
+        expected_conclusion="failure",
     )
 
 
@@ -288,6 +315,55 @@ def test_MW10_receipt_round_trip_and_tamper_detection(tmp_path):
     _expect(
         "RECEIPT_DIGEST_MISMATCH", mutation.verify_receipt_bundle, archive,
         tmp_path / "wrong", expected_kind="publication", expected_sha256="0" * 64,
+    )
+
+
+def test_MW10b_recovery_scope_and_live_registry_are_exact():
+    receipt = _publication_state()
+    receipt["run_id"] = 300
+    receipt["staging_tag"] = f"candidate-{SHA}-300-1"
+    receipt["tag_writes"][0]["tag"] = receipt["staging_tag"]
+
+    class RecoveryRegistry:
+        def __init__(self, tag_digest=DIGEST, platforms=None):
+            self.tag_digest = tag_digest
+            self.platforms = platforms or [("linux", "amd64"), ("linux", "arm64")]
+
+        def __call__(self, command, **_kwargs):
+            reference = command[4]
+            digest = self.tag_digest if ":" in reference.rsplit("/", 1)[-1] else DIGEST
+            payload = {"digest": digest}
+            if "@" in reference:
+                payload["manifests"] = [
+                    {"digest": "sha256:" + str(index) * 64, "platform": {"os": os_, "architecture": arch}}
+                    for index, (os_, arch) in enumerate(self.platforms, start=1)
+                ]
+            return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    result = mutation.verify_publication_recovery_registry(
+        receipt, _inputs(), prior_run_id=300, prior_workflow_sha="9" * 40,
+        runner=RecoveryRegistry(),
+    )
+    assert result == {"target_digest": DIGEST, "platforms": ["linux/amd64", "linux/arm64"]}
+
+    mismatched = _inputs(); mismatched["promotion_run_id"] = 201
+    _expect(
+        "RECOVERY_RECEIPT_MISMATCH", mutation.verify_publication_recovery_scope,
+        receipt, mismatched, prior_run_id=300, prior_workflow_sha="9" * 40,
+    )
+    _expect(
+        "RECOVERY_RECEIPT_MISMATCH", mutation.verify_publication_recovery_scope,
+        receipt, _inputs(), prior_run_id=300, prior_workflow_sha="8" * 40,
+    )
+    _expect(
+        "RECOVERY_TAG_MISMATCH", mutation.verify_publication_recovery_registry,
+        receipt, _inputs(), prior_run_id=300, prior_workflow_sha="9" * 40,
+        runner=RecoveryRegistry(tag_digest=OTHER_DIGEST),
+    )
+    _expect(
+        "RECOVERY_PLATFORM_MISMATCH", mutation.verify_publication_recovery_registry,
+        receipt, _inputs(), prior_run_id=300, prior_workflow_sha="9" * 40,
+        runner=RecoveryRegistry(platforms=[("linux", "amd64")]),
     )
 
 
@@ -550,3 +626,26 @@ def test_MW22_mutation_workflows_own_builder_cleanup_before_root_removal():
         assert 'docker buildx rm --force "$BUILDER_NAME"' in cleanup["run"]
         assert positions["Set up Docker Buildx"] < positions[cleanup_name]
         assert positions[cleanup_name] < positions[logout["name"]] < positions[remove_root["name"]]
+
+
+def test_MW23_publication_recovery_is_evidence_bound_and_never_rebuilds():
+    source, publication = _workflow("publish-image.yml")
+    dispatch_inputs = publication[True]["workflow_dispatch"]["inputs"]
+    assert dispatch_inputs["recovery_publication_run_id"]["required"] is False
+    assert dispatch_inputs["recovery_receipt_sha256"]["required"] is False
+
+    steps = {step["name"]: step for step in publication["jobs"]["publish"]["steps"]}
+    fetch = steps["Fetch and verify prior publication receipt for recovery"]
+    adopt = steps["Adopt verified immutable digest for recovery"]
+    build = steps["Build once to unique staging tag"]
+    assert fetch["if"] == "inputs.recovery_publication_run_id != ''"
+    assert adopt["if"] == "inputs.recovery_publication_run_id != ''"
+    assert build["if"] == "inputs.recovery_publication_run_id == ''"
+    assert "--expected-conclusion failure" in fetch["run"]
+    assert "RECOVERY_WORKFLOW_SHA" in fetch["run"]
+    assert "verify-receipt" in fetch["run"] and "verify_publication_recovery_scope" in fetch["run"]
+    assert "verify-publication-recovery" in adopt["run"] and "--prior-workflow-sha" in adopt["run"]
+    assert "docker buildx build" not in adopt["run"]
+    assert "attach-tag" in adopt["run"] and '"$STAGING_TAG"' in adopt["run"]
+    assert "docker buildx build" in build["run"]
+    assert "recovery_publication_run_id" in source and "recovery_receipt_sha256" in source

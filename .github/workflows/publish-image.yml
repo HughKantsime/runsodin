@@ -27,6 +27,16 @@ on:
         description: Strict release version X.Y.Z
         required: true
         type: string
+      recovery_publication_run_id:
+        description: Optional failed publication run containing a verified successful receipt
+        required: false
+        default: ""
+        type: string
+      recovery_receipt_sha256:
+        description: Required exact receipt SHA-256 when recovering a prior publication
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 
@@ -51,6 +61,8 @@ jobs:
       INPUT_CANDIDATE_REF: ${{ inputs.candidate_ref }}
       INPUT_EVIDENCE_SHA256: ${{ inputs.evidence_sha256 }}
       INPUT_VERSION: ${{ inputs.version }}
+      INPUT_RECOVERY_PUBLICATION_RUN_ID: ${{ inputs.recovery_publication_run_id }}
+      INPUT_RECOVERY_RECEIPT_SHA256: ${{ inputs.recovery_receipt_sha256 }}
       CURRENT_REPOSITORY_ID: ${{ github.repository_id }}
       CURRENT_WORKFLOW_SHA: ${{ github.workflow_sha }}
       MUTATION_STARTED: "0"
@@ -70,6 +82,11 @@ jobs:
           test "$INPUT_CANDIDATE_REF" = "release-candidate/$INPUT_CANDIDATE_SHA"
           [[ "$INPUT_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [ -n "$INPUT_RECOVERY_PUBLICATION_RUN_ID" ] || [ -n "$INPUT_RECOVERY_RECEIPT_SHA256" ]; then
+            [[ "$INPUT_RECOVERY_PUBLICATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+            [[ "$INPUT_RECOVERY_RECEIPT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+            test "$INPUT_RECOVERY_PUBLICATION_RUN_ID" != "$GITHUB_RUN_ID"
+          fi
           test -x /Users/ollama/homebrew/bin/python3.11
           test -x /opt/homebrew/bin/gh
           test -x /Users/ollama/homebrew/bin/docker || test -x /usr/local/bin/docker || test -x /opt/homebrew/bin/docker || command -v docker >/dev/null
@@ -91,6 +108,7 @@ jobs:
             echo "HELPER_ROOT=$root/helper"
             echo "EVIDENCE_DIR=$root/evidence"
             echo "PROMOTION_DIR=$root/promotion"
+            echo "RECOVERY_DIR=$root/recovery"
             echo "STATE_FILE=$root/state.json"
             echo "RECEIPT_DIR=$root/receipt"
             echo "DOCKER_CONFIG=$root/auth"
@@ -181,6 +199,8 @@ jobs:
               "promotion_run_id": int(os.environ["INPUT_PROMOTION_RUN_ID"]),
               "candidate_sha": os.environ["INPUT_CANDIDATE_SHA"], "candidate_ref": os.environ["INPUT_CANDIDATE_REF"],
               "evidence_sha256": os.environ["INPUT_EVIDENCE_SHA256"], "version": os.environ["INPUT_VERSION"],
+              "recovery_publication_run_id": int(os.environ["INPUT_RECOVERY_PUBLICATION_RUN_ID"]) if os.environ["INPUT_RECOVERY_PUBLICATION_RUN_ID"] else None,
+              "recovery_receipt_sha256": os.environ["INPUT_RECOVERY_RECEIPT_SHA256"] or None,
           }
           current = {
               "repository_id": int(os.environ["CURRENT_REPOSITORY_ID"]), "repository": os.environ["GITHUB_REPOSITORY"],
@@ -223,6 +243,23 @@ jobs:
           test "$remote_sha" = "$INPUT_CANDIDATE_SHA"
           if tag_sha="$(git rev-list -n 1 "$VERSION_TAG" 2>/dev/null)"; then test "$tag_sha" = "$INPUT_CANDIDATE_SHA"; fi
 
+      - name: Fetch and verify prior publication receipt for recovery
+        if: inputs.recovery_publication_run_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RECOVERY_PUBLICATION_RUN_ID}" > recovery-run.json
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RECOVERY_PUBLICATION_RUN_ID}/artifacts?per_page=100&name=odin-image-publication-${INPUT_RECOVERY_PUBLICATION_RUN_ID}-1" > recovery-artifacts.json
+          recovery_artifact_id="$(PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow select-artifact --workflow-run recovery-run.json --artifacts recovery-artifacts.json --run-id "$INPUT_RECOVERY_PUBLICATION_RUN_ID" --workflow-path .github/workflows/publish-image.yml --artifact-name "odin-image-publication-${INPUT_RECOVERY_PUBLICATION_RUN_ID}-1" --expected-conclusion failure --output recovery-observation.json)"
+          recovery_workflow_sha="$(python3.11 -c 'import json; print(json.load(open("recovery-observation.json"))["head_sha"])')"
+          [[ "$recovery_workflow_sha" =~ ^[0-9a-f]{40}$ ]]
+          export RECOVERY_WORKFLOW_SHA="$recovery_workflow_sha"
+          echo "RECOVERY_WORKFLOW_SHA=$recovery_workflow_sha" >> "$GITHUB_ENV"
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${recovery_artifact_id}/zip" > recovery.zip
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow verify-receipt --artifact-zip recovery.zip --output-dir "$RECOVERY_DIR" --kind publication --sha256 "$INPUT_RECOVERY_RECEIPT_SHA256"
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -c 'import json,os; from ops.release_control.mutation_workflow import verify_publication_recovery_scope; receipt=json.load(open(os.environ["RECOVERY_DIR"]+"/receipt.json")); inputs=json.load(open("inputs.json")); verify_publication_recovery_scope(receipt,inputs,prior_run_id=int(os.environ["INPUT_RECOVERY_PUBLICATION_RUN_ID"]),prior_workflow_sha=os.environ["RECOVERY_WORKFLOW_SHA"])'
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
 
@@ -239,7 +276,57 @@ jobs:
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
+      - name: Adopt verified immutable digest for recovery
+        if: inputs.recovery_publication_run_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$MUTATION_ROOT"
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow verify-publication-recovery --receipt "$RECOVERY_DIR/receipt.json" --inputs inputs.json --prior-run-id "$INPUT_RECOVERY_PUBLICATION_RUN_ID" --prior-workflow-sha "$RECOVERY_WORKFLOW_SHA" > recovery-registry.json
+          digest="$(python3.11 -c 'import json; print(json.load(open("recovery-registry.json"))["target_digest"])')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; export started_at TARGET_DIGEST="$digest"
+          python3.11 -P <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+          state = {
+              "schema_version": 1, "kind": "publication", "status": "failed", "phase": "mutation_started",
+              "repository": os.environ["GITHUB_REPOSITORY"], "repository_id": int(os.environ["CURRENT_REPOSITORY_ID"]),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]), "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "workflow_sha": os.environ["CURRENT_WORKFLOW_SHA"], "actor_login": os.environ["GITHUB_ACTOR"],
+              "candidate_sha": os.environ["INPUT_CANDIDATE_SHA"], "candidate_ref": os.environ["INPUT_CANDIDATE_REF"],
+              "validation_run_id": int(os.environ["INPUT_VALIDATION_RUN_ID"]), "promotion_run_id": int(os.environ["INPUT_PROMOTION_RUN_ID"]),
+              "evidence_sha256": os.environ["INPUT_EVIDENCE_SHA256"], "version": os.environ["INPUT_VERSION"],
+              "image_repository": os.environ["IMAGE_REPOSITORY"], "staging_tag": os.environ["STAGING_TAG"],
+              "sha_tag": os.environ["SHA_TAG"], "version_tag": os.environ["VERSION_TAG"], "target_digest": os.environ["TARGET_DIGEST"],
+              "platform_manifests": [], "tag_writes": [{"tag":os.environ["STAGING_TAG"],"before":None,"after":os.environ["TARGET_DIGEST"],"status":"attempted"}],
+              "tool_versions":{"python":platform.python_version(),"docker":subprocess.check_output(["docker","version","--format","{{.Client.Version}}"],text=True).strip(),"buildx":subprocess.check_output(["docker","buildx","version"],text=True).strip()}, "started_at": os.environ["started_at"], "updated_at": os.environ["started_at"],
+              "error": {"code": "PUBLICATION_INCOMPLETE", "detail": "workflow stopped after registry mutation began"},
+              "cleanup": {"registry_logout": False, "auth_removed": False},
+          }
+          Path(os.environ["STATE_FILE"]).write_text(json.dumps(state))
+          PY
+          echo "TARGET_DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "MUTATION_STARTED=1" >> "$GITHUB_ENV"
+          set +e
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$STAGING_TAG" --digest "$digest" > staging-write.json
+          attach_status=$?
+          set -e
+          if [ "$attach_status" != 0 ]; then
+            code="$(python3.11 -c 'import json; print(json.load(open("staging-write.json"))["code"])')"
+            detail="$(python3.11 -c 'import json; print(json.load(open("staging-write.json"))["detail"])')"
+            PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow capture-failure --state "$STATE_FILE" --error-code "$code" --error-detail "$detail"
+            exit "$attach_status"
+          fi
+          python3.11 -P <<'PY'
+          import json, os
+          from pathlib import Path
+          Path("values.json").write_text(json.dumps({"phase":"mutation_started","target_digest":os.environ["TARGET_DIGEST"],"tag_writes":[json.load(open("staging-write.json"))]}))
+          PY
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
+
       - name: Build once to unique staging tag
+        if: inputs.recovery_publication_run_id == ''
         shell: bash
         run: |
           set -euo pipefail

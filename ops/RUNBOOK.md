@@ -93,6 +93,10 @@ Current GitHub Actions surface:
 3. **Promotion Eligibility** — read-only exact evidence/authorization decision.
 4. **Publish Immutable Image** — builds once to a unique staging tag, tests exact
    amd64/arm64 manifests, then attaches `sha-<SHA>` and `vX.Y.Z`; never `latest`.
+   A cleanup-only failed run with an already-uploaded successful receipt may be
+   recovered by providing that failed run ID and exact receipt SHA-256 together.
+   Recovery re-verifies both live immutable tags and exact manifests and does not
+   rebuild; it is not a bypass for build, probe, tag, or receipt failures.
 5. **Promote Image to Production** — requires fresh production eligibility,
    valid TLS, healthy current production, and an exact publication receipt;
    creates a durable rollback tag and moves `latest` without rebuilding.

@@ -227,6 +227,35 @@ def test_RG01_disposable_registry_preserves_digest_and_rollback(tmp_path: Path, 
         with pytest.raises(mutation.MutationError, match="TAG_CONFLICT"):
             mutation.attach_tag(repository=repository, target_tag="v1.9.13", source_digest=prior_digest)
 
+        recovery_staging = f"candidate-{sha}-998-1"
+        recovery_write = mutation.attach_tag(
+            repository=repository, target_tag=recovery_staging, source_digest=target_digest,
+        )
+        assert recovery_write["status"] == "written"
+        recovery_receipt = publication_failure_state([])
+        recovery_receipt.update({
+            "status": "success", "phase": "registry_verified", "run_id": 300,
+            "staging_tag": f"candidate-{sha}-300-1", "error": None,
+            "platform_manifests": [
+                {"os": os_, "architecture": arch, "digest": digest, "status": "passed"}
+                for (os_, arch), digest in sorted(platforms.items())
+            ],
+            "tag_writes": [
+                {"tag": f"candidate-{sha}-300-1", "before": None, "after": target_digest, "status": "written"},
+                {"tag": sha_tag, "before": None, "after": target_digest, "status": "written"},
+                {"tag": "v1.9.13", "before": None, "after": target_digest, "status": "written"},
+            ],
+        })
+        recovery_inputs = {
+            "candidate_sha": sha, "candidate_ref": f"release-candidate/{sha}",
+            "validation_run_id": 100, "promotion_run_id": 200,
+            "evidence_sha256": "e" * 64, "version": "1.9.13",
+        }
+        assert mutation.verify_publication_recovery_registry(
+            recovery_receipt, recovery_inputs, prior_run_id=300,
+            prior_workflow_sha="9" * 40, runner=local_registry_runner,
+        )["target_digest"] == target_digest
+
         rollback_write = mutation.attach_tag(
             repository=repository, target_tag="rollback-999-1", source_digest=prior_digest,
         )
@@ -255,7 +284,7 @@ def test_RG01_disposable_registry_preserves_digest_and_rollback(tmp_path: Path, 
             _run("docker", "rm", "-f", "-v", name, check=False)
         if "target_digest" in locals():
             _run("docker", "image", "rm", f"{repository}@{target_digest}", check=False)
-        for tag in ("staging", "latest", "sha-" + "a" * 40, "v1.9.13", "rollback-999-1"):
+        for tag in ("staging", "latest", "sha-" + "a" * 40, "v1.9.13", "rollback-999-1", f"candidate-{'a' * 40}-998-1"):
             _run("docker", "image", "rm", f"{repository}:{tag}", check=False)
         _run("docker", "buildx", "rm", "-f", builder_name, check=False)
         _run("docker", "volume", "rm", "-f", registry_volume, check=False)

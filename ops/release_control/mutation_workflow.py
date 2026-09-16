@@ -173,6 +173,17 @@ def validate_dispatch(inputs: dict[str, Any], current: dict[str, Any], *, kind: 
         value = inputs.get(key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             _fail("INPUT_INVALID", key)
+    if kind == "publication":
+        recovery_run_id = inputs.get("recovery_publication_run_id")
+        recovery_digest = inputs.get("recovery_receipt_sha256")
+        if (recovery_run_id is None) != (recovery_digest is None):
+            _fail("RECOVERY_INPUT_MISMATCH", "recovery run and receipt digest must be paired")
+        if recovery_run_id is not None:
+            if not isinstance(recovery_run_id, int) or isinstance(recovery_run_id, bool) \
+                    or recovery_run_id < 1 or recovery_run_id == current["run_id"]:
+                _fail("RECOVERY_RUN_INVALID", "prior publication run required")
+            if not isinstance(recovery_digest, str) or not HEX_DIGEST_RE.fullmatch(recovery_digest):
+                _fail("RECEIPT_DIGEST_MISMATCH", "invalid recovery receipt digest")
     if kind == "production":
         for key in ("publication_run_id",):
             value = inputs.get(key)
@@ -187,12 +198,15 @@ def validate_dispatch(inputs: dict[str, Any], current: dict[str, Any], *, kind: 
 
 def select_artifact(
     workflow_run: dict[str, Any], artifact_payload: dict[str, Any], *, run_id: int,
-    workflow_path: str, artifact_name: str,
+    workflow_path: str, artifact_name: str, expected_conclusion: str = "success",
 ) -> tuple[dict[str, Any], int]:
     if workflow_run.get("id") != run_id or workflow_run.get("run_attempt") != 1:
         _fail("RUN_IDENTITY_REJECTED", "run ID/attempt mismatch")
-    if workflow_run.get("event") != "workflow_dispatch" or workflow_run.get("conclusion") != "success":
-        _fail("RUN_NOT_SUCCESSFUL", "manual successful run required")
+    if expected_conclusion not in {"success", "failure"}:
+        _fail("INPUT_INVALID", "unsupported expected conclusion")
+    if workflow_run.get("event") != "workflow_dispatch" \
+            or workflow_run.get("conclusion") != expected_conclusion:
+        _fail("RUN_CONCLUSION_MISMATCH", f"manual {expected_conclusion} run required")
     if workflow_run.get("path") != workflow_path or workflow_run.get("head_branch") != "main":
         _fail("WORKFLOW_IDENTITY_MISMATCH", "workflow path/branch mismatch")
     if not isinstance(workflow_run.get("head_sha"), str) or not SHA_RE.fullmatch(workflow_run["head_sha"]):
@@ -302,6 +316,58 @@ def verify_receipt_bundle(
     return payload
 
 
+def verify_publication_recovery_scope(
+    receipt: dict[str, Any], inputs: dict[str, Any], *, prior_run_id: int,
+    prior_workflow_sha: str,
+) -> str:
+    validate_receipt(receipt)
+    if receipt.get("kind") != "publication" or receipt.get("status") != "success" \
+            or receipt.get("run_id") != prior_run_id \
+            or receipt.get("workflow_sha") != prior_workflow_sha:
+        _fail("RECOVERY_RECEIPT_MISMATCH", "successful prior publication receipt required")
+    expected = {
+        "candidate_sha": inputs.get("candidate_sha"),
+        "candidate_ref": inputs.get("candidate_ref"),
+        "validation_run_id": inputs.get("validation_run_id"),
+        "promotion_run_id": inputs.get("promotion_run_id"),
+        "evidence_sha256": inputs.get("evidence_sha256"),
+        "version": inputs.get("version"),
+        "image_repository": IMAGE_REPOSITORY,
+        "sha_tag": f"sha-{inputs.get('candidate_sha')}",
+        "version_tag": f"v{inputs.get('version')}",
+    }
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        _fail("RECOVERY_RECEIPT_MISMATCH", "receipt scope differs from current dispatch")
+    target = receipt.get("target_digest")
+    if not isinstance(target, str) or not DIGEST_RE.fullmatch(target):
+        _fail("IMAGE_DIGEST_INVALID", "recovery receipt has no valid target digest")
+    return target
+
+
+def verify_publication_recovery_registry(
+    receipt: dict[str, Any], inputs: dict[str, Any], *, prior_run_id: int,
+    prior_workflow_sha: str, runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    target = verify_publication_recovery_scope(
+        receipt, inputs, prior_run_id=prior_run_id, prior_workflow_sha=prior_workflow_sha,
+    )
+    repository = receipt["image_repository"]
+    for tag in (receipt["sha_tag"], receipt["version_tag"]):
+        manifest = inspect_manifest(f"{repository}:{tag}", runner=runner)
+        if manifest is None or manifest["digest"] != target:
+            _fail("RECOVERY_TAG_MISMATCH", f"{tag} no longer resolves to receipt digest")
+    index = inspect_manifest(f"{repository}@{target}", runner=runner)
+    if index is None:
+        _fail("RECOVERY_TAG_MISMATCH", "receipt digest is not reachable")
+    platforms = {
+        (item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture"))
+        for item in index.get("manifests", []) if isinstance(item, dict)
+    }
+    if platforms != {("linux", "amd64"), ("linux", "arm64")}:
+        _fail("RECOVERY_PLATFORM_MISMATCH", "exact amd64/arm64 index required")
+    return {"target_digest": target, "platforms": sorted(f"{os_}/{arch}" for os_, arch in platforms)}
+
+
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
@@ -338,7 +404,10 @@ def attach_tag(
 ) -> dict[str, Any]:
     if repository != IMAGE_REPOSITORY and not repository.startswith(("localhost:", "127.0.0.1:")):
         _fail("REGISTRY_SCOPE_REJECTED", repository)
-    if not re.fullmatch(r"(?:sha-[0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+|rollback-[1-9][0-9]*-1|latest)", target_tag):
+    if not re.fullmatch(
+        r"(?:candidate-[0-9a-f]{40}-[1-9][0-9]*-1|sha-[0-9a-f]{40}|"
+        r"v[0-9]+\.[0-9]+\.[0-9]+|rollback-[1-9][0-9]*-1|latest)", target_tag,
+    ):
         _fail("TAG_INVALID", target_tag)
     if not DIGEST_RE.fullmatch(source_digest):
         _fail("IMAGE_DIGEST_INVALID", source_digest)
@@ -504,6 +573,7 @@ def _command() -> int:
     select.add_argument("--run-id", type=int, required=True)
     select.add_argument("--workflow-path", required=True)
     select.add_argument("--artifact-name", required=True)
+    select.add_argument("--expected-conclusion", choices=("success", "failure"), default="success")
     select.add_argument("--output", type=Path, required=True)
     verify = commands.add_parser("verify-promotion")
     verify.add_argument("--artifact-zip", type=Path, required=True)
@@ -518,6 +588,11 @@ def _command() -> int:
     receipt.add_argument("--output-dir", type=Path, required=True)
     receipt.add_argument("--kind", choices=("publication", "production"), required=True)
     receipt.add_argument("--sha256", required=True)
+    recovery = commands.add_parser("verify-publication-recovery")
+    recovery.add_argument("--receipt", type=Path, required=True)
+    recovery.add_argument("--inputs", type=Path, required=True)
+    recovery.add_argument("--prior-run-id", type=int, required=True)
+    recovery.add_argument("--prior-workflow-sha", required=True)
     attach = commands.add_parser("attach-tag")
     attach.add_argument("--repository", required=True)
     attach.add_argument("--tag", required=True)
@@ -551,6 +626,7 @@ def _command() -> int:
         observation, artifact_id = select_artifact(
             _read_json(args.workflow_run), _read_json(args.artifacts), run_id=args.run_id,
             workflow_path=args.workflow_path, artifact_name=args.artifact_name,
+            expected_conclusion=args.expected_conclusion,
         )
         _atomic_json(args.output, observation); print(artifact_id)
     elif args.command == "verify-promotion":
@@ -562,6 +638,11 @@ def _command() -> int:
     elif args.command == "verify-receipt":
         print(json.dumps(verify_receipt_bundle(
             args.artifact_zip, args.output_dir, expected_kind=args.kind, expected_sha256=args.sha256,
+        ), sort_keys=True))
+    elif args.command == "verify-publication-recovery":
+        print(json.dumps(verify_publication_recovery_registry(
+            _read_json(args.receipt), _read_json(args.inputs), prior_run_id=args.prior_run_id,
+            prior_workflow_sha=args.prior_workflow_sha,
         ), sort_keys=True))
     elif args.command == "attach-tag":
         print(json.dumps(attach_tag(repository=args.repository, target_tag=args.tag, source_digest=args.digest), sort_keys=True))
