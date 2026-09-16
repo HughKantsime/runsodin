@@ -512,3 +512,19 @@ def test_MW20_publication_bootstrap_finds_runner_docker_before_path_export():
     assert docker_check in bootstrap
     assert path_export in bootstrap
     assert bootstrap.index(docker_check) < bootstrap.index(path_export)
+
+
+def test_MW21_mutation_bootstraps_preserve_daemon_with_isolated_credentials():
+    for name in ("publish-image.yml", "promote-production.yml"):
+        _, workflow = _workflow(name)
+        bootstrap = next(iter(workflow["jobs"].values()))["steps"][0]["run"]
+        resolve = "context inspect --format '{{ .Endpoints.docker.Host }}'"
+        verify = 'DOCKER_HOST="$docker_host" "$docker_bin" version >/dev/null'
+        export_host = 'echo "DOCKER_HOST=$docker_host"'
+        isolate_auth = 'echo "DOCKER_CONFIG=$root/auth"'
+        assert resolve in bootstrap
+        assert verify in bootstrap
+        assert export_host in bootstrap
+        assert isolate_auth in bootstrap
+        assert bootstrap.index(resolve) < bootstrap.index(isolate_auth)
+        assert bootstrap.index(export_host) > bootstrap.index(isolate_auth)

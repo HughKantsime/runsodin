@@ -92,6 +92,14 @@ jobs:
           [[ "$INPUT_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           test -x /Users/ollama/homebrew/bin/python3.11
           test -x /opt/homebrew/bin/gh
+          if [ -x /Users/ollama/homebrew/bin/docker ]; then docker_bin=/Users/ollama/homebrew/bin/docker
+          elif [ -x /usr/local/bin/docker ]; then docker_bin=/usr/local/bin/docker
+          elif [ -x /opt/homebrew/bin/docker ]; then docker_bin=/opt/homebrew/bin/docker
+          else docker_bin="$(command -v docker)"
+          fi
+          docker_host="$("$docker_bin" context inspect --format '{{ .Endpoints.docker.Host }}')"
+          [[ "$docker_host" =~ ^unix:///[^[:space:]]+\.sock$ ]]
+          DOCKER_HOST="$docker_host" "$docker_bin" version >/dev/null
           printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
           root="$RUNNER_TEMP/odin-production-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           test ! -e "$root"
@@ -105,6 +113,7 @@ jobs:
             echo "STATE_FILE=$root/state.json"
             echo "RECEIPT_DIR=$root/receipt"
             echo "DOCKER_CONFIG=$root/auth"
+            echo "DOCKER_HOST=$docker_host"
             echo "SHA_TAG=sha-${INPUT_CANDIDATE_SHA}"
             echo "VERSION_TAG=v${INPUT_VERSION}"
             echo "ROLLBACK_TAG=rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
