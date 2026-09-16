@@ -72,7 +72,7 @@ jobs:
           [[ "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           test -x /Users/ollama/homebrew/bin/python3.11
           test -x /opt/homebrew/bin/gh
-          test -x /usr/local/bin/docker || test -x /opt/homebrew/bin/docker || command -v docker >/dev/null
+          test -x /Users/ollama/homebrew/bin/docker || test -x /usr/local/bin/docker || test -x /opt/homebrew/bin/docker || command -v docker >/dev/null
           printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
           root="$RUNNER_TEMP/odin-publication-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           test ! -e "$root"

@@ -501,3 +501,14 @@ def test_MW19_failure_receipts_and_fresh_authorization_are_wired():
         assert forbidden not in production_failure["run"]
     assert production_failure["if"] == "failure() && env.MUTATION_STARTED == '1'"
     assert "PRODUCTION_OBSERVATION_FAILED" in production_steps["Observe production version over verified TLS"]["run"]
+
+
+def test_MW20_publication_bootstrap_finds_runner_docker_before_path_export():
+    _, publication = _workflow("publish-image.yml")
+    steps = {step["name"]: step for step in publication["jobs"]["publish"]["steps"]}
+    bootstrap = steps["Establish isolated publication root"]["run"]
+    docker_check = "test -x /Users/ollama/homebrew/bin/docker"
+    path_export = "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\""
+    assert docker_check in bootstrap
+    assert path_export in bootstrap
+    assert bootstrap.index(docker_check) < bootstrap.index(path_export)
