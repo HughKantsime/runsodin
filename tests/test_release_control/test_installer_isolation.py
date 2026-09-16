@@ -1,5 +1,6 @@
 import subprocess
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -234,6 +235,63 @@ def test_DI17_unsafe_env_omits_evidence_without_touching_cleanup_targets(
     assert errors == ["installer env contains an invalid or duplicate key"]
     assert inspected is False
     assert not (run_root / "startup.log").exists()
+
+
+def test_LA03_LA04_installer_emits_unique_test_environment(tmp_path):
+    source = (ROOT / "install/install.sh").read_text()
+    phase = source[
+        source.index("# ── Phase 5: Generate environment") :
+        source.index("# ── Phase 6: Pull image")
+    ]
+    install = tmp_path / "install"
+    install.mkdir()
+    values = {
+        "TOTAL": "10",
+        "INSTALL_DIR": str(install),
+        "HOST_IP": "127.0.0.1",
+        "TIMEZONE": "UTC",
+        "ODIN_IMAGE": "odin:test",
+        "ODIN_COMPOSE_PROJECT": "odin-test-school",
+        "ODIN_CONTAINER_NAME": "odin-test-container",
+        "ODIN_HTTP_PORT": "18000",
+        "ODIN_GO2RTC_PORT": "11984",
+        "ODIN_WEBRTC_PORT": "18555",
+        "ODIN_INSTALL_TEST_MODE": "1",
+        "ODIN_TEST_RUN_ID": "school-run",
+        "ODIN_TEST_CONTAINER_NAME": "odin-test-container",
+        "ODIN_TEST_NETWORK_NAME": "odin-test-network",
+        "ODIN_TEST_VOLUME_NAME": "odin-test-volume",
+        "ODIN_TEST_DATA_PATH": str(tmp_path / "data"),
+        "ODIN_TEST_HTTP_PORT": "18000",
+        "ODIN_TEST_GO2RTC_PORT": "11984",
+        "ODIN_TEST_WEBRTC_PORT": "18555",
+    }
+    environment = os.environ.copy()
+    environment.update(values)
+    completed = subprocess.run(
+        ["bash"],
+        input="set -euo pipefail\nphase() { :; }\nok() { :; }\n" + phase,
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    emitted_lines = [
+        line
+        for line in (install / ".env").read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    emitted_keys = [line.split("=", 1)[0] for line in emitted_lines]
+    assert len(emitted_keys) == len(set(emitted_keys))
+    emitted = dict(line.split("=", 1) for line in emitted_lines)
+    for key, value in values.items():
+        if key.startswith("ODIN_TEST_") or key in {
+            "ODIN_INSTALL_TEST_MODE",
+            "ODIN_COMPOSE_PROJECT",
+        }:
+            assert emitted[key] == value
 
 
 def test_DI17_command_capture_bounds_one_pathological_line_before_retention():

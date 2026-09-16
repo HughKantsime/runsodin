@@ -9,11 +9,12 @@ import os
 import re
 import secrets as random_secrets
 import socket
+import stat
 import sys
 import tempfile
 import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time as datetime_time, timezone
 from http.client import HTTPConnection
 from pathlib import Path
@@ -29,11 +30,9 @@ from ops.release_control.validation_image_cleanup import (
     acquire_image_lifecycle_lock,
     cleanup_owned_image_history,
     inspect_image_id,
-    read_iidfile,
     release_image_lifecycle_lock,
     remove_owned_image,
     verify_owned_image_history_absent,
-    verify_built_image,
 )
 
 from .errors import OwnershipError, SandboxError, SecretInputError, StateError, ValidationError
@@ -426,6 +425,143 @@ def _private_file_metadata(path: Path, *, maximum: int) -> os.stat_result:
     return metadata
 
 
+def _normalize_and_read_docker_iid(path: Path) -> str:
+    """Normalize Docker's caller-owned IID file and read it from one safe fd."""
+    def stable_metadata(value: os.stat_result) -> tuple[int, ...]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            stat.S_IFMT(value.st_mode),
+            value.st_uid,
+            value.st_nlink,
+            value.st_size,
+            stat.S_IMODE(value.st_mode),
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+
+    def stable_directory_metadata(value: os.stat_result) -> tuple[int, ...]:
+        return (
+            value.st_dev,
+            value.st_ino,
+            stat.S_IFMT(value.st_mode),
+            value.st_uid,
+            value.st_nlink,
+            stat.S_IMODE(value.st_mode),
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+
+    try:
+        parent_before = path.parent.lstat()
+    except OSError as exc:
+        raise OwnershipError("private IID artifact is unreadable") from exc
+    if (
+        not stat.S_ISDIR(parent_before.st_mode)
+        or parent_before.st_uid != os.geteuid()
+        or stat.S_IMODE(parent_before.st_mode) != 0o700
+    ):
+        raise OwnershipError("private IID artifact is unsafe")
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        parent_descriptor = os.open(path.parent, directory_flags)
+    except OSError as exc:
+        raise OwnershipError("private IID directory could not be opened safely") from exc
+    try:
+        parent_opened = os.fstat(parent_descriptor)
+        if stable_directory_metadata(parent_opened) != stable_directory_metadata(
+            parent_before
+        ):
+            raise OwnershipError("private IID directory changed during validation")
+        before = os.stat(
+            path.name, dir_fd=parent_descriptor, follow_symlinks=False
+        )
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.geteuid()
+            or before.st_nlink != 1
+            or before.st_size < 1
+            or before.st_size > 80
+            or stat.S_IMODE(before.st_mode) not in {0o600, 0o644}
+        ):
+            raise OwnershipError("private IID artifact is unsafe")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                stable_metadata(opened) != stable_metadata(before)
+                or not stat.S_ISREG(opened.st_mode)
+            ):
+                raise OwnershipError("private IID artifact changed during validation")
+            os.fchmod(descriptor, 0o600)
+            normalized = os.fstat(descriptor)
+            child_normalized = os.stat(
+                path.name, dir_fd=parent_descriptor, follow_symlinks=False
+            )
+            parent_normalized = os.fstat(parent_descriptor)
+            parent_path_normalized = path.parent.lstat()
+            if (
+                stable_metadata(child_normalized) != stable_metadata(normalized)
+                or (normalized.st_dev, normalized.st_ino)
+                != (opened.st_dev, opened.st_ino)
+                or not stat.S_ISREG(normalized.st_mode)
+                or normalized.st_uid != opened.st_uid
+                or normalized.st_nlink != opened.st_nlink
+                or normalized.st_size != opened.st_size
+                or normalized.st_mtime_ns != opened.st_mtime_ns
+                or stat.S_IMODE(normalized.st_mode) != 0o600
+                or stable_directory_metadata(parent_normalized)
+                != stable_directory_metadata(parent_opened)
+                or stable_directory_metadata(parent_path_normalized)
+                != stable_directory_metadata(parent_opened)
+            ):
+                raise OwnershipError("private IID artifact mode normalization failed")
+            chunks: list[bytes] = []
+            remaining = 81
+            while remaining:
+                chunk = os.read(descriptor, remaining)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            payload = b"".join(chunks)
+            read_complete = os.fstat(descriptor)
+            child_after_read = os.stat(
+                path.name, dir_fd=parent_descriptor, follow_symlinks=False
+            )
+            parent_after_read = os.fstat(parent_descriptor)
+            parent_path_after_read = path.parent.lstat()
+            if (
+                len(payload) != normalized.st_size
+                or stable_metadata(read_complete) != stable_metadata(normalized)
+                or stable_metadata(child_after_read) != stable_metadata(normalized)
+                or stable_directory_metadata(parent_after_read)
+                != stable_directory_metadata(parent_opened)
+                or stable_directory_metadata(parent_path_after_read)
+                != stable_directory_metadata(parent_opened)
+            ):
+                raise OwnershipError("private IID artifact changed during read")
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise OwnershipError("private IID artifact could not be normalized") from exc
+    finally:
+        os.close(parent_descriptor)
+    try:
+        text = payload.decode("ascii")
+    except UnicodeError as exc:
+        raise OwnershipError("private IID artifact is not ASCII") from exc
+    image_id = text.removesuffix("\n")
+    if text not in {image_id, image_id + "\n"} or not _IMAGE_ID.fullmatch(image_id):
+        raise OwnershipError("private IID artifact does not contain one image ID")
+    return image_id
+
+
 def _private_json(path: Path, value: dict[str, object]) -> None:
     _public_json(path, value)
     _private_file_metadata(path, maximum=4 * 1024 * 1024)
@@ -676,7 +812,12 @@ class SandboxRuntime:
         self, args: list[str], *, capture: bool = True, check: bool = True
     ):
         del capture
-        return self.executor.run(args, cwd=ROOT, check=check, timeout=120)
+        result = self.executor.run(args, cwd=ROOT, check=check, timeout=120)
+        return replace(
+            result,
+            stdout=result.stdout + result.stderr,
+            stderr="",
+        )
 
     def _create_private_iid(self, paths: SandboxPaths) -> None:
         descriptor = os.open(
@@ -688,8 +829,7 @@ class SandboxRuntime:
         _private_file_metadata(paths.image_iid, maximum=80)
 
     def _read_private_iid(self, paths: SandboxPaths) -> str:
-        _private_file_metadata(paths.image_iid, maximum=80)
-        return read_iidfile(paths.image_iid)
+        return _normalize_and_read_docker_iid(paths.image_iid)
 
     def _pending_image_journal(
         self, lifecycle: DisposableImageLifecycle, paths: SandboxPaths
@@ -1038,10 +1178,8 @@ class SandboxRuntime:
                     timeout=1800,
                 )
                 image_id = self._read_private_iid(paths)
-                if verify_built_image(
-                    state.candidate_tag,
-                    paths.image_iid,
-                    command=self._image_command,
+                if inspect_image_id(
+                    state.candidate_tag, command=self._image_command
                 ) != image_id:
                     raise SandboxError("candidate image IID verification changed")
                 image_lifecycle.establish_final_image(image_id)
@@ -2521,10 +2659,8 @@ class SandboxRuntime:
                 iid_error: BaseException | None = None
                 try:
                     image_id = self._read_private_iid(paths)
-                    if verify_built_image(
-                        state.candidate_tag,
-                        paths.image_iid,
-                        command=self._image_command,
+                    if inspect_image_id(
+                        state.candidate_tag, command=self._image_command
                     ) != image_id:
                         raise OwnershipError("recovered build IID changed")
                     lifecycle.establish_final_image(image_id)

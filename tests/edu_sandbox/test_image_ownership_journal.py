@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,9 +24,339 @@ from ops.release_control import validation_image_cleanup as image_lifecycle_modu
 
 
 IMAGE_ID = "sha256:" + "a" * 64
+ALTERNATE_IMAGE_ID = "sha256:" + "f" * 64
 ROOT_ID = "sha256:" + "b" * 64
 HISTORY_ID = "sha256:" + "c" * 64
 PROTECTED_ID = "sha256:" + "d" * 64
+
+
+class _SplitStreamImageExecutor:
+    def __init__(self, stderr: str):
+        self.stderr = stderr
+
+    def run(self, args, **_kwargs):
+        return CommandResult(tuple(args), 1, "", self.stderr)
+
+
+def test_LA01_LA02_image_adapter_combines_stderr_without_weakening_fail_closed(
+    tmp_path: Path,
+) -> None:
+    tag = "odin-edu-candidate:school-one"
+    missing_runtime = SandboxRuntime(
+        tmp_path,
+        executor=_SplitStreamImageExecutor(
+            f"Error response from daemon: No such image: {tag}\n"
+        ),
+    )
+    assert (
+        image_lifecycle_module.inspect_image_id(
+            tag, command=missing_runtime._image_command
+        )
+        is None
+    )
+
+    failing_runtime = SandboxRuntime(
+        tmp_path,
+        executor=_SplitStreamImageExecutor("permission denied\n"),
+    )
+    with pytest.raises(
+        image_lifecycle_module.ValidationImageError,
+        match="validation image inspection failed",
+    ):
+        image_lifecycle_module.inspect_image_id(
+            tag, command=failing_runtime._image_command
+        )
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o644])
+def test_LA08_docker_iid_is_normalized_and_read_once(
+    tmp_path: Path, mode: int
+) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_text(IMAGE_ID + "\n", encoding="ascii")
+    paths.image_iid.chmod(mode)
+
+    assert runtime._read_private_iid(paths) == IMAGE_ID
+    assert paths.image_iid.stat().st_mode & 0o777 == 0o600
+
+
+def test_LA09_docker_iid_rejects_unsafe_mode(tmp_path: Path) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_text(IMAGE_ID + "\n", encoding="ascii")
+    paths.image_iid.chmod(0o666)
+
+    with pytest.raises(
+        runtime_module.OwnershipError, match="private IID artifact is unsafe"
+    ):
+        runtime._read_private_iid(paths)
+
+
+@pytest.mark.parametrize("size", [0, 81])
+def test_LA09_docker_iid_rejects_unsafe_size(tmp_path: Path, size: int) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_bytes(b"a" * size)
+    paths.image_iid.chmod(0o600)
+
+    with pytest.raises(runtime_module.OwnershipError, match="private IID artifact is unsafe"):
+        runtime._read_private_iid(paths)
+
+
+@pytest.mark.parametrize("artifact_kind", ["symlink", "directory", "hardlink"])
+def test_LA09_docker_iid_rejects_unsafe_type_or_link_count(
+    tmp_path: Path, artifact_kind: str
+) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    if artifact_kind == "directory":
+        paths.image_iid.mkdir(mode=0o700)
+    else:
+        target = tmp_path / "iid-target"
+        target.write_text(IMAGE_ID + "\n", encoding="ascii")
+        target.chmod(0o600)
+        if artifact_kind == "symlink":
+            paths.image_iid.symlink_to(target)
+        else:
+            os.link(target, paths.image_iid)
+
+    with pytest.raises(runtime_module.OwnershipError, match="private IID artifact is unsafe"):
+        runtime._read_private_iid(paths)
+
+
+def test_LA09_docker_iid_rejects_foreign_owner_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_text(IMAGE_ID + "\n", encoding="ascii")
+    paths.image_iid.chmod(0o600)
+    original_stat = runtime_module.os.stat
+
+    def foreign_file_stat(path, *args, **kwargs):
+        metadata = original_stat(path, *args, **kwargs)
+        if Path(path).name != paths.image_iid.name or kwargs.get("dir_fd") is None:
+            return metadata
+        return SimpleNamespace(
+            st_dev=metadata.st_dev,
+            st_ino=metadata.st_ino,
+            st_mode=metadata.st_mode,
+            st_uid=metadata.st_uid + 1,
+            st_nlink=metadata.st_nlink,
+            st_size=metadata.st_size,
+            st_mtime_ns=metadata.st_mtime_ns,
+            st_ctime_ns=metadata.st_ctime_ns,
+        )
+
+    monkeypatch.setattr(runtime_module.os, "stat", foreign_file_stat)
+    with pytest.raises(runtime_module.OwnershipError, match="private IID artifact is unsafe"):
+        runtime._read_private_iid(paths)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not-an-image-id\n",
+        (IMAGE_ID + "\n\n").encode("ascii"),
+        b"sha256:" + b"f" * 63 + b"\n",
+        b"\xff" * 72,
+    ],
+)
+def test_LA09_docker_iid_rejects_malformed_content(
+    tmp_path: Path, payload: bytes
+) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_bytes(payload)
+    paths.image_iid.chmod(0o600)
+
+    with pytest.raises(runtime_module.OwnershipError):
+        runtime._read_private_iid(paths)
+
+
+@pytest.mark.parametrize(
+    "drift", ["inode", "mode", "link-count", "parent-symlink"]
+)
+def test_LA09_docker_iid_rejects_metadata_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, drift: str
+) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_text(IMAGE_ID + "\n", encoding="ascii")
+    paths.image_iid.chmod(0o600)
+
+    if drift in {"inode", "mode"}:
+        original_open = runtime_module.os.open
+
+        def drifting_open(path, flags, *args, **kwargs):
+            if Path(path).name == paths.image_iid.name:
+                if drift == "mode":
+                    paths.image_iid.chmod(0o644)
+                else:
+                    replacement = paths.directory / "replacement.iid"
+                    replacement.write_text(IMAGE_ID + "\n", encoding="ascii")
+                    replacement.chmod(0o600)
+                    os.replace(replacement, paths.image_iid)
+            return original_open(path, flags, *args, **kwargs)
+
+        monkeypatch.setattr(runtime_module.os, "open", drifting_open)
+    else:
+        original_read = runtime_module.os.read
+        linked = False
+
+        def drifting_read(descriptor: int, size: int) -> bytes:
+            nonlocal linked
+            payload = original_read(descriptor, size)
+            if payload and not linked and drift == "link-count":
+                os.link(paths.image_iid, paths.directory / "second-link.iid")
+                linked = True
+            elif payload and not linked:
+                moved = tmp_path / "moved-controller"
+                paths.directory.rename(moved)
+                paths.directory.symlink_to(moved, target_is_directory=True)
+                linked = True
+            return payload
+
+        monkeypatch.setattr(runtime_module.os, "read", drifting_read)
+
+    with pytest.raises(
+        runtime_module.OwnershipError,
+        match="private IID artifact changed during validation|changed during read",
+    ):
+        runtime._read_private_iid(paths)
+
+
+def test_LA09_normalization_precedes_the_authoritative_iid_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    paths.directory.mkdir(mode=0o700)
+    paths.image_iid.write_text(IMAGE_ID + "\n", encoding="ascii")
+    paths.image_iid.chmod(0o644)
+    original_fchmod = runtime_module.os.fchmod
+
+    def mutate_before_normalization_completes(descriptor: int, mode: int) -> None:
+        metadata = os.fstat(descriptor)
+        paths.image_iid.write_text(ALTERNATE_IMAGE_ID + "\n", encoding="ascii")
+        os.utime(
+            paths.image_iid,
+            ns=(metadata.st_atime_ns, metadata.st_mtime_ns),
+            follow_symlinks=False,
+        )
+        original_fchmod(descriptor, mode)
+
+    monkeypatch.setattr(
+        runtime_module.os, "fchmod", mutate_before_normalization_completes
+    )
+
+    assert runtime._read_private_iid(paths) == ALTERNATE_IMAGE_ID
+    assert paths.image_iid.read_text(encoding="ascii").strip() == ALTERNATE_IMAGE_ID
+
+
+def test_LA08_prepare_uses_one_descriptor_iid_for_tag_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class StopAfterIdentity(RuntimeError):
+        pass
+
+    class PrepareLifecycle:
+        instances: list["PrepareLifecycle"] = []
+
+        def __init__(self, tag: str, command) -> None:
+            self.tag = tag
+            self.command = command
+            self.owner_token = "e" * 64
+            self.lock = object()
+            self.protected = ProtectedImageHistory((), (), runtime_module.hashlib.sha256(b"").hexdigest())
+            self.capacity = {"passed": True}
+            self.final_image_id = None
+            self.ownership_capture_attempted = False
+            self.ownership_capture_succeeded = False
+            self.owned_root_ids = ()
+            self.owned_history_ids = ()
+            self.unowned_new_ids = ()
+            self.history_cleanup = []
+            self.cleanup_errors = []
+            self.instances.append(self)
+
+        def begin(self) -> None:
+            return None
+
+        def docker_build_owner_args(self) -> list[str]:
+            return []
+
+        def mark_build_attempted(self) -> None:
+            return None
+
+        def establish_final_image(self, image_id: str) -> None:
+            self.final_image_id = image_id
+
+        def freeze_ownership(self) -> None:
+            self.ownership_capture_attempted = True
+            self.ownership_capture_succeeded = True
+
+        def finalize(self) -> list[str]:
+            return []
+
+    runtime = SandboxRuntime(tmp_path)
+    paths = runtime._paths("school-one")
+    iid_reads = 0
+    inspected: list[str] = []
+    original_iid_reader = runtime._read_private_iid
+    original_read_text = Path.read_text
+
+    def read_iid_once(read_paths) -> str:
+        nonlocal iid_reads
+        iid_reads += 1
+        if iid_reads > 1:
+            raise AssertionError("prepare reread the IID path")
+        return original_iid_reader(read_paths)
+
+    def reject_iid_path_read(path: Path, *args, **kwargs):
+        if path == paths.image_iid:
+            raise AssertionError("prepare used a path-based IID reread")
+        return original_read_text(path, *args, **kwargs)
+
+    def inspect_once(tag: str, **_kwargs) -> str:
+        inspected.append(tag)
+        return IMAGE_ID
+
+    def run_until_pull(args: list[str], **_kwargs) -> CommandResult:
+        if args[:2] == ["docker", "build"]:
+            paths.image_iid.write_text(IMAGE_ID + "\n", encoding="ascii")
+            paths.image_iid.chmod(0o644)
+            return CommandResult(tuple(args), 0, "", "")
+        if args[:2] == ["docker", "pull"]:
+            raise StopAfterIdentity
+        raise AssertionError(f"unexpected prepare command: {args}")
+
+    monkeypatch.setattr(runtime_module, "DisposableImageLifecycle", PrepareLifecycle)
+    monkeypatch.setattr(runtime_module, "inspect_image_id", inspect_once)
+    monkeypatch.setattr(runtime, "_read_private_iid", read_iid_once)
+    monkeypatch.setattr(Path, "read_text", reject_iid_path_read)
+    monkeypatch.setattr(
+        runtime,
+        "_git",
+        lambda command, *_args: "" if command == "status" else "a" * 40,
+    )
+    monkeypatch.setattr(runtime, "_run", run_until_pull)
+    monkeypatch.setattr(runtime, "_cleanup_failed_prepare_resources", lambda *_a: [])
+
+    with pytest.raises(StopAfterIdentity):
+        runtime.prepare("school-one")
+
+    assert iid_reads == 1
+    assert inspected == ["odin-edu-candidate:school-one"]
+    assert PrepareLifecycle.instances[0].final_image_id == IMAGE_ID
 
 
 def _history_record(image_id: str, status: str) -> dict[str, object]:
@@ -277,6 +609,21 @@ def test_DI19_pending_recovery_captures_once_then_rolls_back_fixed_image(
     paths.image_iid.chmod(0o600)
     present = True
     calls: list[list[str]] = []
+    iid_reads = 0
+    original_iid_reader = runtime._read_private_iid
+    original_read_text = Path.read_text
+
+    def read_iid_once(read_paths) -> str:
+        nonlocal iid_reads
+        iid_reads += 1
+        if iid_reads > 1:
+            raise AssertionError("recovery reread the IID path")
+        return original_iid_reader(read_paths)
+
+    def reject_iid_path_read(path: Path, *args, **kwargs):
+        if path == paths.image_iid:
+            raise AssertionError("recovery used a path-based IID reread")
+        return original_read_text(path, *args, **kwargs)
 
     def image_command(args, **_kwargs):
         nonlocal present
@@ -315,6 +662,8 @@ def test_DI19_pending_recovery_captures_once_then_rolls_back_fixed_image(
         raise AssertionError(f"unexpected image command: {args}")
 
     monkeypatch.setattr(runtime, "_image_command", image_command)
+    monkeypatch.setattr(runtime, "_read_private_iid", read_iid_once)
+    monkeypatch.setattr(Path, "read_text", reject_iid_path_read)
     monkeypatch.setattr(runtime, "_assert_named_containers_owned", lambda *_a, **_k: None)
     monkeypatch.setattr(runtime, "_cleanup_failed_prepare_resources", lambda *_a: [])
     monkeypatch.setattr(runtime, "_docker_absence_evidence", lambda *_a, **_k: {})
@@ -322,6 +671,7 @@ def test_DI19_pending_recovery_captures_once_then_rolls_back_fixed_image(
     runtime._recover_interrupted_prepare(paths, resources)
 
     assert present is False
+    assert iid_reads == 1
     assert not paths.directory.exists()
     assert calls.count(["docker", "image", "ls", "-a", "--no-trunc", "--quiet"]) == 1
     assert ["docker", "image", "rm", state.candidate_tag] in calls
