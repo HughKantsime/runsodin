@@ -49,7 +49,7 @@ def _discover_modules() -> list[str]:
     modules_dir = pathlib.Path(__file__).parent.parent / "modules"
     found = []
     for entry in sorted(modules_dir.iterdir()):
-        if not entry.is_dir():
+        if entry.name.startswith("_") or not entry.name.isidentifier() or not entry.is_dir():
             continue
         init_file = entry / "__init__.py"
         if not init_file.exists():

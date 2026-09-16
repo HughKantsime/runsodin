@@ -209,6 +209,14 @@ def test_foundation_source_contracts() -> None:
     assert 'exec "$@"' in entrypoint
     assert "/app/backend/.env" not in entrypoint
     assert "/data/.env.supervisor" not in entrypoint
+    entrypoint_lines = entrypoint.splitlines()
+    umask_lines = [
+        index for index, line in enumerate(entrypoint_lines) if line.strip() == "umask 077"
+    ]
+    assert len(umask_lines) == 3
+    for index in umask_lines:
+        assert entrypoint_lines[index - 1].strip() == "("
+        assert entrypoint_lines[index + 2].strip() == ")"
     db_utils = (BACKEND / "core" / "db_utils.py").read_text(encoding="utf-8")
     assert "sqlite3.connect" not in db_utils
     assert "engine.raw_connection" in db_utils

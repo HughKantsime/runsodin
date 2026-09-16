@@ -38,8 +38,10 @@ if [ -z "${ENCRYPTION_KEY:-}" ]; then
     else
         ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
         export ENCRYPTION_KEY
-        umask 077
-        printf '%s\n' "${ENCRYPTION_KEY}" > /data/.encryption_key
+        (
+            umask 077
+            printf '%s\n' "${ENCRYPTION_KEY}" > /data/.encryption_key
+        )
         echo "  ✓ Generated encryption key"
     fi
 fi
@@ -52,15 +54,19 @@ if [ -z "${JWT_SECRET_KEY:-}" ]; then
     else
         JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_bytes(32).hex())")
         export JWT_SECRET_KEY
-        umask 077
-        printf '%s\n' "${JWT_SECRET_KEY}" > /data/.jwt_secret
+        (
+            umask 077
+            printf '%s\n' "${JWT_SECRET_KEY}" > /data/.jwt_secret
+        )
         echo "  ✓ Generated JWT secret"
     fi
 fi
 
 if [ ! -f /data/.odin-install-id ]; then
-    umask 077
-    python3 -c "import uuid; print(uuid.uuid4())" > /data/.odin-install-id
+    (
+        umask 077
+        python3 -c "import uuid; print(uuid.uuid4())" > /data/.odin-install-id
+    )
     echo "  ✓ Generated installation ID"
 else
     echo "  ✓ Installation ID present"

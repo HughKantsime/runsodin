@@ -11,6 +11,7 @@ These tests run without a container: pytest tests/test_contracts/test_module_man
 import importlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,6 +75,38 @@ class TestModuleDirectories:
         assert not unexpected, (
             f"Unexpected module directories found (add to EXPECTED_MODULES or remove): {sorted(unexpected)}"
         )
+
+    def test_discovery_skips_internal_and_invalid_names_before_filesystem_probe(
+        self, monkeypatch, tmp_path
+    ):
+        from core import app as app_module
+
+        (tmp_path / "core").mkdir()
+        modules_dir = tmp_path / "modules"
+        modules_dir.mkdir()
+        for name in ("__pycache__", "invalid-name", "valid_module"):
+            (modules_dir / name).mkdir()
+        (modules_dir / "valid_module" / "__init__.py").write_text("", encoding="utf-8")
+
+        real_is_dir = Path.is_dir
+
+        def guarded_is_dir(path):
+            if path.name in {"__pycache__", "invalid-name"}:
+                raise AssertionError(f"internal path was probed: {path.name}")
+            return real_is_dir(path)
+
+        imported = []
+
+        def fake_import(name):
+            imported.append(name)
+            return SimpleNamespace(MODULE_ID="valid_module")
+
+        monkeypatch.setattr(Path, "is_dir", guarded_is_dir)
+        monkeypatch.setattr(app_module.importlib, "import_module", fake_import)
+        monkeypatch.setattr(app_module, "__file__", str(tmp_path / "core" / "app.py"))
+
+        assert app_module._discover_modules() == ["modules.valid_module"]
+        assert imported == ["modules.valid_module"]
 
 
 class TestManifestFields:
