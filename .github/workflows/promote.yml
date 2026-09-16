@@ -73,6 +73,9 @@ jobs:
           test "$CURRENT_ACTOR" = "HughKantsime"
           test "$CURRENT_ACTOR_ID" = "201174638"
           test "$CURRENT_TRIGGERING_ACTOR" = "$CURRENT_ACTOR"
+          test -x /Users/ollama/homebrew/bin/python3.11
+          test -x /opt/homebrew/bin/gh
+          printf '%s\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> "$GITHUB_PATH"
           promotion_root="$RUNNER_TEMP/odin-promotion-${CURRENT_RUN_ID}-${CURRENT_RUN_ATTEMPT}"
           test "$promotion_root" != "/"
           case "$promotion_root" in "$RUNNER_TEMP"/odin-promotion-*) ;; *) exit 2 ;; esac

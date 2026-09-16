@@ -396,6 +396,9 @@ def test_PW01_manual_only_actual_runner_and_dynamic_environment():
     assert "PROMOTION_OUTPUT: ${{ github.workspace }}/.odin-promotion-uninitialized-${{ github.run_id }}-${{ github.run_attempt }}/output" in source
     assert "if: always() && env.PROMOTION_READY == '1'" in source
     assert 'echo "PROMOTION_READY=1"' in source
+    assert "test -x /Users/ollama/homebrew/bin/python3.11" in source
+    assert "test -x /opt/homebrew/bin/gh" in source
+    assert "printf '%s\\n' /Users/ollama/homebrew/bin /opt/homebrew/bin >> \"$GITHUB_PATH\"" in source
 
 
 def test_PW02_permissions_pins_and_no_checkout():
