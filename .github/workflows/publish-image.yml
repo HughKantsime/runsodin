@@ -227,7 +227,11 @@ jobs:
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          cleanup: false
+          cache-binary: false
 
       - name: Login with isolated registry configuration
         shell: bash
@@ -390,6 +394,16 @@ jobs:
           Path("values.json").write_text(json.dumps({"phase":"registry_verified","status":"success","tag_writes":writes,"error":None}))
           PY
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
+
+      - name: Remove publication builder
+        if: always()
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILDER_NAME:-}" ]; then exit 0; fi
+          docker buildx rm --force "$BUILDER_NAME"
 
       - name: Capture truthful publication failure state
         if: failure() && env.MUTATION_STARTED == '1'

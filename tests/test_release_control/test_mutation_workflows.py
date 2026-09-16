@@ -528,3 +528,25 @@ def test_MW21_mutation_bootstraps_preserve_daemon_with_isolated_credentials():
         assert isolate_auth in bootstrap
         assert bootstrap.index(resolve) < bootstrap.index(isolate_auth)
         assert bootstrap.index(export_host) > bootstrap.index(isolate_auth)
+
+
+def test_MW22_mutation_workflows_own_builder_cleanup_before_root_removal():
+    expected_cleanup = {
+        "publish-image.yml": "Remove publication builder",
+        "promote-production.yml": "Remove production builder",
+    }
+    for name, cleanup_name in expected_cleanup.items():
+        _, workflow = _workflow(name)
+        steps = next(iter(workflow["jobs"].values()))["steps"]
+        positions = {step["name"]: index for index, step in enumerate(steps)}
+        setup = next(step for step in steps if step["name"] == "Set up Docker Buildx")
+        cleanup = next(step for step in steps if step["name"] == cleanup_name)
+        logout = next(step for step in steps if step["name"] == "Logout and remove registry credentials")
+        remove_root = next(step for step in steps if step["name"].startswith("Remove isolated "))
+        assert setup["id"] == "buildx"
+        assert setup["with"] == {"cleanup": False, "cache-binary": False}
+        assert cleanup["if"] == "always()"
+        assert cleanup["env"]["BUILDER_NAME"] == "${{ steps.buildx.outputs.name }}"
+        assert 'docker buildx rm --force "$BUILDER_NAME"' in cleanup["run"]
+        assert positions["Set up Docker Buildx"] < positions[cleanup_name]
+        assert positions[cleanup_name] < positions[logout["name"]] < positions[remove_root["name"]]

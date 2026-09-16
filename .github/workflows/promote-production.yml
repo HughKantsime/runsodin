@@ -207,7 +207,11 @@ jobs:
           PY
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          cleanup: false
+          cache-binary: false
 
       - name: Login with isolated registry configuration
         shell: bash
@@ -341,6 +345,16 @@ jobs:
             echo "- Readiness: $ready_observation"
             echo "- Restore: docker buildx imagetools create --tag $IMAGE_REPOSITORY:latest $IMAGE_REPOSITORY@$PRIOR_LATEST_DIGEST"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove production builder
+        if: always()
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUILDER_NAME:-}" ]; then exit 0; fi
+          docker buildx rm --force "$BUILDER_NAME"
 
       - name: Capture truthful production failure state
         if: failure() && env.MUTATION_STARTED == '1'
