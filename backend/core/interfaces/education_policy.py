@@ -1,6 +1,26 @@
 """Cross-module contract for Education ownership and lifecycle policy."""
 
+import re
 from abc import ABC, abstractmethod
+from pathlib import PurePath
+
+
+_ODIN_TOKEN_RE = re.compile(
+    r"^odin-([0-9a-f]{32})(?:\.(?:3mf|gcode|bgcode))?$", re.IGNORECASE
+)
+
+
+def parse_education_token(value: str | None) -> str | None:
+    """Return the normalized ODIN correlation token from a reported filename."""
+    if not value:
+        return None
+    basename = PurePath(str(value).replace("\\", "/")).name
+    match = _ODIN_TOKEN_RE.fullmatch(basename)
+    return match.group(1).lower() if match else None
+
+
+def is_education_reserved_filename(value: str | None) -> bool:
+    return parse_education_token(value) is not None
 
 
 class EducationPolicyProvider(ABC):
@@ -43,6 +63,36 @@ class EducationPolicyProvider(ABC):
         reason: str,
     ) -> bool:
         """Atomically return a denied Education dispatch to submitted state."""
+
+    @abstractmethod
+    def reserve_dispatch(
+        self, db, *, job_id: int, printer_id: int, expected_revision: int, extension: str
+    ) -> dict | None:
+        """Reserve an opaque correlation token before touching hardware."""
+
+    @abstractmethod
+    def cancel_dispatch_reservation(self, db, **kwargs) -> bool:
+        """Cancel only the caller's still-current reserved claim."""
+
+    @abstractmethod
+    def confirm_dispatch_started(self, db, **kwargs) -> dict:
+        """Advance Education authority after hardware accepts a print."""
+
+    @abstractmethod
+    def claim_monitor_observation(self, db, **kwargs) -> dict:
+        """Claim an exact-token monitor observation or quarantine it."""
+
+    @abstractmethod
+    def classify_monitor_observation(self, db, **kwargs) -> dict:
+        """Classify a monitor packet before generic side effects."""
+
+    @abstractmethod
+    def terminal_monitor_observation(self, db, **kwargs) -> dict:
+        """Apply factual Education terminal state atomically."""
+
+    @abstractmethod
+    def resolve_active_monitor_observation(self, db, *, printer_id: int) -> dict:
+        """Resolve the unique durable Education observation after restart."""
 
     @abstractmethod
     def scheduler_context(self, db, *, job_id: int) -> dict | None:

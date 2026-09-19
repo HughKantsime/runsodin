@@ -30,6 +30,9 @@ def parse_status(
     webhooks = payload.get("webhooks") if isinstance(payload.get("webhooks"), dict) else {}
     result: dict[str, Any] = {
         "state": state, "internal_state": INTERNAL_STATE[state], "raw_data": payload,
+        "raw_print_state": observed_state if observed_state in {
+            "printing", "paused", "complete", "cancelled", "error", "standby", "ready"
+        } else "unknown",
         "bed_temp": bed.get("temperature", 0.0), "bed_target": bed.get("target", 0.0),
         "nozzle_temp": extruder.get("temperature", 0.0), "nozzle_target": extruder.get("target", 0.0),
         "filename": stats.get("filename", ""), "print_duration": stats.get("print_duration", 0.0),

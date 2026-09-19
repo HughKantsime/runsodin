@@ -47,6 +47,10 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
         "dialect-neutral",
         "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
     ),
+    "backend/modules/organizations/education_policy.py": (
+        "dialect-neutral",
+        "Central policy translates named parameters for the shared DBAPI adapter and uses sqlite3 only to classify integrity exceptions",
+    ),
     "backend/modules/system/backup_service.py": (
         "sqlite-provider-only",
         "Dedicated SQLite backup, validation, and offline restore provider",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from sqlalchemy import inspect, text
@@ -31,7 +32,9 @@ RAW_REQUIRED_TABLES = frozenset(
         "education_cost_center_grants",
         "education_cost_center_printers",
         "education_cost_centers",
+        "education_commands",
         "education_notification_outbox",
+        "education_monitor_claims",
         "education_rate_counters",
         "education_storage_accounts",
         "education_submissions",
@@ -90,12 +93,14 @@ RAW_REQUIRED_COLUMNS = {
     "education_cost_centers": frozenset("id org_id name_key code_key display_name code description state revision created_by created_at updated_at".split()),
     "education_cost_center_grants": frozenset("id org_id cost_center_id user_id role state granted_by granted_at revoked_by revoked_at".split()),
     "education_cost_center_printers": frozenset("id org_id cost_center_id printer_id state granted_by granted_at revoked_by revoked_at".split()),
+    "education_commands": frozenset("org_id actor_kind actor_id action command_id request_hash state result_json created_at completed_at".split()),
     "education_upload_operations": frozenset("operation_id org_id user_id state reserved_bytes accounted_bytes expected_bytes expected_hash staging_path final_path cleanup_path reservation_released_at purge_requested_at purged_at lease_owner lease_expires_at created_at updated_at".split()),
     "education_submissions": frozenset("id org_id operation_id job_id print_file_id model_id cost_center_id submitted_by approved_printer_id approved_by status lifecycle_revision compatibility_engine_version created_at updated_at".split()),
     "education_audit_events": frozenset("event_id org_id actor_kind actor_id action command_id request_hash resource_type resource_id cost_center_id lifecycle_revision details_json result_json created_at".split()),
     "education_notification_outbox": frozenset("id event_id org_id recipient_user_id state available_at lease_owner lease_expires_at attempt_count last_error delivered_at created_at".split()),
-    "education_rate_counters": frozenset("org_id scope_kind scope_id bucket_kind bucket_start attempt_count updated_at".split()),
-    "education_storage_accounts": frozenset("org_id scope_kind scope_id reserved_bytes accounted_bytes revision updated_at".split()),
+    "education_monitor_claims": frozenset("claim_id org_id submission_id job_id printer_id authority_revision token_digest state created_at updated_at".split()),
+    "education_rate_counters": frozenset("org_id scope_kind scope_id user_id bucket_kind bucket_start attempt_count updated_at".split()),
+    "education_storage_accounts": frozenset("org_id scope_kind scope_id user_id reserved_bytes accounted_bytes revision updated_at".split()),
 }
 
 
@@ -200,7 +205,17 @@ def validate_schema(connection) -> dict[str, int]:
     return {"tables": len(actual_tables), "required_tables": len(required_tables)}
 
 
-def schema_fingerprint(connection) -> str:
+def _normalize_check_definition(value: str, dialect_name: str) -> str:
+    normalized = " ".join(str(value or "").split())
+    if dialect_name != "postgresql":
+        return normalized
+    normalized = re.sub(
+        r"::character varying::text\b", "::character varying", normalized
+    )
+    return re.sub(r"(ARRAY\[[^]]*\])::text\[\]", r"\1", normalized)
+
+
+def schema_manifest(connection) -> dict[str, object]:
     inspector = inspect(connection)
     manifest: dict[str, object] = {}
     for table_name in sorted(inspector.get_table_names()):
@@ -231,12 +246,37 @@ def schema_fingerprint(connection) -> str:
                 for item in inspector.get_foreign_keys(table_name)
             ),
             "checks": sorted(
-                (item.get("name") or "", item.get("sqltext") or "")
+                (
+                    item.get("name") or "",
+                    _normalize_check_definition(
+                        item.get("sqltext") or "", connection.dialect.name
+                    ),
+                )
                 for item in inspector.get_check_constraints(table_name)
             ),
         }
-    payload = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+    return manifest
+
+
+def schema_fingerprint(connection) -> str:
+    payload = json.dumps(
+        schema_manifest(connection), sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_adoptable_legacy_core(connection) -> None:
+    """Reject malformed lookalike schemas before creating a migration ledger."""
+    inspector = inspect(connection)
+    if "users" not in inspector.get_table_names():
+        return
+    required = {"id", "username", "password_hash", "role", "is_active"}
+    actual = {item["name"] for item in inspector.get_columns("users")}
+    missing = sorted(required - actual)
+    if missing:
+        raise RuntimeError(
+            "Schema validation missing columns on users: " + ", ".join(missing)
+        )
 
 
 def bootstrap_database(
@@ -249,6 +289,7 @@ def bootstrap_database(
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":
             connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+        _validate_adoptable_legacy_core(connection)
         Base.metadata.create_all(bind=connection)
         ensure_ledger(connection)
         for migration_id, path in migration_files(root):
@@ -261,6 +302,13 @@ def bootstrap_database(
     education_migration = "core.schema.migrations.002_education_tenant_integrity"
     if apply_dedicated_python_migration(engine, education_migration):
         applied.append("python:002-education-tenant-integrity")
+
+    monitor_migration = "core.schema.migrations.003_education_monitor_claims"
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+        if apply_python_migration(connection, monitor_migration):
+            applied.append("python:003-education-monitor-claims")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

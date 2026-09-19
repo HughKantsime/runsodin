@@ -13,15 +13,22 @@ from core.interfaces.education_policy import EducationPolicyProvider
 from modules.organizations.education_policy import (
     advance_schedule,
     authorize_dispatch,
+    cancel_dispatch_reservation,
+    claim_monitor_observation,
+    classify_monitor_observation,
+    confirm_dispatch_started,
     assert_org_hard_delete_allowed,
     assert_printer_tenant_change_or_delete_allowed,
     assert_user_hard_delete_allowed,
     assert_user_tenant_change_allowed,
     printer_is_currently_entitled,
+    reserve_dispatch,
     reconcile_schedule_denial,
     reconcile_dispatch_denial,
     reset_stale_schedule,
+    resolve_active_monitor_observation,
     scheduler_context,
+    terminal_monitor_observation,
 )
 from modules.organizations.routes import _get_org_settings
 
@@ -102,6 +109,35 @@ class EducationPolicyService(EducationPolicyProvider):
             expected_revision=expected_revision,
             reason=reason,
         )
+
+    def reserve_dispatch(
+        self, db, *, job_id: int, printer_id: int, expected_revision: int, extension: str
+    ) -> dict | None:
+        return reserve_dispatch(
+            db,
+            job_id=job_id,
+            printer_id=printer_id,
+            expected_revision=expected_revision,
+            extension=extension,
+        )
+
+    def cancel_dispatch_reservation(self, db, **kwargs) -> bool:
+        return cancel_dispatch_reservation(db, **kwargs)
+
+    def confirm_dispatch_started(self, db, **kwargs) -> dict:
+        return confirm_dispatch_started(db, **kwargs)
+
+    def claim_monitor_observation(self, db, **kwargs) -> dict:
+        return claim_monitor_observation(db, **kwargs)
+
+    def classify_monitor_observation(self, db, **kwargs) -> dict:
+        return classify_monitor_observation(db, **kwargs)
+
+    def terminal_monitor_observation(self, db, **kwargs) -> dict:
+        return terminal_monitor_observation(db, **kwargs)
+
+    def resolve_active_monitor_observation(self, db, *, printer_id: int) -> dict:
+        return resolve_active_monitor_observation(db, printer_id=printer_id)
 
     def scheduler_context(self, db, *, job_id: int) -> dict | None:
         return scheduler_context(db, job_id=job_id)

@@ -189,6 +189,19 @@ def _validate_legacy_ownership(connection) -> None:
 
 
 def _create_parent_indexes(connection) -> None:
+    parent_columns = {
+        "users": {"id", "group_id", "oidc_issuer", "oidc_subject"},
+        "printers": {"id", "org_id"},
+        "models": {"id", "org_id"},
+        "jobs": {"id", "charged_to_org_id"},
+        "print_files": {"id", "org_id"},
+    }
+    for table_name, required in parent_columns.items():
+        missing = sorted(required - _columns(connection, table_name))
+        if missing:
+            raise RuntimeError(
+                f"Schema validation missing columns on {table_name}: {', '.join(missing)}"
+            )
     statements = (
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_id_group ON users(id, group_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_printers_id_org ON printers(id, org_id)",
@@ -409,8 +422,10 @@ def _create_audit_immutability(connection) -> None:
         )
         for action in ("UPDATE", "DELETE"):
             trigger = f"trg_education_audit_no_{action.lower()}"
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trigger is derived only from the fixed UPDATE/DELETE tuple above
             connection.execute(text(f"DROP TRIGGER IF EXISTS {trigger} ON education_audit_events"))
             connection.execute(
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- trigger and action are derived only from the fixed UPDATE/DELETE tuple above
                 text(
                     f"CREATE TRIGGER {trigger} BEFORE {action} ON education_audit_events "
                     "FOR EACH ROW EXECUTE FUNCTION odin_reject_education_audit_mutation()"
@@ -715,10 +730,20 @@ def _validate_exact_manifest(connection) -> None:
     for table_name, expected_shape in expected.items():
         actual_shape = actual[table_name]
         for key in ("columns", "pk", "unique", "foreign_keys", "checks", "indexes"):
-            if actual_shape[key] != expected_shape[key]:
+            actual_value = actual_shape[key]
+            if table_name == "education_submissions" and key == "indexes":
+                # Migration 003 owns and independently validates this parent key.
+                # Migration 002 is revalidated before 003 on later bootstraps, so
+                # its original exact manifest must tolerate that one later index.
+                actual_value = tuple(
+                    item
+                    for item in actual_value
+                    if item[0] != "uq_education_submissions_id_org"
+                )
+            if actual_value != expected_shape[key]:
                 raise RuntimeError(
                     f"Education migration {key} manifest mismatch: {table_name}; "
-                    f"expected={expected_shape[key]!r} actual={actual_shape[key]!r}"
+                    f"expected={expected_shape[key]!r} actual={actual_value!r}"
                 )
 
 

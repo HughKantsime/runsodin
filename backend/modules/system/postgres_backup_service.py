@@ -24,7 +24,9 @@ from core.database_config import RESTORE_ADVISORY_LOCK, create_database_engine
 from core.schema.bootstrap import (
     MIGRATION_TABLE,
     RAW_REQUIRED_COLUMNS,
+    RAW_REQUIRED_TABLES,
     import_all_models,
+    schema_manifest,
     schema_fingerprint,
     validate_schema,
 )
@@ -69,13 +71,13 @@ _ALLOWED_TOC_KINDS = (
     "SEQUENCE",
     "DEFAULT",
     "INDEX",
+    "TRIGGER",
     "TABLE",
     "TYPE",
 )
 _FORBIDDEN_TOC_KINDS = (
     "FUNCTION",
     "PROCEDURE",
-    "TRIGGER",
     "VIEW",
     "MATERIALIZED VIEW",
     "EVENT TRIGGER",
@@ -86,6 +88,14 @@ _FORBIDDEN_TOC_KINDS = (
     "SERVER",
     "ACL",
     "COMMENT",
+)
+
+_CANONICAL_TRIGGER_FUNCTION = "odin_reject_education_audit_mutation"
+_CANONICAL_AUDIT_TRIGGERS = frozenset(
+    {
+        ("education_audit_events", "trg_education_audit_no_delete", "DELETE"),
+        ("education_audit_events", "trg_education_audit_no_update", "UPDATE"),
+    }
 )
 
 
@@ -119,7 +129,12 @@ def postgres_paths(base_dir: Path | None = None) -> PostgreSQLBackupPaths:
 
 def canonical_tables() -> frozenset[str]:
     import_all_models()
-    return frozenset(set(Base.metadata.tables) | set(RAW_REQUIRED_COLUMNS) | {MIGRATION_TABLE.name})
+    return frozenset(
+        set(Base.metadata.tables)
+        | set(RAW_REQUIRED_TABLES)
+        | set(RAW_REQUIRED_COLUMNS)
+        | {MIGRATION_TABLE.name}
+    )
 
 
 def canonical_enum_types() -> frozenset[str]:
@@ -130,6 +145,62 @@ def canonical_enum_types() -> frozenset[str]:
         for column in table.columns
         if isinstance(column.type, SQLAlchemyEnum) and column.type.name
     )
+
+
+def _normalize_postgres_definition(value: str) -> str:
+    return " ".join(value.lower().split())
+
+
+def _validate_canonical_public_executables(connection) -> None:
+    functions = connection.execute(
+        text(
+            "SELECT p.proname, pg_get_function_result(p.oid), l.lanname, p.prosrc "
+            "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+            "JOIN pg_language l ON l.oid=p.prolang WHERE n.nspname='public'"
+        )
+    ).all()
+    if len(functions) != 1:
+        raise BackupValidationError(
+            "PostgreSQL schema contains noncanonical executable objects"
+        )
+    function_name, result_type, language, source = functions[0]
+    normalized_source = _normalize_postgres_definition(str(source))
+    if (
+        str(function_name) != _CANONICAL_TRIGGER_FUNCTION
+        or str(result_type).lower() != "trigger"
+        or str(language).lower() != "plpgsql"
+        or normalized_source
+        != "begin raise exception 'education audit events are immutable'; end;"
+    ):
+        raise BackupValidationError(
+            "PostgreSQL schema contains noncanonical executable objects"
+        )
+
+    triggers = connection.execute(
+        text(
+            "SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid) "
+            "FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND NOT t.tgisinternal"
+        )
+    ).all()
+    actual: set[tuple[str, str, str]] = set()
+    for table_name, trigger_name, definition in triggers:
+        normalized = _normalize_postgres_definition(str(definition))
+        action = "DELETE" if " before delete " in f" {normalized} " else "UPDATE"
+        if (
+            f" before {action.lower()} " not in f" {normalized} "
+            or " for each row execute function " not in f" {normalized} "
+            or f" {_CANONICAL_TRIGGER_FUNCTION}()" not in f" {normalized} "
+        ):
+            raise BackupValidationError(
+                "PostgreSQL schema contains noncanonical executable objects"
+            )
+        actual.add((str(table_name), str(trigger_name), action))
+    if actual != set(_CANONICAL_AUDIT_TRIGGERS):
+        raise BackupValidationError(
+            "PostgreSQL schema contains noncanonical executable objects"
+        )
 
 
 def validate_live_postgres_objects(
@@ -147,19 +218,6 @@ def validate_live_postgres_objects(
                 raise BackupValidationError("Live public schema contains noncanonical tables")
             if inspector.get_view_names(schema="public"):
                 raise BackupValidationError("Live public schema contains views")
-            function_count = connection.execute(
-                text(
-                    "SELECT COUNT(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                    "WHERE n.nspname='public'"
-                )
-            ).scalar_one()
-            trigger_count = connection.execute(
-                text(
-                    "SELECT COUNT(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
-                    "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                    "WHERE n.nspname='public' AND NOT t.tgisinternal"
-                )
-            ).scalar_one()
             enums = {
                 row[0]
                 for row in connection.execute(
@@ -169,7 +227,8 @@ def validate_live_postgres_objects(
                     )
                 )
             }
-            if function_count or trigger_count or enums != set(canonical_enum_types()):
+            _validate_canonical_public_executables(connection)
+            if enums != set(canonical_enum_types()):
                 raise BackupValidationError(
                     "Live public schema contains noncanonical executable or type objects"
                 )
@@ -551,6 +610,8 @@ def validate_postgres_restore(
         try:
             canonical_result = bootstrap_database(validation_engine)
             canonical_fingerprint = str(canonical_result["schema_fingerprint"])
+            with validation_engine.connect() as connection:
+                canonical_manifest = schema_manifest(connection)
         finally:
             validation_engine.dispose()
 
@@ -631,9 +692,32 @@ def validate_postgres_restore(
         try:
             with validation_engine.connect() as connection:
                 validate_schema(connection)
+                restored_manifest = schema_manifest(connection)
                 if schema_fingerprint(connection) != canonical_fingerprint:
+                    differing_tables = sorted(
+                        table_name
+                        for table_name in set(canonical_manifest)
+                        | set(restored_manifest)
+                        if canonical_manifest.get(table_name)
+                        != restored_manifest.get(table_name)
+                    )[:12]
+                    differing_components: dict[str, list[str]] = {}
+                    for table_name in differing_tables:
+                        canonical_table = canonical_manifest.get(table_name, {})
+                        restored_table = restored_manifest.get(table_name, {})
+                        if not isinstance(canonical_table, dict) or not isinstance(
+                            restored_table, dict
+                        ):
+                            differing_components[table_name] = ["table"]
+                            continue
+                        differing_components[table_name] = sorted(
+                            key
+                            for key in set(canonical_table) | set(restored_table)
+                            if canonical_table.get(key) != restored_table.get(key)
+                        )
                     raise BackupValidationError(
-                        "Restored archive schema differs from the canonical ODIN schema"
+                        "Restored archive schema differs from the canonical ODIN schema; "
+                        f"components={differing_components}"
                     )
                 inspector = inspect(connection)
                 actual_tables = set(inspector.get_table_names(schema="public"))
@@ -641,21 +725,7 @@ def validate_postgres_restore(
                     raise BackupValidationError("Restored archive has noncanonical public tables")
                 if inspector.get_view_names(schema="public"):
                     raise BackupValidationError("Restored archive contains public views")
-                function_count = connection.execute(
-                    text(
-                        "SELECT COUNT(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                        "WHERE n.nspname='public'"
-                    )
-                ).scalar_one()
-                trigger_count = connection.execute(
-                    text(
-                        "SELECT COUNT(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
-                        "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                        "WHERE n.nspname='public' AND NOT t.tgisinternal"
-                    )
-                ).scalar_one()
-                if function_count or trigger_count:
-                    raise BackupValidationError("Restored archive contains executable public objects")
+                _validate_canonical_public_executables(connection)
         finally:
             validation_engine.dispose()
     finally:

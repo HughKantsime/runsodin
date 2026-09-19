@@ -27,6 +27,7 @@ def test_fresh_sqlite_education_schema_is_tenant_enforced_and_immutable(
     engine = _engine(tmp_path)
     result = bootstrap_database(engine, BACKEND)
     assert "python:002-education-tenant-integrity" in result["applied"]
+    assert "python:003-education-monitor-claims" in result["applied"]
 
     with engine.begin() as connection:
         assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
@@ -73,6 +74,78 @@ def test_fresh_sqlite_education_schema_is_tenant_enforced_and_immutable(
                     "WHERE event_id='event-1'"
                 )
             )
+    engine.dispose()
+
+
+def test_fresh_monitor_claim_schema_has_tenant_keys_checks_and_uniqueness(
+    tmp_path: Path,
+) -> None:
+    from sqlalchemy import inspect
+    from core.schema import bootstrap_database
+
+    engine = _engine(tmp_path, "monitor-claims.db")
+    bootstrap_database(engine, BACKEND)
+    inspector = inspect(engine)
+    indexes = {
+        item["name"]: (tuple(item.get("column_names") or ()), bool(item.get("unique")))
+        for item in inspector.get_indexes("education_monitor_claims")
+    }
+    assert indexes["uq_education_monitor_claim_submission"] == (("submission_id",), True)
+    assert indexes["uq_education_monitor_claim_job"] == (("job_id",), True)
+    assert indexes["uq_education_monitor_claim_printer"] == (("printer_id",), True)
+    assert indexes["uq_education_monitor_claim_token"] == (("token_digest",), True)
+    foreign_keys = {
+        (
+            tuple(item.get("constrained_columns") or ()),
+            item.get("referred_table"),
+            tuple(item.get("referred_columns") or ()),
+        )
+        for item in inspector.get_foreign_keys("education_monitor_claims")
+    }
+    assert foreign_keys == {
+        (("submission_id", "org_id"), "education_submissions", ("id", "org_id")),
+        (("job_id", "org_id"), "jobs", ("id", "charged_to_org_id")),
+        (("printer_id", "org_id"), "printers", ("id", "org_id")),
+    }
+    checks = " ".join(
+        str(item.get("sqltext") or "")
+        for item in inspector.get_check_constraints("education_monitor_claims")
+    ).lower()
+    assert "authority_revision" in checks
+    assert all(value in checks for value in ("reserved", "awaiting", "running"))
+    engine.dispose()
+
+
+def test_legacy_education_foundation_applies_monitor_claims_afterward(tmp_path: Path) -> None:
+    from core.schema import bootstrap_database
+
+    engine = _engine(tmp_path, "legacy-monitor-claims.db")
+    bootstrap_database(engine, BACKEND)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM odin_schema_migrations "
+                "WHERE migration_id='python:003-education-monitor-claims'"
+            )
+        )
+        connection.exec_driver_sql("DROP TABLE education_monitor_claims")
+        connection.exec_driver_sql("DROP INDEX uq_education_submissions_id_org")
+
+    result = bootstrap_database(engine, BACKEND)
+    assert result["applied"] == ["python:003-education-monitor-claims"]
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM odin_schema_migrations "
+                "WHERE migration_id='python:002-education-tenant-integrity'"
+            )
+        ).scalar_one() == 1
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM odin_schema_migrations "
+                "WHERE migration_id='python:003-education-monitor-claims'"
+            )
+        ).scalar_one() == 1
     engine.dispose()
 
 

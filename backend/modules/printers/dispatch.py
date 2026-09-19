@@ -422,6 +422,81 @@ def _authorize_education_hardware_action(job: dict, creds: dict) -> tuple[bool, 
         )
     return True, result["engine_version"]
 
+
+def _reserve_education_hardware_action(job: dict, extension: str):
+    """Commit the Education correlation claim before any adapter call."""
+    if job.get("education_submission_id") is None:
+        return None, None
+
+    from core.db import engine
+    from core.registry import registry
+    from sqlalchemy.orm import Session
+
+    provider = registry.get_provider("EducationPolicyProvider")
+    if provider is None:
+        return None, "Education dispatch policy is unavailable; no hardware command was sent"
+    try:
+        with Session(engine) as db:
+            reservation = provider.reserve_dispatch(
+                db,
+                job_id=int(job["id"]),
+                printer_id=int(job["printer_id"]),
+                expected_revision=int(job["education_lifecycle_revision"]),
+                extension=extension,
+            )
+            if reservation:
+                db.commit()
+    except Exception as exc:
+        log.error("[dispatch] Education reservation failed: %s", exc)
+        return None, "Education dispatch reservation failed; no hardware command was sent"
+    if not reservation:
+        return None, "Education authority changed or this printer already has an active print claim"
+    return (provider, reservation), None
+
+
+def _cancel_education_reservation(provider, reservation: dict) -> bool:
+    from core.db import engine
+    from sqlalchemy.orm import Session
+
+    try:
+        with Session(engine) as db:
+            cancelled = provider.cancel_dispatch_reservation(
+                db,
+                claim_id=reservation["claim_id"],
+                submission_id=int(reservation["submission_id"]),
+                job_id=int(reservation["job_id"]),
+                printer_id=int(reservation["printer_id"]),
+                expected_revision=int(reservation["authority_revision"]),
+            )
+            if cancelled:
+                db.commit()
+            return bool(cancelled)
+    except Exception as exc:
+        log.error("[dispatch] Education reservation cancellation failed: %s", exc)
+        return False
+
+
+def _confirm_education_dispatch(provider, reservation: dict) -> dict:
+    from core.db import engine
+    from sqlalchemy.orm import Session
+
+    try:
+        with Session(engine) as db:
+            result = provider.confirm_dispatch_started(
+                db,
+                claim_id=reservation["claim_id"],
+                submission_id=int(reservation["submission_id"]),
+                job_id=int(reservation["job_id"]),
+                printer_id=int(reservation["printer_id"]),
+                expected_revision=int(reservation["authority_revision"]),
+            )
+            if result.get("transitioned"):
+                db.commit()
+            return result
+    except Exception as exc:
+        log.error("[dispatch] Education physical start confirmation failed: %s", exc)
+        return {"education_owned": True, "authorized": False, "transitioned": False}
+
 def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     """Dispatch a specific job to its assigned printer.
 
@@ -457,6 +532,9 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
         return False, f"Cannot retrieve credentials for printer {printer_id}"
 
     api_type = creds["api_type"]
+
+    if api_type not in {"bambu", "moonraker", "prusalink"}:
+        return False, f"Dispatch not supported for printer type '{api_type}'"
 
     # File format validation: non-Bambu printers need .gcode
     if api_type != "bambu" and stored_path.lower().endswith(".3mf"):
@@ -497,39 +575,67 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     if education_decision is not None and not education_decision[0]:
         return education_decision
 
+    education_reservation = None
+    education_provider = None
+    if education_decision is not None:
+        extension = os.path.splitext(remote_filename)[1].lower()
+        reserved, reservation_error = _reserve_education_hardware_action(job, extension)
+        if reservation_error:
+            return False, reservation_error
+        education_provider, education_reservation = reserved
+        remote_filename = education_reservation["remote_filename"]
+
     log.info(
         f"[dispatch] Dispatching job {job_id} ('{job['item_name']}') "
         f"to {api_type} printer {printer_id} @ {creds['ip']}"
     )
     _ws(job_id, "uploading", f"Dispatching '{job['item_name']}'...")
 
-    # Route to appropriate handler
-    if api_type == "bambu":
-        success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds)
-    elif api_type == "moonraker":
-        success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
-    elif api_type == "prusalink":
-        success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds)
-    else:
-        return False, f"Dispatch not supported for printer type '{api_type}'"
+    # Route to the adapter only after the Education reservation is durable.
+    try:
+        if api_type == "bambu":
+            success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds)
+        elif api_type == "moonraker":
+            success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
+        else:
+            success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds)
+    except Exception as exc:
+        log.exception("[dispatch] Hardware adapter raised for job %s", job_id)
+        success, message = False, f"Printer adapter failed: {exc}"
 
     if not success:
+        if education_reservation and not _cancel_education_reservation(
+            education_provider, education_reservation
+        ):
+            message += "; Education reservation requires explicit reconciliation"
         _ws(job_id, "failed", message)
         return False, message
 
-    # Mark job as printing
-    try:
-        from datetime import datetime, timezone
-        from core.db import engine
-        from sqlalchemy import text as _text
-        with engine.begin() as conn:
-            conn.execute(
-                _text("UPDATE jobs SET status = 'printing',"
-                      " actual_start = COALESCE(actual_start, :now) WHERE id = :jid"),
-                {"now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), "jid": job_id},
+    if education_reservation:
+        confirmation = _confirm_education_dispatch(
+            education_provider, education_reservation
+        )
+        if not confirmation.get("transitioned"):
+            message = (
+                "Printer accepted the print, but Education authority confirmation failed; "
+                "physical action requires reconciliation"
             )
-    except Exception as e:
-        log.warning(f"[dispatch] DB status update failed (print already started): {e}")
+            _ws(job_id, "failed", message)
+            return False, message
+    else:
+        # Generic jobs retain their existing best-effort state update.
+        try:
+            from datetime import datetime, timezone
+            from core.db import engine
+            from sqlalchemy import text as _text
+            with engine.begin() as conn:
+                conn.execute(
+                    _text("UPDATE jobs SET status = 'printing',"
+                          " actual_start = COALESCE(actual_start, :now) WHERE id = :jid"),
+                    {"now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), "jid": job_id},
+                )
+        except Exception as e:
+            log.warning(f"[dispatch] DB status update failed (print already started): {e}")
 
     _ws(job_id, "dispatched", f"'{job['item_name']}' sent to printer successfully")
     log.info(f"[dispatch] Job {job_id} dispatched successfully ({api_type})")

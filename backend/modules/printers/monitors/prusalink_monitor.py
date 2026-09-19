@@ -136,8 +136,10 @@ class PrusaLinkMonitorThread(threading.Thread):
             odin_state = "RUNNING"
         elif status.state == PrusaLinkState.PAUSED:
             odin_state = "PAUSE"
-        elif status.state in (PrusaLinkState.FINISHED, PrusaLinkState.STOPPED):
+        elif status.state == PrusaLinkState.FINISHED:
             odin_state = "FINISH"
+        elif status.state == PrusaLinkState.STOPPED:
+            odin_state = "CANCELLED"
         elif status.state == PrusaLinkState.ERROR:
             odin_state = "FAILED"
         elif status.state == PrusaLinkState.ATTENTION:
@@ -163,6 +165,12 @@ class PrusaLinkMonitorThread(threading.Thread):
                     current_file or self._last_filename or "Unknown",
                     status.time_printing,
                     None,  # filament_used_g — not provided
+                )
+                threading.Thread(target=self._try_dispatch, daemon=True).start()
+            elif odin_state == "CANCELLED":
+                printer_events.on_print_cancelled(
+                    self.printer_id,
+                    current_file or self._last_filename or "Unknown",
                 )
                 threading.Thread(target=self._try_dispatch, daemon=True).start()
             elif odin_state == "FAILED":

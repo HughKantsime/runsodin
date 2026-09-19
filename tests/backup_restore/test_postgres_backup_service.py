@@ -21,6 +21,7 @@ from modules.system.postgres_backup_service import (  # noqa: E402
     postgres_paths,
     validate_archive_toc,
 )
+from core.schema.bootstrap import RAW_REQUIRED_TABLES  # noqa: E402
 
 
 def _toc(*, omit: str | None = None, extra: str | None = None) -> str:
@@ -46,6 +47,12 @@ def test_toc_requires_exact_canonical_tables() -> None:
         )
 
 
+def test_canonical_tables_cover_every_raw_bootstrap_table() -> None:
+    assert RAW_REQUIRED_TABLES <= canonical_tables()
+    assert "education_commands" in canonical_tables()
+    assert "education_monitor_claims" in canonical_tables()
+
+
 def test_toc_rejects_executable_or_nonpublic_objects() -> None:
     with pytest.raises(BackupValidationError, match="forbidden object"):
         validate_archive_toc(
@@ -55,6 +62,18 @@ def test_toc_rejects_executable_or_nonpublic_objects() -> None:
         validate_archive_toc(
             _toc(extra="999; 1259 99999 TABLE private users odin")
         )
+
+
+def test_toc_allows_only_canonicalized_trigger_structure() -> None:
+    canonical_trigger = (
+        "999; 2620 99999 TRIGGER public education_audit_events "
+        "trg_education_audit_no_update odin"
+    )
+    validate_archive_toc(
+        _toc(extra=canonical_trigger), allow_unresolved_structure=True
+    )
+    with pytest.raises(BackupValidationError, match="non-ODIN structural object"):
+        validate_archive_toc(_toc(extra=canonical_trigger))
 
 
 @pytest.mark.parametrize(

@@ -170,6 +170,18 @@ def test_wrong_schema_and_active_content_are_rejected(tmp_path: Path):
     with pytest.raises(BackupValidationError, match="unexpected triggers or views"):
         validate_database(malicious)
 
+    spoofed = tmp_path / "spoofed.db"
+    _database(spoofed, "candidate")
+    connection = sqlite3.connect(spoofed)
+    connection.execute(
+        "CREATE TRIGGER trg_education_audit_no_update AFTER INSERT ON users "
+        "BEGIN DELETE FROM users; END"
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(BackupValidationError, match="unexpected triggers or views"):
+        validate_database(spoofed)
+
 
 def test_required_columns_are_validated(tmp_path: Path):
     wrong = tmp_path / "wrong-columns.db"

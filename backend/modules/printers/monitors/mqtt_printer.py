@@ -151,7 +151,7 @@ class PrinterMonitor:
             with get_db() as conn:
                 cur = conn.cursor()
                 rows = cur.execute(
-                    "SELECT id, job_name, started_at FROM print_jobs "
+                    "SELECT id, job_name, started_at, filename, scheduled_job_id FROM print_jobs "
                     "WHERE printer_id = ? AND status = 'running' ORDER BY id",
                     (self.printer_id,)
                 ).fetchall()
@@ -160,13 +160,69 @@ class PrinterMonitor:
                 # Wait briefly for first MQTT status to arrive
                 time.sleep(3)
                 gcode_state = self._state.get('gcode_state', '')
+                from core.registry import registry
+
+                policy = registry.get_provider("EducationPolicyProvider")
                 if gcode_state in ('RUNNING', 'PAUSE'):
                     # Printer is actually printing — resume tracking the most recent job
                     latest = rows[-1]
-                    self._current_job_id = latest[0]
-                    log.info(f"[{self.name}] Resumed tracking job {latest[0]} ({latest[1]})")
+                    classification = (
+                        policy.classify_monitor_observation(
+                            conn,
+                            printer_id=self.printer_id,
+                            print_job_id=latest[0],
+                            observed_filename=latest[1] or latest[3],
+                        )
+                        if policy
+                        else None
+                    )
+                    if classification and (
+                        classification.get("education_owned")
+                        or classification.get("education_reserved")
+                    ):
+                        claimed = policy.claim_monitor_observation(
+                            conn,
+                            print_job_id=latest[0],
+                            printer_id=self.printer_id,
+                            observed_filename=latest[1] or latest[3],
+                        )
+                        if claimed.get("authorized") or (
+                            claimed.get("education_reserved")
+                            and not claimed.get("education_owned")
+                        ):
+                            self._current_job_id = latest[0]
+                            self._linked_job_id = claimed.get("job_id")
+                            log.info(
+                                "[%s] Resumed Education/quarantined observation %s",
+                                self.name,
+                                latest[0],
+                            )
+                    else:
+                        self._current_job_id = latest[0]
+                        self._linked_job_id = latest[4]
+                        log.info(f"[{self.name}] Resumed tracking job {latest[0]} ({latest[1]})")
                     # Close any older orphaned jobs
                     for row in rows[:-1]:
+                        classification = (
+                            policy.classify_monitor_observation(
+                                conn,
+                                printer_id=self.printer_id,
+                                print_job_id=row[0],
+                                observed_filename=row[1] or row[3],
+                            )
+                            if policy
+                            else None
+                        )
+                        if classification and (
+                            classification.get("education_owned")
+                            or classification.get("education_reserved")
+                        ):
+                            log.error(
+                                "[%s] Refusing ambiguous Education orphan closure for %s",
+                                self.name,
+                                row[0],
+                            )
+                            continue
                         cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                             f"UPDATE print_jobs SET status = 'cancelled', ended_at = {sql.now()} WHERE id = ?",
                             (row[0],))
@@ -174,6 +230,45 @@ class PrinterMonitor:
                 else:
                     # Printer is idle — close all orphaned jobs
                     for row in rows:
+                        classification = (
+                            policy.classify_monitor_observation(
+                                conn,
+                                printer_id=self.printer_id,
+                                print_job_id=row[0],
+                                observed_filename=row[1] or row[3],
+                            )
+                            if policy
+                            else None
+                        )
+                        if classification and (
+                            classification.get("education_owned")
+                            or classification.get("education_reserved")
+                        ):
+                            terminal_status = {
+                                "FINISH": "completed",
+                                "FAILED": "failed",
+                            }.get(gcode_state)
+                            if terminal_status:
+                                result = policy.terminal_monitor_observation(
+                                    conn,
+                                    print_job_id=row[0],
+                                    printer_id=self.printer_id,
+                                    terminal_status=terminal_status,
+                                )
+                                log.info(
+                                    "[%s] Education orphan terminal result for %s: %s",
+                                    self.name,
+                                    row[0],
+                                    result,
+                                )
+                            else:
+                                log.error(
+                                    "[%s] Ambiguous state %s; Education orphan %s left unchanged",
+                                    self.name,
+                                    gcode_state or "IDLE",
+                                    row[0],
+                                )
+                            continue
                         cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                             f"UPDATE print_jobs SET status = 'completed', ended_at = {sql.now()} WHERE id = ?",
                             (row[0],))
@@ -297,6 +392,31 @@ class PrinterMonitor:
         import modules.notifications.event_dispatcher as printer_events
         with self._lock:
             raw = status.raw_data.get('print', {})
+
+            # Merge correlation and lifecycle fields before any HMS processing.
+            # A first RUNNING packet may also contain a print-stopping HMS code;
+            # the token observation must be claimed/quarantined first.
+            for key, value in raw.items():
+                if value is not None:
+                    self._state[key] = value
+            gcode_state = self._state.get('gcode_state')
+            if gcode_state and gcode_state != self._last_gcode_state:
+                self._on_state_change(self._last_gcode_state, gcode_state)
+                self._last_gcode_state = gcode_state
+
+            incoming_hms = raw.get('hms')
+            if incoming_hms:
+                hms_process_key = json.dumps(incoming_hms, sort_keys=True)
+                if hms_process_key != getattr(self, '_last_hms_processed_key', None):
+                    self._last_hms_processed_key = hms_process_key
+                    printer_events.process_hms_errors(
+                        self.printer_id,
+                        incoming_hms,
+                        observed_filename=(
+                            self._state.get('subtask_name')
+                            or self._state.get('gcode_file')
+                        ),
+                    )
 
             # Update telemetry + heartbeat (throttled to every 10 seconds)
             if time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
@@ -528,8 +648,6 @@ class PrinterMonitor:
                                     hconn.commit()
                             except Exception as e:
                                 log.debug(f"[{self.name}] HMS history insert: {e}")
-                        printer_events.process_hms_errors(self.printer_id, hms_raw)
-
                 except Exception as e:
                     log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
 
@@ -543,11 +661,6 @@ class PrinterMonitor:
                     full_url = f"rtsps://bblp:{urlquote(self.access_code, safe='')}@{self.ip}:322/streaming/live/1"
                     printer_events.discover_camera(self.printer_id, full_url)
                     self._camera_discovered = True
-
-            # Merge partial updates into state
-            for key, value in raw.items():
-                if value is not None:
-                    self._state[key] = value
 
             # Keep AMS remain percentages fresh for filament tracking
             ams_raw = self._state.get('ams', {})
@@ -571,12 +684,6 @@ class PrinterMonitor:
             if time.time() - self._last_spool_check >= 60:
                 self._check_spool_levels()
                 self._last_spool_check = time.time()
-
-            # Check for state transitions
-            gcode_state = self._state.get('gcode_state')
-            if gcode_state and gcode_state != self._last_gcode_state:
-                self._on_state_change(self._last_gcode_state, gcode_state)
-                self._last_gcode_state = gcode_state
 
     def _check_spool_levels(self):
         """Check AMS spool remaining weights and fire spool_low alerts."""
@@ -661,28 +768,63 @@ class PrinterMonitor:
         try:
             with get_db() as conn:
                 row = conn.execute(
-                    "SELECT id, job_name, scheduled_job_id FROM print_jobs "
+                    "SELECT id, job_name, scheduled_job_id, filename FROM print_jobs "
                     "WHERE printer_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1",
                     (self.printer_id,)).fetchone()
                 if row:
-                    self._current_job_id = row[0]
-                    self._linked_job_id = row[2]
+                    from core.registry import registry
+
+                    policy = registry.get_provider("EducationPolicyProvider")
+                    incoming_name = self._state.get('subtask_name') or self._state.get('gcode_file')
+                    classification = (
+                        policy.classify_monitor_observation(
+                            conn,
+                            printer_id=self.printer_id,
+                            observed_filename=incoming_name,
+                        )
+                        if policy
+                        else None
+                    )
+                    if classification and (
+                        classification.get("education_owned")
+                        or classification.get("education_reserved")
+                    ):
+                        claimed = policy.claim_monitor_observation(
+                            conn,
+                            print_job_id=row[0],
+                            printer_id=self.printer_id,
+                            observed_filename=incoming_name,
+                        )
+                        if not claimed.get("authorized"):
+                            row = None
+                        else:
+                            conn.commit()
+                            self._linked_job_id = claimed.get("job_id")
+                    if not row:
+                        log.info(
+                            "[%s] Existing running observation did not match Education token",
+                            self.name,
+                        )
+                    else:
+                        self._current_job_id = row[0]
+                        if self._linked_job_id is None:
+                            self._linked_job_id = row[2]
                     # Restore spool weight snapshot (best-effort)
-                    self._start_spool_weights = {}
-                    try:
-                        spool_rows = conn.execute("""
-                            SELECT s.id, s.remaining_weight_g
-                            FROM filament_slots fs
-                            JOIN spools s ON fs.assigned_spool_id = s.id
-                            WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
-                        """, (self.printer_id,)).fetchall()
-                        for spool_id, weight in spool_rows:
-                            if weight is not None:
-                                self._start_spool_weights[spool_id] = weight
-                    except Exception as e:
-                        log.debug(f"Failed to load spool weights for job resume: {e}")
-                    log.info(f"[{self.name}] Resumed tracking existing job {row[0]} ({row[1]})")
-                    return
+                        self._start_spool_weights = {}
+                        try:
+                            spool_rows = conn.execute("""
+                                SELECT s.id, s.remaining_weight_g
+                                FROM filament_slots fs
+                                JOIN spools s ON fs.assigned_spool_id = s.id
+                                WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
+                            """, (self.printer_id,)).fetchall()
+                            for spool_id, weight in spool_rows:
+                                if weight is not None:
+                                    self._start_spool_weights[spool_id] = weight
+                        except Exception as e:
+                            log.debug(f"Failed to load spool weights for job resume: {e}")
+                        log.info(f"[{self.name}] Resumed tracking existing job {row[0]} ({row[1]})")
+                        return
         except Exception as e:
             log.warning(f"[{self.name}] DB check for running job failed: {e}")
 

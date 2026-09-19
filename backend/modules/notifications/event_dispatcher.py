@@ -47,6 +47,7 @@ from modules.notifications.job_events import (
     on_print_start,
     on_print_complete,
     on_print_failed,
+    on_print_cancelled,
     on_print_paused,
     on_progress_update,
 )
@@ -63,7 +64,7 @@ __all__ = [
     "increment_care_counters", "increment_nozzle_lifecycle", "reset_maintenance_counters",
     "record_error", "clear_error", "parse_hms_errors", "process_hms_errors",
     "job_started", "job_completed", "update_job_progress",
-    "on_print_start", "on_print_complete", "on_print_failed",
+    "on_print_start", "on_print_complete", "on_print_failed", "on_print_cancelled",
     "on_print_paused", "on_progress_update",
     "dispatch_alert", "check_low_spool",
 ]

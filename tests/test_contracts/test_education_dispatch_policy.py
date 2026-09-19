@@ -155,6 +155,139 @@ def test_dispatch_denial_occurs_before_any_hardware_adapter(monkeypatch, tmp_pat
     assert hardware_calls == []
 
 
+def test_education_dispatch_uses_reserved_filename_and_requires_confirmation(
+    monkeypatch, tmp_path
+):
+    from modules.printers import dispatch
+
+    print_file = tmp_path / "project.3mf"
+    print_file.write_bytes(b"fixture")
+    job = _job(_facts()) | {
+        "stored_path": str(print_file),
+        "original_filename": "student-secret-name.3mf",
+        "bed_x_mm": 256,
+        "bed_y_mm": 256,
+        "compatible_api_types": "bambu",
+    }
+    reservation = {
+        "claim_id": "claim-1",
+        "submission_id": 4,
+        "job_id": 72,
+        "printer_id": 9,
+        "authority_revision": 3,
+        "remote_filename": "odin-0123456789abcdef0123456789abcdef.3mf",
+    }
+    provider = object()
+    hardware_calls = []
+    confirmations = []
+    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
+    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
+    monkeypatch.setattr(
+        dispatch, "_authorize_education_hardware_action", lambda loaded, printer: (True, "v1")
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_reserve_education_hardware_action",
+        lambda loaded, extension: ((provider, reservation), None),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_dispatch_bambu",
+        lambda *args: hardware_calls.append(args) or (True, "Print started"),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_confirm_education_dispatch",
+        lambda selected, reserved: confirmations.append((selected, reserved))
+        or {"transitioned": True},
+    )
+
+    assert dispatch.dispatch_job(9, 72) == (True, "Print started")
+    assert hardware_calls[0][2] == reservation["remote_filename"]
+    assert "student-secret-name" not in hardware_calls[0][2]
+    assert confirmations == [(provider, reservation)]
+
+
+def test_education_adapter_failure_cancels_only_its_reservation(monkeypatch, tmp_path):
+    from modules.printers import dispatch
+
+    print_file = tmp_path / "project.3mf"
+    print_file.write_bytes(b"fixture")
+    job = _job(_facts()) | {
+        "stored_path": str(print_file),
+        "original_filename": "project.3mf",
+        "bed_x_mm": 256,
+        "bed_y_mm": 256,
+        "compatible_api_types": "bambu",
+    }
+    reservation = {
+        "claim_id": "claim-1",
+        "submission_id": 4,
+        "job_id": 72,
+        "printer_id": 9,
+        "authority_revision": 3,
+        "remote_filename": "odin-0123456789abcdef0123456789abcdef.3mf",
+    }
+    provider = object()
+    cancellations = []
+    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
+    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
+    monkeypatch.setattr(
+        dispatch, "_authorize_education_hardware_action", lambda loaded, printer: (True, "v1")
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_reserve_education_hardware_action",
+        lambda loaded, extension: ((provider, reservation), None),
+    )
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args: (False, "upload failed"))
+    monkeypatch.setattr(
+        dispatch,
+        "_cancel_education_reservation",
+        lambda selected, reserved: cancellations.append((selected, reserved)) or True,
+    )
+
+    assert dispatch.dispatch_job(9, 72) == (False, "upload failed")
+    assert cancellations == [(provider, reservation)]
+
+
+def test_physical_success_with_lost_education_cas_is_not_clean_success(
+    monkeypatch, tmp_path
+):
+    from modules.printers import dispatch
+
+    print_file = tmp_path / "project.3mf"
+    print_file.write_bytes(b"fixture")
+    job = _job(_facts()) | {
+        "stored_path": str(print_file),
+        "original_filename": "project.3mf",
+        "bed_x_mm": 256,
+        "bed_y_mm": 256,
+        "compatible_api_types": "bambu",
+    }
+    reservation = {
+        "remote_filename": "odin-0123456789abcdef0123456789abcdef.3mf",
+    }
+    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
+    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
+    monkeypatch.setattr(
+        dispatch, "_authorize_education_hardware_action", lambda loaded, printer: (True, "v1")
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "_reserve_education_hardware_action",
+        lambda loaded, extension: ((object(), reservation), None),
+    )
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args: (True, "Print started"))
+    monkeypatch.setattr(
+        dispatch, "_confirm_education_dispatch", lambda provider, reserved: {"transitioned": False}
+    )
+
+    success, message = dispatch.dispatch_job(9, 72)
+    assert success is False
+    assert "physical action requires reconciliation" in message
+
+
 def test_central_policy_authorizes_current_pin_and_atomically_reconciles():
     from modules.organizations.education_policy import (
         authorize_dispatch,

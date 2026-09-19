@@ -23,6 +23,17 @@ log = logging.getLogger("printer_events")
 _active_print_jobs = {}  # printer_id -> print_job_id
 
 
+def _education_policy():
+    """Resolve the required cross-module provider without importing its implementation."""
+    try:
+        from core.registry import registry
+
+        return registry.get_provider("EducationPolicyProvider")
+    except Exception as exc:
+        log.error("Education monitor policy unavailable: %s", exc)
+        return None
+
+
 def job_started(
     printer_id: int,
     job_name: str,
@@ -38,17 +49,32 @@ def job_started(
             cur = conn.cursor()
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""INSERT INTO print_jobs
-                    (printer_id, job_name, started_at, status, total_layers, scheduled_job_id)
-                VALUES (?, ?, {sql.now()}, 'running', ?, ?){sql.returning_id()}""",
-                (printer_id, job_name, total_layers, scheduled_job_id)
+                    (printer_id, filename, job_name, started_at, status, total_layers, scheduled_job_id)
+                VALUES (?, ?, ?, {sql.now()}, 'running', ?, ?){sql.returning_id()}""",
+                (printer_id, job_name, job_name, total_layers, scheduled_job_id)
             )
             if sql.is_postgres:
                 job_id = cur.fetchone()[0]
             else:
                 job_id = cur.lastrowid
+            policy = _education_policy()
+            education_result = None
+            if policy:
+                education_result = policy.claim_monitor_observation(
+                    conn,
+                    print_job_id=job_id,
+                    printer_id=printer_id,
+                    observed_filename=job_name,
+                )
             conn.commit()
 
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")
+
+        if education_result and (
+            education_result.get("education_owned")
+            or education_result.get("education_reserved")
+        ):
+            return job_id
 
         bus = get_event_bus()
         bus.publish(Event(
@@ -84,6 +110,22 @@ def job_completed(
     try:
         with get_db() as conn:
             cur = conn.cursor()
+
+            policy = _education_policy()
+            if policy:
+                education_result = policy.terminal_monitor_observation(
+                    conn,
+                    print_job_id=print_job_id,
+                    printer_id=printer_id,
+                    terminal_status=status,
+                    duration_seconds=duration_seconds,
+                    error_code=fail_reason,
+                )
+                if education_result.get("education_owned") or education_result.get(
+                    "education_reserved"
+                ):
+                    conn.commit()
+                    return education_result
 
             # Update print_jobs record
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
@@ -188,6 +230,20 @@ def job_cancelled(
     try:
         with get_db() as conn:
             cur = conn.cursor()
+
+            policy = _education_policy()
+            if policy:
+                education_result = policy.terminal_monitor_observation(
+                    conn,
+                    print_job_id=print_job_id,
+                    printer_id=printer_id,
+                    terminal_status="cancelled",
+                )
+                if education_result.get("education_owned") or education_result.get(
+                    "education_reserved"
+                ):
+                    conn.commit()
+                    return education_result
 
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""UPDATE print_jobs SET
@@ -304,7 +360,7 @@ def on_print_start(printer_id: int, filename: str, total_layers: int = None,
 def on_print_complete(printer_id: int, filename: str,
                       duration_seconds: float = None, filament_used_g: float = None):
     """Called by PrusaLink/Elegoo monitors when a print completes."""
-    pj_id = _active_print_jobs.pop(printer_id, None)
+    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id)
     if pj_id:
         job_completed(
             printer_id=printer_id,
@@ -316,7 +372,7 @@ def on_print_complete(printer_id: int, filename: str,
 
 def on_print_failed(printer_id: int, filename: str, reason: str = None):
     """Called by PrusaLink/Elegoo monitors when a print fails."""
-    pj_id = _active_print_jobs.pop(printer_id, None)
+    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id)
     if pj_id:
         job_completed(
             printer_id=printer_id,
@@ -328,12 +384,33 @@ def on_print_failed(printer_id: int, filename: str, reason: str = None):
 
 def on_print_cancelled(printer_id: int, filename: str = None):
     """Called by PrusaLink/Elegoo monitors when a print is cancelled."""
-    pj_id = _active_print_jobs.pop(printer_id, None)
+    pj_id = _active_print_jobs.pop(printer_id, None) or _resolve_education_print_job(printer_id)
     if pj_id:
         job_cancelled(
             printer_id=printer_id,
             print_job_id=pj_id,
         )
+
+
+def _resolve_education_print_job(printer_id: int) -> int | None:
+    """Recover only a unique policy-linked running observation after restart."""
+    policy = _education_policy()
+    if not policy:
+        return None
+    try:
+        with get_db() as conn:
+            result = policy.resolve_active_monitor_observation(conn, printer_id=printer_id)
+        if result.get("authorized"):
+            return int(result["print_job_id"])
+        if result.get("education_owned"):
+            log.error(
+                "Education observation recovery refused for printer %s (ambiguous=%s)",
+                printer_id,
+                result.get("ambiguous", False),
+            )
+    except Exception as exc:
+        log.error("Education observation recovery failed for printer %s: %s", printer_id, exc)
+    return None
 
 
 def on_print_paused(printer_id: int):

@@ -116,6 +116,7 @@ class MoonrakerStatus:
 
     # Error message (from webhooks.state_message on error)
     error_message: str = ""
+    raw_print_state: str = "unknown"
 
     # Printer info
     device_type: str = ""

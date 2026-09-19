@@ -126,6 +126,24 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _normalized_schema_sql(value: str | None) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+_ALLOWED_SQLITE_TRIGGERS = {
+    "trg_education_audit_no_update": _normalized_schema_sql(
+        "CREATE TRIGGER trg_education_audit_no_update BEFORE UPDATE ON "
+        "education_audit_events BEGIN SELECT RAISE(ABORT, "
+        "'education audit events are immutable'); END"
+    ),
+    "trg_education_audit_no_delete": _normalized_schema_sql(
+        "CREATE TRIGGER trg_education_audit_no_delete BEFORE DELETE ON "
+        "education_audit_events BEGIN SELECT RAISE(ABORT, "
+        "'education audit events are immutable'); END"
+    ),
+}
+
+
 @contextlib.contextmanager
 def restore_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -157,9 +175,10 @@ def validate_database(path: Path) -> dict[str, object]:
             if foreign_key_violation:
                 raise BackupValidationError("Backup failed relational integrity checking")
             objects = connection.execute(
-                "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'trigger', 'view')"
+                "SELECT type, name, tbl_name, sql FROM sqlite_master "
+                "WHERE type IN ('table', 'trigger', 'view')"
             ).fetchall()
-            tables = {name for kind, name in objects if kind == "table"}
+            tables = {name for kind, name, _, _ in objects if kind == "table"}
             missing = sorted(REQUIRED_TABLES - tables)
             if missing:
                 raise BackupValidationError(
@@ -178,8 +197,19 @@ def validate_database(path: Path) -> dict[str, object]:
                         f"Backup table {table} is missing required columns: "
                         + ", ".join(missing_columns)
                     )
-            if any(kind in {"trigger", "view"} for kind, _ in objects):
+            if any(kind == "view" for kind, _, _, _ in objects):
                 raise BackupValidationError("Backup contains unexpected triggers or views")
+            for kind, name, table_name, statement in objects:
+                if kind != "trigger":
+                    continue
+                if (
+                    table_name != "education_audit_events"
+                    or _ALLOWED_SQLITE_TRIGGERS.get(name)
+                    != _normalized_schema_sql(statement)
+                ):
+                    raise BackupValidationError(
+                        "Backup contains unexpected triggers or views"
+                    )
         finally:
             connection.close()
     except sqlite3.Error as exc:

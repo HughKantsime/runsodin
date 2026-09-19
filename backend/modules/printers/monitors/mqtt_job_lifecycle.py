@@ -19,6 +19,12 @@ from core.db_compat import sql
 log = logging.getLogger('mqtt_monitor')
 
 
+def _education_policy():
+    from core.registry import registry
+
+    return registry.get_provider("EducationPolicyProvider")
+
+
 def record_job_started(
     printer_id: int,
     printer_name: str,
@@ -62,12 +68,57 @@ def record_job_started(
                 # Grab write lock upfront so SELECT->UPDATE sequences are atomic
                 cur.execute("BEGIN IMMEDIATE")
 
+                # ODIN-issued token observations are policy-owned or permanently
+                # quarantined. They must bypass every generic matcher and bump.
+                policy = _education_policy()
+                classification = (
+                    policy.classify_monitor_observation(
+                        conn,
+                        printer_id=printer_id,
+                        observed_filename=job_name,
+                    )
+                    if policy
+                    else None
+                )
+                if classification and (
+                    classification.get("education_owned")
+                    or classification.get("education_reserved")
+                ):
+                    # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- params are bound; interpolation is the fixed dialect returning-id clause
+                    cur.execute(f"""
+                        INSERT INTO print_jobs
+                        (printer_id, job_id, filename, job_name, started_at, status,
+                         total_layers, bed_temp_target, nozzle_temp_target)
+                        VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?)
+                        {sql.returning_id()}
+                    """, (printer_id, str(mqtt_job_id), filename, job_name,
+                          datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                          total_layers or None, bed_target, nozzle_target))
+                    if sql.is_postgres:
+                        new_job_id = cur.fetchone()[0]
+                    else:
+                        new_job_id = cur.lastrowid
+                    claimed = policy.claim_monitor_observation(
+                        conn,
+                        print_job_id=new_job_id,
+                        printer_id=printer_id,
+                        observed_filename=job_name,
+                    )
+                    linked_job_id = (
+                        int(claimed["job_id"]) if claimed.get("authorized") else None
+                    )
+                    conn.execute("COMMIT")
+                    return new_job_id, linked_job_id, {}
+
                 # ---- Stale schedule cleanup ----
                 # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 cur.execute(f"""
                     SELECT id, item_name FROM jobs
                     WHERE printer_id = ? AND status = 'scheduled'
                       AND scheduled_start < {sql.now_offset('-2 hours', local=True)}
+                      AND NOT EXISTS (
+                          SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id
+                      )
                 """, (printer_id,))
                 stale_rows = cur.fetchall()
                 if stale_rows:
@@ -96,6 +147,9 @@ def record_job_started(
                     LEFT JOIN print_files pf ON m.id = pf.model_id
                     WHERE j.printer_id = ?
                     AND j.status IN ('scheduled', 'pending')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM education_submissions s WHERE s.job_id=j.id
+                    )
                     ORDER BY j.scheduled_start ASC
                     LIMIT 10
                 """, (printer_id,))
@@ -162,6 +216,9 @@ def record_job_started(
                     cur.execute("""
                         SELECT id, item_name FROM jobs
                         WHERE printer_id = ? AND status = 'scheduled'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id
+                          )
                     """, (printer_id,))
                     displaced = cur.fetchall()
                     if displaced:
@@ -309,6 +366,28 @@ def record_job_ended(
                     duration_hours = round(duration_seconds / 3600, 4)
                 except Exception as e:
                     log.debug(f"Failed to parse job duration: {e}")
+
+            policy = _education_policy()
+            if policy:
+                education_result = policy.terminal_monitor_observation(
+                    conn,
+                    print_job_id=current_job_id,
+                    printer_id=printer_id,
+                    terminal_status=status,
+                    ended_at=now_utc,
+                    duration_seconds=duration_seconds,
+                    error_code=str(error_code) if error_code else None,
+                )
+                if education_result.get("education_owned") or education_result.get(
+                    "education_reserved"
+                ):
+                    conn.commit()
+                    log.info(
+                        "[%s] Education job terminal policy result: %s",
+                        printer_name,
+                        education_result,
+                    )
+                    return education_result.get("job_id") or linked_job_id
 
             # Calculate filament used by comparing AMS remain percentages
             filament_used_g = None

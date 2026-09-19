@@ -169,6 +169,29 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
 
             print_job_id, scheduled_job_id, job_name, started_at = row
 
+            from core.registry import registry
+
+            policy = registry.get_provider("EducationPolicyProvider")
+            if policy:
+                education_result = policy.terminal_monitor_observation(
+                    conn,
+                    print_job_id=print_job_id,
+                    printer_id=printer_id,
+                    terminal_status="failed",
+                    error_code=hms_code,
+                )
+                if education_result.get("education_owned") or education_result.get(
+                    "education_reserved"
+                ):
+                    conn.commit()
+                    log.warning(
+                        "Printer %s: HMS %s handled by Education terminal policy: %s",
+                        printer_id,
+                        hms_code,
+                        education_result,
+                    )
+                    return education_result
+
             # Mark print_jobs as failed (WHERE status='running' guards against races)
             # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
             cur.execute(f"""
@@ -213,7 +236,9 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
         log.error(f"Failed to check/fail active job for HMS on printer {printer_id}: {e}")
 
 
-def process_hms_errors(printer_id: int, hms_data: list):
+def process_hms_errors(
+    printer_id: int, hms_data: list, observed_filename: str | None = None
+):
     """
     Process HMS errors from Bambu printer.
     Creates alerts for new errors. Fails active jobs for print-stopping codes.
@@ -237,7 +262,40 @@ def process_hms_errors(printer_id: int, hms_data: list):
     except Exception as e:
         log.error(f"Failed to store HMS errors for printer {printer_id}: {e}")
 
-    # Create alert for most severe error
+    # Classify before either the outer printer-error alert or print-failure path.
+    # Local sanitized telemetry/history remains allowed for Education.
+    from core.interfaces.education_policy import is_education_reserved_filename
+
+    education_suppressed = is_education_reserved_filename(observed_filename)
+    try:
+        from core.registry import registry
+
+        policy = registry.get_provider("EducationPolicyProvider")
+        if policy:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT id,filename,job_name FROM print_jobs "
+                    "WHERE printer_id=? AND status='running' ORDER BY started_at DESC LIMIT 1",
+                    (printer_id,),
+                ).fetchone()
+                classification = policy.classify_monitor_observation(
+                    conn,
+                    printer_id=printer_id,
+                    print_job_id=row[0] if row else None,
+                    observed_filename=(
+                        observed_filename
+                        or (row[1] if row else None)
+                        or (row[2] if row else None)
+                    ),
+                )
+                education_suppressed = bool(
+                    classification.get("education_owned")
+                    or classification.get("education_reserved")
+                )
+    except Exception as exc:
+        log.error("Failed to classify HMS observation for printer %s: %s", printer_id, exc)
+
+    # Create an external alert only for generic observations.
     worst = max(errors, key=lambda e: {"info": 0, "warning": 1, "error": 2, "critical": 3}.get(e["severity"], 0))
     record_error(
         printer_id=printer_id,
@@ -245,7 +303,7 @@ def process_hms_errors(printer_id: int, hms_data: list):
         error_message=worst["message"],
         source="bambu_hms",
         severity=worst["severity"],
-        create_alert=True
+        create_alert=not education_suppressed
     )
 
     # Check if any HMS code should fail the active print job
@@ -253,3 +311,8 @@ def process_hms_errors(printer_id: int, hms_data: list):
         if err["code"] in PRINT_STOPPING_HMS_CODES:
             _fail_active_job_for_hms(printer_id, err["code"], err["message"])
             break  # Only fail once per HMS batch
+
+    return {
+        "education_suppressed": education_suppressed,
+        "errors": errors,
+    }

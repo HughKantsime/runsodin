@@ -54,6 +54,23 @@ def test_daemon_dbapi_adapter_preserves_quoted_qmarks() -> None:
     )
 
 
+def test_postgres_check_fingerprint_normalizes_dump_restore_array_casts() -> None:
+    from core.schema.bootstrap import _normalize_check_definition
+
+    canonical = (
+        "state::text = ANY (ARRAY['pending'::character varying, "
+        "'complete'::character varying]::text[])"
+    )
+    restored = (
+        "state::text = ANY (ARRAY['pending'::character varying::text, "
+        "'complete'::character varying::text])"
+    )
+    assert _normalize_check_definition(
+        canonical, "postgresql"
+    ) == _normalize_check_definition(restored, "postgresql")
+    assert _normalize_check_definition(canonical, "sqlite") == canonical
+
+
 def test_sqlite_bootstrap_is_checksummed_idempotent_and_preserves_data(
     tmp_path: Path,
 ) -> None:

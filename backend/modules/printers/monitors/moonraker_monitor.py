@@ -331,9 +331,22 @@ class MoonrakerMonitor:
 
             # Job ended (was running/paused, now idle/error)
             elif self._prev_state in ("RUNNING", "PAUSE") and internal_state in ("IDLE", "FAILED"):
-                end_status = "completed" if internal_state == "IDLE" else "failed"
-                self._job_ended(end_status, status)
-                threading.Thread(target=self._try_dispatch, daemon=True).start()
+                raw_terminal = getattr(status, "raw_print_state", "unknown")
+                education_terminal_status = {
+                    "complete": "completed",
+                    "cancelled": "cancelled",
+                    "error": "failed",
+                }.get(raw_terminal)
+                end_status = education_terminal_status or (
+                    "completed" if internal_state == "IDLE" else "failed"
+                )
+                education_suppressed = self._job_ended(
+                    end_status,
+                    status,
+                    education_terminal_status=education_terminal_status,
+                )
+                if not education_suppressed:
+                    threading.Thread(target=self._try_dispatch, daemon=True).start()
 
                 # Capture Klipper error message on failure
                 if end_status == "failed" and status.error_message:
@@ -368,16 +381,52 @@ class MoonrakerMonitor:
 
         try:
             with engine.begin() as conn:
+                from core.registry import registry
+
+                policy = registry.get_provider("EducationPolicyProvider")
+                classification = (
+                    policy.classify_monitor_observation(
+                        conn,
+                        printer_id=self.printer_id,
+                        observed_filename=filename,
+                    )
+                    if policy
+                    else None
+                )
+                education_sensitive = bool(
+                    classification
+                    and (
+                        classification.get("education_owned")
+                        or classification.get("education_reserved")
+                    )
+                )
                 # Check for existing running job — resume it instead of creating duplicate
                 existing = conn.execute(
-                    text("SELECT id, job_name FROM print_jobs "
+                    text("SELECT id, job_name, filename, scheduled_job_id FROM print_jobs "
                     "WHERE printer_id = :pid AND status = 'running' ORDER BY id DESC LIMIT 1"),
                     {"pid": self.printer_id}).fetchone()
                 if existing:
-                    self._current_job_db_id = existing[0]
-                    self._last_filename = existing[1] or filename
-                    log.info(f"[{self.name}] Resumed tracking existing job {existing[0]} ({existing[1]})")
-                    return
+                    if education_sensitive:
+                        claimed = policy.claim_monitor_observation(
+                            conn,
+                            print_job_id=existing[0],
+                            printer_id=self.printer_id,
+                            observed_filename=filename,
+                        )
+                        if claimed.get("authorized"):
+                            self._current_job_db_id = existing[0]
+                            self._last_filename = existing[1] or filename
+                            log.info(
+                                "[%s] Resumed exact Education observation %s",
+                                self.name,
+                                existing[0],
+                            )
+                            return
+                    else:
+                        self._current_job_db_id = existing[0]
+                        self._last_filename = existing[1] or filename
+                        log.info(f"[{self.name}] Resumed tracking existing job {existing[0]} ({existing[1]})")
+                        return
 
                 insert_sql = (
                     "INSERT INTO print_jobs"
@@ -398,20 +447,38 @@ class MoonrakerMonitor:
                     conn, insert_sql, params
                 )
                 self._last_filename = filename
+                if education_sensitive:
+                    claimed = policy.claim_monitor_observation(
+                        conn,
+                        print_job_id=self._current_job_db_id,
+                        printer_id=self.printer_id,
+                        observed_filename=filename,
+                    )
+                    if claimed.get("authorized"):
+                        log.info(
+                            "[%s] Claimed Education observation %s for job %s",
+                            self.name,
+                            self._current_job_db_id,
+                            claimed.get("job_id"),
+                        )
             log.info(f"[{self.name}] Job started: {filename} (DB id: {self._current_job_db_id})")
 
             # Attempt auto-link to scheduled job (same logic as Bambu monitor)
-            self._try_auto_link(filename, total_layers)
+            if not education_sensitive:
+                self._try_auto_link(filename, total_layers)
 
         except Exception as e:
+            self._current_job_db_id = None
             log.error(f"[{self.name}] Failed to record job start: {e}")
     
-    def _job_ended(self, end_status: str, status):
+    def _job_ended(
+        self, end_status: str, status, *, education_terminal_status: str | None = None
+    ) -> bool:
         """Record a print job ending."""
         import modules.notifications.event_dispatcher as printer_events
         if not self._current_job_db_id:
             log.warning(f"[{self.name}] Job ended but no current job tracked")
-            return
+            return False
         
         try:
             with engine.begin() as conn:
@@ -429,6 +496,45 @@ class MoonrakerMonitor:
                         duration_seconds = int((ended - started).total_seconds())
                     except Exception as e:
                         log.debug(f"Failed to parse duration: {e}")
+
+                from core.registry import registry
+
+                policy = registry.get_provider("EducationPolicyProvider")
+                classification = (
+                    policy.classify_monitor_observation(
+                        conn,
+                        printer_id=self.printer_id,
+                        print_job_id=self._current_job_db_id,
+                        observed_filename=status.filename or self._last_filename,
+                    )
+                    if policy
+                    else None
+                )
+                if classification and (
+                    classification.get("education_owned")
+                    or classification.get("education_reserved")
+                ):
+                    if education_terminal_status is None:
+                        log.error(
+                            "[%s] Ambiguous Moonraker terminal state %s; Education authority unchanged",
+                            self.name,
+                            getattr(status, "raw_print_state", "unknown"),
+                        )
+                        return True
+                    result = policy.terminal_monitor_observation(
+                        conn,
+                        print_job_id=self._current_job_db_id,
+                        printer_id=self.printer_id,
+                        terminal_status=education_terminal_status,
+                        ended_at=now_utc,
+                        duration_seconds=duration_seconds,
+                        error_code=status.error_message or None,
+                    )
+                    if result.get("education_owned") or result.get("education_reserved"):
+                        log.info("[%s] Education terminal result: %s", self.name, result)
+                        self._current_job_db_id = None
+                        self._last_filename = ""
+                        return True
 
                 # Calculate filament used (Klipper reports mm extruded)
                 # Convert mm to grams: PLA ~1.24 g/cm³, 1.75mm filament ≈ 2.98g/m
@@ -520,9 +626,11 @@ class MoonrakerMonitor:
 
             self._current_job_db_id = None
             self._last_filename = ""
+            return False
             
         except Exception as e:
             log.error(f"[{self.name}] Failed to record job end: {e}")
+            return False
     
     def _update_progress(self, status):
         """Update progress in DB (throttled)."""
@@ -612,6 +720,9 @@ class MoonrakerMonitor:
                     JOIN models m ON pf.model_id = m.id
                     WHERE j.printer_id = :pid
                       AND j.status IN ('scheduled', 'pending')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM education_submissions s WHERE s.job_id=j.id
+                      )
                 """), {"pid": self.printer_id}).mappings().fetchall()
 
                 if not candidates:

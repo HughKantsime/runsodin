@@ -21,6 +21,7 @@ admin_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 app_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 maintenance_password_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 runtime_secret_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
+runtime_diagnostic_file="$(mktemp "${PWD}/.odin-pg-restore.XXXXXX")"
 step="initialize"
 
 cleanup() {
@@ -34,6 +35,7 @@ cleanup() {
     unlink "${app_password_file}" >/dev/null 2>&1 || true
     unlink "${maintenance_password_file}" >/dev/null 2>&1 || true
     unlink "${runtime_secret_file}" >/dev/null 2>&1 || true
+    unlink "${runtime_diagnostic_file}" >/dev/null 2>&1 || true
 }
 
 on_error() {
@@ -42,6 +44,8 @@ on_error() {
     docker logs --tail 60 "${postgres_container}" 2>/dev/null || true
     docker logs --tail 60 "${api_container}" 2>/dev/null || true
     docker logs --tail 60 "${worker_container}" 2>/dev/null || true
+    tail -n 120 "${runtime_diagnostic_file}" 2>/dev/null || true
+    printf 'database parity restore drill failed at %s (exit %s)\n' "${step}" "${code}" >&2
     exit "${code}"
 }
 
@@ -248,7 +252,8 @@ docker run --rm \
     --mount "type=bind,src=${runtime_secret_file},dst=/run/secrets/runtime,readonly" \
     --mount "type=bind,src=${PWD}/ops/database_parity/runtime_probe.py,dst=/workspace/runtime_probe.py,readonly" \
     "${image}" \
-    -c 'set -a; source /run/secrets/runtime; set +a; exec python3 /workspace/runtime_probe.py'
+    -c 'set -a; source /run/secrets/runtime; set +a; exec python3 /workspace/runtime_probe.py' \
+    2>&1 | tee "${runtime_diagnostic_file}"
 
 step="offline restore scenarios"
 docker run --rm \
@@ -282,7 +287,8 @@ restored_runtime="$(docker run --rm \
     --mount "type=bind,src=${runtime_secret_file},dst=/run/secrets/runtime,readonly" \
     --mount "type=bind,src=${PWD}/ops/database_parity/runtime_probe.py,dst=/workspace/runtime_probe.py,readonly" \
     "${image}" \
-    -c 'set -a; source /run/secrets/runtime; set +a; exec python3 /workspace/runtime_probe.py')"
+    -c 'set -a; source /run/secrets/runtime; set +a; exec python3 /workspace/runtime_probe.py' \
+    2>&1 | tee "${runtime_diagnostic_file}")"
 printf '%s\n' "${restored_runtime}"
 grep -Fq "postgresql-restored-runtime: PASS" <<<"${restored_runtime}"
 
