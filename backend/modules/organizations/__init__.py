@@ -12,6 +12,7 @@ ROUTES = [
     "organizations.routes_permissions",
     "organizations.routes_education",
     "organizations.routes_education_submissions",
+    "organizations.routes_education_reviews",
 ]
 
 TABLES = [
@@ -49,6 +50,7 @@ def register(app, registry) -> None:
         auth_routes,
         routes,
         routes_education,
+        routes_education_reviews,
         routes_education_submissions,
     )
     from modules.organizations.services import EducationPolicyService, OrgSettingsService
@@ -58,6 +60,7 @@ def register(app, registry) -> None:
         auth_routes.router,
         routes_education.router,
         routes_education_submissions.router,
+        routes_education_reviews.router,
     ):
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")

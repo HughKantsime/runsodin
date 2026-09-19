@@ -96,3 +96,23 @@ class PrinterReplacement(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("printer_ids must be unique")
         return value
+
+
+class SubmissionApproval(BaseModel):
+    revision: int = Field(ge=1)
+    printer_id: int = Field(gt=0)
+    command_id: UUID
+
+
+class SubmissionRejection(BaseModel):
+    revision: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=1000)
+    command_id: UUID
+
+    @field_validator("reason")
+    @classmethod
+    def reject_blank_rejection_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
