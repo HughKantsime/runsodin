@@ -1,4 +1,4 @@
-.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate test-practical-evidence test-promotion-workflow test-mutation-workflows test-registry-contract practical-evidence verify-practical-evidence verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness ctec-poc-preflight test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate test-practical-evidence test-promotion-workflow test-mutation-workflows test-registry-contract practical-evidence verify-practical-evidence verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
@@ -145,6 +145,9 @@ test-edu-readiness: ## Run all deterministic EDU readiness checks (currently fai
 	$(PYTHON) ops/edu_readiness/generate_report.py --run-dir $(EDU_RUN_DIR) || status=1; \
 	$(PYTHON) ops/edu_readiness/artifact_scan.py --run-id $(EDU_RUN_ID) $(EDU_RUN_DIR) || status=1; \
 	exit $$status
+
+ctec-poc-preflight: ## Emit read-only, sanitized CTEC POC readiness JSON and HTML
+	PYTHONPATH=backend:. $(PYTHON) -m ops.ctec_poc.preflight --output-dir artifacts/ctec-poc-preflight $(if $(REQUIRE_CLASSROOM),--require-classroom,)
 
 verify-edu-live: ## Read-only TLS, legal-source, and physical-hardware readiness rows
 	@mkdir -p $(EDU_RUN_DIR)

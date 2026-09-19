@@ -34,6 +34,7 @@ RBAC_DEFAULT_PAGE_ACCESS = {
     "admin": ["admin"],
     "branding": ["admin"],
     "education_reports": ["admin", "operator"],
+    "education": ["admin", "operator", "viewer"],
     "orders": ["admin", "operator", "viewer"],
     "products": ["admin", "operator", "viewer"],
     "alerts": ["admin", "operator", "viewer"],

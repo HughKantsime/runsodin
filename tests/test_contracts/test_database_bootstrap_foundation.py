@@ -81,6 +81,9 @@ def test_sqlite_bootstrap_is_checksummed_idempotent_and_preserves_data(
     first = bootstrap_database(engine, BACKEND)
     assert first["dialect"] == "sqlite"
     assert first["applied"]
+    assert first["applied"].index("python:002-education-tenant-integrity") < first[
+        "applied"
+    ].index("modules/organizations/migrations/003_google_classroom.sql")
     with engine.begin() as connection:
         connection.execute(
             text(

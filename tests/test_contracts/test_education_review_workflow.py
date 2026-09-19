@@ -173,6 +173,169 @@ def test_private_projection_respects_student_manager_admin_and_tenant(review_db)
     assert item["submitter_username"] == "student"
 
 
+def test_submission_cursor_descending_boundary_has_no_duplicates_or_skips(review_db):
+    from modules.organizations.education_review_service import list_visible_submissions
+
+    with review_db.begin():
+        review_db.execute(
+            text(
+                "UPDATE education_submissions SET created_at='2026-09-19 12:00:00', "
+                "updated_at='2026-09-19 12:00:00' WHERE id=14"
+            )
+        )
+        for offset in range(1, 5):
+            operation_id = f"upload-page-{offset}"
+            file_id = 20 + offset
+            model_id = 30 + offset
+            job_id = 40 + offset
+            submission_id = 50 + offset
+            review_db.execute(
+                text(
+                    "INSERT INTO education_upload_operations "
+                    "(operation_id,org_id,user_id,state,reservation_released_at) "
+                    "VALUES (:operation_id,1,1,'committed',CURRENT_TIMESTAMP)"
+                ),
+                {"operation_id": operation_id},
+            )
+            review_db.execute(
+                text(
+                    "INSERT INTO print_files "
+                    "(id,filename,original_filename,project_name,stored_path,org_id,created_by,"
+                    "storage_bytes,blob_state,compatibility_facts_json) "
+                    "VALUES (:file_id,:filename,:filename,:name,:path,1,1,1,'present',:facts)"
+                ),
+                {
+                    "file_id": file_id,
+                    "filename": f"page-{offset}.3mf",
+                    "name": f"Page {offset}",
+                    "path": f"/opaque/{operation_id}.3mf",
+                    "facts": json.dumps(_file_facts(), sort_keys=True),
+                },
+            )
+            review_db.execute(
+                text(
+                    "INSERT INTO models (id,name,print_file_id,category,org_id) "
+                    "VALUES (:model_id,:name,:file_id,'Education Submission',1)"
+                ),
+                {"model_id": model_id, "name": f"Page {offset}", "file_id": file_id},
+            )
+            review_db.execute(
+                text("UPDATE print_files SET model_id=:model_id WHERE id=:file_id"),
+                {"model_id": model_id, "file_id": file_id},
+            )
+            review_db.execute(
+                text(
+                    "INSERT INTO jobs "
+                    "(id,model_id,item_name,status,submitted_by,charged_to_user_id,charged_to_org_id) "
+                    "VALUES (:job_id,:model_id,:name,'submitted',1,1,1)"
+                ),
+                {"job_id": job_id, "model_id": model_id, "name": f"Page {offset}"},
+            )
+            review_db.execute(
+                text(
+                    "INSERT INTO education_submissions "
+                    "(id,org_id,operation_id,job_id,print_file_id,model_id,cost_center_id,"
+                    "submitted_by,status,lifecycle_revision,created_at,updated_at) "
+                    "VALUES (:submission_id,1,:operation_id,:job_id,:file_id,:model_id,7,"
+                    "1,'submitted',1,'2026-09-19 12:00:00','2026-09-19 12:00:00')"
+                ),
+                {
+                    "submission_id": submission_id,
+                    "operation_id": operation_id,
+                    "job_id": job_id,
+                    "file_id": file_id,
+                    "model_id": model_id,
+                },
+            )
+
+    principal = _principal(2)
+    first = list_visible_submissions(review_db, principal=principal, limit=2)
+    second = list_visible_submissions(
+        review_db, principal=principal, limit=2, cursor=first["next_cursor"]
+    )
+    third = list_visible_submissions(
+        review_db, principal=principal, limit=2, cursor=second["next_cursor"]
+    )
+    ids = [item["id"] for page in (first, second, third) for item in page["items"]]
+
+    assert ids == [54, 53, 52, 51, 14]
+    assert len(ids) == len(set(ids))
+    assert third["next_cursor"] is None
+
+
+def test_submission_cursor_is_bound_to_request_filters_and_identity(review_db):
+    from core.errors import OdinError
+    from modules.organizations.education_review_service import list_visible_submissions
+
+    first = list_visible_submissions(review_db, principal=_principal(2), limit=1)
+    cursor = first["next_cursor"]
+    assert cursor is None
+
+    # Add a second complete graph so a cursor is emitted.
+    review_db.execute(
+        text(
+            "INSERT INTO education_upload_operations "
+            "(operation_id,org_id,user_id,state,reservation_released_at) "
+            "VALUES ('upload-filter',1,1,'committed',CURRENT_TIMESTAMP)"
+        )
+    )
+    review_db.execute(
+        text(
+            "INSERT INTO print_files "
+            "(id,filename,original_filename,project_name,stored_path,org_id,created_by,"
+            "storage_bytes,blob_state,compatibility_facts_json) "
+            "VALUES (21,'filter.3mf','filter.3mf','Filter','/opaque/filter.3mf',1,1,1,"
+            "'present',:facts)"
+        ),
+        {"facts": json.dumps(_file_facts(), sort_keys=True)},
+    )
+    review_db.execute(
+        text(
+            "INSERT INTO models (id,name,print_file_id,category,org_id) "
+            "VALUES (31,'Filter',21,'Education Submission',1)"
+        )
+    )
+    review_db.execute(text("UPDATE print_files SET model_id=31 WHERE id=21"))
+    review_db.execute(
+        text(
+            "INSERT INTO jobs "
+            "(id,model_id,item_name,status,submitted_by,charged_to_user_id,charged_to_org_id) "
+            "VALUES (41,31,'Filter','submitted',1,1,1)"
+        )
+    )
+    review_db.execute(
+        text(
+            "INSERT INTO education_submissions "
+            "(id,org_id,operation_id,job_id,print_file_id,model_id,cost_center_id,"
+            "submitted_by,status,lifecycle_revision,created_at,updated_at) "
+            "VALUES (15,1,'upload-filter',41,21,31,7,1,'submitted',1,"
+            "'2026-09-18 12:00:00','2026-09-18 12:00:00')"
+        )
+    )
+    review_db.commit()
+    cursor = list_visible_submissions(review_db, principal=_principal(2), limit=1)["next_cursor"]
+    assert cursor
+
+    with pytest.raises(OdinError) as mismatch:
+        list_visible_submissions(
+            review_db,
+            principal=_principal(2),
+            status="submitted",
+            limit=1,
+            cursor=cursor,
+        )
+    assert mismatch.value.code.value == "invalid_cursor"
+
+    with pytest.raises(OdinError) as identity:
+        list_visible_submissions(
+            review_db,
+            principal=_principal(3, role="admin"),
+            limit=1,
+            cursor=cursor,
+        )
+    assert identity.value.code.value == "invalid_cursor"
+
+
 def test_manager_approval_is_atomic_audited_notified_and_replayable(review_db):
     from modules.organizations.education_review_service import approve_submission
     from modules.organizations.education_schemas import SubmissionApproval
@@ -236,6 +399,61 @@ def test_incompatible_approval_fails_closed_without_partial_rows(review_db):
     assert review_db.execute(
         text("SELECT COUNT(*) FROM education_notification_outbox")
     ).scalar_one() == 0
+
+
+def test_manager_can_preview_only_entitled_current_submission_compatibility(review_db):
+    from core.errors import OdinError
+    from modules.organizations.education_review_service import (
+        preview_submission_compatibility,
+    )
+
+    compatible = preview_submission_compatibility(
+        review_db,
+        submission_id=14,
+        printer_id=9,
+        revision=1,
+        principal=_principal(2),
+    )
+    assert compatible["compatible"] is True
+    assert compatible["submission_id"] == 14
+    assert compatible["printer_id"] == 9
+
+    incompatible = preview_submission_compatibility(
+        review_db,
+        submission_id=14,
+        printer_id=10,
+        revision=1,
+        principal=_principal(2),
+    )
+    assert incompatible["compatible"] is False
+    assert incompatible["reasons"]
+
+    with pytest.raises(OdinError) as stale:
+        preview_submission_compatibility(
+            review_db,
+            submission_id=14,
+            printer_id=9,
+            revision=2,
+            principal=_principal(2),
+        )
+    assert stale.value.code.value == "revision_conflict"
+
+    review_db.execute(
+        text(
+            "UPDATE education_cost_center_printers SET state='revoked' "
+            "WHERE cost_center_id=7 AND printer_id=9"
+        )
+    )
+    review_db.commit()
+    with pytest.raises(OdinError) as revoked:
+        preview_submission_compatibility(
+            review_db,
+            submission_id=14,
+            printer_id=9,
+            revision=1,
+            principal=_principal(2),
+        )
+    assert revoked.value.code.value == "not_found"
 
 
 def test_shared_printer_and_cross_submission_command_reuse_fail_closed(review_db):

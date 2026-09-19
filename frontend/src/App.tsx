@@ -55,6 +55,7 @@ import ArchivesPage from './pages/archives/Archives'
 import PrintLog from './pages/analytics/PrintLog'
 import ProjectsPage from './pages/models/Projects'
 import Profiles from './pages/models/Profiles'
+import EducationWorkbench from './pages/education/EducationWorkbench'
 import { setup } from './api'
 import useWebSocket from './hooks/useWebSocket'
 import useKeyboardShortcuts from './hooks/useKeyboardShortcuts'
@@ -178,6 +179,7 @@ export default function App() {
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/detections" element={<Detections />} />
             <Route path="/education-reports" element={<ProGate feature="usage_reports" tier="Pro"><EducationReports /></ProGate>} />
+            <Route path="/education" element={<RoleGate page="education"><ProGate feature="education_workflows" tier="Education"><EducationWorkbench /></ProGate></RoleGate>} />
             <Route path="/timelapses" element={<Timelapses />} />
             <Route path="/archives" element={<ArchivesPage />} />
             <Route path="/projects" element={<ProjectsPage />} />

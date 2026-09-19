@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import os
 from pathlib import Path
 
 import pytest
@@ -24,9 +25,12 @@ def stack(tmp_path_factory: pytest.TempPathFactory):
 
 
 def headers(token: str) -> dict[str, str]:
-    # The perimeter intentionally accepts browser JWTs only from the HttpOnly
-    # session cookie when a global API key is configured.
-    return {"Cookie": f"session={token}"}
+    # This suite owns privacy lifecycle behavior. The operational-security
+    # suite separately proves browser HttpOnly-cookie perimeter behavior.
+    values = {"Authorization": f"Bearer {token}"}
+    if os.environ.get("API_KEY"):
+        values["X-API-Key"] = os.environ["API_KEY"]
+    return values
 
 
 def test_export_is_complete_but_excludes_credentials(stack):
@@ -114,7 +118,11 @@ def test_erasure_revokes_access_and_removes_canary_from_database(stack):
     erased = client.delete("/api/users/1/erase", headers=headers(tokens["admin"][0]))
     assert erased.status_code == 200, erased.text
     assert canary not in "\n".join(sqlite3.connect(database).iterdump())
-    assert client.get("/api/auth/me", headers=headers(tokens["viewer"][0])).status_code == 401
+    client.cookies.set("session", tokens["viewer"][0])
+    try:
+        assert client.get("/api/auth/me").status_code == 401
+    finally:
+        client.cookies.delete("session")
 
 
 def test_cross_tenant_canary_never_appears_in_viewer_reads(stack):

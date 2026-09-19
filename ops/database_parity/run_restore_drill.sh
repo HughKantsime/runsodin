@@ -44,6 +44,16 @@ on_error() {
     docker logs --tail 60 "${postgres_container}" 2>/dev/null || true
     docker logs --tail 60 "${api_container}" 2>/dev/null || true
     docker logs --tail 60 "${worker_container}" 2>/dev/null || true
+    docker inspect --format \
+        'api-state: status={{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}} image={{.Image}}' \
+        "${api_container}" 2>/dev/null || true
+    if docker volume inspect "${application_volume}" >/dev/null 2>&1; then
+        docker run --rm \
+            --entrypoint /bin/sh \
+            --mount "type=volume,src=${application_volume},dst=/data,readonly" \
+            "${image}" \
+            -c 'ls -la /data; for log in /data/supervisord-api.log /data/backend.log; do if [ -f "$log" ]; then printf "=== %s ===\n" "$log"; tail -n 120 "$log"; fi; done' || true
+    fi
     tail -n 120 "${runtime_diagnostic_file}" 2>/dev/null || true
     printf 'database parity restore drill failed at %s (exit %s)\n' "${step}" "${code}" >&2
     exit "${code}"

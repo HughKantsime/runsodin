@@ -1,8 +1,9 @@
 """
-O.D.I.N. — OIDC Authentication Handler
+O.D.I.N. — provider-neutral OIDC authentication handler.
 
-Supports Microsoft Entra ID (Azure AD) for enterprise SSO.
-GCC High compatible - uses configurable endpoints.
+Supports standards-based OIDC providers plus explicit Microsoft and Google
+policy profiles. Microsoft GCC High remains compatible through configurable
+discovery endpoints.
 
 Flow:
 1. User clicks "Sign in with Microsoft" 
@@ -13,13 +14,11 @@ Flow:
 6. Frontend receives JWT and logs in
 """
 
-import os
-import json
 import logging
 import secrets
 import httpx
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode
 from typing import Optional, Dict, Any
 
 log = logging.getLogger("oidc")
@@ -29,7 +28,7 @@ log = logging.getLogger("oidc")
 # window between startup and the first DB write.
 
 
-def _state_db_store(state: str, expires: datetime):
+def _state_db_store(state: str, nonce: str, expires: datetime):
     """Persist an OIDC state token to the database."""
     try:
         from core.db import SessionLocal
@@ -38,9 +37,9 @@ def _state_db_store(state: str, expires: datetime):
         db = SessionLocal()
         try:
             db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                f"{sql.upsert_prefix()} oidc_pending_states (state, expires_at) VALUES (:s, :e)"
-                f"{sql.on_conflict_suffix('state', ['expires_at'])}"
-            ), {"s": state, "e": expires.isoformat()})
+                f"{sql.upsert_prefix()} oidc_pending_states (state, nonce, expires_at) "
+                f"VALUES (:s, :n, :e){sql.on_conflict_suffix('state', ['nonce', 'expires_at'])}"
+            ), {"s": state, "n": nonce, "e": expires.isoformat()})
             db.commit()
         finally:
             db.close()
@@ -48,31 +47,34 @@ def _state_db_store(state: str, expires: datetime):
         log.warning("Failed to persist OIDC state to DB — falling back to memory")
 
 
-def _state_db_validate(state: str) -> bool:
-    """Check and consume an OIDC state token from SQLite. Returns True if valid."""
+def _state_db_consume(state: str) -> Optional[str]:
+    """Consume a state token and return its expected nonce when still valid."""
     try:
         from core.db import SessionLocal
         from sqlalchemy import text
         db = SessionLocal()
         try:
             row = db.execute(
-                text("SELECT expires_at FROM oidc_pending_states WHERE state = :s"),
+                text("SELECT expires_at, nonce FROM oidc_pending_states WHERE state = :s"),
                 {"s": state},
             ).fetchone()
             if not row:
-                return False
+                return None
             # Always delete (consume) the token
             db.execute(text("DELETE FROM oidc_pending_states WHERE state = :s"), {"s": state})
             db.commit()
             exp = datetime.fromisoformat(row[0])
             if exp.tzinfo is None:
                 exp = exp.replace(tzinfo=timezone.utc)
-            return datetime.now(timezone.utc) < exp
+            if datetime.now(timezone.utc) >= exp:
+                return None
+            nonce = row[1]
+            return nonce if isinstance(nonce, str) and nonce else None
         finally:
             db.close()
     except Exception:
         log.warning("Failed to validate OIDC state from DB", exc_info=True)
-        return False
+        return None
 
 
 def _state_db_cleanup():
@@ -115,16 +117,23 @@ class OIDCHandler:
         scopes: str = "openid profile email",
         discovery_url: Optional[str] = None,
         environment: str = "commercial",
+        provider_type: str = "microsoft",
+        allowed_domains: Optional[str] = None,
     ):
         self.client_id = client_id
         self.client_secret = client_secret
         self.tenant_id = tenant_id
         self.redirect_uri = redirect_uri
         self.scopes = scopes
+        self.provider_type = provider_type
+        self.allowed_domains = allowed_domains or ""
+        self._expected_nonce: Optional[str] = None
         
         # Use custom discovery URL or default based on environment
         if discovery_url:
             self.discovery_url = discovery_url
+        elif provider_type == "google":
+            self.discovery_url = "https://accounts.google.com/.well-known/openid-configuration"
         else:
             template = self.DISCOVERY_URLS.get(environment, self.DISCOVERY_URLS["commercial"])
             self.discovery_url = template.format(tenant=tenant_id)
@@ -172,9 +181,11 @@ class OIDCHandler:
         if not state:
             state = secrets.token_urlsafe(32)
 
-        # Store state with expiry in SQLite
+        nonce = secrets.token_urlsafe(32)
+
+        # Store state and its one-time nonce with the same expiry.
         expires = datetime.now(timezone.utc) + timedelta(minutes=10)
-        _state_db_store(state, expires)
+        _state_db_store(state, nonce, expires)
 
         # Periodic cleanup of expired states
         _state_db_cleanup()
@@ -185,16 +196,23 @@ class OIDCHandler:
             "redirect_uri": self.redirect_uri,
             "scope": self.scopes,
             "state": state,
+            "nonce": nonce,
             "response_mode": "query",
-            "prompt": "select_account",  # Always show account picker
+            "prompt": "select_account",
         }
+        if self.provider_type == "google":
+            domains = [part.strip().lower() for part in self.allowed_domains.split(",") if part.strip()]
+            if domains:
+                # Google accepts one hd hint. Enforcement uses the signed claim.
+                params["hd"] = domains[0]
         
         url = f"{auth_endpoint}?{urlencode(params)}"
         return url, state
     
     def validate_state(self, state: str) -> bool:
-        """Validate and consume state token from callback (DB-backed)."""
-        return _state_db_validate(state)
+        """Validate/consume state and retain the nonce for ID-token validation."""
+        self._expected_nonce = _state_db_consume(state)
+        return self._expected_nonce is not None
     
     async def exchange_code(self, code: str) -> Dict[str, Any]:
         """
@@ -229,32 +247,34 @@ class OIDCHandler:
                 return resp.json()
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
-        """
-        Get user info from Microsoft Graph API.
-        Returns dict with id, displayName, mail, etc.
-        """
-        # Microsoft Graph endpoint (same for commercial and GCC High)
-        graph_url = "https://graph.microsoft.com/v1.0/me"
-
-        # For GCC High, use different endpoint
-        if "microsoftonline.us" in self.discovery_url:
-            graph_url = "https://graph.microsoft.us/v1.0/me"
+        """Fetch allowlisted standard identity claims from discovery userinfo."""
+        config = await self._get_oidc_config()
+        userinfo_url = config.get("userinfo_endpoint")
+        if not isinstance(userinfo_url, str) or not userinfo_url:
+            raise ValueError("OIDC discovery document has no userinfo_endpoint")
 
         # v1.8.9 (codex pass 11): ITAR DNS-pinned Graph fetch.
         from core.itar import pin_for_request, should_trust_env
-        with pin_for_request(graph_url):
+        with pin_for_request(userinfo_url):
             async with httpx.AsyncClient(trust_env=should_trust_env()) as client:
                 resp = await client.get(
-                    graph_url,
+                    userinfo_url,
                     headers={"Authorization": f"Bearer {access_token}"},
                     timeout=10,
                 )
             
             if resp.status_code != 200:
-                log.error(f"User info fetch failed: {resp.status_code} {resp.text}")
-                raise Exception(f"Failed to get user info: {resp.text}")
-            
-            return resp.json()
+                log.error("OIDC userinfo fetch failed with status %s", resp.status_code)
+                raise ValueError("OIDC userinfo request failed")
+
+            raw = resp.json()
+            if not isinstance(raw, dict):
+                raise ValueError("OIDC userinfo response is invalid")
+            allowed = {
+                "sub", "email", "email_verified", "name", "given_name",
+                "family_name", "preferred_username", "mail", "userPrincipalName",
+            }
+            return {key: raw[key] for key in allowed if key in raw}
     
     async def parse_id_token(self, id_token: str) -> Dict[str, Any]:
         """
@@ -298,12 +318,15 @@ class OIDCHandler:
             if signing_key is None:
                 raise ValueError(f"No JWKS key matches kid={kid!r}")
 
+            allowed_issuers: str | tuple[str, ...] = issuer
+            if self.provider_type == "google":
+                allowed_issuers = ("https://accounts.google.com", "accounts.google.com")
             claims = _jwt.decode(
                 id_token,
                 signing_key.key,
                 algorithms=["RS256"],
                 audience=self.client_id,
-                issuer=issuer,
+                issuer=allowed_issuers,
                 options={
                     "verify_exp": True,
                     "verify_aud": True,
@@ -313,6 +336,11 @@ class OIDCHandler:
             )
             if not isinstance(claims.get("sub"), str) or not claims["sub"]:
                 raise ValueError("ID token subject is missing")
+            if not self._expected_nonce or not secrets.compare_digest(
+                str(claims.get("nonce", "")), self._expected_nonce
+            ):
+                raise ValueError("ID token nonce mismatch")
+            self._expected_nonce = None
             return claims
 
         except Exception as e:
@@ -345,4 +373,6 @@ def create_handler_from_config(config: Dict[str, Any], redirect_uri: str) -> OID
         scopes=config.get("scopes", "openid profile email"),
         discovery_url=discovery_url,
         environment=environment,
+        provider_type=config.get("provider_type", "microsoft"),
+        allowed_domains=config.get("allowed_domains"),
     )

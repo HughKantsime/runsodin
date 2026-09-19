@@ -392,6 +392,24 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
     quota_data = [dict(r._mapping) for r in db.execute(
         text("SELECT period_key, grams_used, hours_used, jobs_used, updated_at FROM quota_usage WHERE user_id = :uid"),
         {"uid": user_id}).fetchall()]
+    classroom_identity = [dict(r._mapping) for r in db.execute(
+        text(
+            "SELECT org_id, provider_user_id, normalized_email, state, last_seen_at, created_at "
+            "FROM classroom_roster_identities WHERE user_id=:uid"
+        ),
+        {"uid": user_id},
+    ).fetchall()]
+    classroom_memberships = [dict(r._mapping) for r in db.execute(
+        text(
+            "SELECT m.provider_course_id, m.course_name, c.display_name AS cost_center_name, "
+            "g.role, g.state, g.granted_at, g.revoked_at "
+            "FROM education_cost_center_grants g "
+            "JOIN classroom_course_mappings m ON m.cost_center_id=g.cost_center_id AND m.org_id=g.org_id "
+            "JOIN education_cost_centers c ON c.id=g.cost_center_id "
+            "WHERE g.user_id=:uid ORDER BY m.provider_course_id, g.role"
+        ),
+        {"uid": user_id},
+    ).fetchall()]
 
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -402,6 +420,8 @@ async def export_user_data(user_id: int, current_user: dict = Depends(require_ro
         "alert_preferences": prefs,
         "api_tokens": api_tokens_data,
         "quota_usage": quota_data,
+        "classroom_identity": classroom_identity,
+        "classroom_memberships": classroom_memberships,
     }
 
     log_audit(db, "gdpr_export", "user", user_id, f"Data exported for user {user.username}")
@@ -461,6 +481,35 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
                 "WHERE title LIKE :pattern OR message LIKE :pattern"
             ),
             {"identifier": identifier, "pattern": f"%{identifier}%"},
+        )
+
+    # Remove direct Classroom identity data and any unconsumed OAuth state.
+    # Operational course mappings and cost centers remain, while grants are
+    # revoked so the tombstoned user cannot retain classroom access.
+    db.execute(
+        text(
+            "UPDATE education_cost_center_grants SET state='revoked', revoked_by=:actor, "
+            "revoked_at=CURRENT_TIMESTAMP WHERE user_id=:uid AND state='active'"
+        ),
+        {"actor": current_user["id"], "uid": user_id},
+    )
+    db.execute(text("DELETE FROM classroom_roster_identities WHERE user_id=:uid"), {"uid": user_id})
+    db.execute(text("DELETE FROM classroom_oauth_states WHERE admin_id=:uid"), {"uid": user_id})
+    db.execute(
+        text("UPDATE classroom_connections SET created_by=NULL WHERE created_by=:uid"),
+        {"uid": user_id},
+    )
+    former_email = user_data.get("email")
+    if isinstance(former_email, str) and former_email:
+        db.execute(
+            text(
+                "UPDATE classroom_connections SET account_subject=NULL, account_email=NULL, "
+                "granted_scopes=NULL, refresh_token_encrypted=NULL, access_token_encrypted=NULL, "
+                "access_token_expires_at=NULL, state='not_connected', "
+                "last_error_code=NULL, updated_at=CURRENT_TIMESTAMP "
+                "WHERE LOWER(account_email)=:email"
+            ),
+            {"email": former_email.lower()},
         )
 
     # Historical audit detail strings can contain the former username (for

@@ -164,3 +164,6 @@ artifacts/release-control-local/
 artifacts/release-control-standalone/
 artifacts/trusted-validation/
 artifacts/practical-evidence-tests/
+artifacts/ctec-poc-preflight/
+artifacts/ctec-poc-readiness/
+artifacts/ctec-poc-ui/

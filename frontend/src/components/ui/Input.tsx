@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from 'react'
+import { forwardRef, useId, type InputHTMLAttributes } from 'react'
 import { type LucideIcon } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -16,13 +16,16 @@ const SIZE_CLASSES: Record<string, string> = {
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, icon: Icon, size = 'md', className, wrapperClassName, ...rest },
+  { label, error, icon: Icon, size = 'md', className, wrapperClassName, id, 'aria-describedby': ariaDescribedBy, ...rest },
   ref
 ) {
+  const generatedId = useId()
+  const controlId = id || generatedId
+  const errorId = `${controlId}-error`
   return (
     <div className={wrapperClassName}>
       {label && (
-        <label className="block text-xs font-medium text-[var(--brand-text-secondary)] mb-1">{label}</label>
+        <label htmlFor={controlId} className="block text-xs font-medium text-[var(--brand-text-secondary)] mb-1">{label}</label>
       )}
       <div className="relative">
         {Icon && (
@@ -33,6 +36,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         )}
         <input
           ref={ref}
+          id={controlId}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={[ariaDescribedBy, error ? errorId : ''].filter(Boolean).join(' ') || undefined}
           className={clsx(
             'w-full bg-[var(--brand-input-bg)] border border-[var(--brand-input-border)] rounded-lg px-3 text-[var(--brand-input-text)] focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] focus:outline-none',
             SIZE_CLASSES[size],
@@ -43,7 +49,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           {...rest}
         />
       </div>
-      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+      {error && <p id={errorId} className="text-xs text-red-400 mt-1">{error}</p>}
     </div>
   )
 })

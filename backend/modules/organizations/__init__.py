@@ -13,6 +13,7 @@ ROUTES = [
     "organizations.routes_education",
     "organizations.routes_education_submissions",
     "organizations.routes_education_reviews",
+    "organizations.routes_classroom",
 ]
 
 TABLES = [
@@ -31,6 +32,10 @@ TABLES = [
     "education_notification_outbox",
     "education_rate_counters",
     "education_storage_accounts",
+    "classroom_connections",
+    "classroom_oauth_states",
+    "classroom_course_mappings",
+    "classroom_roster_identities",
 ]
 
 PUBLISHES = []
@@ -52,6 +57,7 @@ def register(app, registry) -> None:
         routes_education,
         routes_education_reviews,
         routes_education_submissions,
+        routes_classroom,
     )
     from modules.organizations.services import EducationPolicyService, OrgSettingsService
 
@@ -61,6 +67,7 @@ def register(app, registry) -> None:
         routes_education.router,
         routes_education_submissions.router,
         routes_education_reviews.router,
+        routes_classroom.router,
     ):
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")

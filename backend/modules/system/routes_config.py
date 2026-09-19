@@ -152,6 +152,11 @@ async def run_retention_cleanup(current_user: dict = Depends(require_superadmin(
     db.execute(text("DELETE FROM token_blacklist WHERE expires_at < :now"), {"now": now})
     stale = now - timedelta(hours=48)
     db.execute(text("DELETE FROM active_sessions WHERE last_seen_at < :cutoff"), {"cutoff": stale})
+    expired_oauth = db.execute(
+        text("DELETE FROM classroom_oauth_states WHERE expires_at < :now"),
+        {"now": now.isoformat()},
+    )
+    deleted["classroom_oauth_states"] = expired_oauth.rowcount
 
     db.commit()
     return {"status": "ok", "deleted": deleted}

@@ -1,294 +1,195 @@
-import { useState, useEffect } from 'react';
-import { Shield, Save, Eye, EyeOff, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react'
+import { ExternalLink, Eye, EyeOff, Save, ShieldCheck } from 'lucide-react'
+import { oidc, orgs, type OIDCConfig, type OIDCProviderType } from '../../api'
+import type { Organization } from '../../types'
+import { Button, Card, Input, Select, Switch } from '../ui'
 
-/**
- * OIDC/SSO Configuration Tab for Settings page
- * Admin-only - configure Microsoft Entra ID SSO
- */
+const DEFAULT_CONFIG: OIDCConfig = {
+  is_enabled: false,
+  display_name: 'Microsoft Entra ID',
+  client_id: '',
+  tenant_id: '',
+  discovery_url: '',
+  scopes: 'openid profile email',
+  auto_create_users: false,
+  default_role: 'viewer',
+  default_group_id: null,
+  provider_type: 'microsoft',
+  allowed_domains: '',
+  has_client_secret: false,
+}
+
+const PROVIDERS: Record<OIDCProviderType, { name: string; discovery: string; help: string }> = {
+  microsoft: {
+    name: 'Microsoft Entra ID',
+    discovery: '',
+    help: 'https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app',
+  },
+  google: {
+    name: 'Google Workspace',
+    discovery: 'https://accounts.google.com/.well-known/openid-configuration',
+    help: 'https://developers.google.com/identity/openid-connect/openid-connect',
+  },
+  generic: {
+    name: 'Single Sign-On',
+    discovery: '',
+    help: 'https://openid.net/developers/how-connect-works/',
+  },
+}
+
 export default function OIDCSettings() {
-  const [config, setConfig] = useState({
-    is_enabled: false,
-    display_name: 'Microsoft Entra ID',
-    client_id: '',
-    tenant_id: '',
-    discovery_url: '',
-    scopes: 'openid profile email',
-    auto_create_users: true,
-    default_role: 'operator',
-    has_client_secret: false,
-  });
-  const [clientSecret, setClientSecret] = useState('');
-  const [showSecret, setShowSecret] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState(null);
+  const [config, setConfig] = useState<OIDCConfig>(DEFAULT_CONFIG)
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [clientSecret, setClientSecret] = useState('')
+  const [showSecret, setShowSecret] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
-    loadConfig();
-  }, []);
+    Promise.all([oidc.getConfig(), orgs.list()])
+      .then(([loaded, loadedOrganizations]) => {
+        if (!('configured' in loaded && loaded.configured === false)) setConfig({ ...DEFAULT_CONFIG, ...loaded })
+        setOrganizations(loadedOrganizations)
+      })
+      .catch((error) => setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Unable to load SSO settings.' }))
+      .finally(() => setLoading(false))
+  }, [])
 
-  const loadConfig = async () => {
-    try {
-      ;
-      const res = await fetch('/api/admin/oidc', {
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.configured !== false) {
-          setConfig(data);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load OIDC config:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage(null);
-
-    try {
-      ;
-      const payload = { ...config };
-      
-      // Only include secret if changed
-      if (clientSecret) {
-        payload.client_secret = clientSecret;
-      }
-
-      const res = await fetch('/api/admin/oidc', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'OIDC configuration saved' });
-        setClientSecret('');
-        loadConfig();
-      } else {
-        throw new Error('Failed to save');
-      }
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to save configuration' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleChange = (field, value) => {
-    setConfig(prev => ({ ...prev, [field]: value }));
-  };
-
-  if (loading) {
-    return <div className="p-4 text-[var(--brand-text-secondary)]">Loading...</div>;
+  const change = <K extends keyof OIDCConfig>(field: K, value: OIDCConfig[K]) => {
+    setConfig((current) => ({ ...current, [field]: value }))
+    setMessage(null)
   }
 
+  const changeProvider = (provider: OIDCProviderType) => {
+    const preset = PROVIDERS[provider]
+    setConfig((current) => ({
+      ...current,
+      provider_type: provider,
+      display_name: preset.name,
+      discovery_url: preset.discovery,
+      tenant_id: provider === 'microsoft' ? current.tenant_id : '',
+      allowed_domains: provider === 'google' ? current.allowed_domains : '',
+      scopes: 'openid profile email',
+    }))
+    setMessage(null)
+  }
+
+  const save = async () => {
+    setSaving(true)
+    setMessage(null)
+    try {
+      await oidc.updateConfig({ ...config, ...(clientSecret ? { client_secret: clientSecret } : {}) })
+      setClientSecret('')
+      setMessage({ type: 'success', text: 'Single sign-on configuration saved.' })
+      const loaded = await oidc.getConfig()
+      if (!('configured' in loaded && loaded.configured === false)) setConfig({ ...DEFAULT_CONFIG, ...loaded })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Unable to save SSO settings.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-[var(--brand-text-secondary)]">Loading single sign-on settings…</p>
+
+  const provider = PROVIDERS[config.provider_type]
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Shield className="text-[var(--brand-primary)]" size={24} />
+    <div className="space-y-5">
+      <div className="flex items-start gap-3">
+        <ShieldCheck className="mt-0.5 shrink-0 text-[var(--brand-primary)]" size={22} aria-hidden="true" />
         <div>
-          <h3 className="text-lg font-semibold">Single Sign-On (SSO)</h3>
-          <p className="text-sm text-[var(--brand-text-secondary)]">
-            Configure Microsoft Entra ID for enterprise authentication
+          <h3 className="font-semibold text-[var(--brand-text-primary)]">Single sign-on</h3>
+          <p className="mt-1 text-sm text-[var(--brand-text-secondary)]">
+            Configure one identity provider for this ODIN installation. Google Classroom authorization is managed separately.
           </p>
         </div>
       </div>
 
-      {/* Enable Toggle */}
-      <div className="flex items-center justify-between p-4 bg-[var(--brand-input-bg)] rounded-md">
-        <div>
-          <div className="font-medium">Enable SSO</div>
-          <div className="text-sm text-[var(--brand-text-secondary)]">
-            Show "Sign in with Microsoft" on login page
-          </div>
-        </div>
-        <button
-          onClick={() => handleChange('is_enabled', !config.is_enabled)}
-          className={`relative w-12 h-6 rounded-full transition-colors ${
-            config.is_enabled ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-input-bg)]'
-          }`}
-        >
-          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-            config.is_enabled ? 'left-7' : 'left-1'
-          }`} />
-        </button>
+      <Card className="space-y-4 border border-[var(--brand-card-border)]">
+        <Switch
+          label="Enable single sign-on"
+          description={`Show “Sign in with ${config.display_name || provider.name}” on the login page.`}
+          checked={config.is_enabled}
+          onChange={(event) => change('is_enabled', event.target.checked)}
+        />
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Select
+          label="Identity provider"
+          value={config.provider_type}
+          onChange={(event) => changeProvider(event.target.value as OIDCProviderType)}
+          options={[
+            { value: 'microsoft', label: 'Microsoft Entra ID' },
+            { value: 'google', label: 'Google Workspace' },
+            { value: 'generic', label: 'Generic OpenID Connect' },
+          ]}
+        />
+        <Input label="Login button label" value={config.display_name} onChange={(event) => change('display_name', event.target.value)} placeholder={provider.name} />
       </div>
 
-      {/* Configuration Form */}
-      <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Input label="OAuth client ID" value={config.client_id} onChange={(event) => change('client_id', event.target.value)} autoComplete="off" className="font-mono" />
         <div>
-          <label className="block text-sm font-medium mb-1">Display Name</label>
-          <input
-            type="text"
-            value={config.display_name || ''}
-            onChange={(e) => handleChange('display_name', e.target.value)}
-            placeholder="Microsoft Entra ID"
-            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
+          <Input
+            label={config.has_client_secret ? 'OAuth client secret (configured)' : 'OAuth client secret'}
+            type={showSecret ? 'text' : 'password'}
+            value={clientSecret}
+            onChange={(event) => setClientSecret(event.target.value)}
+            autoComplete="new-password"
+            placeholder={config.has_client_secret ? 'Leave blank to keep current secret' : 'Enter client secret'}
+            className="pr-10 font-mono"
           />
-          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Shown on login button</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Client ID</label>
-            <input
-              type="text"
-              value={config.client_id || ''}
-              onChange={(e) => handleChange('client_id', e.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Tenant ID</label>
-            <input
-              type="text"
-              value={config.tenant_id || ''}
-              onChange={(e) => handleChange('tenant_id', e.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Client Secret
-            {config.has_client_secret && (
-              <span className="ml-2 text-xs text-green-500">● Configured</span>
-            )}
-          </label>
-          <div className="relative">
-            <input
-              type={showSecret ? 'text' : 'password'}
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              placeholder={config.has_client_secret ? '••••••••••••••••' : 'Enter client secret'}
-              className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 pr-10 text-sm font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShowSecret(!showSecret)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-secondary)]"
-            >
-              {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-          <p className="text-xs text-[var(--brand-text-muted)] mt-1">Leave blank to keep existing secret</p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Discovery URL
-            <span className="ml-1 text-xs text-[var(--brand-text-muted)]">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={config.discovery_url || ''}
-            onChange={(e) => handleChange('discovery_url', e.target.value)}
-            placeholder="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration"
-            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono text-xs"
-          />
-          <p className="text-xs text-[var(--brand-text-muted)] mt-1">
-            Leave blank for commercial Azure. For GCC High, use: 
-            <code className="ml-1 text-[var(--brand-text-secondary)]">https://login.microsoftonline.us/...</code>
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Scopes</label>
-          <input
-            type="text"
-            value={config.scopes || ''}
-            onChange={(e) => handleChange('scopes', e.target.value)}
-            placeholder="openid profile email"
-            className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm font-mono"
-          />
-        </div>
-
-        {/* User Provisioning */}
-        <div className="p-4 bg-[var(--brand-input-bg)] rounded-md space-y-4">
-          <h4 className="font-medium">User Provisioning</h4>
-          
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm">Auto-create users</div>
-              <div className="text-xs text-[var(--brand-text-secondary)]">
-                Create accounts for new SSO users automatically
-              </div>
-            </div>
-            <button
-              onClick={() => handleChange('auto_create_users', !config.auto_create_users)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${
-                config.auto_create_users ? 'bg-[var(--brand-primary)]' : 'bg-[var(--brand-input-bg)]'
-              }`}
-            >
-              <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                config.auto_create_users ? 'left-5' : 'left-0.5'
-              }`} />
-            </button>
-          </div>
-
-          <div>
-            <label className="block text-sm mb-1">Default role for new users</label>
-            <select
-              value={config.default_role || 'operator'}
-              onChange={(e) => handleChange('default_role', e.target.value)}
-              className="bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm"
-            >
-              <option value="viewer">Viewer</option>
-              <option value="operator">Operator</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
+          <Button type="button" variant="ghost" size="icon" aria-label={showSecret ? 'Hide client secret' : 'Show client secret'} onClick={() => setShowSecret((shown) => !shown)} className="float-right -mt-9 mr-1" icon={showSecret ? EyeOff : Eye} />
         </div>
       </div>
 
-      {/* Message */}
+      {config.provider_type === 'microsoft' && (
+        <Input label="Microsoft directory tenant ID" value={config.tenant_id} onChange={(event) => change('tenant_id', event.target.value)} placeholder="Directory tenant UUID or domain" className="font-mono" />
+      )}
+
+      {config.provider_type === 'google' && (
+        <Input label="Allowed Google Workspace domains" value={config.allowed_domains} onChange={(event) => change('allowed_domains', event.target.value)} placeholder="ctechigh.org" className="font-mono" />
+      )}
+
+      <Input
+        label="OIDC discovery URL"
+        value={config.discovery_url}
+        onChange={(event) => change('discovery_url', event.target.value)}
+        placeholder={config.provider_type === 'microsoft' ? 'Leave blank for Microsoft commercial cloud' : 'https://provider.example/.well-known/openid-configuration'}
+        className="font-mono text-xs"
+      />
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Input label="Login scopes" value={config.scopes} onChange={(event) => change('scopes', event.target.value)} className="font-mono" />
+        <Select label="ODIN tenant for SSO users" value={config.default_group_id ?? ''} onChange={(event) => change('default_group_id', event.target.value ? Number(event.target.value) : null)}>
+          <option value="">Select a tenant</option>
+          {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+        </Select>
+      </div>
+
+      <Card className="border border-[var(--brand-card-border)]">
+        <Switch
+          label="Create new SSO users"
+          description="New identities are viewers in the selected ODIN tenant. Pre-rostered Google users are claimed only by verified Workspace email."
+          checked={config.auto_create_users}
+          onChange={(event) => change('auto_create_users', event.target.checked)}
+        />
+      </Card>
+
       {message && (
-        <div className={`flex items-center gap-2 p-3 rounded-md ${
-          message.type === 'success' 
-            ? 'bg-green-900/30 text-green-400' 
-            : 'bg-red-900/30 text-red-400'
-        }`}>
-          {message.type === 'success' ? <CheckCircle size={16} /> : <XCircle size={16} />}
+        <div role={message.type === 'error' ? 'alert' : 'status'} className={`rounded-md border p-3 text-sm ${message.type === 'error' ? 'border-[var(--status-failed)] text-[var(--status-failed)]' : 'border-[var(--status-completed)] text-[var(--status-completed)]'}`}>
           {message.text}
         </div>
       )}
 
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-[var(--brand-primary)] hover:bg-[var(--brand-primary)] 
-                     rounded-md transition-colors disabled:opacity-50"
-        >
-          <Save size={16} />
-          {saving ? 'Saving...' : 'Save Configuration'}
-        </button>
-      </div>
-
-      {/* Help Link */}
-      <div className="text-sm text-[var(--brand-text-secondary)] border-t border-[var(--brand-card-border)] pt-4">
-        <a 
-          href="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
-        >
-          <ExternalLink size={14} />
-          How to register an app in Microsoft Entra ID
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <a href={provider.help} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-[var(--brand-primary)] hover:text-[var(--brand-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]">
+          Provider setup documentation <ExternalLink size={14} aria-hidden="true" />
         </a>
+        <Button icon={Save} loading={saving} onClick={save}>Save configuration</Button>
       </div>
     </div>
-  );
+  )
 }

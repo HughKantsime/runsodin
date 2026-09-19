@@ -28,6 +28,7 @@ import {
   FileText,
   Archive,
   SlidersHorizontal,
+  GraduationCap,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useBranding } from '../../BrandingContext'
@@ -235,6 +236,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
           {/* Work */}
           {(canAccessPage("jobs") || canAccessPage("upload") || canAccessPage("timeline")) && <NavGroup label="Work" collapsed={collapsed && !mobileOpen} open={sections.work} onToggle={() => toggle("work")} />}
           {((collapsed && !mobileOpen) || sections.work) && <>
+            {educationMode && lic.isEducation && canAccessPage('education') && <NavItem collapsed={collapsed && !mobileOpen} to="/education" icon={GraduationCap} onClick={handleNavClick}>Education</NavItem>}
             {canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/jobs" icon={ListTodo} onClick={handleNavClick}>Jobs</NavItem>}
             {canAccessPage('timeline') && <NavItem collapsed={collapsed && !mobileOpen} to="/timeline" icon={Calendar} onClick={handleNavClick}>Timeline</NavItem>}
             {adv && lic.isPro && !educationMode && canAccessPage('jobs') && <NavItem collapsed={collapsed && !mobileOpen} to="/orders" icon={ShoppingCart} onClick={handleNavClick}>Orders{!lic.isPro && <ProBadge />}</NavItem>}

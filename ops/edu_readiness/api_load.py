@@ -121,22 +121,13 @@ def _prepare_database(path: Path):
     os.environ["LICENSE_DIR"] = str(path.parent / "license")
     os.environ["CORS_ORIGINS"] = ""
 
-    from core.base import Base
-    from core.db import engine, run_core_migrations, run_module_migrations
-    import core.models  # noqa: F401
-    import modules.archives.models  # noqa: F401
-    import modules.inventory.models  # noqa: F401
-    import modules.jobs.models  # noqa: F401
-    import modules.models_library.models  # noqa: F401
-    import modules.notifications.models  # noqa: F401
-    import modules.orders.models  # noqa: F401
-    import modules.printers.models  # noqa: F401
-    import modules.system.models  # noqa: F401
-    import modules.vision.models  # noqa: F401
+    from core.db import engine
+    from core.schema import bootstrap_database
 
-    Base.metadata.create_all(bind=engine)
-    run_core_migrations(os.environ["DATABASE_URL"])
-    run_module_migrations(ROOT / "backend" / "modules", os.environ["DATABASE_URL"])
+    # Exercise the same SQL + dedicated Python migrations as a real install.
+    # The Education tenancy tables intentionally live in the canonical Python
+    # migration layer and are required by privacy export/erasure paths.
+    bootstrap_database(engine, ROOT / "backend")
 
     from core.auth import create_access_token, hash_password
     from sqlalchemy import text
@@ -218,14 +209,33 @@ def _prepare_database(path: Path):
     if not verified_license.valid or verified_license.tier != "education":
         raise RuntimeError(f"ephemeral signed EDU license failed validation: {verified_license.error}")
 
+    from modules.organizations.education_access import capability_snapshot_id
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as session:
+        target_snapshot = capability_snapshot_id(
+            session,
+            {"id": 1, "role": "viewer", "group_id": 1, "is_active": True},
+        )
+        foreign_snapshot = capability_snapshot_id(
+            session,
+            {"id": 29, "role": "operator", "group_id": 2, "is_active": True},
+        )
+
     tokens = {
         "viewer": [create_access_token({"sub": f"load-user-{i}@school.test", "role": "viewer"}) for i in range(1, 26)],
         "operator": [create_access_token({"sub": f"load-user-{i}@school.test", "role": "operator"}) for i in range(26, 29)],
         "admin": [create_access_token({"sub": "load-user-30@school.test", "role": "admin"})],
         "churn": [create_access_token({"sub": "load-user-25@school.test", "role": "viewer"}) for _ in range(150)],
         "warmup_churn": [create_access_token({"sub": "load-user-24@school.test", "role": "viewer"}) for _ in range(5)],
-        "ws_target": [create_access_token({"sub": "load-user-1@school.test", "role": "viewer", "ws": True})],
-        "ws_foreign": [create_access_token({"sub": "load-user-29@school.test", "role": "operator", "ws": True})],
+        "ws_target": [create_access_token({
+            "sub": "load-user-1@school.test", "role": "viewer", "ws": True,
+            "capability_snapshot_id": target_snapshot,
+        })],
+        "ws_foreign": [create_access_token({
+            "sub": "load-user-29@school.test", "role": "operator", "ws": True,
+            "capability_snapshot_id": foreign_snapshot,
+        })],
     }
     from core.app import create_app
     return create_app(), tokens

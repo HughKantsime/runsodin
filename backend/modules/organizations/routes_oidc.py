@@ -27,21 +27,71 @@ class OIDCIdentityError(RuntimeError):
         self.code = code
 
 
-def _resolve_oidc_user(db: Session, config: dict, claims: dict, user_info: dict) -> dict:
+def _provider_identity(config: dict, claims: dict, user_info: dict) -> tuple[str, bool]:
+    """Validate provider policy and return a normalized email plus verification."""
+    provider_type = str(config.get("provider_type") or "microsoft").lower()
+    issuer = claims.get("iss")
+    if user_info.get("sub") and user_info.get("sub") != claims.get("sub"):
+        raise OIDCIdentityError("userinfo_subject_mismatch")
+
+    email = (
+        claims.get("email")
+        or user_info.get("email")
+        or user_info.get("mail")
+        or user_info.get("userPrincipalName")
+        or user_info.get("preferred_username")
+        or claims.get("preferred_username")
+    )
+    if not isinstance(email, str) or not email.strip() or "@" not in email:
+        raise OIDCIdentityError("missing_email")
+    email = email.strip().lower()
+
+    verified = claims.get("email_verified") is True or user_info.get("email_verified") is True
+    if provider_type == "google":
+        if issuer not in {"https://accounts.google.com", "accounts.google.com"}:
+            raise OIDCIdentityError("google_issuer_invalid")
+        if not verified:
+            raise OIDCIdentityError("google_email_unverified")
+        domains = {
+            part.strip().lower()
+            for part in str(config.get("allowed_domains") or "").split(",")
+            if part.strip()
+        }
+        if domains:
+            hosted_domain = claims.get("hd")
+            if not isinstance(hosted_domain, str) or hosted_domain.lower() not in domains:
+                raise OIDCIdentityError("google_hosted_domain_invalid")
+            if email.rsplit("@", 1)[1] not in domains:
+                raise OIDCIdentityError("google_email_domain_invalid")
+    return email, verified
+
+
+def _resolve_oidc_user(
+    db: Session,
+    config: dict,
+    claims: dict,
+    user_info: dict,
+    *,
+    verified_email: bool = False,
+) -> dict:
     """Resolve, bind, or create one exact issuer+subject identity."""
     issuer = claims.get("iss")
     subject = claims.get("sub")
     email = (
-        user_info.get("mail")
+        claims.get("email")
+        or user_info.get("email")
+        or user_info.get("mail")
         or user_info.get("userPrincipalName")
-        or claims.get("email")
+        or user_info.get("preferred_username")
+        or claims.get("preferred_username")
     )
     if not isinstance(issuer, str) or not issuer:
         raise OIDCIdentityError("missing_issuer")
     if not isinstance(subject, str) or not subject:
         raise OIDCIdentityError("missing_subject")
-    if not isinstance(email, str) or not email:
+    if not isinstance(email, str) or not email.strip():
         raise OIDCIdentityError("missing_email")
+    email = email.strip().lower()
 
     provider = config.get("display_name", "oidc").lower().replace(" ", "_")
     existing = db.execute(
@@ -61,7 +111,9 @@ def _resolve_oidc_user(db: Session, config: dict, claims: dict, user_info: dict)
                 "id": existing.id,
             },
         )
-        return dict(existing._mapping)
+        resolved = dict(existing._mapping)
+        resolved["email"] = email
+        return resolved
 
     legacy = db.execute(
         text(
@@ -98,15 +150,64 @@ def _resolve_oidc_user(db: Session, config: dict, claims: dict, user_info: dict)
         bound["email"] = email
         return bound
 
+    group_id = config.get("default_group_id")
+    valid_group = group_id is not None and db.execute(
+        text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
+        {"id": group_id},
+    ).fetchone()
+
+    if verified_email:
+        if not valid_group:
+            raise OIDCIdentityError("oidc_default_tenant_required")
+        matches = db.execute(
+            text("SELECT * FROM users WHERE LOWER(email)=:email ORDER BY id"),
+            {"email": email},
+        ).fetchall()
+        if matches:
+            if len(matches) != 1:
+                raise OIDCIdentityError("oidc_email_ambiguous")
+            row = matches[0]
+            mapping = row._mapping
+            if (
+                mapping.get("group_id") != group_id
+                or not bool(mapping.get("is_active"))
+                or mapping.get("oidc_issuer") is not None
+                or mapping.get("oidc_subject") is not None
+            ):
+                raise OIDCIdentityError("oidc_email_conflict")
+            try:
+                changed = db.execute(
+                    text(
+                        "UPDATE users SET oidc_issuer=:issuer, oidc_subject=:subject, "
+                        "oidc_provider=:provider, last_login=:now "
+                        "WHERE id=:id AND oidc_issuer IS NULL AND oidc_subject IS NULL"
+                    ),
+                    {
+                        "issuer": issuer,
+                        "subject": subject,
+                        "provider": provider,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                        "id": row.id,
+                    },
+                )
+                if changed.rowcount != 1:
+                    raise OIDCIdentityError("oidc_email_conflict")
+            except IntegrityError as exc:
+                raise OIDCIdentityError("oidc_email_conflict") from exc
+            resolved = dict(mapping)
+            resolved.update(
+                oidc_issuer=issuer,
+                oidc_subject=subject,
+                oidc_provider=provider,
+                email=email,
+            )
+            return resolved
+
     if not config.get("auto_create_users", False):
         raise OIDCIdentityError("user_not_found")
     if config.get("default_role", "viewer") != "viewer":
         raise OIDCIdentityError("oidc_role_configuration_invalid")
-    group_id = config.get("default_group_id")
-    if group_id is None or not db.execute(
-        text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
-        {"id": group_id},
-    ).fetchone():
+    if not valid_group:
         raise OIDCIdentityError("oidc_default_tenant_required")
 
     username = email.split("@", 1)[0]
@@ -231,7 +332,15 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
         tokens = await handler.exchange_code(code)
         id_token_claims = await handler.parse_id_token(tokens["id_token"])
         user_info = await handler.get_user_info(tokens["access_token"])
-        resolved_user = _resolve_oidc_user(db, config, id_token_claims, user_info)
+        email, verified_email = _provider_identity(config, id_token_claims, user_info)
+        id_token_claims = {**id_token_claims, "email": email}
+        resolved_user = _resolve_oidc_user(
+            db,
+            config,
+            id_token_claims,
+            user_info,
+            verified_email=verified_email,
+        )
         user_id = resolved_user["id"]
         user_role = resolved_user["role"]
         username = resolved_user["username"]
@@ -339,8 +448,16 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
     allowed_fields = [
         "display_name", "client_id", "client_secret_encrypted", "tenant_id",
         "discovery_url", "scopes", "auto_create_users", "default_role",
-        "default_group_id", "is_enabled"
+        "default_group_id", "provider_type", "allowed_domains", "is_enabled"
     ]
+    provider_type = data.get("provider_type")
+    if provider_type is not None and provider_type not in {"microsoft", "google", "generic"}:
+        raise HTTPException(status_code=422, detail="OIDC provider type is invalid")
+    if "allowed_domains" in data:
+        domains = [part.strip().lower() for part in str(data["allowed_domains"] or "").split(",") if part.strip()]
+        if any("@" in domain or "." not in domain for domain in domains):
+            raise HTTPException(status_code=422, detail="OIDC allowed domains are invalid")
+        data["allowed_domains"] = ",".join(dict.fromkeys(domains))
     proposed_role = data.get("default_role")
     if proposed_role is not None and proposed_role != "viewer":
         raise HTTPException(status_code=422, detail="OIDC auto-provisioning role must be viewer")

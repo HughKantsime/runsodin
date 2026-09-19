@@ -3,9 +3,9 @@ import { clearSensitiveBrowserState } from '../permissions'
 const API_BASE = '/api'
 
 export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...options.headers,
+  const headers = new Headers(options.headers)
+  if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
   }
 
   // credentials: 'include' sends the httpOnly session cookie automatically.

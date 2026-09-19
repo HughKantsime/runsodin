@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.db import get_db
+from core.db import get_db_type
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from modules.organizations.education_access import (
@@ -109,6 +110,67 @@ async def get_education_capabilities(
     return capabilities_for(db, principal)
 
 
+@router.get("/readiness")
+async def get_education_readiness(
+    org_id: int | None = None,
+    principal: dict = Depends(require_education_principal()),
+    db: Session = Depends(get_db),
+):
+    """Return factual, secret-free tenant POC readiness signals."""
+    effective_org = require_tenant_admin(principal, org_id)
+    mode = db.execute(
+        text("SELECT value FROM system_config WHERE key='education_mode'")
+    ).fetchone()
+    oidc = db.execute(text("SELECT * FROM oidc_config WHERE id=1")).fetchone()
+    oidc_map = oidc._mapping if oidc else {}
+    provider = oidc_map.get("provider_type") or "microsoft"
+    discovery_ready = bool(oidc_map.get("discovery_url")) or provider in {"microsoft", "google"}
+    oidc_ready = bool(
+        oidc_map.get("is_enabled")
+        and oidc_map.get("client_id")
+        and oidc_map.get("client_secret_encrypted")
+        and oidc_map.get("default_group_id") == effective_org
+        and discovery_ready
+        and (provider != "google" or oidc_map.get("allowed_domains"))
+    )
+    classroom = db.execute(
+        text("SELECT * FROM classroom_connections WHERE org_id=:org_id"),
+        {"org_id": effective_org},
+    ).fetchone()
+    from modules.organizations.classroom_service import connection_status
+
+    counts = db.execute(
+        text(
+            "SELECT "
+            "(SELECT COUNT(*) FROM education_cost_centers WHERE org_id=:org_id AND state='active') centers, "
+            "(SELECT COUNT(*) FROM education_cost_center_grants WHERE org_id=:org_id AND state='active' AND role='student') students, "
+            "(SELECT COUNT(*) FROM education_cost_center_grants WHERE org_id=:org_id AND state='active' AND role='manager') managers, "
+            "(SELECT COUNT(*) FROM education_cost_center_printers WHERE org_id=:org_id AND state='active') printers"
+        ),
+        {"org_id": effective_org},
+    ).one()
+    return {
+        "education_license": True,
+        "education_mode": bool(mode and mode.value == "true"),
+        "oidc": {
+            "ready": oidc_ready,
+            "provider": provider,
+            "enabled": bool(oidc_map.get("is_enabled")),
+        },
+        "classroom": connection_status(classroom),
+        "pilot": {
+            "active_centers": int(counts.centers),
+            "student_grants": int(counts.students),
+            "manager_grants": int(counts.managers),
+            "printer_entitlements": int(counts.printers),
+        },
+        "backup": {
+            "database_backend": get_db_type(),
+            "verified_workflow_available": True,
+        },
+    }
+
+
 @router.get("/cost-centers")
 async def list_cost_centers(
     org_id: int | None = None,
@@ -120,20 +182,31 @@ async def list_cost_centers(
 ):
     if principal.get("role") == "admin":
         effective_org = require_tenant_admin(principal, org_id)
-        audience_sql = "c.org_id=:org_id"
         params = {"org_id": effective_org}
+        statement = text(
+            "SELECT c.* FROM education_cost_centers c WHERE c.org_id=:org_id"
+        ) if include_archived else text(
+            "SELECT c.* FROM education_cost_centers c "
+            "WHERE c.org_id=:org_id AND c.state='active'"
+        )
     else:
         effective_org = principal.get("group_id")
         if effective_org is None:
             return {"items": [], "next_cursor": None}
         if org_id is not None and int(org_id) != int(effective_org):
             raise _not_found()
-        audience_sql = (
-            "c.org_id=:org_id AND EXISTS (SELECT 1 FROM education_cost_center_grants g "
+        params = {"org_id": effective_org, "user_id": principal["id"]}
+        statement = text(
+            "SELECT c.* FROM education_cost_centers c WHERE c.org_id=:org_id "
+            "AND EXISTS (SELECT 1 FROM education_cost_center_grants g "
             "WHERE g.cost_center_id=c.id AND g.org_id=c.org_id AND g.user_id=:user_id "
             "AND g.state='active')"
+        ) if include_archived else text(
+            "SELECT c.* FROM education_cost_centers c WHERE c.org_id=:org_id "
+            "AND EXISTS (SELECT 1 FROM education_cost_center_grants g "
+            "WHERE g.cost_center_id=c.id AND g.org_id=c.org_id AND g.user_id=:user_id "
+            "AND g.state='active') AND c.state='active'"
         )
-        params = {"org_id": effective_org, "user_id": principal["id"]}
     last = None
     if cursor:
         payload = decode_cursor(cursor)
@@ -149,11 +222,7 @@ async def list_cost_centers(
         last = payload.get("last")
         if not isinstance(last, list):
             raise OdinError(ErrorCode.invalid_cursor, "Invalid Education cursor", status=400)
-    state_sql = "" if include_archived else " AND c.state='active'"
-    rows = db.execute(
-        text(f"SELECT c.* FROM education_cost_centers c WHERE {audience_sql}{state_sql}"),
-        params,
-    ).fetchall()
+    rows = db.execute(statement, params).fetchall()
     page, next_cursor = page_sorted(
         rows,
         last=last,
@@ -292,14 +361,13 @@ async def _change_center_lifecycle(
         db.rollback()
         raise validation_error(f"Cost center is already {target_state}", "state", status=409)
     if target_state == "archived":
-        placeholders = ",".join(f":terminal_{index}" for index, _ in enumerate(_TERMINAL_SUBMISSION_STATES))
-        params = {f"terminal_{index}": value for index, value in enumerate(_TERMINAL_SUBMISSION_STATES)}
-        params["center_id"] = center_id
+        nonterminal_statement = text(
+            "SELECT 1 FROM education_submissions WHERE cost_center_id=:center_id "
+            "AND status NOT IN :terminal_states LIMIT 1"
+        ).bindparams(bindparam("terminal_states", expanding=True))
         if db.execute(
-            text(
-                "SELECT 1 FROM education_submissions WHERE cost_center_id=:center_id "
-                f"AND status NOT IN ({placeholders}) LIMIT 1"
-            ), params,
+            nonterminal_statement,
+            {"center_id": center_id, "terminal_states": _TERMINAL_SUBMISSION_STATES},
         ).fetchone():
             db.rollback()
             raise OdinError(
@@ -364,14 +432,19 @@ async def list_cost_center_grants(
         cursor, kind="grants", center_id=center_id, state=state,
         limit=limit, revision=int(center.revision),
     )
-    state_sql = "" if state == "all" else " AND g.state=:state"
+    statement = text(
+        "SELECT g.id, g.user_id, u.username, NULL AS display_name, g.role, g.state, "
+        "g.granted_at, g.revoked_at FROM education_cost_center_grants g "
+        "JOIN users u ON u.id=g.user_id WHERE g.cost_center_id=:center_id "
+        "AND g.org_id=:org_id"
+    ) if state == "all" else text(
+        "SELECT g.id, g.user_id, u.username, NULL AS display_name, g.role, g.state, "
+        "g.granted_at, g.revoked_at FROM education_cost_center_grants g "
+        "JOIN users u ON u.id=g.user_id WHERE g.cost_center_id=:center_id "
+        "AND g.org_id=:org_id AND g.state=:state"
+    )
     rows = db.execute(
-        text(
-            "SELECT g.id, g.user_id, u.username, NULL AS display_name, g.role, g.state, "
-            "g.granted_at, g.revoked_at FROM education_cost_center_grants g "
-            "JOIN users u ON u.id=g.user_id WHERE g.cost_center_id=:center_id "
-            f"AND g.org_id=:org_id{state_sql}"
-        ),
+        statement,
         {"center_id": center_id, "org_id": effective_org, "state": state},
     ).fetchall()
     page, next_cursor = page_sorted(
@@ -512,14 +585,19 @@ async def list_cost_center_printers(
         cursor, kind="printers", center_id=center_id, state=state,
         limit=limit, revision=int(center.revision),
     )
-    state_sql = "" if state == "all" else " AND e.state=:state"
+    statement = text(
+        "SELECT e.id, e.printer_id, p.name, p.display_order, p.machine_type, p.api_type, "
+        "e.state, e.granted_at, e.revoked_at FROM education_cost_center_printers e "
+        "JOIN printers p ON p.id=e.printer_id WHERE e.cost_center_id=:center_id "
+        "AND e.org_id=:org_id"
+    ) if state == "all" else text(
+        "SELECT e.id, e.printer_id, p.name, p.display_order, p.machine_type, p.api_type, "
+        "e.state, e.granted_at, e.revoked_at FROM education_cost_center_printers e "
+        "JOIN printers p ON p.id=e.printer_id WHERE e.cost_center_id=:center_id "
+        "AND e.org_id=:org_id AND e.state=:state"
+    )
     rows = db.execute(
-        text(
-            "SELECT e.id, e.printer_id, p.name, p.display_order, p.machine_type, p.api_type, "
-            "e.state, e.granted_at, e.revoked_at FROM education_cost_center_printers e "
-            "JOIN printers p ON p.id=e.printer_id WHERE e.cost_center_id=:center_id "
-            f"AND e.org_id=:org_id{state_sql}"
-        ),
+        statement,
         {"center_id": center_id, "org_id": effective_org, "state": state},
     ).fetchall()
     page, next_cursor = page_sorted(

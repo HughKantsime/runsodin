@@ -109,6 +109,123 @@ def test_oidc_auto_create_is_viewer_in_explicit_tenant(oidc_db: Session) -> None
     )
 
 
+def test_verified_google_email_claims_one_active_unbound_user_in_exact_tenant(
+    oidc_db: Session,
+) -> None:
+    from modules.organizations.routes_oidc import _provider_identity, _resolve_oidc_user
+
+    oidc_db.execute(
+        text(
+            "INSERT INTO users (username, email, password_hash, role, is_active, group_id) "
+            "VALUES ('student', 'Student@Example.Test', '', 'viewer', 1, 1)"
+        )
+    )
+    oidc_db.commit()
+    config = _config(provider_type="google", allowed_domains="example.test")
+    claims = {
+        "iss": "https://accounts.google.com",
+        "sub": "google-student",
+        "email": "student@example.test",
+        "email_verified": True,
+        "hd": "example.test",
+    }
+    email, verified = _provider_identity(config, claims, {"sub": "google-student"})
+    user = _resolve_oidc_user(
+        oidc_db,
+        config,
+        {**claims, "email": email},
+        {},
+        verified_email=verified,
+    )
+    assert user["username"] == "student"
+    stored = oidc_db.execute(
+        text("SELECT oidc_issuer, oidc_subject, group_id FROM users WHERE username='student'")
+    ).one()
+    assert tuple(stored) == (
+        "https://accounts.google.com",
+        "google-student",
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("claims", "code"),
+    [
+        (
+            {
+                "iss": "https://accounts.google.com",
+                "sub": "student",
+                "email": "student@example.test",
+                "email_verified": False,
+                "hd": "example.test",
+            },
+            "google_email_unverified",
+        ),
+        (
+            {
+                "iss": "https://accounts.google.com",
+                "sub": "student",
+                "email": "student@example.test",
+                "email_verified": True,
+                "hd": "other.test",
+            },
+            "google_hosted_domain_invalid",
+        ),
+        (
+            {
+                "iss": "https://accounts.google.com.evil.test",
+                "sub": "student",
+                "email": "student@example.test",
+                "email_verified": True,
+                "hd": "example.test",
+            },
+            "google_issuer_invalid",
+        ),
+    ],
+)
+def test_google_provider_policy_fails_closed(claims: dict, code: str) -> None:
+    from modules.organizations.routes_oidc import OIDCIdentityError, _provider_identity
+
+    with pytest.raises(OIDCIdentityError) as exc:
+        _provider_identity(
+            _config(provider_type="google", allowed_domains="example.test"),
+            claims,
+            {},
+        )
+    assert exc.value.code == code
+
+
+def test_verified_email_claim_rejects_cross_tenant_or_bound_conflict(
+    oidc_db: Session,
+) -> None:
+    from modules.organizations.routes_oidc import OIDCIdentityError, _resolve_oidc_user
+
+    oidc_db.execute(text("INSERT INTO groups (id, name, is_org) VALUES (2, 'other', 1)"))
+    oidc_db.execute(
+        text(
+            "INSERT INTO users (username, email, password_hash, role, is_active, group_id) "
+            "VALUES ('elsewhere', 'student@example.test', '', 'viewer', 1, 2)"
+        )
+    )
+    oidc_db.commit()
+    with pytest.raises(OIDCIdentityError) as exc:
+        _resolve_oidc_user(
+            oidc_db,
+            _config(provider_type="google", allowed_domains="example.test"),
+            {
+                "iss": "https://accounts.google.com",
+                "sub": "student",
+                "email": "student@example.test",
+            },
+            {},
+            verified_email=True,
+        )
+    assert exc.value.code == "oidc_email_conflict"
+    assert oidc_db.execute(
+        text("SELECT oidc_subject FROM users WHERE username='elsewhere'")
+    ).scalar_one() is None
+
+
 def test_same_subject_at_different_exact_issuer_is_a_distinct_identity(
     oidc_db: Session,
 ) -> None:
@@ -320,7 +437,8 @@ def test_id_token_parser_requires_exact_issuer_and_standard_subject() -> None:
     source = (
         BACKEND / "modules" / "organizations" / "oidc_handler.py"
     ).read_text(encoding="utf-8")
-    assert "issuer=issuer" in source
+    assert "issuer=allowed_issuers" in source
+    assert '("https://accounts.google.com", "accounts.google.com")' in source
     assert '"verify_iss": True' in source
     assert '"require": ["exp", "aud", "iss", "sub"]' in source
     callback = (
@@ -377,10 +495,13 @@ def test_id_token_parser_rejects_wrong_issuer_and_missing_subject(
         "iss": issuer,
         "sub": "student-1",
         "exp": now + timedelta(minutes=5),
+        "nonce": "fixture-nonce",
     }
+    handler._expected_nonce = "fixture-nonce"
     valid = jwt.encode(base, private_key, algorithm="RS256", headers={"kid": "fixture-key"})
     assert asyncio.run(handler.parse_id_token(valid))["sub"] == "student-1"
 
+    handler._expected_nonce = "fixture-nonce"
     wrong_issuer = jwt.encode(
         {**base, "iss": "https://issuer.example/other"},
         private_key,
@@ -390,6 +511,7 @@ def test_id_token_parser_rejects_wrong_issuer_and_missing_subject(
     with pytest.raises(ValueError, match="ID token validation failed"):
         asyncio.run(handler.parse_id_token(wrong_issuer))
 
+    handler._expected_nonce = "fixture-nonce"
     without_subject = jwt.encode(
         {key: value for key, value in base.items() if key != "sub"},
         private_key,
@@ -398,3 +520,60 @@ def test_id_token_parser_rejects_wrong_issuer_and_missing_subject(
     )
     with pytest.raises(ValueError, match="ID token validation failed"):
         asyncio.run(handler.parse_id_token(without_subject))
+
+    handler._expected_nonce = "different-nonce"
+    with pytest.raises(ValueError, match="ID token validation failed"):
+        asyncio.run(handler.parse_id_token(valid))
+
+
+def test_provider_neutral_userinfo_uses_discovery_endpoint_and_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core import itar
+    from modules.organizations import oidc_handler
+    from modules.organizations.oidc_handler import OIDCHandler
+
+    seen = {}
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "sub": "subject-1",
+                "email": "student@example.test",
+                "email_verified": True,
+                "picture": "must-not-leave-handler",
+                "unexpected": "discarded",
+            }
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url: str, headers: dict, timeout: int):
+            seen.update(url=url, authorization=headers.get("Authorization"), timeout=timeout)
+            return _Response()
+
+    monkeypatch.setattr(oidc_handler.httpx, "AsyncClient", lambda **kwargs: _Client())
+    monkeypatch.setattr(itar, "pin_for_request", lambda url: nullcontext())
+    handler = OIDCHandler("client-id", "secret", "tenant", "https://callback")
+
+    async def _config():
+        return {"userinfo_endpoint": "https://issuer.example/oidc/userinfo"}
+
+    monkeypatch.setattr(handler, "_get_oidc_config", _config)
+    result = asyncio.run(handler.get_user_info("access-token"))
+    assert seen == {
+        "url": "https://issuer.example/oidc/userinfo",
+        "authorization": "Bearer access-token",
+        "timeout": 10,
+    }
+    assert result == {
+        "sub": "subject-1",
+        "email": "student@example.test",
+        "email_verified": True,
+    }

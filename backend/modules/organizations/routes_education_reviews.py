@@ -10,6 +10,7 @@ from modules.organizations.education_access import require_education_principal
 from modules.organizations.education_review_service import (
     approve_submission,
     list_visible_submissions,
+    preview_submission_compatibility,
     reject_submission,
 )
 from modules.organizations.education_schemas import (
@@ -36,6 +37,7 @@ async def get_visible_submissions(
     | None = None,
     cost_center_id: int | None = Query(default=None, gt=0),
     limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
     principal: dict = Depends(require_education_principal()),
     db: Session = Depends(get_db),
 ):
@@ -45,6 +47,24 @@ async def get_visible_submissions(
         status=status,
         cost_center_id=cost_center_id,
         limit=limit,
+        cursor=cursor,
+    )
+
+
+@router.get("/{submission_id}/compatibility")
+async def get_submission_compatibility(
+    submission_id: int,
+    printer_id: int = Query(gt=0),
+    revision: int = Query(ge=1),
+    principal: dict = Depends(require_education_principal()),
+    db: Session = Depends(get_db),
+):
+    return preview_submission_compatibility(
+        db,
+        submission_id=submission_id,
+        printer_id=printer_id,
+        revision=revision,
+        principal=principal,
     )
 
 

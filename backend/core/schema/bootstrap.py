@@ -39,6 +39,10 @@ RAW_REQUIRED_TABLES = frozenset(
         "education_storage_accounts",
         "education_submissions",
         "education_upload_operations",
+        "classroom_connections",
+        "classroom_oauth_states",
+        "classroom_course_mappings",
+        "classroom_roster_identities",
         "login_attempts",
         "model_revisions",
         "oidc_auth_codes",
@@ -73,8 +77,8 @@ RAW_REQUIRED_COLUMNS = {
     "login_attempts": frozenset("id ip username attempted_at success".split()),
     "model_revisions": frozenset("id model_id revision_number file_path changelog uploaded_by created_at".split()),
     "oidc_auth_codes": frozenset("code access_token expires_at".split()),
-    "oidc_config": frozenset("id display_name client_id client_secret_encrypted tenant_id discovery_url scopes auto_create_users default_role default_group_id is_enabled created_at updated_at".split()),
-    "oidc_pending_states": frozenset("state expires_at".split()),
+    "oidc_config": frozenset("id display_name client_id client_secret_encrypted tenant_id discovery_url scopes auto_create_users default_role default_group_id provider_type allowed_domains is_enabled created_at updated_at".split()),
+    "oidc_pending_states": frozenset("state expires_at nonce".split()),
     "password_reset_tokens": frozenset("id user_id token expires_at used".split()),
     "print_archives": frozenset("id job_id print_job_id printer_id user_id print_name status started_at completed_at actual_duration_seconds filament_used_grams cost_estimate thumbnail_b64 file_path notes created_at tags plate_count plate_thumbnails print_file_id project_id energy_kwh energy_cost consumption_json file_hash".split()),
     "print_files": frozenset("id filename original_filename project_name print_time_seconds total_weight_grams layer_count layer_height nozzle_diameter printer_model supports_used bed_type filaments_json thumbnail_b64 mesh_data model_id job_id uploaded_at stored_path filament_weight_grams bed_x_mm bed_y_mm compatible_api_types file_hash plate_count org_id created_by storage_bytes blob_state compatibility_facts_json".split()),
@@ -101,7 +105,19 @@ RAW_REQUIRED_COLUMNS = {
     "education_monitor_claims": frozenset("claim_id org_id submission_id job_id printer_id authority_revision token_digest state created_at updated_at".split()),
     "education_rate_counters": frozenset("org_id scope_kind scope_id user_id bucket_kind bucket_start attempt_count updated_at".split()),
     "education_storage_accounts": frozenset("org_id scope_kind scope_id user_id reserved_bytes accounted_bytes revision updated_at".split()),
+    "classroom_connections": frozenset("org_id client_id client_secret_encrypted allowed_domains account_subject account_email granted_scopes refresh_token_encrypted access_token_encrypted access_token_expires_at state last_success_at last_error_code created_by created_at updated_at".split()),
+    "classroom_oauth_states": frozenset("state org_id admin_id code_verifier_encrypted redirect_uri expires_at created_at".split()),
+    "classroom_course_mappings": frozenset("id org_id provider_course_id cost_center_id course_name course_section course_state last_imported_at created_at updated_at".split()),
+    "classroom_roster_identities": frozenset("id org_id user_id provider_user_id normalized_email state last_seen_at created_at updated_at".split()),
 }
+
+# This migration references the raw-SQL Education schema created by the
+# dedicated tenant-integrity migration below. Keep its stable migration ID,
+# but apply it only after that dependency exists. Existing SQLite ledgers that
+# already recorded the file remain idempotent.
+POST_EDUCATION_SQL_MIGRATIONS = frozenset(
+    {"modules/organizations/migrations/003_google_classroom.sql"}
+)
 
 
 def import_all_models() -> None:
@@ -130,7 +146,19 @@ def migration_files(backend_root: Path) -> list[tuple[str, Path]]:
         if not migration_dir.is_dir():
             continue
         for path in sorted(migration_dir.glob("*.sql")):
-            files.append((path.relative_to(backend_root).as_posix(), path))
+            migration_id = path.relative_to(backend_root).as_posix()
+            if migration_id not in POST_EDUCATION_SQL_MIGRATIONS:
+                files.append((migration_id, path))
+    return files
+
+
+def post_education_migration_files(backend_root: Path) -> list[tuple[str, Path]]:
+    files: list[tuple[str, Path]] = []
+    for migration_id in sorted(POST_EDUCATION_SQL_MIGRATIONS):
+        path = backend_root / migration_id
+        if not path.is_file():
+            raise RuntimeError(f"Required post-Education migration is missing: {migration_id}")
+        files.append((migration_id, path))
     return files
 
 
@@ -302,6 +330,13 @@ def bootstrap_database(
     education_migration = "core.schema.migrations.002_education_tenant_integrity"
     if apply_dedicated_python_migration(engine, education_migration):
         applied.append("python:002-education-tenant-integrity")
+
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+        for migration_id, path in post_education_migration_files(root):
+            if apply_migration_file(connection, path, migration_id=migration_id):
+                applied.append(migration_id)
 
     monitor_migration = "core.schema.migrations.003_education_monitor_claims"
     with engine.begin() as connection:

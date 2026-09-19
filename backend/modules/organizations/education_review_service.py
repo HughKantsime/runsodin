@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from datetime import datetime, timezone
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import text
@@ -14,6 +15,11 @@ from core.errors import ErrorCode, OdinError
 from modules.organizations.education_admin_support import (
     claim_command,
     complete_command,
+)
+from modules.organizations.education_access import (
+    CURSOR_ORDER_VERSION,
+    decode_cursor,
+    encode_cursor,
 )
 from modules.printers.services import evaluate_submission_compatibility
 
@@ -47,6 +53,18 @@ def _tenant_admin(principal: dict) -> bool:
 
 def _iso(value) -> str | None:
     return value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
+
+
+def _cursor_time(value) -> int:
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    elif isinstance(value, datetime):
+        parsed = value
+    else:
+        raise ValueError("submission timestamp is not cursor-compatible")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.astimezone(timezone.utc).timestamp() * 1_000_000)
 
 
 def _projection(row) -> dict:
@@ -98,6 +116,7 @@ def list_visible_submissions(
     status: str | None = None,
     cost_center_id: int | None = None,
     limit: int = 50,
+    cursor: str | None = None,
 ) -> dict:
     org_id = _org_id(principal)
     if status is not None and status not in VISIBLE_STATUSES:
@@ -118,7 +137,6 @@ def list_visible_submissions(
         "org_id": org_id,
         "user_id": int(principal["id"]),
         "is_admin": 1 if _tenant_admin(principal) else 0,
-        "limit": limit,
     }
     if status is not None:
         filters.append("s.status=:status")
@@ -126,16 +144,74 @@ def list_visible_submissions(
     if cost_center_id is not None:
         filters.append("s.cost_center_id=:center_id")
         params["center_id"] = cost_center_id
+    if cursor:
+        payload = decode_cursor(cursor)
+        expected = {
+            "kind": "submissions",
+            "org_id": org_id,
+            "user_id": int(principal["id"]),
+            "is_admin": bool(_tenant_admin(principal)),
+            "status": status,
+            "cost_center_id": cost_center_id,
+            "limit": limit,
+            "order_version": CURSOR_ORDER_VERSION,
+        }
+        if any(payload.get(key) != value for key, value in expected.items()):
+            raise OdinError(
+                ErrorCode.invalid_cursor,
+                "Education cursor does not match request",
+                status=400,
+            )
+        last = payload.get("last")
+        if (
+            not isinstance(last, list)
+            or len(last) != 2
+            or not isinstance(last[0], int)
+            or not isinstance(last[1], int)
+        ):
+            raise OdinError(ErrorCode.invalid_cursor, "Invalid Education cursor", status=400)
+    else:
+        last = None
     rows = db.execute(
         text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- SQL fragments are fixed internal clauses; every request value is bound
             _BASE_SELECT
             + " WHERE "
             + " AND ".join(filters)
-            + " ORDER BY s.created_at DESC,s.id DESC LIMIT :limit"
+            + " ORDER BY s.created_at DESC,s.id DESC"
         ),
         params,
     ).fetchall()
-    return {"items": [_projection(row) for row in rows]}
+    try:
+        filtered_rows = [
+            row
+            for row in rows
+            if last is None or (_cursor_time(row.created_at), int(row.id)) < tuple(last)
+        ]
+    except (TypeError, ValueError) as exc:
+        raise OdinError(
+            ErrorCode.internal_error,
+            "Submission queue contains an invalid timestamp",
+            status=503,
+            retriable=True,
+        ) from exc
+    page = filtered_rows[:limit]
+    next_cursor = None
+    if len(filtered_rows) > limit and page:
+        last_row = page[-1]
+        next_cursor = encode_cursor(
+            {
+                "kind": "submissions",
+                "org_id": org_id,
+                "user_id": int(principal["id"]),
+                "is_admin": bool(_tenant_admin(principal)),
+                "status": status,
+                "cost_center_id": cost_center_id,
+                "limit": limit,
+                "order_version": CURSOR_ORDER_VERSION,
+                "last": [_cursor_time(last_row.created_at), int(last_row.id)],
+            }
+        )
+    return {"items": [_projection(row) for row in page], "next_cursor": next_cursor}
 
 
 def _reviewable_submission(db: Session, *, submission_id: int, principal: dict):
@@ -174,6 +250,53 @@ def _assert_review_state(row, revision: int) -> None:
             "Submission is no longer awaiting review",
             status=409,
         )
+
+
+def preview_submission_compatibility(
+    db: Session,
+    *,
+    submission_id: int,
+    printer_id: int,
+    revision: int,
+    principal: dict,
+) -> dict:
+    row = _reviewable_submission(db, submission_id=submission_id, principal=principal)
+    _assert_review_state(row, revision)
+    entitled = db.execute(
+        text(
+            "SELECT 1 FROM education_cost_center_printers e JOIN printers p "
+            "ON p.id=e.printer_id AND p.org_id=e.org_id "
+            "WHERE e.org_id=:org_id AND e.cost_center_id=:center_id "
+            "AND e.printer_id=:printer_id AND e.state='active' AND p.is_active IS TRUE "
+            "AND p.shared IS NOT TRUE"
+        ),
+        {
+            "org_id": row.org_id,
+            "center_id": row.cost_center_id,
+            "printer_id": printer_id,
+        },
+    ).fetchone()
+    if not entitled:
+        raise _not_found()
+    compatibility = evaluate_submission_compatibility(
+        db,
+        org_id=int(row.org_id),
+        print_file_id=int(row.print_file_id),
+        printer_id=printer_id,
+    )
+    if not compatibility:
+        raise OdinError(
+            ErrorCode.internal_error,
+            "Compatibility evaluation is unavailable",
+            status=503,
+            retriable=True,
+        )
+    return {
+        "submission_id": int(row.id),
+        "printer_id": printer_id,
+        "lifecycle_revision": int(row.lifecycle_revision),
+        **compatibility,
+    }
 
 
 def _record_decision(
