@@ -45,6 +45,8 @@ def _entry(
 
 POLICY_INVENTORY = (
     _entry("organizations.routes_education", "router:/education/*", "center/grant/printer", "read/mutate", "current tenant principal", (), "test_education_admin_core.py", "guarded"),
+    _entry("organizations.routes_education_submissions", "router:POST /education/submissions", "submission/job/model/file", "mutate", "active student grant", ("Education outbox",), "test_education_submission_upload.py", "guarded"),
+    _entry("organizations.education_submission_service", "process_sliced_3mf_submission", "submission/job/model/file", "mutate", "active student grant", ("Education outbox",), "test_education_submission_upload.py", "guarded"),
     _entry("organizations.education_policy", "authorize_dispatch/reconcile_dispatch_denial", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printers.dispatch",), "test_education_dispatch_policy.py", "guarded"),
     _entry("organizations.routes_users", "update/delete user and group", "user/group", "lifecycle", "tenant admin/superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("organizations.routes", "delete_org", "organization", "lifecycle", "superadmin", (), "test_education_policy_inventory.py", "guarded"),
@@ -124,6 +126,7 @@ _SENSITIVE_SQL = re.compile(
 _EXPLICIT_SURFACE_PATHS = (
     "core/app.py",
     "modules/organizations/routes_education.py",
+    "modules/organizations/routes_education_submissions.py",
     "modules/organizations/routes_users.py",
     "modules/organizations/routes.py",
     "modules/printers/routes_crud.py",

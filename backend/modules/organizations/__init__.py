@@ -11,6 +11,7 @@ ROUTES = [
     "organizations.routes_users",
     "organizations.routes_permissions",
     "organizations.routes_education",
+    "organizations.routes_education_submissions",
 ]
 
 TABLES = [
@@ -44,10 +45,20 @@ DAEMONS = []
 
 def register(app, registry) -> None:
     """Register the organizations module: routes and OrgSettingsProvider."""
-    from modules.organizations import routes, auth_routes, routes_education
+    from modules.organizations import (
+        auth_routes,
+        routes,
+        routes_education,
+        routes_education_submissions,
+    )
     from modules.organizations.services import EducationPolicyService, OrgSettingsService
 
-    for router in (routes.router, auth_routes.router, routes_education.router):
+    for router in (
+        routes.router,
+        auth_routes.router,
+        routes_education.router,
+        routes_education_submissions.router,
+    ):
         app.include_router(router, prefix="/api")
         app.include_router(router, prefix="/api/v1")
 
