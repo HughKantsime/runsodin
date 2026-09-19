@@ -18,6 +18,7 @@ WebSocket events pushed for UI progress feedback:
 """
 
 import os
+import json
 import logging
 import time
 from typing import Optional
@@ -56,9 +57,21 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
     try:
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm FROM printers WHERE id = :id"),
+                text(
+                    "SELECT api_type, api_host, api_key, bed_x_mm, bed_y_mm, "
+                    "nozzle_diameter, machine_type, model, name, org_id, is_active "
+                    "FROM printers WHERE id = :id"
+                ),
                 {"id": printer_id},
             ).fetchone()
+            slot_rows = conn.execute(
+                text(
+                    "SELECT filament_type FROM filament_slots "
+                    "WHERE printer_id=:id AND filament_type IS NOT NULL "
+                    "AND filament_type NOT IN ('empty','Unknown','OTHER')"
+                ),
+                {"id": printer_id},
+            ).fetchall()
     except Exception as e:
         log.error(f"[dispatch] DB error loading printer {printer_id}: {e}")
         return None
@@ -87,6 +100,13 @@ def _get_printer_info(printer_id: int) -> Optional[dict]:
         "port": port,
         "bed_x_mm": r["bed_x_mm"],
         "bed_y_mm": r["bed_y_mm"],
+        "nozzle_diameter": r["nozzle_diameter"],
+        "machine_type": r["machine_type"],
+        "model": r["model"],
+        "name": r["name"],
+        "org_id": r["org_id"],
+        "is_active": bool(r["is_active"]),
+        "active_materials": [slot[0] for slot in slot_rows],
     }
 
     if api_type == "bambu":
@@ -175,10 +195,21 @@ def _load_job(job_id: int) -> Optional[dict]:
                 text("""
                 SELECT j.id, j.item_name, j.status, j.printer_id,
                        pf.stored_path, pf.original_filename,
-                       pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types
+                       pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types,
+                       pf.compatibility_facts_json,
+                       s.id AS education_submission_id,
+                       s.org_id AS education_org_id,
+                       s.cost_center_id AS education_cost_center_id,
+                       s.status AS education_status,
+                       s.lifecycle_revision AS education_lifecycle_revision,
+                       s.approved_printer_id AS education_approved_printer_id
                 FROM jobs j
+                LEFT JOIN education_submissions s ON s.job_id = j.id
                 JOIN models m ON j.model_id = m.id
-                JOIN print_files pf ON pf.model_id = m.id
+                JOIN print_files pf ON (
+                    (s.print_file_id IS NOT NULL AND pf.id = s.print_file_id)
+                    OR (s.id IS NULL AND pf.model_id = m.id)
+                )
                 WHERE j.id = :jid
                 """),
                 {"jid": job_id},
@@ -308,6 +339,89 @@ def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, cre
 # Public API
 # ──────────────────────────────────────────────
 
+def _reconcile_education_denial(
+    provider,
+    context: dict,
+    job_id: int,
+    expected_revision: int,
+    reason: str,
+) -> None:
+    from core.db import engine
+    from sqlalchemy.orm import Session
+
+    if not provider or not context:
+        return
+    try:
+        with Session(engine) as db:
+            provider.reconcile_dispatch_denial(
+                db,
+                submission_id=int(context["id"]),
+                job_id=job_id,
+                expected_revision=expected_revision,
+                reason=reason,
+            )
+    except Exception as exc:
+        log.error("[dispatch] Education denial reconciliation failed: %s", exc)
+
+
+def _authorize_education_hardware_action(job: dict, creds: dict) -> tuple[bool, str] | None:
+    """Final policy and compatibility check for Education-owned jobs."""
+    if job.get("education_submission_id") is None:
+        return None
+
+    from core.db import engine
+    from core.registry import registry
+    from modules.printers.education_compatibility import evaluate_education_compatibility
+    from sqlalchemy.orm import Session
+
+    provider = registry.get_provider("EducationPolicyProvider")
+    if provider is None:
+        return False, "Education dispatch policy is unavailable; no hardware command was sent"
+
+    expected_revision = job.get("education_lifecycle_revision")
+    if expected_revision is None:
+        return False, "Education lifecycle revision is missing; no hardware command was sent"
+
+    with Session(engine) as db:
+        context = provider.authorize_dispatch(
+            db,
+            job_id=int(job["id"]),
+            printer_id=int(job["printer_id"]),
+            expected_revision=int(expected_revision),
+        )
+
+    if not context or not context.get("authorized"):
+        if context:
+            _reconcile_education_denial(
+                provider,
+                context,
+                int(job["id"]),
+                int(expected_revision),
+                "current approval or entitlement is no longer valid",
+            )
+        return False, "Education approval or printer entitlement changed; job returned to submitted"
+
+    try:
+        file_facts = json.loads(job.get("compatibility_facts_json") or "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        file_facts = {}
+    result = evaluate_education_compatibility(file_facts, creds)
+    if not result["compatible"]:
+        codes = sorted({reason["code"] for reason in result["reasons"]})
+        _reconcile_education_denial(
+            provider,
+            context,
+            int(job["id"]),
+            int(expected_revision),
+            "compatibility drift: " + ",".join(codes),
+        )
+        return False, (
+            "Education compatibility check failed ("
+            + ", ".join(codes)
+            + "); job returned to submitted"
+        )
+    return True, result["engine_version"]
+
 def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     """Dispatch a specific job to its assigned printer.
 
@@ -376,6 +490,12 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
                 f"but this printer has a {printer_x:.0f}x{printer_y:.0f}mm bed. "
                 "Upload a re-sliced version."
             )
+
+    # Education jobs fail closed and recompute against live printer/slot facts
+    # immediately before any adapter is allowed to touch hardware.
+    education_decision = _authorize_education_hardware_action(job, creds)
+    if education_decision is not None and not education_decision[0]:
+        return education_decision
 
     log.info(
         f"[dispatch] Dispatching job {job_id} ('{job['item_name']}') "

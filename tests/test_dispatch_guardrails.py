@@ -61,8 +61,8 @@ def test_gcode_upload_stores_bed_dimensions(hdrs):
     data = r.json()
     assert data.get("bed_x_mm") == 350.0, f"Expected bed_x_mm=350.0, got {data.get('bed_x_mm')}"
     assert data.get("bed_y_mm") == 350.0, f"Expected bed_y_mm=350.0, got {data.get('bed_y_mm')}"
-    assert "moonraker" in (data.get("compatible_api_types") or ""), \
-        f"Expected moonraker in compatible_api_types, got {data.get('compatible_api_types')}"
+    assert data.get("compatible_api_types") == "", \
+        "A filename extension must not assert API compatibility"
     return data["id"]
 
 
@@ -79,7 +79,7 @@ def test_gcode_upload_no_comments_returns_null_bed(hdrs):
     data = r.json()
     assert data.get("bed_x_mm") is None
     assert data.get("bed_y_mm") is None
-    assert data.get("compatible_api_types") == "moonraker,prusalink,elegoo"
+    assert data.get("compatible_api_types") == ""
 
 
 # ─────────────────────────────────────────────
@@ -220,11 +220,10 @@ def test_dispatch_blocked_by_api_type_mismatch(hdrs):
 
     # The 3mf parse may fail on this minimal file — that's OK, we mainly want to verify
     # the upload doesn't crash and the compatible_api_types guard works when it can.
-    # If upload succeeds, verify it returns compatible_api_types=bambu
+    # If upload succeeds, verify extension-only inference remains disabled.
     if r.status_code == 200:
         data = r.json()
-        assert data.get("compatible_api_types") == "bambu", \
-            f"Expected compatible_api_types=bambu for .3mf, got {data.get('compatible_api_types')}"
+        assert data.get("compatible_api_types") == ""
 
 
 # ─────────────────────────────────────────────

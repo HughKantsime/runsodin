@@ -11,11 +11,13 @@ from typing import Optional
 from core.interfaces.org_settings import OrgSettingsProvider
 from core.interfaces.education_policy import EducationPolicyProvider
 from modules.organizations.education_policy import (
+    authorize_dispatch,
     assert_org_hard_delete_allowed,
     assert_printer_tenant_change_or_delete_allowed,
     assert_user_hard_delete_allowed,
     assert_user_tenant_change_allowed,
     printer_is_currently_entitled,
+    reconcile_dispatch_denial,
 )
 from modules.organizations.routes import _get_org_settings
 
@@ -68,4 +70,31 @@ class EducationPolicyService(EducationPolicyProvider):
     ) -> bool:
         return printer_is_currently_entitled(
             db, org_id=org_id, cost_center_id=cost_center_id, printer_id=printer_id
+        )
+
+    def authorize_dispatch(
+        self, db, *, job_id: int, printer_id: int, expected_revision: int
+    ) -> dict | None:
+        return authorize_dispatch(
+            db,
+            job_id=job_id,
+            printer_id=printer_id,
+            expected_revision=expected_revision,
+        )
+
+    def reconcile_dispatch_denial(
+        self,
+        db,
+        *,
+        submission_id: int,
+        job_id: int,
+        expected_revision: int,
+        reason: str,
+    ) -> bool:
+        return reconcile_dispatch_denial(
+            db,
+            submission_id=submission_id,
+            job_id=job_id,
+            expected_revision=expected_revision,
+            reason=reason,
         )

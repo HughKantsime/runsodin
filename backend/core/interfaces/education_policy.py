@@ -25,3 +25,21 @@ class EducationPolicyProvider(ABC):
         self, db, *, org_id: int, cost_center_id: int, printer_id: int
     ) -> bool:
         """Resolve current center/printer entitlement for dispatch policy."""
+
+    @abstractmethod
+    def authorize_dispatch(
+        self, db, *, job_id: int, printer_id: int, expected_revision: int
+    ) -> dict | None:
+        """Return current Education dispatch context, or None for a generic job."""
+
+    @abstractmethod
+    def reconcile_dispatch_denial(
+        self,
+        db,
+        *,
+        submission_id: int,
+        job_id: int,
+        expected_revision: int,
+        reason: str,
+    ) -> bool:
+        """Atomically return a denied Education dispatch to submitted state."""

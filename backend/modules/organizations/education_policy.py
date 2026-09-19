@@ -168,3 +168,77 @@ def printer_is_currently_entitled(
             "printer_id": printer_id,
         },
     )
+
+
+def authorize_dispatch(
+    db: Session, *, job_id: int, printer_id: int, expected_revision: int
+) -> dict | None:
+    """Re-resolve the current Education lifecycle immediately before dispatch."""
+    row = db.execute(
+        text(
+            "SELECT s.id, s.org_id, s.cost_center_id, s.status, "
+            "s.lifecycle_revision, s.approved_printer_id, j.status AS job_status, "
+            "j.printer_id AS job_printer_id "
+            "FROM education_submissions s "
+            "JOIN jobs j ON j.id=s.job_id AND j.charged_to_org_id=s.org_id "
+            "WHERE s.job_id=:job_id"
+        ),
+        {"job_id": job_id},
+    ).fetchone()
+    if not row:
+        return None
+    context = dict(row._mapping)
+    context["authorized"] = bool(
+        int(context["lifecycle_revision"]) == int(expected_revision)
+        and context["status"] == "scheduled"
+        and context["job_status"] == "scheduled"
+        and context["approved_printer_id"] == printer_id
+        and context["job_printer_id"] == printer_id
+        and printer_is_currently_entitled(
+            db,
+            org_id=int(context["org_id"]),
+            cost_center_id=int(context["cost_center_id"]),
+            printer_id=printer_id,
+        )
+    )
+    return context
+
+
+def reconcile_dispatch_denial(
+    db: Session,
+    *,
+    submission_id: int,
+    job_id: int,
+    expected_revision: int,
+    reason: str,
+) -> bool:
+    """CAS a drifted approval back to submitted without silently reassigning it."""
+    sanitized_reason = str(reason or "dispatch_policy_denied")[:160]
+    result = db.execute(
+        text(
+            "UPDATE education_submissions SET status='submitted', "
+            "approved_printer_id=NULL, approved_by=NULL, "
+            "compatibility_engine_version=NULL, "
+            "lifecycle_revision=lifecycle_revision+1, updated_at=CURRENT_TIMESTAMP "
+            "WHERE id=:submission_id AND job_id=:job_id "
+            "AND lifecycle_revision=:revision AND status IN ('pending','scheduled')"
+        ),
+        {
+            "submission_id": submission_id,
+            "job_id": job_id,
+            "revision": expected_revision,
+        },
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return False
+    db.execute(
+        text(
+            "UPDATE jobs SET status='submitted', printer_id=NULL, "
+            "notes=CASE WHEN notes IS NULL OR notes='' THEN :reason "
+            "ELSE notes || '\n' || :reason END WHERE id=:job_id"
+        ),
+        {"job_id": job_id, "reason": f"Education dispatch reset: {sanitized_reason}"},
+    )
+    db.commit()
+    return True

@@ -56,6 +56,8 @@ def test_central_policy_interface_covers_lifecycle_and_dispatch() -> None:
         "assert_org_hard_delete_allowed",
         "assert_printer_tenant_change_or_delete_allowed",
         "printer_is_currently_entitled",
+        "authorize_dispatch",
+        "reconcile_dispatch_denial",
     }
 
 

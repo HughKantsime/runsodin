@@ -45,11 +45,12 @@ def _entry(
 
 POLICY_INVENTORY = (
     _entry("organizations.routes_education", "router:/education/*", "center/grant/printer", "read/mutate", "current tenant principal", (), "test_education_admin_core.py", "guarded"),
+    _entry("organizations.education_policy", "authorize_dispatch/reconcile_dispatch_denial", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printers.dispatch",), "test_education_dispatch_policy.py", "guarded"),
     _entry("organizations.routes_users", "update/delete user and group", "user/group", "lifecycle", "tenant admin/superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("organizations.routes", "delete_org", "organization", "lifecycle", "superadmin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("printers.routes_crud", "update/delete printer", "printer", "lifecycle", "tenant admin", (), "test_education_policy_inventory.py", "guarded"),
     _entry("core.app.websocket", "websocket_endpoint", "event", "notify", "explicit live user", ("browser websocket",), "test_education_policy_inventory.py", "guarded"),
-    _entry("printers.dispatch", "dispatch_print", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printer adapter",), "test_education_dispatch_policy.py", "batch2_required"),
+    _entry("printers.dispatch", "dispatch_job", "submission/job/printer", "dispatch", "trusted dispatch worker", ("printer adapter",), "test_education_dispatch_policy.py", "guarded"),
     _entry("printers.smart_plug", "printer state subscriber", "submission/job/printer", "dispatch", "trusted physical-action worker", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.routes_smart_plug", "router:/printers/{id}/plug/*", "printer", "physical-control", "authorized operator/admin", ("smart plug",), "test_education_dispatch_policy.py", "batch2_required"),
     _entry("printers.routes_controls", "plate-clear/control routes", "submission/job/printer", "mutate", "authorized manager/admin", ("scheduler",), "test_education_dispatch_policy.py", "batch2_required"),

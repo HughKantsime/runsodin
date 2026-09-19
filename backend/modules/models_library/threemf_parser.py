@@ -49,7 +49,7 @@ def extract_printer_model_from_settings(zf: zipfile.ZipFile) -> str:
     return None
 
 
-from typing import Optional, List
+from typing import Any, Optional, List
 from dataclasses import dataclass, asdict
 
 
@@ -70,11 +70,12 @@ class PrintFileMetadata:
     total_weight_grams: float
     layer_count: int
     layer_height: float
-    nozzle_diameter: float
-    printer_model: str
+    nozzle_diameter: Optional[float]
+    printer_model: Optional[str]
     supports_used: bool
     bed_type: str
     filaments: List[FilamentInfo]
+    safety_facts: dict[str, Any]
     thumbnail_b64: Optional[str] = None
     
     def print_time_formatted(self) -> str:
@@ -102,6 +103,10 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
         PrintFileMetadata object or None if parsing fails
     """
     try:
+        from modules.models_library.print_file_meta import extract_print_file_meta
+
+        safety_meta = extract_print_file_meta(file_path, ".3mf")
+        safety_facts = safety_meta["safety_facts"]
         with zipfile.ZipFile(file_path, 'r') as zf:
             # Check if this is a sliced file (has gcode)
             file_list = zf.namelist()
@@ -151,11 +156,12 @@ def parse_3mf(file_path: str) -> Optional[PrintFileMetadata]:
                 total_weight_grams=float(slice_info.get('weight', 0)),
                 layer_count=layer_count,
                 layer_height=plate_info.get('layer_height', 0.2) if plate_info else 0.2,
-                nozzle_diameter=float(str(slice_info.get('nozzle_diameters', 0.4)).split(',')[0]),
-                printer_model=extract_printer_model_from_settings(zf) or slice_info.get('printer_model_id', 'Unknown'),
+                nozzle_diameter=safety_facts["nozzle"].get("value"),
+                printer_model=safety_facts["machine"].get("value"),
                 supports_used=slice_info.get('support_used', 'false').lower() == 'true',
                 bed_type=plate_info.get('bed_type', 'Unknown') if plate_info else 'Unknown',
                 filaments=filaments,
+                safety_facts=safety_facts,
                 thumbnail_b64=thumbnail_b64
             )
             
@@ -226,7 +232,7 @@ def parse_plate_json(zf: zipfile.ZipFile) -> Optional[dict]:
                 'bed_type': data.get('bed_type', 'Unknown'),
                 'layer_height': layer_height,
                 'filament_colors': data.get('filament_colors', []),
-                'nozzle_diameter': data.get('nozzle_diameter', 0.4)
+                'nozzle_diameter': data.get('nozzle_diameter')
             }
     except Exception as e:
         print(f"Error parsing plate_1.json: {e}")
@@ -274,6 +280,9 @@ def extract_project_name(zf: zipfile.ZipFile) -> Optional[str]:
 def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFileMetadata]:
     """Parse an unsliced .3mf project file (limited data)."""
     try:
+        from modules.models_library.print_file_meta import extract_print_file_meta
+
+        safety_facts = extract_print_file_meta(file_path, ".3mf")["safety_facts"]
         # Extract what we can from project_settings.config
         filaments = []
         filament_type = 'Unknown'
@@ -312,11 +321,12 @@ def parse_unsliced_3mf(zf: zipfile.ZipFile, file_path: str) -> Optional[PrintFil
             total_weight_grams=0,
             layer_count=0,
             layer_height=0.2,
-            nozzle_diameter=0.4,
-            printer_model='Unknown',
+            nozzle_diameter=safety_facts["nozzle"].get("value"),
+            printer_model=safety_facts["machine"].get("value"),
             supports_used=False,
             bed_type='Unknown',
             filaments=filaments,
+            safety_facts=safety_facts,
             thumbnail_b64=thumbnail_b64
         )
         

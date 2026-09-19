@@ -276,8 +276,15 @@ async def upload_3mf(
             # Extract bed/compatibility metadata and persist
             meta = pfm.extract_print_file_meta(stored_path, ext)
             db.execute(text(
-                "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, compatible_api_types = :types WHERE id = :id"
-            ), {"x": meta["bed_x_mm"], "y": meta["bed_y_mm"], "types": meta["compatible_api_types"], "id": file_id})
+                "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, "
+                "compatible_api_types = :types, compatibility_facts_json = :facts WHERE id = :id"
+            ), {
+                "x": meta["bed_x_mm"],
+                "y": meta["bed_y_mm"],
+                "types": meta["compatible_api_types"],
+                "facts": json.dumps(meta["safety_facts"], sort_keys=True),
+                "id": file_id,
+            })
             db.commit()
 
             return {
@@ -304,6 +311,7 @@ async def upload_3mf(
                 "bed_x_mm": meta["bed_x_mm"],
                 "bed_y_mm": meta["bed_y_mm"],
                 "compatible_api_types": meta["compatible_api_types"],
+                "compatibility_facts": meta["safety_facts"],
                 "duplicate": duplicate_info,
             }
 
@@ -362,8 +370,15 @@ async def upload_3mf(
             # Extract bed/compatibility metadata and persist
             meta = pfm.extract_print_file_meta(stored_path, ext)
             db.execute(text(
-                "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, compatible_api_types = :types WHERE id = :id"
-            ), {"x": meta["bed_x_mm"], "y": meta["bed_y_mm"], "types": meta["compatible_api_types"], "id": file_id})
+                "UPDATE print_files SET bed_x_mm = :x, bed_y_mm = :y, "
+                "compatible_api_types = :types, compatibility_facts_json = :facts WHERE id = :id"
+            ), {
+                "x": meta["bed_x_mm"],
+                "y": meta["bed_y_mm"],
+                "types": meta["compatible_api_types"],
+                "facts": json.dumps(meta["safety_facts"], sort_keys=True),
+                "id": file_id,
+            })
             db.commit()
 
             return {
@@ -385,6 +400,7 @@ async def upload_3mf(
                 "bed_x_mm": meta["bed_x_mm"],
                 "bed_y_mm": meta["bed_y_mm"],
                 "compatible_api_types": meta["compatible_api_types"],
+                "compatibility_facts": meta["safety_facts"],
                 "duplicate": duplicate_info,
             }
     finally:

@@ -3,6 +3,7 @@
 These tests run without a DB or running server — pure module logic.
 """
 import io
+import json
 import os
 import sys
 import tempfile
@@ -51,17 +52,17 @@ def _write_3mf(files: dict):
 # ─────────────────────────────────────────────
 
 def test_resolve_api_types_3mf():
-    assert pfm._resolve_api_types(".3mf") == "bambu"
+    assert pfm._resolve_api_types(".3mf") == ""
 
 
 def test_resolve_api_types_gcode():
     result = pfm._resolve_api_types(".gcode")
-    assert result == "moonraker,prusalink,elegoo"
+    assert result == ""
 
 
 def test_resolve_api_types_bgcode():
     result = pfm._resolve_api_types(".bgcode")
-    assert result == "moonraker,prusalink,elegoo"
+    assert result == ""
 
 
 def test_resolve_api_types_unknown():
@@ -179,24 +180,24 @@ def test_gcode_beyond_100_lines_ignored():
 # _extract_3mf_meta — KNOWN_PRINTER_BEDS lookup
 # ─────────────────────────────────────────────
 
-def test_3mf_bambu_machine_model_lookup():
+def test_3mf_machine_model_does_not_substitute_for_missing_bed_metadata():
     slice_info = 'machine_model = "Bambu Lab X1 Carbon"\n'
     path = _write_3mf({"Metadata/slice_info.config": slice_info})
     try:
         x, y = pfm._extract_3mf_meta(path)
-        assert x == 256
-        assert y == 256
+        assert x is None
+        assert y is None
     finally:
         os.unlink(path)
 
 
-def test_3mf_bambu_p1s_lookup():
+def test_3mf_p1s_model_does_not_substitute_for_missing_bed_metadata():
     slice_info = 'machine_model = "Bambu Lab P1S"\n'
     path = _write_3mf({"Metadata/slice_info.config": slice_info})
     try:
         x, y = pfm._extract_3mf_meta(path)
-        assert x == 256
-        assert y == 256
+        assert x is None
+        assert y is None
     finally:
         os.unlink(path)
 
@@ -236,7 +237,8 @@ def test_extract_meta_gcode_with_bed():
         result = pfm.extract_print_file_meta(path, ".gcode")
         assert result["bed_x_mm"] == 350.0
         assert result["bed_y_mm"] == 350.0
-        assert result["compatible_api_types"] == "moonraker,prusalink,elegoo"
+        assert result["compatible_api_types"] == ""
+        assert result["safety_facts"]["bed"]["source_member"] == "gcode_header"
     finally:
         os.unlink(path)
 
@@ -247,16 +249,17 @@ def test_extract_meta_gcode_no_comments():
         result = pfm.extract_print_file_meta(path, ".gcode")
         assert result["bed_x_mm"] is None
         assert result["bed_y_mm"] is None
-        assert result["compatible_api_types"] == "moonraker,prusalink,elegoo"
+        assert result["compatible_api_types"] == ""
     finally:
         os.unlink(path)
 
 
-def test_extract_meta_3mf_returns_bambu_types():
+def test_extract_meta_3mf_extension_alone_does_not_authorize_bambu():
     path = _write_3mf({"3D/3dmodel.model": "<model/>"})
     try:
         result = pfm.extract_print_file_meta(path, ".3mf")
-        assert result["compatible_api_types"] == "bambu"
+        assert result["compatible_api_types"] == ""
+        assert result["safety_facts"]["api_types"]["present"] is False
     finally:
         os.unlink(path)
 
@@ -271,7 +274,7 @@ def test_extract_meta_bgcode_returns_correct_types():
         result = pfm.extract_print_file_meta(path, ".bgcode")
         assert result["bed_x_mm"] is None
         assert result["bed_y_mm"] is None
-        assert result["compatible_api_types"] == "moonraker,prusalink,elegoo"
+        assert result["compatible_api_types"] == ""
     finally:
         os.unlink(path)
 
@@ -281,7 +284,7 @@ def test_extract_meta_does_not_raise_on_missing_file():
     result = pfm.extract_print_file_meta("/nonexistent/file.gcode", ".gcode")
     assert result["bed_x_mm"] is None
     assert result["bed_y_mm"] is None
-    assert result["compatible_api_types"] == "moonraker,prusalink,elegoo"
+    assert result["compatible_api_types"] == ""
 
 
 def test_extract_meta_does_not_raise_on_malformed_3mf():
@@ -292,7 +295,7 @@ def test_extract_meta_does_not_raise_on_malformed_3mf():
     try:
         result = pfm.extract_print_file_meta(path, ".3mf")
         assert result["bed_x_mm"] is None
-        assert result["compatible_api_types"] == "bambu"
+        assert result["compatible_api_types"] == ""
     finally:
         os.unlink(path)
 
@@ -317,3 +320,35 @@ def test_lookup_known_bed_partial_match():
 def test_lookup_known_bed_no_match():
     result = pfm._lookup_known_bed("Some Unknown Printer XYZ")
     assert result == (None, None)
+
+
+def test_3mf_safety_facts_preserve_exact_sources_without_defaults():
+    project = {
+        "printer_model": "Bambu Lab X1 Carbon",
+        "nozzle_diameter": ["0.4"],
+        "filament_type": ["PLA"],
+    }
+    path = _write_3mf({"Metadata/project_settings.config": json.dumps(project)})
+    try:
+        result = pfm.extract_print_file_meta(path, ".3mf")
+        facts = result["safety_facts"]
+        assert result["compatible_api_types"] == "bambu"
+        assert facts["api_types"]["source_member"] == "Metadata/project_settings.config"
+        assert facts["api_types"]["source_key"] == "printer_model"
+        assert facts["nozzle"]["value"] == 0.4
+        assert facts["materials"]["value"] == ["PLA"]
+        assert facts["bed"]["present"] is False
+        assert facts["bed"]["value"] is None
+    finally:
+        os.unlink(path)
+
+
+def test_3mf_missing_nozzle_stays_missing():
+    project = {"printer_model": "Bambu Lab P1S", "filament_type": ["PLA"]}
+    path = _write_3mf({"Metadata/project_settings.config": json.dumps(project)})
+    try:
+        facts = pfm.extract_print_file_meta(path, ".3mf")["safety_facts"]
+        assert facts["nozzle"]["present"] is False
+        assert facts["nozzle"]["value"] is None
+    finally:
+        os.unlink(path)
