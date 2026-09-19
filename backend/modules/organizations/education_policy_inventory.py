@@ -64,7 +64,7 @@ POLICY_INVENTORY = (
     _entry("printers.monitors.moonraker_monitor", "Moonraker state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("event bus",), "test_education_monitor_policy.py", "batch2_required"),
     _entry("printers.monitors.prusalink_monitor", "PrusaLink state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("event bus",), "test_education_monitor_policy.py", "batch2_required"),
     _entry("printers.monitors.elegoo_monitor", "Elegoo state poll", "submission/job/printer", "telemetry-transition", "trusted monitor", ("event bus",), "test_education_monitor_policy.py", "batch2_required"),
-    _entry("jobs.scheduler", "scheduler tick", "submission/job/printer", "dispatch", "trusted scheduler", ("printers.dispatch",), "test_education_dispatch_policy.py", "batch2_required"),
+    _entry("jobs.scheduler", "scheduler tick", "submission/job/printer", "schedule", "trusted scheduler", ("organizations.education_policy", "printers.services"), "test_education_scheduler_policy.py", "guarded"),
     _entry("notifications.job_events", "job.* topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.error_handling", "printer/job error topics", "submission/job/alert", "notify", "trusted notification worker", ("Education outbox",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.alert_dispatch", "dispatch_alert", "Education alert", "external-sink", "none for Education", ("email", "push", "webhook"), "test_education_notification_privacy.py", "batch2_required"),

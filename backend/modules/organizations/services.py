@@ -11,13 +11,17 @@ from typing import Optional
 from core.interfaces.org_settings import OrgSettingsProvider
 from core.interfaces.education_policy import EducationPolicyProvider
 from modules.organizations.education_policy import (
+    advance_schedule,
     authorize_dispatch,
     assert_org_hard_delete_allowed,
     assert_printer_tenant_change_or_delete_allowed,
     assert_user_hard_delete_allowed,
     assert_user_tenant_change_allowed,
     printer_is_currently_entitled,
+    reconcile_schedule_denial,
     reconcile_dispatch_denial,
+    reset_stale_schedule,
+    scheduler_context,
 )
 from modules.organizations.routes import _get_org_settings
 
@@ -92,6 +96,48 @@ class EducationPolicyService(EducationPolicyProvider):
         reason: str,
     ) -> bool:
         return reconcile_dispatch_denial(
+            db,
+            submission_id=submission_id,
+            job_id=job_id,
+            expected_revision=expected_revision,
+            reason=reason,
+        )
+
+    def scheduler_context(self, db, *, job_id: int) -> dict | None:
+        return scheduler_context(db, job_id=job_id)
+
+    def advance_schedule(
+        self, db, *, submission_id: int, job_id: int, printer_id: int, expected_revision: int
+    ) -> bool:
+        return advance_schedule(
+            db,
+            submission_id=submission_id,
+            job_id=job_id,
+            printer_id=printer_id,
+            expected_revision=expected_revision,
+        )
+
+    def reset_stale_schedule(
+        self, db, *, submission_id: int, job_id: int, printer_id: int, expected_revision: int
+    ) -> bool:
+        return reset_stale_schedule(
+            db,
+            submission_id=submission_id,
+            job_id=job_id,
+            printer_id=printer_id,
+            expected_revision=expected_revision,
+        )
+
+    def reconcile_schedule_denial(
+        self,
+        db,
+        *,
+        submission_id: int,
+        job_id: int,
+        expected_revision: int,
+        reason: str,
+    ) -> bool:
+        return reconcile_schedule_denial(
             db,
             submission_id=submission_id,
             job_id=job_id,

@@ -58,6 +58,10 @@ def test_central_policy_interface_covers_lifecycle_and_dispatch() -> None:
         "printer_is_currently_entitled",
         "authorize_dispatch",
         "reconcile_dispatch_denial",
+        "scheduler_context",
+        "advance_schedule",
+        "reset_stale_schedule",
+        "reconcile_schedule_denial",
     }
 
 

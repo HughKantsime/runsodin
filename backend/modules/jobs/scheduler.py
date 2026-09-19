@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from core.base import JobStatus
+from core.registry import registry
 from modules.printers.models import Printer
+from modules.printers.services import evaluate_submission_compatibility
 from modules.jobs.models import Job, SchedulerRun
 
 
@@ -199,22 +201,106 @@ class Scheduler:
         
         return None
     
+    @staticmethod
+    def _is_education_job(db: Session, job_id: int) -> bool:
+        """Return whether a job is owned by the Education workflow."""
+        return db.execute(
+            text("SELECT 1 FROM education_submissions WHERE job_id=:job_id LIMIT 1"),
+            {"job_id": job_id},
+        ).fetchone() is not None
+
+    @staticmethod
+    def _compatibility_denial_reason(compatibility: dict | None) -> str:
+        """Build a bounded, non-secret scheduler reason from compatibility codes."""
+        if not compatibility:
+            return "compatibility_unavailable"
+        codes = sorted(
+            {
+                str(reason.get("code") or "compatibility_denied")[:64]
+                for reason in compatibility.get("reasons", [])
+            }
+        )
+        return ",".join(codes)[:160] or "compatibility_denied"
+
+    @staticmethod
+    def _mark_reconciled_job(job: Job) -> None:
+        """Keep the ORM identity map aligned with a central-policy reconciliation."""
+        job.status = JobStatus.SUBMITTED
+        job.printer_id = None
+        job.scheduled_start = None
+        job.scheduled_end = None
+        job.match_score = None
+
     def _cleanup_stale_schedules(self, db: Session) -> int:
-        """Reset SCHEDULED jobs whose time window has passed (>2hrs past scheduled_start)."""
+        """Reset stale schedules while preserving Education lifecycle policy."""
         cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
         stale = db.query(Job).filter(
             Job.status == JobStatus.SCHEDULED,
             Job.scheduled_start < cutoff
         ).all()
+        policy = registry.get_provider("EducationPolicyProvider")
+        reset_count = 0
         for job in stale:
+            if self._is_education_job(db, job.id):
+                # An Education job must never fall through to generic cleanup. If
+                # its provider is unavailable, leave it scheduled and fail closed.
+                if policy is None:
+                    continue
+                context = policy.scheduler_context(db, job_id=job.id)
+                if not context:
+                    continue
+                printer_id = context.get("approved_printer_id")
+                compatibility = None
+                if context.get("authorized") and printer_id is not None:
+                    compatibility = evaluate_submission_compatibility(
+                        db,
+                        org_id=int(context["org_id"]),
+                        print_file_id=int(context["print_file_id"]),
+                        printer_id=int(printer_id),
+                    )
+                if compatibility and compatibility.get("compatible"):
+                    changed = policy.reset_stale_schedule(
+                        db,
+                        submission_id=int(context["id"]),
+                        job_id=job.id,
+                        printer_id=int(printer_id),
+                        expected_revision=int(context["lifecycle_revision"]),
+                    )
+                    if changed:
+                        job.status = JobStatus.PENDING
+                        job.printer_id = int(printer_id)
+                        job.scheduled_start = None
+                        job.scheduled_end = None
+                        job.match_score = None
+                        reset_count += 1
+                    continue
+
+                reason = (
+                    "scheduler_policy_denied"
+                    if not context.get("authorized")
+                    else self._compatibility_denial_reason(compatibility)
+                )
+                changed = policy.reconcile_schedule_denial(
+                    db,
+                    submission_id=int(context["id"]),
+                    job_id=job.id,
+                    expected_revision=int(context["lifecycle_revision"]),
+                    reason=reason,
+                )
+                if changed:
+                    self._mark_reconciled_job(job)
+                    reset_count += 1
+                continue
+
             job.status = JobStatus.PENDING
             job.printer_id = None
             job.scheduled_start = None
             job.scheduled_end = None
             job.match_score = None
-        if stale:
+            reset_count += 1
+        if reset_count:
             db.flush()
-        return len(stale)
+        return reset_count
 
     def run(self, db: Session, start_date: Optional[datetime] = None) -> SchedulerResult:
         """
@@ -242,6 +328,9 @@ class Scheduler:
         # Load printers
         printers = db.query(Printer).filter(Printer.is_active.is_(True)).all()
         if not printers:
+            # Stale cleanup may have made an atomic Education lifecycle
+            # correction even when there is no printer available for new work.
+            db.commit()
             result.success = False
             result.errors.append("No active printers found")
             return result
@@ -311,17 +400,88 @@ class Scheduler:
                     seen.add(row[0])
 
         # Schedule each job
+        education_policy = registry.get_provider("EducationPolicyProvider")
         for job in pending_jobs:
+            education_context = None
+            approved_printer_id = None
+            if self._is_education_job(db, job.id):
+                if education_policy is None:
+                    result.skipped_count += 1
+                    result.errors.append(
+                        f"Could not schedule Education job {job.id}: policy unavailable"
+                    )
+                    continue
+                education_context = education_policy.scheduler_context(db, job_id=job.id)
+                if not education_context:
+                    result.skipped_count += 1
+                    result.errors.append(
+                        f"Could not schedule Education job {job.id}: policy context unavailable"
+                    )
+                    continue
+                if not education_context.get("authorized"):
+                    changed = education_policy.reconcile_schedule_denial(
+                        db,
+                        submission_id=int(education_context["id"]),
+                        job_id=job.id,
+                        expected_revision=int(education_context["lifecycle_revision"]),
+                        reason="scheduler_policy_denied",
+                    )
+                    if changed:
+                        self._mark_reconciled_job(job)
+                    result.skipped_count += 1
+                    result.errors.append(
+                        f"Could not schedule Education job {job.id}: policy denied"
+                    )
+                    continue
+                approved_printer_id = int(education_context["approved_printer_id"])
+                compatibility = evaluate_submission_compatibility(
+                    db,
+                    org_id=int(education_context["org_id"]),
+                    print_file_id=int(education_context["print_file_id"]),
+                    printer_id=approved_printer_id,
+                )
+                if not compatibility or not compatibility.get("compatible"):
+                    reason = self._compatibility_denial_reason(compatibility)
+                    changed = education_policy.reconcile_schedule_denial(
+                        db,
+                        submission_id=int(education_context["id"]),
+                        job_id=job.id,
+                        expected_revision=int(education_context["lifecycle_revision"]),
+                        reason=reason,
+                    )
+                    if changed:
+                        self._mark_reconciled_job(job)
+                    result.skipped_count += 1
+                    result.errors.append(
+                        f"Could not schedule Education job {job.id}: {reason}"
+                    )
+                    continue
+
             best_fit = self._find_best_fit(
                 job=job,
                 printer_states=printer_states,
                 usage_map=usage_map,
                 start_date=start_date,
                 total_slots=total_slots,
-                required_printer_model=job_model_requirements.get(job.model_id)
+                required_printer_model=job_model_requirements.get(job.model_id),
+                required_printer_id=approved_printer_id,
             )
             
             if best_fit:
+                if education_context is not None:
+                    advanced = education_policy.advance_schedule(
+                        db,
+                        submission_id=int(education_context["id"]),
+                        job_id=job.id,
+                        printer_id=int(best_fit["printer_id"]),
+                        expected_revision=int(education_context["lifecycle_revision"]),
+                    )
+                    if not advanced:
+                        result.skipped_count += 1
+                        result.errors.append(
+                            f"Could not schedule Education job {job.id}: revision changed"
+                        )
+                        continue
                 # Apply the assignment
                 self._apply_assignment(
                     job=job,
@@ -388,7 +548,8 @@ class Scheduler:
         usage_map: Dict[Tuple[int, int], str],
         start_date: datetime,
         total_slots: int,
-        required_printer_model: Optional[str] = None
+        required_printer_model: Optional[str] = None,
+        required_printer_id: Optional[int] = None,
     ) -> Optional[Dict]:
         """
         Find the best printer and time slot for a job.
@@ -407,6 +568,9 @@ class Scheduler:
         duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
 
         for printer_id, state in printer_states.items():
+            if required_printer_id is not None and printer_id != required_printer_id:
+                continue
+
             # Model constraint: skip printers whose model is known and doesn't match.
             # If printer model is unset (not yet auto-detected), we allow it through —
             # blocking on unknown model would exclude all non-Bambu printers.

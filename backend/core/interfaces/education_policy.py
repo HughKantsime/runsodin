@@ -43,3 +43,31 @@ class EducationPolicyProvider(ABC):
         reason: str,
     ) -> bool:
         """Atomically return a denied Education dispatch to submitted state."""
+
+    @abstractmethod
+    def scheduler_context(self, db, *, job_id: int) -> dict | None:
+        """Return current Education scheduling context, or None for a generic job."""
+
+    @abstractmethod
+    def advance_schedule(
+        self, db, *, submission_id: int, job_id: int, printer_id: int, expected_revision: int
+    ) -> bool:
+        """CAS an authorized pending Education submission to scheduled without committing."""
+
+    @abstractmethod
+    def reset_stale_schedule(
+        self, db, *, submission_id: int, job_id: int, printer_id: int, expected_revision: int
+    ) -> bool:
+        """CAS a still-valid stale schedule back to pending without committing."""
+
+    @abstractmethod
+    def reconcile_schedule_denial(
+        self,
+        db,
+        *,
+        submission_id: int,
+        job_id: int,
+        expected_revision: int,
+        reason: str,
+    ) -> bool:
+        """Return a drifted Education schedule to submitted without committing."""
