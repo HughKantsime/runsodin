@@ -66,6 +66,7 @@ TIERS = {
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
+            "education_workflows",
         ],
     },
     "enterprise": {
@@ -80,6 +81,7 @@ TIERS = {
             "analytics", "csv_export", "cost_calculator",
             "maintenance", "care_counters",
             "job_approval", "user_groups", "print_quotas", "usage_reports",
+            "education_workflows",
             "opcua", "mqtt_republish", "audit_export", "sqlcipher",
         ],
     },
@@ -215,14 +217,19 @@ class LicenseInfo:
         if not self.valid:
             return feature in TIERS["community"]["features"]
         tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
+        if feature == "education_workflows":
+            return self.tier in {"education", "enterprise"} and feature in self.features
         return feature in self.features or feature in tier_features
 
     def effective_features(self) -> list[str]:
         """Return the deterministic feature set enforced by ``has_feature``."""
         if not self.valid:
             return sorted(set(TIERS["community"]["features"]))
-        tier_features = TIERS.get(self.tier, TIERS["community"])["features"]
-        return sorted(set(tier_features) | set(self.features))
+        tier_features = set(TIERS.get(self.tier, TIERS["community"])["features"])
+        features = tier_features | set(self.features)
+        if not self.has_feature("education_workflows"):
+            features.discard("education_workflows")
+        return sorted(features)
 
     def to_dict(self) -> Dict[str, Any]:
         tier_def = TIERS.get(self.tier, TIERS["community"])
@@ -418,7 +425,14 @@ def load_license() -> LicenseInfo:
         info.expires_at = payload["expires_at"]
         info.max_printers = payload.get("max_printers", tier_def["max_printers"]) or tier_def["max_printers"]
         info.max_users = payload.get("max_users", tier_def["max_users"])
-        info.features = payload.get("features", tier_def["features"])
+        if "features" in payload:
+            info.features = payload["features"]
+        else:
+            info.features = [
+                feature
+                for feature in tier_def["features"]
+                if feature != "education_workflows"
+            ]
         info.expired = False
 
         return info

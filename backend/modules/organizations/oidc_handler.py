@@ -268,6 +268,9 @@ class OIDCHandler:
         jwks_uri = config.get("jwks_uri")
         if not jwks_uri:
             raise ValueError("No jwks_uri in OIDC config")
+        issuer = config.get("issuer")
+        if not isinstance(issuer, str) or not issuer:
+            raise ValueError("No issuer in OIDC config")
 
         # v1.8.9 (codex pass 11 + 12): ITAR DNS-pinned JWKS fetch.
         # PyJWKClient uses urllib.request internally, which honors
@@ -300,8 +303,16 @@ class OIDCHandler:
                 signing_key.key,
                 algorithms=["RS256"],
                 audience=self.client_id,
-                options={"verify_exp": True, "verify_aud": True},
+                issuer=issuer,
+                options={
+                    "verify_exp": True,
+                    "verify_aud": True,
+                    "verify_iss": True,
+                    "require": ["exp", "aud", "iss", "sub"],
+                },
             )
+            if not isinstance(claims.get("sub"), str) or not claims["sub"]:
+                raise ValueError("ID token subject is missing")
             return claims
 
         except Exception as e:

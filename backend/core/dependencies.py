@@ -86,6 +86,27 @@ def _forget_last_seen(jti: str) -> None:
         _last_seen_cache.pop(jti, None)
 
 
+def _principal(
+    row,
+    auth_kind: str,
+    *,
+    token_id: int | None = None,
+    token_scopes: list[str] | None = None,
+) -> Optional[dict]:
+    """Return an active principal with explicit authentication provenance."""
+    if row is None:
+        return None
+    principal = dict(row._mapping)
+    if not bool(principal.get("is_active")):
+        return None
+    principal["_auth_kind"] = auth_kind
+    if token_id is not None:
+        principal["_token_id"] = token_id
+    if token_scopes is not None:
+        principal["_token_scopes"] = token_scopes
+    return principal
+
+
 def validate_access_token(token: str, db: Session) -> Optional[dict]:
     """Validate a JWT as a full access token and return the user dict.
 
@@ -130,9 +151,7 @@ def validate_access_token(token: str, db: Session) -> Optional[dict]:
         text("SELECT * FROM users WHERE username = :username"),
         {"username": token_data.username},
     ).fetchone()
-    if not user:
-        return None
-    return dict(user._mapping)
+    return _principal(user, "bearer_jwt")
 
 
 async def get_current_user(
@@ -184,8 +203,9 @@ async def get_current_user(
                                 text("SELECT * FROM users WHERE username = :username"),
                                 {"username": token_data.username},
                             ).fetchone()
-                            if user:
-                                return dict(user._mapping)
+                            principal = _principal(user, "session_jwt")
+                            if principal:
+                                return principal
             except Exception:
                 log.debug("Cookie auth failed", exc_info=True)
 
@@ -223,8 +243,9 @@ async def get_current_user(
                 text("SELECT * FROM users WHERE username = :username"),
                 {"username": token_data.username},
             ).fetchone()
-            if user:
-                return dict(user._mapping)
+            principal = _principal(user, "bearer_jwt")
+            if principal:
+                return principal
 
     # Try 2: X-API-Key header — check global key first, then scoped user tokens
     api_key = request.headers.get("X-API-Key")
@@ -235,8 +256,9 @@ async def get_current_user(
             admin = db.execute(
                 text("SELECT * FROM users WHERE role = 'admin' AND is_active IS TRUE ORDER BY id LIMIT 1")
             ).fetchone()
-            if admin:
-                return dict(admin._mapping)
+            principal = _principal(admin, "legacy_global_api_key")
+            if principal:
+                return principal
 
         # 2b: Per-user scoped tokens (odin_xxx format)
         if api_key.startswith("odin_"):
@@ -305,12 +327,15 @@ async def get_current_user(
                     text("SELECT * FROM users WHERE id = :id"),
                     {"id": candidate.user_id},
                 ).fetchone()
-                if user:
-                    user_dict = dict(user._mapping)
-                    user_dict["_token_scopes"] = (
-                        json.loads(candidate.scopes) if candidate.scopes else []
-                    )
-                    return user_dict
+                scopes = json.loads(candidate.scopes) if candidate.scopes else []
+                principal = _principal(
+                    user,
+                    "user_api_token",
+                    token_id=int(candidate.id),
+                    token_scopes=scopes,
+                )
+                if principal:
+                    return principal
 
     return None
 

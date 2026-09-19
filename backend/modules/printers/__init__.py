@@ -40,7 +40,7 @@ SUBSCRIBES = [
 
 IMPLEMENTS = ["PrinterStateProvider"]
 
-REQUIRES = ["NotificationDispatcher", "OrgSettingsProvider"]
+REQUIRES = ["NotificationDispatcher", "OrgSettingsProvider", "EducationPolicyProvider"]
 
 DAEMONS = [
     "printers.monitors.mqtt_monitor",

@@ -22,6 +22,7 @@ from core.auth import hash_password, create_access_token, verify_password, decod
 from core.models import SystemConfig
 from core.config import settings as _settings
 from core.rate_limit import limiter
+from modules.organizations.education_access import capability_snapshot_id
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -366,7 +367,11 @@ async def set_theme(request: Request, current_user: dict = Depends(get_current_u
 
 @router.post("/auth/ws-token", tags=["Auth"])
 @limiter.limit("10/minute")
-async def get_ws_token(request: Request, current_user: dict = Depends(get_current_user)):
+async def get_ws_token(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Issue a short-lived JWT for WebSocket authentication."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -376,6 +381,7 @@ async def get_ws_token(request: Request, current_user: dict = Depends(get_curren
             "role": current_user["role"],
             "user_id": current_user["id"],
             "group_id": current_user.get("group_id"),
+            "capability_snapshot_id": capability_snapshot_id(db, current_user),
             "ws": True,
         },
         expires_delta=timedelta(minutes=5),

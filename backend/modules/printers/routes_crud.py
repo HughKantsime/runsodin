@@ -276,6 +276,11 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
     if not check_org_access(current_user, printer.org_id):
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    from core.registry import registry
+    education_policy = registry.get_provider("EducationPolicyProvider")
+    if education_policy is None:
+        raise HTTPException(status_code=503, detail="Education policy unavailable")
+    education_policy.assert_printer_tenant_change_or_delete_allowed(db, printer_id)
     printer_name = printer.name
     db.delete(printer)
     log_audit(db, "printer.deleted", "printer", printer_id, {"name": printer_name})

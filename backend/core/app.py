@@ -173,6 +173,33 @@ class ConnectionManager:
             log.exception("Unable to resolve WebSocket printer audience")
             return -1, False
 
+    @staticmethod
+    def _education_principal_current(principal: dict, message: dict) -> bool:
+        data = message.get("data", {})
+        if not (message.get("education_internal") or data.get("education_internal")):
+            return True
+        try:
+            from core.db import SessionLocal
+            from modules.organizations.education_access import capability_snapshot_id
+
+            with SessionLocal() as db:
+                row = db.execute(
+                    text(
+                        "SELECT id, username, role, group_id, is_active FROM users "
+                        "WHERE id=:id AND is_active IS TRUE"
+                    ),
+                    {"id": principal.get("id")},
+                ).fetchone()
+                if not row:
+                    return False
+                live_principal = dict(row._mapping)
+                return capability_snapshot_id(db, live_principal) == principal.get(
+                    "_capability_snapshot_id"
+                )
+        except Exception:
+            log.exception("Unable to re-authorize Education WebSocket audience")
+            return False
+
     async def broadcast(self, message: dict) -> int:
         """Deliver an event only to its explicit user or tenant audience."""
         audience = message.get("_audience", {})
@@ -187,6 +214,8 @@ class ConnectionManager:
         delivered = 0
         for ws, principal in list(self.active):
             if not self._can_receive(principal, user_ids, org_id, shared):
+                continue
+            if not self._education_principal_current(principal, message):
                 continue
             try:
                 await ws.send_json(public_message)
@@ -756,6 +785,8 @@ def create_app() -> FastAPI:
     # so not-yet-migrated routes still produce something agents can parse.
     from core.errors import OdinError, ErrorCode
     from fastapi import HTTPException
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.exceptions import RequestValidationError
 
     @app.exception_handler(OdinError)
     async def _odin_error_handler(request: Request, exc: OdinError):
@@ -814,6 +845,29 @@ def create_app() -> FastAPI:
                 },
             },
             headers=getattr(exc, "headers", None),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _request_validation_handler(request: Request, exc: RequestValidationError):
+        errors = jsonable_encoder(exc.errors())
+        fields = sorted(
+            {
+                ".".join(str(part) for part in item.get("loc", ()) if part != "body")
+                for item in errors
+                if item.get("loc")
+            }
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": errors,
+                "error": {
+                    "code": ErrorCode.validation_failed.value,
+                    "detail": "Request validation failed",
+                    "retriable": False,
+                    "fields": fields,
+                },
+            },
         )
 
     # Global exception handler — capture unhandled exceptions into ring buffer
@@ -885,7 +939,12 @@ def create_app() -> FastAPI:
                         auth_module.SECRET_KEY,
                         algorithms=[auth_module.ALGORITHM],
                     )
-                    if payload.get("ws") is True:
+                    capability_snapshot_id = payload.get("capability_snapshot_id")
+                    if (
+                        payload.get("ws") is True
+                        and isinstance(capability_snapshot_id, str)
+                        and capability_snapshot_id
+                    ):
                         with SessionLocal() as db:
                             row = db.execute(
                                 text("SELECT id, username, role, group_id FROM users WHERE username = :username AND is_active IS TRUE"),
@@ -893,6 +952,9 @@ def create_app() -> FastAPI:
                             ).fetchone()
                         if row:
                             principal = dict(row._mapping)
+                            principal["_auth_kind"] = "websocket_token"
+                            principal["_token_id"] = str(payload.get("jti") or "")
+                            principal["_capability_snapshot_id"] = capability_snapshot_id
                 except Exception:
                     log.exception("WebSocket principal lookup failed")
 

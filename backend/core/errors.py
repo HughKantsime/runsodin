@@ -58,6 +58,9 @@ class ErrorCode(str, Enum):
 
     # State / business rules
     invalid_state_transition = "invalid_state_transition"
+    revision_conflict = "revision_conflict"
+    resource_conflict = "resource_conflict"
+    invalid_cursor = "invalid_cursor"
     quota_exceeded = "quota_exceeded"
     validation_failed = "validation_failed"
     feature_disabled = "feature_disabled"

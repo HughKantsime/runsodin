@@ -16,6 +16,11 @@ from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
 from core.rbac import require_role, require_superadmin
+from modules.organizations.education_policy import (
+    assert_org_hard_delete_allowed,
+    assert_user_hard_delete_allowed,
+    assert_user_tenant_change_allowed,
+)
 from core.auth_helpers import _validate_password
 from core.auth import hash_password, UserCreate
 from core.models import SystemConfig
@@ -212,17 +217,21 @@ class UserUpdateRequest(PydanticBaseModel):
 @router.patch("/users/{user_id}", tags=["Users"])
 async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     updates = body.model_dump(exclude_unset=True)
+    target = db.execute(
+        text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}
+    ).fetchone()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
 
     # Org-scoped admin: verify target user is in their group
     if not _is_superadmin(current_user):
-        target = db.execute(text("SELECT group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
-        if not target:
-            raise HTTPException(status_code=404, detail="User not found")
         if not _check_org_admin_access(current_user, target.group_id):
             raise HTTPException(status_code=403, detail="Cannot modify users outside your group")
         # Prevent org-scoped admin from moving user to a different group
         if "group_id" in updates and updates["group_id"] != current_user["group_id"]:
             raise HTTPException(status_code=403, detail="Cannot move users to a different group")
+    if "group_id" in updates and updates["group_id"] != target.group_id:
+        assert_user_tenant_change_allowed(db, user_id)
 
     if 'password' in updates and updates['password']:
         pw_valid, pw_msg = _validate_password(updates['password'])
@@ -273,6 +282,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
         admin_count = db.execute(text("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active IS TRUE")).scalar()
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin account")
+    assert_user_hard_delete_allowed(db, user_id)
     username = target.role  # we need to fetch username for audit
     target_row = db.execute(text("SELECT username FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
@@ -459,7 +469,6 @@ async def update_group(group_id: int, body: dict, current_user: dict = Depends(r
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Group not found")
-
     ALLOWED_GROUP_FIELDS = {"name", "description", "owner_id"}
     updates = {k: v for k, v in body.items() if k in ALLOWED_GROUP_FIELDS}
 
@@ -485,6 +494,7 @@ async def delete_group(group_id: int, current_user: dict = Depends(require_super
     existing = db.execute(text("SELECT id FROM groups WHERE id = :id"), {"id": group_id}).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Group not found")
+    assert_org_hard_delete_allowed(db, group_id)
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :gid"), {"gid": group_id})
     db.execute(text("DELETE FROM groups WHERE id = :id"), {"id": group_id})
     db.commit()

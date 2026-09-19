@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -18,6 +19,134 @@ from core.config import settings as _settings
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+class OIDCIdentityError(RuntimeError):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _resolve_oidc_user(db: Session, config: dict, claims: dict, user_info: dict) -> dict:
+    """Resolve, bind, or create one exact issuer+subject identity."""
+    issuer = claims.get("iss")
+    subject = claims.get("sub")
+    email = (
+        user_info.get("mail")
+        or user_info.get("userPrincipalName")
+        or claims.get("email")
+    )
+    if not isinstance(issuer, str) or not issuer:
+        raise OIDCIdentityError("missing_issuer")
+    if not isinstance(subject, str) or not subject:
+        raise OIDCIdentityError("missing_subject")
+    if not isinstance(email, str) or not email:
+        raise OIDCIdentityError("missing_email")
+
+    provider = config.get("display_name", "oidc").lower().replace(" ", "_")
+    existing = db.execute(
+        text(
+            "SELECT * FROM users WHERE oidc_issuer=:issuer AND oidc_subject=:subject"
+        ),
+        {"issuer": issuer, "subject": subject},
+    ).fetchone()
+    if existing:
+        if not bool(existing._mapping.get("is_active")):
+            raise OIDCIdentityError("user_inactive")
+        db.execute(
+            text("UPDATE users SET last_login=:now, email=:email WHERE id=:id"),
+            {
+                "now": datetime.now(timezone.utc).isoformat(),
+                "email": email,
+                "id": existing.id,
+            },
+        )
+        return dict(existing._mapping)
+
+    legacy = db.execute(
+        text(
+            "SELECT * FROM users WHERE oidc_issuer IS NULL "
+            "AND oidc_subject=:subject AND oidc_provider=:provider ORDER BY id"
+        ),
+        {"subject": subject, "provider": provider},
+    ).fetchall()
+    if len(legacy) > 1:
+        raise OIDCIdentityError("oidc_identity_ambiguous")
+    if len(legacy) == 1:
+        row = legacy[0]
+        if not bool(row._mapping.get("is_active")):
+            raise OIDCIdentityError("user_inactive")
+        try:
+            changed = db.execute(
+                text(
+                    "UPDATE users SET oidc_issuer=:issuer, last_login=:now, email=:email "
+                    "WHERE id=:id AND oidc_issuer IS NULL"
+                ),
+                {
+                    "issuer": issuer,
+                    "now": datetime.now(timezone.utc).isoformat(),
+                    "email": email,
+                    "id": row.id,
+                },
+            )
+            if changed.rowcount != 1:
+                raise OIDCIdentityError("oidc_identity_ambiguous")
+        except IntegrityError as exc:
+            raise OIDCIdentityError("oidc_identity_ambiguous") from exc
+        bound = dict(row._mapping)
+        bound["oidc_issuer"] = issuer
+        bound["email"] = email
+        return bound
+
+    if not config.get("auto_create_users", False):
+        raise OIDCIdentityError("user_not_found")
+    if config.get("default_role", "viewer") != "viewer":
+        raise OIDCIdentityError("oidc_role_configuration_invalid")
+    group_id = config.get("default_group_id")
+    if group_id is None or not db.execute(
+        text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
+        {"id": group_id},
+    ).fetchone():
+        raise OIDCIdentityError("oidc_default_tenant_required")
+
+    username = email.split("@", 1)[0]
+    base_username = username
+    counter = 1
+    while db.execute(
+        text("SELECT id FROM users WHERE username=:username"), {"username": username}
+    ).fetchone():
+        username = f"{base_username}{counter}"
+        counter += 1
+    try:
+        user_id = execute_insert_returning_id(
+            db,
+            "INSERT INTO users "
+            "(username, email, password_hash, role, oidc_subject, oidc_provider, "
+            "oidc_issuer, group_id, last_login) VALUES "
+            "(:username, :email, '', 'viewer', :subject, :provider, :issuer, :group_id, :now)",
+            {
+                "username": username,
+                "email": email,
+                "subject": subject,
+                "provider": provider,
+                "issuer": issuer,
+                "group_id": group_id,
+                "now": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    except IntegrityError as exc:
+        raise OIDCIdentityError("oidc_identity_ambiguous") from exc
+    return {
+        "id": user_id,
+        "username": username,
+        "email": email,
+        "role": "viewer",
+        "is_active": True,
+        "group_id": group_id,
+        "oidc_subject": subject,
+        "oidc_provider": provider,
+        "oidc_issuer": issuer,
+    }
 
 
 def _record_session(db, user_id, access_token, ip, user_agent):
@@ -102,50 +231,13 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
         tokens = await handler.exchange_code(code)
         id_token_claims = await handler.parse_id_token(tokens["id_token"])
         user_info = await handler.get_user_info(tokens["access_token"])
-        oidc_subject = id_token_claims.get("sub") or id_token_claims.get("oid")
-        email = user_info.get("mail") or user_info.get("userPrincipalName") or id_token_claims.get("email")
-
-        if not oidc_subject or not email:
-            log.error(f"Missing required claims: sub={oidc_subject}, email={email}")
-            return RedirectResponse(url="/?error=missing_claims", status_code=302)
-
-        oidc_provider = config.get("display_name", "oidc").lower().replace(" ", "_")
-        existing = db.execute(
-            text("SELECT * FROM users WHERE oidc_subject = :sub AND oidc_provider = :provider"),
-            {"sub": oidc_subject, "provider": oidc_provider}
-        ).fetchone()
-
-        if existing:
-            user_id = existing[0]
-            db.execute(text("UPDATE users SET last_login = :now, email = :email WHERE id = :id"),
-                       {"now": datetime.now(timezone.utc).isoformat(), "email": email, "id": user_id})
-            db.commit()
-            user_role = existing._mapping.get("role", "operator")
-        elif config.get("auto_create_users", False):
-            username = email.split("@")[0]
-            default_role = config.get("default_role", "viewer")
-            base_username = username
-            counter = 1
-            while db.execute(text("SELECT id FROM users WHERE username = :u"), {"u": username}).fetchone():
-                username = f"{base_username}{counter}"
-                counter += 1
-            insert_sql = """
-                INSERT INTO users (username, email, password_hash, role, oidc_subject, oidc_provider, last_login)
-                VALUES (:username, :email, '', :role, :sub, :provider, :now)
-            """
-            insert_params = {"username": username, "email": email, "role": default_role,
-                             "sub": oidc_subject, "provider": oidc_provider,
-                             "now": datetime.now(timezone.utc).isoformat()}
-            user_id = execute_insert_returning_id(db, insert_sql, insert_params)
-            db.commit()
-            user_role = default_role
-            log.info(f"Created OIDC user: {username} ({email})")
-        else:
-            log.warning(f"OIDC user not found and auto-create disabled: {email}")
-            return RedirectResponse(url="/?error=user_not_found", status_code=302)
+        resolved_user = _resolve_oidc_user(db, config, id_token_claims, user_info)
+        user_id = resolved_user["id"]
+        user_role = resolved_user["role"]
+        username = resolved_user["username"]
 
         access_token = create_access_token(data={
-            "sub": existing._mapping.get("username") if existing else username,
+            "sub": username,
             "role": user_role,
         })
 
@@ -158,8 +250,13 @@ async def oidc_callback(request: Request, code: str = None, state: str = None,
         db.commit()
         return RedirectResponse(url=f"/?oidc_code={oidc_code}", status_code=302)
 
+    except OIDCIdentityError as e:
+        log.warning("OIDC identity resolution failed: %s", e.code)
+        db.rollback()
+        return RedirectResponse(url=f"/?error={quote(e.code)}", status_code=302)
     except Exception as e:
         log.error(f"OIDC callback error: {e}", exc_info=True)
+        db.rollback()
         return RedirectResponse(url=f"/?error=auth_failed", status_code=302)
 
 
@@ -241,8 +338,40 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
 
     allowed_fields = [
         "display_name", "client_id", "client_secret_encrypted", "tenant_id",
-        "discovery_url", "scopes", "auto_create_users", "default_role", "is_enabled"
+        "discovery_url", "scopes", "auto_create_users", "default_role",
+        "default_group_id", "is_enabled"
     ]
+    proposed_role = data.get("default_role")
+    if proposed_role is not None and proposed_role != "viewer":
+        raise HTTPException(status_code=422, detail="OIDC auto-provisioning role must be viewer")
+    if "default_group_id" in data and data["default_group_id"] is not None:
+        if not db.execute(
+            text("SELECT 1 FROM groups WHERE id=:id AND is_org IS TRUE"),
+            {"id": data["default_group_id"]},
+        ).fetchone():
+            raise HTTPException(status_code=422, detail="OIDC default tenant is invalid")
+    current = db.execute(
+        text(
+            "SELECT auto_create_users, default_role, default_group_id "
+            "FROM oidc_config WHERE id=1"
+        )
+    ).fetchone()
+    effective_auto_create = data.get(
+        "auto_create_users", bool(current.auto_create_users) if current else False
+    )
+    effective_role = data.get(
+        "default_role", current.default_role if current else "viewer"
+    )
+    effective_group = data.get(
+        "default_group_id", current.default_group_id if current else None
+    )
+    if effective_auto_create and (
+        effective_role != "viewer" or effective_group is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="OIDC auto-provisioning requires viewer role and a default tenant",
+        )
     updates = []
     params = {}
     for field in allowed_fields:

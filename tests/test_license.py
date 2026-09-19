@@ -344,9 +344,10 @@ class TestValidLicense:
             info = lm.load_license()
             data = info.to_dict()
 
-        assert data["features"] == sorted(set(
-            lm.TIERS["education"]["features"] + ["custom_school_feature"]
-        ))
+        assert data["features"] == sorted(
+            (set(lm.TIERS["education"]["features"]) - {"education_workflows"})
+            | {"custom_school_feature"}
+        )
         assert "print_quotas" in data["features"]
         assert "user_groups" in data["features"]
         assert "class_sections" not in data["features"]
@@ -396,6 +397,32 @@ class TestValidLicense:
             info = lm.load_license()
         assert info.has_feature("rbac") is True
         assert info.has_feature("nonexistent") is False
+
+    def test_education_workflows_requires_eligible_tier_even_if_injected(self):
+        info = lm.LicenseInfo()
+        info.valid = True
+        info.tier = "pro"
+        info.features = ["education_workflows"]
+        assert info.has_feature("education_workflows") is False
+
+        info.tier = "education"
+        info.features = []
+        assert info.has_feature("education_workflows") is False
+
+        info.features = ["education_workflows"]
+        assert info.has_feature("education_workflows") is True
+
+        info.tier = "enterprise"
+        assert info.has_feature("education_workflows") is True
+
+    def test_education_workflows_must_be_explicit_in_signed_payload(self, tmp_path, keypair):
+        license_str, pub_pem = self._make_valid(keypair, "education", features=[])
+        path = _write_license(tmp_path, license_str)
+        with patch.object(lm, "_find_license_file", return_value=path), \
+             patch.object(lm, "ODIN_PUBLIC_KEY", pub_pem):
+            info = lm.load_license()
+        assert info.has_feature("education_workflows") is False
+        assert "education_workflows" not in info.effective_features()
 
     def test_to_dict(self, tmp_path, keypair):
         license_str, pub_pem = self._make_valid(keypair, "pro")

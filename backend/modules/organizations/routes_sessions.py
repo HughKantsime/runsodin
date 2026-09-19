@@ -429,7 +429,7 @@ async def erase_user_data(user_id: int, current_user: dict = Depends(require_rol
     db.execute(text("""UPDATE users SET
         username = :anon_name, email = '[deleted]', password_hash = '[deleted]',
         is_active = FALSE, mfa_enabled = FALSE, mfa_secret = NULL,
-        oidc_subject = NULL, oidc_provider = NULL
+        oidc_subject = NULL, oidc_provider = NULL, oidc_issuer = NULL
         WHERE id = :id"""),
         {"anon_name": f"[deleted-{user_id}]", "id": user_id})
 

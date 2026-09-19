@@ -2,7 +2,7 @@
   "entries": [
     {
       "classification": "dialect-neutral",
-      "line": 594,
+      "line": 623,
       "path": "backend/core/app.py",
       "pattern": "PRAGMA",
       "reason": "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
@@ -98,11 +98,67 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 178,
+      "line": 483,
+      "path": "backend/core/schema/migrations/002_education_tenant_integrity.py",
+      "pattern": "qmark-parameter",
+      "reason": "Education migration uses guarded SQLite PRAGMA inspection while PostgreSQL uses SQLAlchemy reflection",
+      "source": "cast = r\"(?:\\s*::\\s*[a-z_]+(?:\\s+[a-z_]+)?(?:\\[\\])?)?\""
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 181,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
-      "reason": "Dialect branch uses PRAGMA only for SQLite schema introspection",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
       "source": "for row in connection.exec_driver_sql(f'PRAGMA table_info(\"{table_name}\")'):"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 366,
+      "path": "backend/core/schema/migrator.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+      "source": "\"\"\"Apply a migration that owns its connection and transaction boundary."
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 394,
+      "path": "backend/core/schema/migrator.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+      "source": "connection.exec_driver_sql(\"PRAGMA foreign_keys=OFF\")"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 396,
+      "path": "backend/core/schema/migrator.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+      "source": "connection.exec_driver_sql(\"PRAGMA foreign_keys\").scalar_one()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 406,
+      "path": "backend/core/schema/migrator.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+      "source": "violations = connection.exec_driver_sql(\"PRAGMA foreign_key_check\").fetchall()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 421,
+      "path": "backend/core/schema/migrator.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+      "source": "connection.exec_driver_sql(\"PRAGMA foreign_keys=ON\")"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 423,
+      "path": "backend/core/schema/migrator.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+      "source": "connection.exec_driver_sql(\"PRAGMA foreign_keys\").scalar_one()"
     },
     {
       "classification": "dialect-neutral",
@@ -415,6 +471,14 @@
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
       "source": "\"\"\"UPDATE printers SET"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 118,
+      "path": "backend/modules/organizations/education_policy_inventory.py",
+      "pattern": "qmark-parameter",
+      "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
+      "source": "r\"(?:FROM|JOIN|UPDATE|INTO|DELETE\\s+FROM)\\s+\""
     },
     {
       "classification": "dialect-neutral",

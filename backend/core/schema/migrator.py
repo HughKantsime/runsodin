@@ -40,7 +40,10 @@ _CREATE_INDEX_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _ALLOWED_PYTHON_MIGRATIONS = frozenset(
-    {"core.schema.migrations.001_legacy_columns"}
+    {
+        "core.schema.migrations.001_legacy_columns",
+        "core.schema.migrations.002_education_tenant_integrity",
+    }
 )
 
 
@@ -345,6 +348,7 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
     if prior:
         if prior != (checksum, dialect):
             raise MigrationError(f"Migration history mismatch: {migration_id}")
+        module.validate(connection)
         return False
     module.apply(connection)
     module.validate(connection)
@@ -356,6 +360,85 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
         )
     )
     return True
+
+
+def apply_dedicated_python_migration(engine: Engine, module_name: str) -> bool:
+    """Apply a migration that owns its connection and transaction boundary.
+
+    SQLite cannot change ``PRAGMA foreign_keys`` inside an active transaction.
+    The Education ownership migration therefore checks out one connection,
+    disables enforcement before ``BEGIN IMMEDIATE``, records the migration in
+    the same transaction as its DDL/data work, and restores enforcement before
+    the connection is returned to the pool.  A connection whose pragma cannot
+    be restored is invalidated and the pool is disposed.
+    """
+    if module_name not in _ALLOWED_PYTHON_MIGRATIONS:
+        raise MigrationError(f"Unsupported Python migration: {module_name}")
+
+    if engine.dialect.name != "sqlite":
+        with engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(71403114720480978)")
+                )
+            return apply_python_migration(connection, module_name)
+
+    connection = engine.connect()
+    restore_error: Exception | None = None
+    try:
+        if connection.in_transaction():
+            raise MigrationError(
+                "Dedicated SQLite migration received an active transaction"
+            )
+
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        disabled = int(
+            connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one()
+        )
+        connection.commit()
+        if disabled != 0:
+            raise MigrationError(
+                "Dedicated SQLite migration could not disable foreign keys"
+            )
+
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        applied = apply_python_migration(connection, module_name)
+        violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise MigrationError(
+                f"Dedicated SQLite migration produced foreign-key violations: {violations[:5]}"
+            )
+        connection.commit()
+        return applied
+    except Exception:
+        if connection.in_transaction():
+            connection.rollback()
+        raise
+    finally:
+        try:
+            if connection.in_transaction():
+                connection.rollback()
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            enabled = int(
+                connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one()
+            )
+            connection.commit()
+            if enabled != 1:
+                raise MigrationError(
+                    "Dedicated SQLite migration could not restore foreign keys"
+                )
+        except Exception as exc:  # pragma restoration is a startup-fatal error
+            restore_error = exc
+            if connection.in_transaction():
+                connection.rollback()
+            connection.invalidate()
+            engine.dispose()
+        finally:
+            connection.close()
+        if restore_error is not None:
+            raise MigrationError(
+                "Dedicated SQLite migration left foreign-key state uncertain"
+            ) from restore_error
 
 
 def run_migration_files(

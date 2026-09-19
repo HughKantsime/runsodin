@@ -37,7 +37,15 @@ CLASSIFICATIONS: dict[str, tuple[str, str]] = {
     ),
     "backend/core/schema/migrator.py": (
         "sqlite-provider-only",
-        "Dialect branch uses PRAGMA only for SQLite schema introspection",
+        "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
+    ),
+    "backend/core/schema/migrations/002_education_tenant_integrity.py": (
+        "sqlite-provider-only",
+        "Education migration uses guarded SQLite PRAGMA inspection while PostgreSQL uses SQLAlchemy reflection",
+    ),
+    "backend/modules/organizations/education_policy_inventory.py": (
+        "dialect-neutral",
+        "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
     ),
     "backend/modules/system/backup_service.py": (
         "sqlite-provider-only",

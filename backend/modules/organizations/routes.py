@@ -19,6 +19,11 @@ from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 from core.dependencies import log_audit
 from core.webhook_utils import _validate_webhook_url
+from modules.organizations.education_policy import (
+    assert_org_hard_delete_allowed,
+    assert_printer_tenant_change_or_delete_allowed,
+    assert_user_tenant_change_allowed,
+)
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -120,7 +125,6 @@ async def update_org(org_id: int, body: dict, current_user: dict = Depends(requi
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
-
     sets = []
     params = {"id": org_id}
     for field in ["name", "description", "owner_id"]:
@@ -140,6 +144,7 @@ async def delete_org(org_id: int, current_user: dict = Depends(require_superadmi
     org = db.execute(text("SELECT * FROM groups WHERE id = :id AND is_org IS TRUE"), {"id": org_id}).fetchone()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
+    assert_org_hard_delete_allowed(db, org_id)
 
     # Unlink members
     db.execute(text("UPDATE users SET group_id = NULL WHERE group_id = :id"), {"id": org_id})
@@ -195,6 +200,8 @@ async def add_org_member(org_id: int, body: dict, current_user: dict = Depends(r
     ).fetchone()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    if target.group_id != org_id:
+        assert_user_tenant_change_allowed(db, user_id)
 
     if not is_superadmin:
         # Superadmin (admin with no group_id) must never be reassigned by
@@ -222,6 +229,7 @@ class AssignPrinterRequest(PydanticBaseModel):
 async def assign_printer_to_org(org_id: int, body: AssignPrinterRequest, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Assign a printer to an organization. Superadmin only."""
     printer_id = body.printer_id
+    assert_printer_tenant_change_or_delete_allowed(db, printer_id)
     db.execute(text("UPDATE printers SET org_id = :oid WHERE id = :pid"),
                {"oid": org_id, "pid": printer_id})
     db.commit()
