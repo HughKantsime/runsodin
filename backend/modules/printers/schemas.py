@@ -43,6 +43,9 @@ class FilamentSlotResponse(FilamentSlotBase):
     remaining: Optional[float] = None
     remaining_weight: Optional[float] = None  # grams left on the assigned spool
     material_type: Optional[str] = None
+    display_name: Optional[str] = None
+    mapping_status: Optional[str] = None
+    external_spool_id: Optional[str | int] = None
 
     @model_validator(mode='before')
     @classmethod
@@ -132,6 +135,8 @@ class PrinterResponse(PrinterBase):
     created_at: datetime
     updated_at: datetime
     filament_slots: List[FilamentSlotResponse] = []
+    filament_source: Optional[str] = None
+    filament_source_status: Optional[str] = None
     loaded_colors: List[str] = []
     tags: List[str] = []
     shared: bool = False

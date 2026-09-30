@@ -29,6 +29,7 @@ from core.base import SpoolStatus
 from modules.inventory.models import Spool
 from modules.inventory.services import OTHER_ORG_SPOOL, spoolman_link_conflicts, visible_spoolman_link_conflicts  # noqa: F401
 from modules.printers.models import FilamentSlot, Printer
+from modules.printers.ledger_display import ensure_local_filaments
 from ._helpers import (
     SpoolCreate, SpoolUpdate,
     SpoolLoadRequest, SpoolUseRequest, SpoolWeighRequest,
@@ -387,6 +388,7 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    ensure_local_filaments(request.printer_id)
 
     if request.slot_number < 1 or request.slot_number > printer.slot_count:
         raise HTTPException(status_code=400, detail=f"Invalid slot number (1-{printer.slot_count})")
@@ -425,7 +427,10 @@ def unload_spool(
     if not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
+    if spool.location_printer_id:
+        ensure_local_filaments(spool.location_printer_id)
     unload_spool_graph(db, spool, current_user)
+
     spool.storage_location = storage_location
 
     db.commit()
