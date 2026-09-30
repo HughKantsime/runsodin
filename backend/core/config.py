@@ -7,7 +7,8 @@ Copied to core/ as part of the modular architecture refactor.
 Old import path (from config import settings) continues to work via re-exports in config.py.
 """
 
-from typing import Optional, List
+from typing import Dict, Optional, List
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
 
     # Spoolman integration (optional)
     spoolman_url: Optional[str] = None
+
+    # Optional read-only display source. Empty by default.
+    filament_ledger_url: Optional[str] = None
+    filament_ledger_printers: Dict[int, str] = Field(default_factory=dict)
 
     # Scheduler defaults
     blackout_start: str = "22:30"
