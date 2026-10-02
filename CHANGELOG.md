@@ -9,6 +9,8 @@ All notable changes to O.D.I.N. are documented here.
 - Signed licenses with a null user limit now use their tier default. Education
   no longer displays a one-user cap or errors while creating additional users.
   Explicit numeric limits, including zero, remain enforced.
+- Updated PyJWT and brace-expansion to resolve dependency audit findings found
+  during validation of this patch release.
 
 ## [Unreleased] — Bambu telemetry V2 pipeline
 
