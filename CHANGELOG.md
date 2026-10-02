@@ -2,6 +2,18 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased] — First-time SSO setup
+
+### Fixed
+
+- Restore the Organizations panel for default administrators without replacing
+  explicit permission overrides.
+- Persist the first OIDC configuration save on a fresh installation; retain
+  existing secrets and omitted settings on subsequent saves.
+- Explain ODIN tenant creation and support tenant-list refresh. Recover tenant
+  loading independently and prevent edits when saved configuration cannot load.
+
+
 ## [Unreleased] — Education license user-limit fix
 
 ### Fixed

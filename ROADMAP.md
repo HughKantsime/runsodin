@@ -2,6 +2,12 @@
 
 Updated — see CHANGELOG for current version.
 
+## First-time SSO setup (unreleased)
+
+- Fix default administrator Organizations visibility and initial OIDC persistence.
+- Add tenant creation guidance, refresh, and independent configuration/load errors.
+- School-specific configuration 500 and live provider login still need school evidence.
+
 ## Completed locally — Education license limits (unreleased)
 
 - Normalize signed null user caps to tier defaults; preserve explicit limits.

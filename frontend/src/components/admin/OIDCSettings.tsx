@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ExternalLink, Eye, EyeOff, Save, ShieldCheck } from 'lucide-react'
 import { oidc, orgs, type OIDCConfig, type OIDCProviderType } from '../../api'
 import type { Organization } from '../../types'
@@ -44,17 +44,38 @@ export default function OIDCSettings() {
   const [showSecret, setShowSecret] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [configLoadError, setConfigLoadError] = useState<string | null>(null)
+  const [organizationError, setOrganizationError] = useState<string | null>(null)
+  const [refreshingOrganizations, setRefreshingOrganizations] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  useEffect(() => {
-    Promise.all([oidc.getConfig(), orgs.list()])
-      .then(([loaded, loadedOrganizations]) => {
+  const loadConfig = useCallback(() => {
+    setLoading(true)
+    setConfigLoadError(null)
+    return oidc.getConfig()
+      .then((loaded) => {
         if (!('configured' in loaded && loaded.configured === false)) setConfig({ ...DEFAULT_CONFIG, ...loaded })
-        setOrganizations(loadedOrganizations)
       })
-      .catch((error) => setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Unable to load SSO settings.' }))
+      .catch((error) => setConfigLoadError(error instanceof Error ? error.message : 'Unable to load SSO settings.'))
       .finally(() => setLoading(false))
   }, [])
+
+  const refreshOrganizations = useCallback(async () => {
+    setRefreshingOrganizations(true)
+    setOrganizationError(null)
+    try {
+      setOrganizations(await orgs.list())
+    } catch (error) {
+      setOrganizationError(error instanceof Error ? error.message : 'Unable to load organizations.')
+    } finally {
+      setRefreshingOrganizations(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadConfig()
+    void refreshOrganizations()
+  }, [loadConfig, refreshOrganizations])
 
   const change = <K extends keyof OIDCConfig>(field: K, value: OIDCConfig[K]) => {
     setConfig((current) => ({ ...current, [field]: value }))
@@ -81,9 +102,10 @@ export default function OIDCSettings() {
     try {
       await oidc.updateConfig({ ...config, ...(clientSecret ? { client_secret: clientSecret } : {}) })
       setClientSecret('')
-      setMessage({ type: 'success', text: 'Single sign-on configuration saved.' })
       const loaded = await oidc.getConfig()
-      if (!('configured' in loaded && loaded.configured === false)) setConfig({ ...DEFAULT_CONFIG, ...loaded })
+      if ('configured' in loaded && loaded.configured === false) throw new Error('SSO configuration was not persisted. Please retry or contact support.')
+      setConfig({ ...DEFAULT_CONFIG, ...loaded })
+      setMessage({ type: 'success', text: 'Single sign-on configuration saved.' })
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Unable to save SSO settings.' })
     } finally {
@@ -92,6 +114,12 @@ export default function OIDCSettings() {
   }
 
   if (loading) return <p className="text-sm text-[var(--brand-text-secondary)]">Loading single sign-on settings…</p>
+  if (configLoadError) return (
+    <div className="space-y-3">
+      <p role="alert" className="text-sm text-[var(--status-failed)]">Unable to load SSO configuration: {configLoadError}</p>
+      <Button onClick={() => void loadConfig()}>Retry loading configuration</Button>
+    </div>
+  )
 
   const provider = PROVIDERS[config.provider_type]
   return (
@@ -167,6 +195,15 @@ export default function OIDCSettings() {
           <option value="">Select a tenant</option>
           {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
         </Select>
+      </div>
+
+      <div className="space-y-2 text-sm text-[var(--brand-text-secondary)]">
+        <p>An ODIN tenant is an organization in this installation, not your Microsoft directory tenant.</p>
+        {!refreshingOrganizations && !organizationError && organizations.length === 0 && (
+          <p>No organizations yet. Open Organizations on this Access tab, choose New Org, then refresh the tenant list here.</p>
+        )}
+        {organizationError && <p role="alert" className="text-[var(--status-failed)]">Unable to load tenants: {organizationError}</p>}
+        <Button variant="secondary" loading={refreshingOrganizations} onClick={() => void refreshOrganizations()}>Refresh tenant list</Button>
       </div>
 
       <Card className="border border-[var(--brand-card-border)]">

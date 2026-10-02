@@ -497,6 +497,10 @@ async def update_oidc_config(request: Request, current_user: dict = Depends(requ
             params[field] = data[field]
 
     if updates:
+        # Fresh installs have no config row. Initialize without replacing an
+        # existing row (which would erase the saved secret and omitted fields).
+        # ON CONFLICT is supported by both SQLite and PostgreSQL.
+        db.execute(text("INSERT INTO oidc_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING"))
         updates.append(f"updated_at = {sql.now()}")
         query = f"UPDATE oidc_config SET {', '.join(updates)} WHERE id = 1"
         db.execute(text(query), params)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)

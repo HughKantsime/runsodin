@@ -41,6 +41,7 @@ RBAC_DEFAULT_PAGE_ACCESS = {
 }
 
 RBAC_DEFAULT_ACTION_ACCESS = {
+    "settings.edit": ["admin"],
     "jobs.create": ["admin", "operator"],
     "jobs.edit": ["admin", "operator"],
     "jobs.cancel": ["admin", "operator"],
