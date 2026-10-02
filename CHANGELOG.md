@@ -2,6 +2,14 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [Unreleased] — Education license user-limit fix
+
+### Fixed
+
+- Signed licenses with a null user limit now use their tier default. Education
+  no longer displays a one-user cap or errors while creating additional users.
+  Explicit numeric limits, including zero, remain enforced.
+
 ## [Unreleased] — Bambu telemetry V2 pipeline
 
 Two-track refactor shipping (1) a typed, fail-loud Bambu telemetry

@@ -2,6 +2,13 @@
 
 Updated — see CHANGELOG for current version.
 
+## Completed locally — Education license limits (unreleased)
+
+- Normalize signed null user caps to tier defaults; preserve explicit limits.
+- Regression coverage for license API output, manual account creation, and
+  tenant-scoped OIDC provisioning. School OIDC configuration requires separate
+  live verification.
+
 ## Completed locally — release-control foundation (unreleased)
 
 - Ordinary push and pull-request workflows replaced by one owner-only manual

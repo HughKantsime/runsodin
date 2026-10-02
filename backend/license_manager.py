@@ -424,7 +424,10 @@ def load_license() -> LicenseInfo:
         info.issued_at = payload.get("issued_at", "")
         info.expires_at = payload["expires_at"]
         info.max_printers = payload.get("max_printers", tier_def["max_printers"]) or tier_def["max_printers"]
-        info.max_users = payload.get("max_users", tier_def["max_users"])
+        # The activation service uses null for an unspecified tier-default cap.
+        # Preserve explicit numeric limits, including zero.
+        max_users = payload.get("max_users")
+        info.max_users = tier_def["max_users"] if max_users is None else max_users
         if "features" in payload:
             info.features = payload["features"]
         else:
