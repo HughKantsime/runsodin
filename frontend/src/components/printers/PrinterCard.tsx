@@ -61,7 +61,27 @@ interface PrinterCardProps {
   plugStates?: Record<number, boolean>
 }
 
+function LedgerFilamentSlot({ slot }: { slot: any }) {
+  const label = slot.display_name || `Slot ${slot.slot_number}`
+  const mapped = slot.mapping_status === 'mapped'
+  const available = slot.mapping_status !== 'unavailable'
+  const remaining = typeof slot.remaining === 'number' && Number.isFinite(slot.remaining) ? Math.max(0, Math.min(100, slot.remaining)) : null
+  const color = typeof slot.color_hex === 'string' && /^[0-9a-f]{6}$/i.test(slot.color_hex) ? `#${slot.color_hex}` : '#888'
+  return (
+    <div aria-label={label} className="bg-[var(--brand-input-bg)] rounded-md p-2 min-w-0 text-center flex flex-col items-center gap-1">
+      <span className="text-xs font-medium">{label}</span>
+      {mapped ? <>
+        {remaining !== null ? <SpoolRing color={color} material={slot.material_type || ''} level={remaining} size={20} /> : <span className="inline-flex items-center gap-1.5 text-xs"><span aria-label="Spool color" className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: color }} />{slot.material_type || 'Material unknown'}</span>}
+        {slot.color && <span className="text-xs text-[var(--brand-text-secondary)] break-words">{slot.color}</span>}
+        <span className="text-xs text-[var(--brand-text-muted)]">Mapped spool{slot.external_spool_id != null ? ` #${slot.external_spool_id}` : ''}</span>
+        <span className="text-xs text-[var(--brand-text-muted)]">{remaining !== null ? `${Math.round(remaining)}% remaining` : 'Remaining amount unknown'}</span>
+      </> : <span className="text-xs text-yellow-400">{available ? 'Unmapped' : 'Spool information unavailable'}</span>}
+    </div>
+  )
+}
+
 export default function PrinterCard({ printer, allFilaments, spools, onDelete, onToggleActive, onUpdateSlot, onEdit, onSyncAms, isDragging, onDragStart, onDragOver, onDragEnd, hasCamera, onCameraClick, onScanSpool, onPlugToggle, plugStates }: PrinterCardProps) {
+  const externallyManagedFilament = printer.filament_source === 'filament-ledger'
   const [syncing, setSyncing] = useState(false)
   const [activePanel, setActivePanel] = useState<PanelType>(null)
 
@@ -76,7 +96,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
 
   const hasBambuConnection = printer.api_type === 'bambu' && printer.api_host && printer.has_api_key
 
-  const slotsNeedingAttention = printer.filament_slots?.filter((s: any) =>
+  const slotsNeedingAttention = externallyManagedFilament ? 0 : printer.filament_slots?.filter((s: any) =>
     (s.assigned_spool_id && !s.spool_confirmed) || (!s.assigned_spool_id && s.color_hex)
   ).length || 0
 
@@ -128,21 +148,21 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               aria-label={plugStates?.[printer.id] ? 'Power off plug' : 'Power on plug'}
             />
           )}
-          {onScanSpool && <Button variant="ghost" size="icon" icon={QrCode} onClick={onScanSpool} aria-label="Scan spool QR code" />}
+          {!externallyManagedFilament && onScanSpool && <Button variant="ghost" size="icon" icon={QrCode} onClick={onScanSpool} aria-label="Scan spool QR code" />}
           {canDo('printers.delete') && <Button variant="ghost" size="icon" icon={Trash2} onClick={() => onDelete(printer.id)} className="text-[var(--brand-text-muted)] hover:text-red-400 hover:bg-red-900/50" aria-label="Delete printer" />}
         </div>
       </div>
       <div className="p-3 md:p-4">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Palette size={14} className="text-[var(--brand-text-muted)]" />
-          <span className="text-xs md:text-sm text-[var(--brand-text-secondary)]">Loaded Filaments</span>
+          <span className="text-xs md:text-sm text-[var(--brand-text-secondary)]">{externallyManagedFilament ? 'Filament Ledger · read only' : 'Loaded Filaments'}</span>
           {slotsNeedingAttention > 0 && (
             <span className="flex items-center gap-1 text-xs text-yellow-400" title="Slots need spool assignment">
               <AlertTriangle size={12} />
               {slotsNeedingAttention}
             </span>
           )}
-          {canDo('printers.slots') && hasBambuConnection ? (
+          {!externallyManagedFilament && canDo('printers.slots') && hasBambuConnection ? (
             <button
               onClick={handleSyncAms}
               disabled={syncing}
@@ -152,9 +172,11 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
               {syncing ? '\u27F3 Syncing...' : '\u21BB Sync AMS'}
             </button>
           ) : (
-            <span className="text-xs text-[var(--brand-text-muted)] ml-auto">(click to edit)</span>
+            <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{externallyManagedFilament ? 'Manage spools in Filament Ledger' : '(click to edit)'}</span>
           )}
         </div>
+        {externallyManagedFilament && printer.filament_source_status === 'unavailable' && <p role="status" className="text-xs text-yellow-400 mb-3">Filament Ledger is unavailable. Spool information could not be read.</p>}
+        {externallyManagedFilament && printer.filament_source_status === 'partial' && <p role="status" className="text-xs text-yellow-400 mb-3">Some slots could not be matched or read from Filament Ledger.</p>}
         {printer.machine_type === 'H2D' && printer.filament_slots?.length > 4 && (
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">AMS Unit 0</span>
@@ -165,7 +187,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           printer.filament_slots?.length <= 4 ? "grid-cols-4" : "grid-cols-4"
         )}>
           {printer.filament_slots?.map((slot: any, idx: number) => {
-            const el = (
+            const el = externallyManagedFilament ? <LedgerFilamentSlot key={slot.slot_number} slot={slot} /> : (
               <FilamentSlotEditor
                 printerId={printer.id}
                 spools={spools}
@@ -185,7 +207,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
           })}
         </div>
         {/* H2D External Spools (Ext-L / Ext-R) */}
-        {printer.machine_type === 'H2D' && printer.external_spools && (
+        {!externallyManagedFilament && printer.machine_type === 'H2D' && printer.external_spools && (
           <div className="mt-2 pt-2 border-t border-[var(--brand-border)]">
             <span className="text-[10px] text-[var(--brand-text-muted)] font-medium">External Spools</span>
             <div className="grid grid-cols-2 gap-2 mt-1">
