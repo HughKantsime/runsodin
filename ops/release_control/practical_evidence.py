@@ -10,6 +10,7 @@ import os
 import re
 import stat
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -292,6 +293,14 @@ def _privacy_check(data: bytes, label: str) -> None:
 
 
 def _semantic_validate(manifest: dict[str, Any]) -> None:
+    exception = manifest.get('security_exception')
+    if exception:
+        if datetime.now(timezone.utc) >= datetime.fromisoformat(exception['expires_at'].replace('Z', '+00:00')):
+            raise EvidenceError('SECURITY_EXCEPTION_EXPIRED', 'Build-only advisory exception expired')
+        digests = {item['path']: item['sha256'] for item in manifest['files']}
+        if (digests.get('native/security/npm-audit-decision.json') != exception['decision_sha256']
+                or digests.get('native/security/npm-audit.json') != exception['raw_audit_sha256']):
+            raise EvidenceError('EVIDENCE_INVALID', 'Security exception is not bound to audit evidence')
     if manifest["candidate_ref"] != f"release-candidate/{manifest['source_commit']}":
         raise EvidenceError("EVIDENCE_INVALID", "candidate ref is not derived from source commit")
     aggregate_counts = manifest["aggregate"]["counts"]
@@ -366,11 +375,25 @@ def build_bundle(source_run_dir: Path, expected_sha: str) -> Path:
         "components": components,
         "files": inventory,
     }
+    decision_path = source / 'native/security/npm-audit-decision.json'
+    if decision_path.exists():
+        decision = _json(decision_path)
+        if decision.get('status') == 'pass_with_exception':
+            manifest['security_exception'] = {
+                key: decision[key] for key in ('advisory', 'expires_at', 'raw_audit_sha256', 'policy_sha256')
+            }
+            manifest['security_exception']['decision_sha256'] = digest_bytes(_safe_read(decision_path))
+        elif decision.get('status') != 'pass':
+            raise EvidenceError('EVIDENCE_INVALID', 'npm audit decision is not passing')
     _validate_schema(manifest)
     _semantic_validate(manifest)
     manifest_bytes = canonical_json(manifest)
     digest = digest_bytes(manifest_bytes)
     html_bytes = _render(manifest, digest)
+    if manifest.get('security_exception'):
+        notice = ('<p><strong>Accepted build-only security exception: GHSA-vfj7-8cjw-p6xm. '
+                  'Not vulnerability-free. Expires 2026-10-19T00:00:00Z.</strong></p>')
+        html_bytes = html_bytes.replace(b'</body>', notice.encode() + b'</body>')
     _privacy_check(manifest_bytes, "manifest.json")
     _privacy_check(html_bytes, "index.html")
     with tempfile.TemporaryDirectory(prefix=".evidence-", dir=source) as temporary:

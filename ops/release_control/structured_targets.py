@@ -86,7 +86,8 @@ def security() -> int:
           "--redact=100", "--report-format", "json", "--report-path", str(directory / "gitleaks.json")], "gitleaks.json"),
         ("pip_audit", ["python3.11", "-m", "pip_audit", "-r", "backend/requirements.txt",
           "--progress-spinner", "off", "-f", "json", "-o", str(directory / "pip-audit.json")], "pip-audit.json"),
-        ("npm_audit", ["bash", "-c", f"npm --prefix frontend audit --audit-level=high --json > {directory / 'npm-audit.json'}"], "npm-audit.json"),
+        ("npm_audit", ["python3.11", "-m", "ops.release_control.npm_audit_policy",
+          "--output", str(directory / 'npm-audit.json'), "--decision", str(directory / 'npm-audit-decision.json')], "npm-audit.json"),
         ("bandit", ["python3.11", "-m", "bandit", "-r", "backend/", "ops/edu_sandbox/",
           "ops/hardware_certification/", "-lll", "--exclude", "backend/vision_models_default/", "-f", "json", "-o", str(directory / "bandit.json")], "bandit.json"),
         ("semgrep", ["semgrep", "--config", "auto", "--error", "--no-git-ignore", "--json-output", str(directory / "semgrep.json"),
@@ -97,6 +98,8 @@ def security() -> int:
     for name, command, result_kind in commands:
         junit = directory / f"{name}.xml" if result_kind == "junit" else None
         expected = [] if junit else [str((directory / result_kind).relative_to(ROOT))]
+        if name == "npm_audit":
+            expected.append(str((directory / 'npm-audit-decision.json').relative_to(ROOT)))
         result = execute(
             gate_id=name, command=command, output=directory / f"{name}.result.json",
             timeout=900, junit=junit, expected_artifacts=expected,

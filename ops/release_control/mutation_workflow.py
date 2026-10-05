@@ -19,7 +19,7 @@ from typing import Any, Callable, Sequence
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from .practical_evidence import MAX_FILE_BYTES, canonical_json
+from .practical_evidence import MAX_FILE_BYTES, canonical_json, verify_bundle, EvidenceError
 from .promotion_eligibility import verify_eligibility
 
 OWNER_LOGIN = "HughKantsime"
@@ -401,6 +401,7 @@ def copy_manifest(source: str, target: str, *, runner: Runner = subprocess.run) 
 
 def attach_tag(
     *, repository: str, target_tag: str, source_digest: str, runner: Runner = subprocess.run,
+    evidence_dir: Path | None = None,
 ) -> dict[str, Any]:
     if repository != IMAGE_REPOSITORY and not repository.startswith(("localhost:", "127.0.0.1:")):
         _fail("REGISTRY_SCOPE_REJECTED", repository)
@@ -418,6 +419,12 @@ def attach_tag(
             return {"tag": target_tag, "before": source_digest, "after": source_digest, "status": "noop"}
         _fail("TAG_CONFLICT", target)
     source = f"{repository}@{source_digest}"
+    # Inspection can block across the deadline. Recheck immediately before write.
+    if evidence_dir is not None:
+        try:
+            verify_bundle(evidence_dir)
+        except EvidenceError as exc:
+            _fail(exc.code, str(exc))
     copy_manifest(source, target, runner=runner)
     observed = inspect_manifest(target, runner=runner)
     if not observed or observed["digest"] != source_digest:
@@ -597,6 +604,7 @@ def _command() -> int:
     attach.add_argument("--repository", required=True)
     attach.add_argument("--tag", required=True)
     attach.add_argument("--digest", required=True)
+    attach.add_argument("--evidence-dir", type=Path)
     move = commands.add_parser("move-latest")
     move.add_argument("--repository", required=True)
     move.add_argument("--digest", required=True)
@@ -645,7 +653,8 @@ def _command() -> int:
             prior_workflow_sha=args.prior_workflow_sha,
         ), sort_keys=True))
     elif args.command == "attach-tag":
-        print(json.dumps(attach_tag(repository=args.repository, target_tag=args.tag, source_digest=args.digest), sort_keys=True))
+        print(json.dumps(attach_tag(repository=args.repository, target_tag=args.tag, source_digest=args.digest,
+                                   evidence_dir=args.evidence_dir), sort_keys=True))
     elif args.command == "move-latest":
         print(json.dumps(move_latest(repository=args.repository, target_digest=args.digest, rollback_tag=args.rollback_tag), sort_keys=True))
     elif args.command == "replace-latest":

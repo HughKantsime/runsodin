@@ -4,6 +4,13 @@ All notable changes to O.D.I.N. are documented here.
 
 ## [1.9.17] — SSO callback completion
 
+### Security policy
+
+- Accept only the reviewed, build-only GHSA-vfj7-8cjw-p6xm dependency chain
+  through 2026-10-18 UTC for this release. Full audit findings remain visible;
+  expiry, source hashes, bundle exclusion and publication checks enforce scope.
+  See docs/security/2026-10-05-braces-build-exception.md.
+
 ### Fixed
 
 - Complete the SSO code exchange and verify the session cookie before starting

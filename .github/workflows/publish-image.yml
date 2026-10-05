@@ -283,6 +283,7 @@ jobs:
           set -euo pipefail
           cd "$MUTATION_ROOT"
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow verify-publication-recovery --receipt "$RECOVERY_DIR/receipt.json" --inputs inputs.json --prior-run-id "$INPUT_RECOVERY_PUBLICATION_RUN_ID" --prior-workflow-sha "$RECOVERY_WORKFLOW_SHA" > recovery-registry.json
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.practical_evidence verify --evidence-dir "$EVIDENCE_DIR"
           digest="$(python3.11 -c 'import json; print(json.load(open("recovery-registry.json"))["target_digest"])')"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; export started_at TARGET_DIGEST="$digest"
@@ -309,7 +310,7 @@ jobs:
           echo "TARGET_DIGEST=$digest" >> "$GITHUB_ENV"
           echo "MUTATION_STARTED=1" >> "$GITHUB_ENV"
           set +e
-          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$STAGING_TAG" --digest "$digest" > staging-write.json
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$STAGING_TAG" --digest "$digest" --evidence-dir "$EVIDENCE_DIR" > staging-write.json
           attach_status=$?
           set -e
           if [ "$attach_status" != 0 ]; then
@@ -331,6 +332,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MUTATION_ROOT"
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.practical_evidence verify --evidence-dir "$EVIDENCE_DIR"
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; export started_at
           python3.11 -P <<'PY'
           import json, os, platform, subprocess
@@ -428,6 +430,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MUTATION_ROOT"
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.practical_evidence verify --evidence-dir "$EVIDENCE_DIR"
           python3.11 -P <<'PY'
           import json, os
           from pathlib import Path
@@ -436,7 +439,7 @@ jobs:
           PY
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
           set +e
-          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$SHA_TAG" --digest "$TARGET_DIGEST" > sha-write.json
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$SHA_TAG" --digest "$TARGET_DIGEST" --evidence-dir "$EVIDENCE_DIR" > sha-write.json
           attach_status=$?
           set -e
           if [ "$attach_status" != 0 ]; then
@@ -457,6 +460,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$MUTATION_ROOT"
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.practical_evidence verify --evidence-dir "$EVIDENCE_DIR"
           python3.11 -P <<'PY'
           import json, os
           from pathlib import Path
@@ -465,7 +469,7 @@ jobs:
           PY
           PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow transition-state --state "$STATE_FILE" --values values.json
           set +e
-          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$VERSION_TAG" --digest "$TARGET_DIGEST" > version-write.json
+          PYTHONSAFEPATH=1 PYTHONPATH="$HELPER_ROOT" python3.11 -P -m ops.release_control.mutation_workflow attach-tag --repository "$IMAGE_REPOSITORY" --tag "$VERSION_TAG" --digest "$TARGET_DIGEST" --evidence-dir "$EVIDENCE_DIR" > version-write.json
           attach_status=$?
           set -e
           if [ "$attach_status" != 0 ]; then

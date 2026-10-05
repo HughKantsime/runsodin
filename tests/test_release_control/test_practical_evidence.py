@@ -17,6 +17,64 @@ from ops.release_control.release_authorization import text_sha256
 
 SHA = "a" * 40
 OTHER_SHA = "b" * 40
+
+
+def test_security_exception_expires_after_validation(tmp_path, monkeypatch):
+    source = _run(tmp_path, monkeypatch)
+    raw_path = source / 'native/security/npm-audit.json'
+    _write(raw_path, {'fixture': 'full audit'})
+    decision_path = source / 'native/security/npm-audit-decision.json'
+    _write(decision_path, {
+        'status': 'pass_with_exception', 'advisory': 'GHSA-vfj7-8cjw-p6xm',
+        'expires_at': '2026-10-19T00:00:00Z',
+        'raw_audit_sha256': hashlib.sha256(raw_path.read_bytes()).hexdigest(),
+        'policy_sha256': 'a' * 64,
+    })
+    class Before(datetime):
+        @classmethod
+        def now(cls, tz=None): return cls(2026, 10, 18, tzinfo=timezone.utc)
+    monkeypatch.setattr(evidence_module, 'datetime', Before)
+    bundle = build_bundle(source, SHA)
+    verified = verify_bundle(bundle)
+    assert verified['manifest']['security_exception']['advisory'] == 'GHSA-vfj7-8cjw-p6xm'
+    assert 'Not vulnerability-free' in (bundle / 'index.html').read_text()
+    class After(datetime):
+        @classmethod
+        def now(cls, tz=None): return cls(2026, 10, 19, tzinfo=timezone.utc)
+    from ops.release_control import mutation_workflow as mutation
+    writes = []
+    def inspect(*args, **kwargs):
+        monkeypatch.setattr(evidence_module, 'datetime', After)
+        return None
+    monkeypatch.setattr(mutation, 'inspect_manifest', inspect)
+    monkeypatch.setattr(mutation, 'copy_manifest', lambda *args, **kwargs: writes.append(args))
+    with pytest.raises(mutation.MutationError) as caught:
+        mutation.attach_tag(repository=mutation.IMAGE_REPOSITORY, target_tag='v1.9.17',
+                            source_digest='sha256:' + 'a' * 64, evidence_dir=bundle)
+    assert caught.value.code == 'SECURITY_EXCEPTION_EXPIRED'
+    assert writes == []
+    monkeypatch.setattr(evidence_module, 'datetime', After)
+    _expect('SECURITY_EXCEPTION_EXPIRED', verify_bundle, bundle)
+
+
+def test_every_publication_mutation_rechecks_evidence():
+    workflow = yaml.safe_load((evidence_module.ROOT / '.github/workflows/publish-image.yml').read_text())
+    steps = workflow['jobs']['publish']['steps']
+    mutations = 0
+    for step in steps:
+        script = step.get('run', '')
+        if ' attach-tag ' not in script and 'docker buildx build --push' not in script:
+            continue
+        mutations += 1
+        verification = 'ops.release_control.practical_evidence verify --evidence-dir "$EVIDENCE_DIR"'
+        assert verification in script and 'set -euo pipefail' in script
+        marker = ' attach-tag ' if ' attach-tag ' in script else 'docker buildx build --push'
+        assert script.index(verification) < script.index(marker)
+        assert 'set +e' not in script[:script.index(verification)]
+        if ' attach-tag ' in script:
+            assert '--evidence-dir "$EVIDENCE_DIR"' in next(line for line in script.splitlines() if ' attach-tag ' in line)
+    assert mutations == 4
+
 NOW = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
 
 

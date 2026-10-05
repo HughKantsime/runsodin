@@ -4,6 +4,17 @@
   "additionalProperties": false,
   "required": ["schema_version", "status", "run_id", "generated_at", "source_commit", "candidate_ref", "aggregate", "source_identities", "components", "files"],
   "properties": {
+    "security_exception": {
+      "type": "object", "additionalProperties": false,
+      "required": ["advisory", "expires_at", "raw_audit_sha256", "policy_sha256", "decision_sha256"],
+      "properties": {
+        "advisory": {"const": "GHSA-vfj7-8cjw-p6xm"},
+        "expires_at": {"const": "2026-10-19T00:00:00Z"},
+        "raw_audit_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "decision_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "schema_version": {"const": 1},
     "status": {"const": "eligible"},
     "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{2,96}$"},
