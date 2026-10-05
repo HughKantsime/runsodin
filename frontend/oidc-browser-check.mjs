@@ -6,6 +6,7 @@ import { resolve, extname } from 'node:path'
 import assert from 'node:assert/strict'
 
 const requests = []
+const cacheName = `odin-v${(await readFile('../VERSION', 'utf8')).trim()}`
 let fail = false
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
@@ -61,25 +62,25 @@ try {
   console.log('PASS compiled failure: terminal error, no provider API traffic')
 
   // Seed a legacy callback cache key, then exercise real worker activation.
-  await page.evaluate(async () => {
+  await page.evaluate(async cacheName => {
     for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister()
-    const cache = await caches.open('odin-v1.9.16')
+    const cache = await caches.open(cacheName)
     await cache.put('/?oidc_code=synthetic-old', new Response('legacy'))
     await navigator.serviceWorker.register('/sw.js')
     await navigator.serviceWorker.ready
-  })
-  await page.waitForFunction(async () => {
-    const cache = await caches.open('odin-v1.9.16')
+  }, cacheName)
+  await page.waitForFunction(async cacheName => {
+    const cache = await caches.open(cacheName)
     return !(await cache.keys()).some(request => new URL(request.url).searchParams.has('oidc_code'))
-  })
+  }, cacheName)
   await page.reload()
   await page.waitForFunction(() => !!navigator.serviceWorker.controller)
   await page.goto(`${origin}/?oidc_code=synthetic-controlled`)
   await page.getByRole('alert').waitFor()
-  assert.equal(await page.evaluate(async () => {
-    const cache = await caches.open('odin-v1.9.16')
+  assert.equal(await page.evaluate(async cacheName => {
+    const cache = await caches.open(cacheName)
     return (await cache.keys()).some(request => new URL(request.url).searchParams.has('oidc_code'))
-  }), false)
+  }, cacheName), false)
   console.log('PASS real service worker: legacy code purged, controlled callback not cached')
   await context.close()
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)) }

@@ -4,11 +4,13 @@ import { runInNewContext } from 'node:vm'
 import { expect, it, vi } from 'vitest'
 
 function worker() {
+  const source = readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8')
+  const cacheName = source.match(/const CACHE_NAME = '([^']+)'/)![1]
   const listeners: Record<string, Function> = {}
   const cache = { keys: vi.fn().mockResolvedValue([]), delete: vi.fn().mockResolvedValue(true) }
-  const caches = { keys: vi.fn().mockResolvedValue(['odin-v1.9.16']), open: vi.fn().mockResolvedValue(cache), delete: vi.fn() }
+  const caches = { keys: vi.fn().mockResolvedValue([cacheName]), open: vi.fn().mockResolvedValue(cache), delete: vi.fn() }
   const claim = vi.fn()
-  runInNewContext(readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8'), {
+  runInNewContext(source, {
     URL, console: { log() {} }, caches, self: { addEventListener: (name: string, fn: Function) => { listeners[name] = fn }, clients: { claim } },
   })
   return { listeners, cache, caches, claim }
