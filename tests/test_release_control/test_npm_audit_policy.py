@@ -141,6 +141,14 @@ def test_both_gate_entrypoints_use_policy():
     structured = (root / 'ops/release_control/structured_targets.py').read_text()
     assert 'ops.release_control.npm_audit_policy' in structured
     assert "expected.append(str((directory / 'npm-audit-decision.json')" in structured
+    import shlex
+    command = next(line for line in (root / 'Makefile').read_text().splitlines()
+                   if 'ops.release_control.npm_audit_policy' in line)
+    args = shlex.split(command)
+    for flag in ('--output', '--decision'):
+        target = args[args.index(flag) + 1]
+        ignored = subprocess.run(['git', 'check-ignore', target], cwd=root, capture_output=True)
+        assert ignored.returncode == 0, 'Audit artifacts must not dirty the candidate checkout'
 
 
 def test_ignored_source_and_public_assets_change_fingerprint(tmp_path):

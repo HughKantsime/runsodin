@@ -186,7 +186,7 @@ security-operational: ## Verify EDU HTTP, host, cache, backup-capacity, and fail
 
 security-audit: ## Dependency audit (pip-audit + npm audit)
 	$(SECURITY_PYTHON) -m pip_audit -r backend/requirements.txt --progress-spinner off --desc on
-	$(SECURITY_PYTHON) -m ops.release_control.npm_audit_policy --output artifacts/npm-audit.json --decision artifacts/npm-audit-decision.json
+	$(SECURITY_PYTHON) -m ops.release_control.npm_audit_policy --output artifacts/release-control-standalone/npm-audit/raw.json --decision artifacts/release-control-standalone/npm-audit/decision.json
 
 security-secrets: ## Secret scanning (gitleaks)
 	gitleaks detect --source . --config .gitleaks.toml -v
