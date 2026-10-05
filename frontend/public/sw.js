@@ -2,6 +2,11 @@
 
 const CACHE_NAME = 'odin-v1.9.16';
 
+function isAuthCallback(url) {
+  return (url.pathname === '/' || url.pathname === '/login') &&
+    (url.searchParams.has('oidc_code') || url.searchParams.has('error'));
+}
+
 // Install event
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker');
@@ -16,7 +21,12 @@ self.addEventListener('activate', (event) => {
       Promise.all(
         names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name))
       )
-    ).then(() => self.clients.claim())
+    ).then(() => caches.open(CACHE_NAME))
+      .then(cache => cache.keys().then(requests => Promise.all(
+        requests.filter(request => isAuthCallback(new URL(request.url)))
+          .map(request => cache.delete(request))
+      )))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -126,6 +136,9 @@ self.addEventListener('notificationclose', (event) => {
 // PWA fetch handler — cache app shell assets, network-first for API
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+
+  // Never read or persist one-time authentication callback URLs.
+  if (isAuthCallback(url)) return;
 
   // API calls: always network, never cache
   if (url.pathname.startsWith('/api/')) {

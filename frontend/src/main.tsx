@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
+import OIDCBootstrap from './components/auth/OIDCBootstrap'
 import { BrandingProvider } from './BrandingContext'
 import { LicenseProvider } from './LicenseContext'
 import { I18nProvider } from './contexts/I18nContext'
@@ -27,10 +28,12 @@ if ('serviceWorker' in navigator) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
+    <OIDCBootstrap>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <BrandingProvider><LicenseProvider><OrgProvider><I18nProvider><App /></I18nProvider></OrgProvider></LicenseProvider></BrandingProvider>
       </BrowserRouter>
     </QueryClientProvider>
+    </OIDCBootstrap>
   </React.StrictMode>,
 )

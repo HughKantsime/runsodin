@@ -2,6 +2,22 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.17] — SSO callback completion
+
+### Fixed
+
+- Complete the SSO code exchange and verify the session cookie before starting
+  application providers, preventing root callbacks from bouncing to login.
+- Reject malformed or failed callbacks with a safe retry screen and prevent
+  duplicate exchanges during React StrictMode effect replay.
+- Exclude authentication callback URLs from service-worker caching and remove
+  legacy cached callback entries on activation.
+
+### Tested
+
+- Frontend callback regression tests and compiled-app local browser checks.
+  Live school identity-provider verification remains a deployment follow-up.
+
 ## [Unreleased] — First-time SSO setup
 
 ### Fixed

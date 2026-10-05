@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import SSOButton from '../../components/auth/SSOButton'
 import { useNavigate } from 'react-router-dom'
-import { Lock, User, AlertCircle, ShieldCheck, Loader2 } from 'lucide-react'
+import { Lock, User, AlertCircle, ShieldCheck } from 'lucide-react'
 import { useBranding } from '../../BrandingContext'
 import { refreshPermissions } from '../../permissions'
 import * as api from '../../api'
@@ -13,7 +13,6 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [oidcLoading, setOidcLoading] = useState(false)
 
   // MFA state
   const [mfaRequired, setMfaRequired] = useState(false)
@@ -32,28 +31,6 @@ export default function Login() {
     api.auth.capabilities().then(c => setSmtpEnabled(c?.smtp_enabled || false)).catch(() => {})
   }, [])
 
-
-  // Handle OIDC callback parameters
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const oidcCode = urlParams.get('oidc_code');
-    const urlError = urlParams.get('error');
-
-    if (oidcCode) {
-      setOidcLoading(true);
-      window.history.replaceState({}, '', '/');
-      api.auth.oidcExchange(oidcCode)
-        .then(() => { window.location.href = '/'; })
-        .catch(() => { setError('SSO login failed. Please try again.'); setOidcLoading(false); });
-    }
-
-    if (urlError) {
-      setError(urlError === 'user_not_found'
-        ? 'Your account is not authorized. Contact an administrator.'
-        : 'SSO login failed. Please try again.');
-      window.history.replaceState({}, '', '/login');
-    }
-  }, []);
 
   // Auto-focus MFA input
   useEffect(() => {
@@ -141,18 +118,6 @@ const handleSubmit = async (e) => {
       // Defer to next tick so state is updated
       setTimeout(() => handleMfaSubmit(), 0)
     }
-  }
-
-  if (oidcLoading) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-4"
-        style={{ backgroundColor: 'var(--brand-content-bg)' }}>
-        <div className="text-center">
-          <Loader2 size={32} className="animate-spin mx-auto mb-4" style={{ color: 'var(--brand-accent)' }} />
-          <p style={{ color: 'var(--brand-text-secondary)' }}>Completing sign-in...</p>
-        </div>
-      </main>
-    )
   }
 
   return (

@@ -2,6 +2,12 @@
 
 Updated — see CHANGELOG for current version.
 
+## SSO callback completion (1.9.17)
+
+- Exchange and verify callback sessions before provider initialization.
+- Fail closed on invalid callbacks; prevent callback URL caching.
+- Local regression and browser checks pass; school-side confirmation pending.
+
 ## First-time SSO setup (unreleased)
 
 - Fix default administrator Organizations visibility and initial OIDC persistence.
