@@ -284,6 +284,20 @@ def apply_migration_file(
         if alter:
             table_name, column_name, definition = alter.groups()
             if _column_exists(connection, table_name, column_name):
+                # v1.9.12's initial idempotency schema required explicit ISO
+                # timestamps without a default. Migration 006 supplies a
+                # default only when adding the column to an older schema.
+                # Adopt that exact historical shape without changing data or
+                # weakening validation for other columns/migrations.
+                if (
+                    connection.dialect.name == "sqlite"
+                    and migration_id == "core/migrations/006_idempotency_keys_upgrade.sql"
+                    and table_name == "idempotency_keys"
+                    and column_name == "updated_at"
+                    and definition.strip() == "TEXT NOT NULL DEFAULT ''"
+                    and _reflected_default(connection, table_name, column_name, None) is None
+                ):
+                    definition = "TEXT NOT NULL"
                 validate_column_shape(connection, table_name, column_name, definition)
                 continue
         create_index = _CREATE_INDEX_RE.match(statement)
