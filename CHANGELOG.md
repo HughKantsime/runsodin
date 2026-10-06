@@ -2,6 +2,31 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.18] — Education upload and dispatch safeguards
+
+### Fixed
+
+- Initialize uploaded Education jobs with explicit hold and lock defaults so
+  approved jobs are eligible for scheduling.
+- Keep Education jobs on their approved printer when canonical model aliases
+  match, without rejecting them on a redundant display-name comparison.
+- Reject sliced Education archives missing a unique, nonempty first-plate
+  G-code member at the path selected by Bambu dispatch.
+- Verify Education file contents against the stored SHA-256 before dispatch
+  reservation or printer commands. Missing, invalid or changed files fail safely.
+
+### Validation and upgrade notes
+
+- Backend workflow contracts, frontend tests, integrated browser scheduling,
+  disposable full-stack candidate and SQLite/PostgreSQL parity checks passed
+  for the patch. Physical school printing remains an environment follow-up.
+- Existing submissions with NULL hold flags are not automatically repaired.
+  Historical repair requires a reviewed operator action returning affected
+  pending submissions to teacher review; this release does not start them.
+- The v1.9.17 build-only advisory exception does not authorize this version.
+  Publication remains blocked pending a separately reviewed dependency fix
+  or an explicit risk decision for this candidate.
+
 ## [1.9.17] — SSO callback completion
 
 ### Security policy

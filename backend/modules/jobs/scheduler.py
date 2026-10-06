@@ -463,7 +463,13 @@ class Scheduler:
                 usage_map=usage_map,
                 start_date=start_date,
                 total_slots=total_slots,
-                required_printer_model=job_model_requirements.get(job.model_id),
+                # Education already passed the provenance-aware compatibility
+                # evaluator above. Its canonical aliases must not be rejected
+                # by the legacy display-model string comparison; keep the pin.
+                required_printer_model=(
+                    None if education_context is not None
+                    else job_model_requirements.get(job.model_id)
+                ),
                 required_printer_id=approved_printer_id,
             )
             

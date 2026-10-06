@@ -18,6 +18,8 @@ WebSocket events pushed for UI progress feedback:
 """
 
 import os
+import hashlib
+import hmac
 import json
 import logging
 import time
@@ -194,7 +196,7 @@ def _load_job(job_id: int) -> Optional[dict]:
             row = conn.execute(
                 text("""
                 SELECT j.id, j.item_name, j.status, j.printer_id,
-                       pf.stored_path, pf.original_filename,
+                       pf.stored_path, pf.original_filename, pf.file_hash,
                        pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types,
                        pf.compatibility_facts_json,
                        s.id AS education_submission_id,
@@ -578,6 +580,21 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     education_reservation = None
     education_provider = None
     if education_decision is not None:
+        # Approval binds the stored payload, not merely its cached metadata.
+        # Keep the job scheduled on denial; no reservation or hardware action
+        # has occurred, and an operator must resolve the missing/changed file.
+        expected_hash = str(job.get("file_hash") or "").lower()
+        if len(expected_hash) != 64 or any(c not in "0123456789abcdef" for c in expected_hash):
+            return False, "Education file integrity check failed: stored hash is missing or invalid; no hardware command was sent"
+        try:
+            digest = hashlib.sha256()
+            with open(stored_path, "rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            return False, "Education file integrity check failed: stored file is unreadable; no hardware command was sent"
+        if not hmac.compare_digest(digest.hexdigest(), expected_hash):
+            return False, "Education file integrity check failed: stored contents changed; no hardware command was sent"
         extension = os.path.splitext(remote_filename)[1].lower()
         reserved, reservation_error = _reserve_education_hardware_action(job, extension)
         if reservation_error:

@@ -107,6 +107,41 @@ def _ample_disk(monkeypatch):
     monkeypatch.setattr(service.shutil, "disk_usage", lambda path: usage)
 
 
+@pytest.mark.parametrize("member", [None, "Metadata/plate_1.gcode.backup", "Other/plate_1.gcode", "Metadata/plate_2.gcode", "empty", "duplicate"])
+def test_nonprintable_plate_member_aborts_without_submission(submission_db, monkeypatch, member):
+    from core.errors import OdinError
+    from modules.organizations.education_submission_service import process_sliced_3mf_submission
+
+    db, upload_root = submission_db
+    _ample_disk(monkeypatch)
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(_sliced_3mf())) as original, zipfile.ZipFile(output, "w") as target:
+        for name in original.namelist():
+            if name == "Metadata/plate_1.gcode":
+                if member == "empty":
+                    target.writestr(name, b"")
+                elif member == "duplicate":
+                    target.writestr(name, original.read(name))
+                    with pytest.warns(UserWarning, match="Duplicate name"):
+                        target.writestr(name, original.read(name))
+                elif member is not None:
+                    target.writestr(member, original.read(name))
+            else:
+                target.writestr(name, original.read(name))
+    token = str(uuid.uuid4())
+    with pytest.raises(OdinError, match="nonempty Metadata/plate_1.gcode"):
+        process_sliced_3mf_submission(
+            db, source=io.BytesIO(output.getvalue()), original_filename="pilot.3mf",
+            operation_id=token, principal=_principal(), cost_center_id=7,
+            storage_root=upload_root,
+        )
+    assert db.execute(text("SELECT COUNT(*) FROM education_submissions")).scalar_one() == 0
+    operation = db.execute(text("SELECT state,reservation_released_at FROM education_upload_operations WHERE operation_id=:id"), {"id": token}).one()
+    assert operation.state == "aborted" and operation.reservation_released_at is not None
+    assert db.execute(text("SELECT SUM(reserved_bytes) FROM education_storage_accounts")).scalar_one() == 0
+    assert not any(upload_root.rglob("*.*"))
+
+
 def test_streamed_submission_commits_graph_accounting_audit_and_outbox(
     submission_db, monkeypatch
 ):

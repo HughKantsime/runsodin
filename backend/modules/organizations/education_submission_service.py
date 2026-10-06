@@ -602,13 +602,16 @@ def _commit_submission_graph(
     job_id = execute_insert_returning_id(
         db,
         """INSERT INTO jobs
-        (model_id,item_name,status,priority,quantity,submitted_by,charged_to_user_id,charged_to_org_id)
-        VALUES (:model_id,:name,'submitted',3,1,:user_id,:user_id,:org_id)""",
+        (model_id,item_name,status,priority,quantity,submitted_by,charged_to_user_id,charged_to_org_id,
+         hold,is_locked)
+        VALUES (:model_id,:name,'submitted',3,1,:user_id,:user_id,:org_id,:hold,:is_locked)""",
         {
             "model_id": model_id,
             "name": metadata.project_name,
             "user_id": principal["id"],
             "org_id": org_id,
+            "hold": False,
+            "is_locked": False,
         },
     )
     submission_id = execute_insert_returning_id(
@@ -785,6 +788,15 @@ def finalize_staged_3mf_submission(
             with zipfile.ZipFile(staging_path) as archive:
                 if sum(item.file_size for item in archive.infolist()) > MAX_UNCOMPRESSED_BYTES:
                     raise OdinError(ErrorCode.validation_failed, "Expanded .3mf exceeds 500 MiB", status=400)
+                # Bambu dispatch selects this exact first-plate path. A suffix
+                # match, alternate plate, or empty member cannot be printed.
+                printable = [item for item in archive.infolist() if item.filename == "Metadata/plate_1.gcode"]
+                if len(printable) != 1 or printable[0].is_dir() or printable[0].file_size <= 0:
+                    raise OdinError(
+                        ErrorCode.validation_failed,
+                        "Education upload requires one nonempty Metadata/plate_1.gcode member",
+                        status=400,
+                    )
         except zipfile.BadZipFile as exc:
             raise OdinError(ErrorCode.validation_failed, "Invalid .3mf container", status=400) from exc
         metadata = parse_3mf(str(staging_path))

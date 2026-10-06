@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import pytest
 import sys
 from pathlib import Path
 
@@ -26,6 +28,7 @@ def _fact(value, key):
 
 def _job(facts):
     return {
+        "file_hash": hashlib.sha256(b"fixture").hexdigest(),
         "id": 72,
         "item_name": "class project",
         "status": "scheduled",
@@ -348,3 +351,31 @@ def test_central_policy_authorizes_current_pin_and_atomically_reconciles():
     assert job.status == "submitted"
     assert job.printer_id is None
     assert "slot changed" in job.notes
+
+
+@pytest.mark.parametrize("payload, expected_hash", [
+    (b"changed", hashlib.sha256(b"fixture").hexdigest()),
+    (b"fixture", None),
+    (b"fixture", "not-a-sha256"),
+    (None, hashlib.sha256(b"fixture").hexdigest()),
+])
+def test_education_dispatch_rejects_unverified_contents_before_reservation(monkeypatch, tmp_path, payload, expected_hash):
+    from modules.printers import dispatch
+    print_file = tmp_path / "project.3mf"
+    if payload is None:
+        print_file.mkdir()
+    else:
+        print_file.write_bytes(payload)
+    job = _job(_facts()) | {"stored_path": str(print_file), "file_hash": expected_hash,
+        "original_filename": "project.3mf", "compatible_api_types": "bambu"}
+    monkeypatch.setattr(dispatch, "_load_job", lambda job_id: job)
+    monkeypatch.setattr(dispatch, "_get_printer_info", lambda printer_id: _printer(ip="test"))
+    monkeypatch.setattr(dispatch, "_authorize_education_hardware_action", lambda *args: (True, "v1"))
+    calls = []
+    monkeypatch.setattr(dispatch, "_cancel_education_reservation", lambda *args: True)
+    monkeypatch.setattr(dispatch, "_reserve_education_hardware_action", lambda *args: calls.append("reserve") or ((object(), {"remote_filename": "odin-test.3mf"}), None))
+    monkeypatch.setattr(dispatch, "_dispatch_bambu", lambda *args: calls.append("hardware") or (False, "unexpected hardware"))
+    ok, message = dispatch.dispatch_job(9, 72)
+    assert not ok and "integrity" in message.lower()
+    assert calls == []
+    assert job["status"] == "scheduled"
