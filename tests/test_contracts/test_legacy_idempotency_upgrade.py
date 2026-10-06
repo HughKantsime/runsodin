@@ -62,3 +62,82 @@ def test_legacy_timestamp_does_not_accept_unrelated_default_drift(tmp_path):
     with pytest.raises(MigrationError, match="idempotency_keys.state"):
         run_migration_files(engine, [(MIGRATION_ID, migration)])
     engine.dispose()
+
+
+def test_historical_printer_shapes_preserve_orm_values(tmp_path):
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+    from core.schema.migrator import _ACTIVE_PYTHON_MIGRATION, validate_column_shape
+    from modules.printers.models import Printer
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'printer.db'}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE printers (id INTEGER PRIMARY KEY, shared BOOLEAN DEFAULT 0, "
+            "tags TEXT DEFAULT '[]', timelapse_enabled INTEGER DEFAULT 0, bed_x_mm REAL)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO printers VALUES (1,0,'[\"school\"]',1,256.5)"
+        )
+        with pytest.raises(MigrationError):
+            validate_column_shape(connection, "printers", "tags", "JSON")
+        token = _ACTIVE_PYTHON_MIGRATION.set("python:001-legacy-columns")
+        try:
+            validate_column_shape(connection, "printers", "shared", "BOOLEAN")
+            validate_column_shape(connection, "printers", "tags", "JSON")
+            validate_column_shape(connection, "printers", "timelapse_enabled", "BOOLEAN")
+            validate_column_shape(connection, "printers", "bed_x_mm", "FLOAT")
+        finally:
+            _ACTIVE_PYTHON_MIGRATION.reset(token)
+    with Session(engine) as session:
+        assert session.execute(select(Printer.shared, Printer.tags, Printer.timelapse_enabled,
+                                      Printer.bed_x_mm)).one() == (False, ["school"], True, 256.5)
+        assert session.execute(select(Printer.id).where(Printer.shared.is_(False))).scalar_one() == 1
+    engine.dispose()
+
+
+@pytest.mark.parametrize("legacy,canonical", [
+    ("BOOLEAN DEFAULT 1", "BOOLEAN"),
+    ("BOOLEAN NOT NULL DEFAULT 0", "BOOLEAN"),
+    ("TEXT DEFAULT 0", "BOOLEAN"),
+])
+def test_historical_printer_allowance_remains_strict(tmp_path, legacy, canonical):
+    from core.schema.migrator import _ACTIVE_PYTHON_MIGRATION, validate_column_shape
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'printer-invalid.db'}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(f"CREATE TABLE printers (shared {legacy})")
+        token = _ACTIVE_PYTHON_MIGRATION.set("python:001-legacy-columns")
+        try:
+            with pytest.raises(MigrationError):
+                validate_column_shape(connection, "printers", "shared", canonical)
+        finally:
+            _ACTIVE_PYTHON_MIGRATION.reset(token)
+    engine.dispose()
+
+
+def test_python_migration_context_resets_after_failure_and_recorded_validation(tmp_path, monkeypatch):
+    import importlib
+    from core.schema.migrator import _ACTIVE_PYTHON_MIGRATION, apply_python_migration
+
+    module = importlib.import_module("core.schema.migrations.001_legacy_columns")
+    engine = create_engine(f"sqlite:///{tmp_path / 'context.db'}")
+    seen = []
+    def validate(connection):
+        seen.append(_ACTIVE_PYTHON_MIGRATION.get())
+    monkeypatch.setattr(module, "apply", validate)
+    monkeypatch.setattr(module, "validate", validate)
+    with engine.begin() as connection:
+        assert apply_python_migration(connection, module.__name__) is True
+        assert _ACTIVE_PYTHON_MIGRATION.get() is None
+        assert apply_python_migration(connection, module.__name__) is False
+        assert _ACTIVE_PYTHON_MIGRATION.get() is None
+        def fail(connection):
+            assert _ACTIVE_PYTHON_MIGRATION.get() == "python:001-legacy-columns"
+            raise MigrationError("fixture failure")
+        monkeypatch.setattr(module, "validate", fail)
+        with pytest.raises(MigrationError, match="fixture failure"):
+            apply_python_migration(connection, module.__name__)
+        assert _ACTIVE_PYTHON_MIGRATION.get() is None
+    assert seen == ["python:001-legacy-columns"] * 3
+    engine.dispose()

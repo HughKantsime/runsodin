@@ -6,9 +6,10 @@ All notable changes to O.D.I.N. are documented here.
 
 ### Fixed
 
-- Adopt the v1.9.12 SQLite idempotency timestamp column without a default
-  during the existing upgrade migration. Preserve strict type/nullability,
-  unrelated default checks, migration checksums, and existing request records.
+- Adopt the historical SQLite idempotency timestamp and source-confirmed
+  entrypoint column declarations during their specific upgrade migrations.
+  Preserve strict type/nullability/default checks outside those exact legacy
+  shapes, immutable migration checksums, and existing records.
 
 ## [1.9.18] — Education upload and dispatch safeguards
 

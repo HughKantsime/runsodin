@@ -6,6 +6,7 @@ import hashlib
 import importlib
 import inspect as python_inspect
 import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Iterable
 
@@ -17,6 +18,28 @@ from sqlalchemy.sql import func
 
 class MigrationError(RuntimeError):
     """Raised when migration history or execution is unsafe."""
+
+
+_ACTIVE_PYTHON_MIGRATION: ContextVar[str | None] = ContextVar(
+    "odin_active_python_migration", default=None
+)
+# Exact SQLite declarations from v1.9.12's historical container entrypoint.
+# These are adoption alternatives, never definitions used to create columns.
+_LEGACY_ENTRYPOINT_SHAPES = {
+    ("printers", "shared", "BOOLEAN"): "BOOLEAN DEFAULT 0",
+    ("printers", "tags", "JSON"): "TEXT DEFAULT '[]'",
+    ("printers", "timelapse_enabled", "BOOLEAN"): "INTEGER DEFAULT 0",
+    ("printers", "bed_x_mm", "FLOAT"): "REAL",
+    ("printers", "bed_y_mm", "FLOAT"): "REAL",
+    ("printers", "machine_type", "VARCHAR(20)"): "TEXT",
+    ("spools", "pa_profile", "VARCHAR(50)"): "TEXT",
+    ("spools", "low_stock_threshold_g", "INTEGER"): "INTEGER DEFAULT 50",
+    ("jobs", "required_tags", "JSON"): "TEXT DEFAULT '[]'",
+    ("jobs", "target_type", "VARCHAR(20)"): "TEXT DEFAULT 'specific'",
+    ("jobs", "target_filter", "VARCHAR(100)"): "TEXT",
+    ("vision_settings", "build_plate_empty_enabled", "INTEGER"): "INTEGER DEFAULT 0",
+    ("vision_settings", "build_plate_empty_threshold", "FLOAT"): "REAL DEFAULT 0.70",
+}
 
 
 MIGRATION_TABLE = Table(
@@ -191,6 +214,26 @@ def validate_column_shape(
     column_name: str,
     definition: str,
 ) -> None:
+    """Validate canonical shape or a source-proven, migration-scoped predecessor."""
+    try:
+        _validate_column_shape_exact(connection, table_name, column_name, definition)
+    except MigrationError:
+        legacy = _LEGACY_ENTRYPOINT_SHAPES.get((table_name, column_name, definition))
+        if (
+            connection.dialect.name != "sqlite"
+            or _ACTIVE_PYTHON_MIGRATION.get() != "python:001-legacy-columns"
+            or legacy is None
+        ):
+            raise
+        _validate_column_shape_exact(connection, table_name, column_name, legacy)
+
+
+def _validate_column_shape_exact(
+    connection: Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
     """Fail closed when an adopted column differs from its migration contract."""
     columns = {
         column["name"]: column
@@ -360,13 +403,17 @@ def apply_python_migration(connection: Connection, module_name: str) -> bool:
     checksum = _checksum(source_path)
     dialect = connection.dialect.name
     prior = _recorded(connection, migration_id)
-    if prior:
-        if prior != (checksum, dialect):
-            raise MigrationError(f"Migration history mismatch: {migration_id}")
+    if prior and prior != (checksum, dialect):
+        raise MigrationError(f"Migration history mismatch: {migration_id}")
+    context_token = _ACTIVE_PYTHON_MIGRATION.set(migration_id)
+    try:
+        if prior:
+            module.validate(connection)
+            return False
+        module.apply(connection)
         module.validate(connection)
-        return False
-    module.apply(connection)
-    module.validate(connection)
+    finally:
+        _ACTIVE_PYTHON_MIGRATION.reset(context_token)
     connection.execute(
         MIGRATION_TABLE.insert().values(
             migration_id=migration_id,
