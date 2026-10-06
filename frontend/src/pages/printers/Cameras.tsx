@@ -292,7 +292,7 @@ export default function Cameras() {
           placeholder="Filter cameras..."
           value={filter}
           onChange={e => setFilter(e.target.value)}
-          className="bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] rounded-none px-2 py-1.5 text-sm w-36 md:w-40 placeholder-[var(--brand-text-muted)] focus:outline-none"
+          className="bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] rounded-none px-2 py-1.5 text-sm w-36 md:w-40 placeholder-[var(--brand-text-muted)] focus:outline-hidden"
         />
         <div className="flex rounded-md border border-[var(--brand-card-border)] overflow-hidden">
           {[1, 2, 3].map(n => (

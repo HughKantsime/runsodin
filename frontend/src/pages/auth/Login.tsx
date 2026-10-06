@@ -173,7 +173,7 @@ const handleSubmit = async (e) => {
                     maxLength={6}
                     value={mfaCode}
                     onChange={handleMfaCodeChange}
-                    className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none text-center text-2xl tracking-[0.5em] font-mono"
+                    className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-hidden text-center text-2xl tracking-[0.5em] font-mono"
                     style={{
                       backgroundColor: 'var(--brand-input-bg)',
                       border: '1px solid var(--brand-input-border)',
@@ -218,7 +218,7 @@ const handleSubmit = async (e) => {
                       autoComplete="username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none"
+                      className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-hidden"
                       style={{
                         backgroundColor: 'var(--brand-input-bg)',
                         border: '1px solid var(--brand-input-border)',
@@ -241,7 +241,7 @@ const handleSubmit = async (e) => {
                       autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-none"
+                      className="w-full rounded-md py-3 pl-10 pr-4 focus:outline-hidden"
                       style={{
                         backgroundColor: 'var(--brand-input-bg)',
                         border: '1px solid var(--brand-input-border)',

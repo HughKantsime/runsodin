@@ -151,7 +151,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
             placeholder="Search profiles..."
-            className="bg-transparent text-sm text-[var(--brand-text)] outline-none w-40"
+            className="bg-transparent text-sm text-[var(--brand-text)] outline-hidden w-40"
           />
           {search && <button onClick={() => setSearch('')}><X size={12} className="text-[var(--brand-muted)]" /></button>}
         </div>

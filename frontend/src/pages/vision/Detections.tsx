@@ -299,7 +299,7 @@ export default function Detections() {
         <select
           value={typeFilter}
           onChange={e => { setTypeFilter(e.target.value); setPage(0) }}
-          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--brand-text-muted)]"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"
         >
           <option value="">All Types</option>
           <option value="spaghetti">Spaghetti</option>
@@ -310,7 +310,7 @@ export default function Detections() {
         <select
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(0) }}
-          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--brand-text-muted)]"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"
         >
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
@@ -322,7 +322,7 @@ export default function Detections() {
         <select
           value={printerFilter}
           onChange={e => { setPrinterFilter(e.target.value); setPage(0) }}
-          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--brand-text-muted)]"
+          className="bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-1.5 text-sm focus:outline-hidden focus:border-[var(--brand-text-muted)]"
         >
           <option value="">All Printers</option>
           {(printersData || []).map(p => (

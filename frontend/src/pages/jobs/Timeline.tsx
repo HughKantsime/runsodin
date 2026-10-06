@@ -58,7 +58,7 @@ function TimelineHeader({ startDate, days, slotWidth }) {
       <div
         key={i}
         className={clsx(
-          'flex-shrink-0 border-r border-[var(--chart-grid)] text-center text-xs',
+          'shrink-0 border-r border-[var(--chart-grid)] text-center text-xs',
           isDayStart && 'border-l-2 border-l-[var(--brand-text-muted)]'
         )}
         style={{ width: slotWidth }}
@@ -75,7 +75,7 @@ function TimelineHeader({ startDate, days, slotWidth }) {
   return (
     <div className="flex bg-[var(--brand-card-bg)] border-b border-[var(--brand-card-border)] sticky top-0 z-10">
       <div
-        className="flex-shrink-0 sticky left-0 z-20 bg-[var(--brand-card-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 font-medium text-sm"
+        className="shrink-0 sticky left-0 z-20 bg-[var(--brand-card-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 font-medium text-sm"
         style={{ width: PRINTER_COL_WIDTH }}
       >
         Printer
@@ -99,7 +99,7 @@ function TimelineDateHeader({ startDate, days, slotWidth }) {
       <div
         key={d}
         className={clsx(
-          'flex-shrink-0 text-center py-1 border-r border-[var(--brand-card-border)] text-sm',
+          'shrink-0 text-center py-1 border-r border-[var(--brand-card-border)] text-sm',
           isToday ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)]' : 'text-[var(--brand-text-secondary)]'
         )}
         style={{ width: slotWidth * slotsPerDay }}
@@ -113,7 +113,7 @@ function TimelineDateHeader({ startDate, days, slotWidth }) {
   return (
     <div className="flex bg-[var(--brand-content-bg)] border-b border-[var(--brand-card-border)]">
       <div
-        className="flex-shrink-0 sticky left-0 z-20 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)]"
+        className="shrink-0 sticky left-0 z-20 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)]"
         style={{ width: PRINTER_COL_WIDTH }}
       />
       <div className="flex">
@@ -214,7 +214,7 @@ function MobileTimelineList({ slots, printersData, onSelectBlock }) {
                     <span>{item._durationLabel}</span>
                   </div>
                 </div>
-                <div className="flex-shrink-0 pt-0.5">
+                <div className="shrink-0 pt-0.5">
                   <StatusBadge status={item.status} size="sm" />
                 </div>
               </div>
@@ -517,7 +517,7 @@ export default function Timeline() {
                     className={clsx("flex border-b border-[var(--brand-card-border)] relative", dragUI.active && "bg-[var(--brand-primary)]/5")}
                     style={{ height: ROW_HEIGHT }}
                   >
-                    <div className="flex-shrink-0 sticky left-0 z-20 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
+                    <div className="shrink-0 sticky left-0 z-20 bg-[var(--brand-content-bg)] border-r border-[var(--brand-card-border)] px-3 py-2 flex items-center" style={{ width: PRINTER_COL_WIDTH }}>
                       <div className="font-medium text-sm truncate">{printer.nickname || printer.name}</div>
                     </div>
 
@@ -526,7 +526,7 @@ export default function Timeline() {
                         {Array.from({ length: totalSlots }).map((_, i) => (
                           <div
                             key={i}
-                            className={clsx('flex-shrink-0 border-r border-[var(--chart-grid)]', i % 96 === 0 && 'border-l border-l-[var(--chart-grid)]')}
+                            className={clsx('shrink-0 border-r border-[var(--chart-grid)]', i % 96 === 0 && 'border-l border-l-[var(--chart-grid)]')}
                             style={{ width: slotWidth }}
                           />
                         ))}

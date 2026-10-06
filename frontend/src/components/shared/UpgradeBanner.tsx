@@ -24,7 +24,7 @@ export default function UpgradeBanner() {
       </p>
       <button
         onClick={() => setDismissed(true)}
-        className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] transition-colors flex-shrink-0"
+        className="p-1 text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] transition-colors shrink-0"
         aria-label="Dismiss upgrade banner"
       >
         <X size={14} />

@@ -697,7 +697,7 @@ function ColorPicker({ label, desc, value, onChange }) {
         type="color"
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-10 h-10 rounded-md cursor-pointer border-2 border-[var(--brand-card-border)] bg-transparent flex-shrink-0"
+        className="w-10 h-10 rounded-md cursor-pointer border-2 border-[var(--brand-card-border)] bg-transparent shrink-0"
         style={{ padding: 0 }}
       />
       <div className="flex-1 min-w-0">

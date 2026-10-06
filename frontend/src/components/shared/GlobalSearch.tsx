@@ -132,7 +132,7 @@ export default function GlobalSearch() {
           aria-expanded={isOpen && query.length >= 2}
           aria-controls="global-search-results"
           aria-haspopup="listbox"
-          className="w-44 md:w-64 bg-transparent border-b border-[var(--brand-card-border)] rounded-none pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-none focus:border-[var(--brand-primary)]"
+          className="w-44 md:w-64 bg-transparent border-b border-[var(--brand-card-border)] rounded-none pl-9 pr-8 py-1.5 text-sm placeholder-farm-500 focus:outline-hidden focus:border-[var(--brand-primary)]"
         />
         {query && (
           <button

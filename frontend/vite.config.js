@@ -11,7 +11,7 @@ export function buildDependencyExclusion() {
     name: 'exclude-build-only-dependencies',
     generateBundle() {
       const modules = [...this.getModuleIds()]
-      if (modules.some(id => /node_modules\/(braces|chokidar|fast-glob|micromatch|tailwindcss)\//.test(id.replaceAll('\\', '/')))) {
+      if (modules.some(id => /node_modules\/(braces|chokidar|fast-glob|micromatch|tailwindcss|@tailwindcss\/[^/]+|postcss|lightningcss|source-map-js)\//.test(id.replaceAll('\\', '/')))) {
         this.error('Build-only dependency entered the browser bundle')
       }
       this.emitFile({ type: 'asset', fileName: 'build-dependency-exclusion.json',

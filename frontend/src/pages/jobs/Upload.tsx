@@ -104,7 +104,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] overflow-hidden">
       <div className="flex flex-col md:flex-row">
         {/* Thumbnail */}
-        <div className="w-full md:w-64 h-48 md:h-64 bg-[var(--brand-content-bg)] flex-shrink-0">
+        <div className="w-full md:w-64 h-48 md:h-64 bg-[var(--brand-content-bg)] shrink-0">
           {data.thumbnail_b64 ? (
             <img src={`data:image/png;base64,${data.thumbnail_b64}`} alt={data.project_name} className="w-full h-full object-contain" />
           ) : (
@@ -115,7 +115,7 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
         {/* Details */}
         <div className="flex-1 p-4 md:p-6">
           <div className="flex items-center gap-2 mb-3">
-            <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center shrink-0">
               <Check size={14} className="text-white" />
             </div>
             <span className="text-green-400 font-medium text-sm">
@@ -132,28 +132,28 @@ function UploadSuccess({ data, onUploadAnother, onViewLibrary, onScheduleNow, on
 
           <div className="grid grid-cols-2 gap-3 md:gap-4 mb-4">
             <div className="flex items-center gap-2 md:gap-3">
-              <Clock size={18} className="text-[var(--brand-text-muted)] flex-shrink-0" />
+              <Clock size={18} className="text-[var(--brand-text-muted)] shrink-0" />
               <div>
                 <p className="text-xs text-[var(--brand-text-muted)]">Print Time</p>
                 <p className="font-medium text-sm">{data.print_time_formatted || 'Unknown'}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 md:gap-3">
-              <Scale size={18} className="text-[var(--brand-text-muted)] flex-shrink-0" />
+              <Scale size={18} className="text-[var(--brand-text-muted)] shrink-0" />
               <div>
                 <p className="text-xs text-[var(--brand-text-muted)]">Weight</p>
                 <p className="font-medium text-sm">{data.total_weight_grams}g</p>
               </div>
             </div>
             <div className="flex items-center gap-2 md:gap-3">
-              <Layers size={18} className="text-[var(--brand-text-muted)] flex-shrink-0" />
+              <Layers size={18} className="text-[var(--brand-text-muted)] shrink-0" />
               <div>
                 <p className="text-xs text-[var(--brand-text-muted)]">Layers</p>
                 <p className="font-medium text-sm">{data.layer_count}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 md:gap-3">
-              <Printer size={18} className="text-[var(--brand-text-muted)] flex-shrink-0" />
+              <Printer size={18} className="text-[var(--brand-text-muted)] shrink-0" />
               <div>
                 <p className="text-xs text-[var(--brand-text-muted)]">Sliced For</p>
                 <p className="font-medium text-sm">{data.printer_model || 'Unknown'}</p>
@@ -258,14 +258,14 @@ function RecentUploads() {
           <div key={f.id} className="bg-[var(--brand-card-bg)] rounded-md p-3 md:p-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 md:gap-4 min-w-0">
               {f.thumbnail_b64 && (
-                <img src={`data:image/png;base64,${f.thumbnail_b64}`} alt={f.project_name} className="w-10 h-10 md:w-12 md:h-12 rounded-md object-contain bg-[var(--brand-content-bg)] flex-shrink-0" />
+                <img src={`data:image/png;base64,${f.thumbnail_b64}`} alt={f.project_name} className="w-10 h-10 md:w-12 md:h-12 rounded-md object-contain bg-[var(--brand-content-bg)] shrink-0" />
               )}
               <div className="min-w-0">
                 <p className="font-medium text-sm truncate">{f.project_name}</p>
                 <p className="text-xs text-[var(--brand-text-muted)]">{f.print_time_formatted} • {f.total_weight_grams}g</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               {f.job_id ? (
                 <span className="text-xs bg-green-900/50 text-green-400 px-2 py-1 rounded-md">Scheduled</span>
               ) : (

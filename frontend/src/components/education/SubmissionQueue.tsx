@@ -137,7 +137,7 @@ export default function SubmissionQueue({ centers, reviewable, mineOnly = false 
                       variant="secondary"
                       size="sm"
                       icon={ClipboardCheck}
-                      className="w-full flex-shrink-0 sm:w-auto"
+                      className="w-full shrink-0 sm:w-auto"
                       onClick={() => setReviewTarget(submission)}
                     >
                       Review

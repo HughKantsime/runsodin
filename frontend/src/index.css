@@ -1,13 +1,28 @@
 /* O.D.I.N. — Industrial Control System Theme ("Forge") */
 /* Design tokens generated from design/tokens.json — run 'make tokens' to regenerate */
+@import 'tailwindcss' source(none);
 @import './design-tokens.css';
+@config '../tailwind.config.js';
+@source '../index.html';
+@source './';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Preserve the existing UI defaults while changing build tooling. */
+@theme {
+  --default-ring-width: 3px;
+  --default-ring-color: rgba(59, 130, 246, 0.5);
+  --default-font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
 
 /* Base styles */
 @layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button {
+    border-color: #e5e7eb;
+  }
+  input::placeholder, textarea::placeholder { color: #9ca3af; opacity: 1; }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+  dialog { margin: auto; }
+
   body {
     @apply antialiased;
     font-family: var(--brand-font-body);
@@ -199,17 +214,19 @@
 
 /* Drag and drop feedback */
 .drop-target {
-  @apply ring-2 ring-print-500 ring-opacity-50;
+  @apply ring-2 ring-print-500;
 }
 
 .dragging {
   @apply opacity-50 cursor-grabbing;
 }
 
-/* Focus rings — amber instead of blue */
-*:focus-visible {
-  outline: 2px solid var(--brand-focus-ring);
-  outline-offset: 2px;
+/* Focus rings — amber; explicit outline utilities retain precedence. */
+@layer utilities {
+  *:focus-visible {
+    outline: 2px solid var(--brand-focus-ring);
+    outline-offset: 2px;
+  }
 }
 
 /* Selection color */

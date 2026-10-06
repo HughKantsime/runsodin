@@ -74,7 +74,7 @@ function TVPrinterCard({ printer }: { printer: any }) {
       <div className="p-3 flex-1 flex flex-col">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-display font-bold text-lg truncate">{printer.nickname || printer.name}</h3>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`} />
             <span data-testid="tv-printer-status" className="text-sm text-[var(--brand-text-secondary)]">{statusLabel}</span>
           </div>
@@ -171,7 +171,7 @@ export default function TVDashboard() {
   return (
     <div className="fixed inset-0 bg-[var(--brand-content-bg)] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--brand-card-border)] flex-shrink-0">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--brand-card-border)] shrink-0">
         <div className="flex items-center gap-6">
           <h1 className="font-display font-bold text-xl" style={{ color: 'var(--brand-accent, #6d8af0)' }}>
             {branding.app_name || 'O.D.I.N.'}
@@ -216,7 +216,7 @@ export default function TVDashboard() {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-t border-[var(--brand-card-border)] flex-shrink-0 text-sm">
+      <div className="flex items-center justify-between px-6 py-2.5 border-t border-[var(--brand-card-border)] shrink-0 text-sm">
         <div className="flex items-center gap-6 text-[var(--brand-text-secondary)]">
           {unreadAlerts > 0 && (
             <span className="text-amber-400">{unreadAlerts} Active Alert{unreadAlerts !== 1 ? 's' : ''}</span>

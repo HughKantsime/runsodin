@@ -41,7 +41,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       <td className="px-2 py-3 w-10">
         <div className="flex items-center gap-1">
           {dragProps && (
-            <GripVertical size={14} className="text-[var(--brand-text-muted)] flex-shrink-0 cursor-grab" title="Drag to reorder" />
+            <GripVertical size={14} className="text-[var(--brand-text-muted)] shrink-0 cursor-grab" title="Drag to reorder" />
           )}
           <input type="checkbox" checked={isSelected} onChange={() => onToggleSelect(job.id)} className="rounded border-[var(--brand-text-muted)]" aria-label={`Select job ${job.item_name}`} />
         </div>
@@ -67,7 +67,7 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
         {job.due_date && <DueDateBadge dueDate={job.due_date} />}
         {job.fail_reason && (
           <div className="text-xs text-red-400 truncate max-w-xs">
-            <AlertTriangle size={10} className="flex-shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
+            <AlertTriangle size={10} className="shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}{job.fail_notes ? `: ${job.fail_notes}` : ''}
           </div>
         )}
       </td>

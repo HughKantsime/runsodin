@@ -403,7 +403,7 @@ export default function SystemTab() {
 
         {createBackup.isSuccess && (
           <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-md flex items-center gap-2">
-            <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
+            <CheckCircle size={16} className="text-green-400 shrink-0" />
             <span className="text-green-200 text-sm">
               Backup created: {createBackup.data?.filename} ({formatSize(createBackup.data?.size_bytes || 0)})
             </span>
@@ -412,7 +412,7 @@ export default function SystemTab() {
 
         {createBackup.isError && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-center gap-2">
-            <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
+            <AlertTriangle size={16} className="text-red-400 shrink-0" />
             <span className="text-red-200 text-sm">Failed to create backup</span>
           </div>
         )}
@@ -440,7 +440,7 @@ export default function SystemTab() {
                     {formatSize(backup.size_bytes)} · {formatDate(backup.created_at)}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <Button
                     variant="tertiary"
                     size="icon"

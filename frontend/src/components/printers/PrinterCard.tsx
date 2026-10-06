@@ -97,7 +97,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
     >
       <div className="p-3 md:p-4 border-b border-[var(--brand-border)] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <div className="cursor-grab active:cursor-grabbing text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] flex-shrink-0">
+          <div className="cursor-grab active:cursor-grabbing text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)] shrink-0">
             <GripVertical size={16} />
           </div>
           <div className="min-w-0">
@@ -113,7 +113,7 @@ export default function PrinterCard({ printer, allFilaments, spools, onDelete, o
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={Settings} onClick={() => onEdit(printer)} aria-label="Edit printer settings" />}
           {canDo('printers.edit') && <Button variant="ghost" size="icon" icon={printer.is_active ? Power : PowerOff} onClick={() => onToggleActive(printer.id, !printer.is_active)} className={clsx(printer.is_active ? 'text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10' : 'text-[var(--brand-text-muted)] hover:bg-[var(--brand-input-bg)]')} aria-label={printer.is_active ? 'Deactivate printer' : 'Activate printer'} />}
           {hasCamera && <Button variant="ghost" size="icon" icon={Video} onClick={() => onCameraClick?.(printer)} aria-label="View camera" />}

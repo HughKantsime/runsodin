@@ -177,7 +177,7 @@ export default function ClassroomManager({ centers }: { centers: EducationCostCe
                     key={course.id}
                     type="button"
                     onClick={() => setSelectedCourse(course)}
-                    className={`w-full rounded-md border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] ${selectedCourse?.id === course.id ? 'border-[var(--brand-primary)] bg-[var(--brand-surface)]' : 'border-[var(--brand-card-border)] hover:bg-[var(--brand-surface)]'}`}
+                    className={`w-full rounded-md border p-3 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] ${selectedCourse?.id === course.id ? 'border-[var(--brand-primary)] bg-[var(--brand-surface)]' : 'border-[var(--brand-card-border)] hover:bg-[var(--brand-surface)]'}`}
                   >
                     <span className="block text-sm font-medium text-[var(--brand-text-primary)]">{course.name}</span>
                     <span className="mt-1 block text-xs text-[var(--brand-text-secondary)]">{course.section || 'No section'}</span>

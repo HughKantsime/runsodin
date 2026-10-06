@@ -110,11 +110,11 @@ function ModelRankings({ topData, worstData }) {
 
     return (
       <div className="flex items-center gap-3 py-2.5 border-b border-[var(--brand-card-border)]/50 last:border-0">
-        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${medalColors[Math.min(index, 2)]}`}>
+        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${medalColors[Math.min(index, 2)]}`}>
           {index + 1}
         </span>
         <span className="text-sm flex-1 truncate">{item.name}</span>
-        <div className="text-right flex-shrink-0">
+        <div className="text-right shrink-0">
           <div className={`font-semibold text-sm tabular-nums ${isWorst ? 'text-red-400' : 'text-green-400'}`}>
             ${item.value_per_hour?.toFixed(2)}/hr
           </div>

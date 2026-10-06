@@ -211,7 +211,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
             <div key={task.task_id} className="flex items-center justify-between px-4 py-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STATUS_COLORS[task.status]?.dot || 'bg-[var(--brand-text-muted)]'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[task.status]?.dot || 'bg-[var(--brand-text-muted)]'}`} />
                   <span className="text-sm text-[var(--brand-text-primary)]">{task.task_name}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 ml-4">
@@ -239,7 +239,7 @@ function PrinterCard({ printer, onLogMaintenance }) {
                 variant="secondary"
                 size="sm"
                 icon={CheckCircle}
-                className="ml-3 flex-shrink-0"
+                className="ml-3 shrink-0"
                 onClick={e => { e.stopPropagation(); onLogMaintenance(printer, task) }}
               >
                 Log Service

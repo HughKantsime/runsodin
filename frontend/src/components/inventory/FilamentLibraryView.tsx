@@ -116,29 +116,29 @@ export default function FilamentLibraryView() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   {f.color_hex ? (
                     <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      className="w-3 h-3 rounded-full shrink-0"
                       style={{ backgroundColor: `#${f.color_hex}` }}
                     />
                   ) : (
-                    <div className="w-3 h-3 rounded-full border border-[var(--brand-card-border)] bg-[var(--brand-input-bg)] flex-shrink-0 flex items-center justify-center">
+                    <div className="w-3 h-3 rounded-full border border-[var(--brand-card-border)] bg-[var(--brand-input-bg)] shrink-0 flex items-center justify-center">
                       <Palette size={8} className="text-[var(--brand-text-muted)]" />
                     </div>
                   )}
                   <div className="min-w-0">
                     <span className="text-sm text-[var(--brand-text-primary)] truncate block">{f.name}</span>
                   </div>
-                  <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] flex-shrink-0">
+                  <span className="px-2 py-0.5 bg-[var(--brand-input-bg)] rounded-md text-xs text-[var(--brand-text-muted)] shrink-0">
                     {f.material}
                   </span>
                   {f.cost_per_gram && (
-                    <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 flex-shrink-0">
+                    <span className="px-2 py-0.5 bg-green-900/50 rounded-md text-xs text-green-400 shrink-0">
                       ${f.cost_per_gram}/g
                     </span>
                   )}
                 </div>
 
                 {canDo('spools.edit') && (
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => setEditingFilament(f)}
                       className="p-1.5 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md text-[var(--brand-text-secondary)] hover:text-[var(--brand-text-primary)] transition-colors"

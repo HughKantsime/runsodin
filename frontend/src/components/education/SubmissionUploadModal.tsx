@@ -70,7 +70,7 @@ export default function SubmissionUploadModal({
         }}
       >
         <div className="flex gap-3 rounded-md bg-[var(--brand-surface)] p-3">
-          <ShieldCheck size={18} className="mt-0.5 flex-shrink-0 text-[var(--brand-primary)]" />
+          <ShieldCheck size={18} className="mt-0.5 shrink-0 text-[var(--brand-primary)]" />
           <div>
             <p className="text-sm font-medium text-[var(--brand-text-primary)]">Teacher approval required</p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--brand-text-secondary)]">

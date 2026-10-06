@@ -20,7 +20,7 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
   if (empty) {
     return (
       <div className={clsx('inline-flex items-center gap-1.5', className)}>
-        <svg width={size} height={size} className="flex-shrink-0">
+        <svg width={size} height={size} className="shrink-0">
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -39,7 +39,7 @@ export default function SpoolRing({ color = '#888', material = '', level = 100, 
 
   return (
     <div className={clsx('inline-flex items-center gap-1.5', className)}>
-      <svg width={size} height={size} className="flex-shrink-0" style={{ transform: 'rotate(-90deg)' }}>
+      <svg width={size} height={size} className="shrink-0" style={{ transform: 'rotate(-90deg)' }}>
         {/* Background track */}
         <circle
           cx={size / 2}

@@ -55,7 +55,7 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: 
       <div className="p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold text-base md:text-lg truncate mr-2">{printer.nickname || printer.name}</h3>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <span className="flex items-center gap-1.5 text-[10px] md:text-xs font-medium">
               <span className={clsx('w-1.5 h-1.5 rounded-full', statusColor)} />
               <span className={hasError ? 'text-[var(--status-failed)]' : isPrinting ? 'text-[var(--status-completed)]' : online ? 'text-yellow-400' : 'text-[var(--brand-text-muted)]'}>{statusLabel}</span>
@@ -71,10 +71,10 @@ function PrinterCard({ printer, hasCamera, onCameraClick, activeJob, onClick }: 
           <div className="mb-3 bg-[var(--brand-input-bg)] rounded-md p-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 min-w-0">
-                <Activity size={14} className="text-[var(--brand-primary)] animate-pulse flex-shrink-0" />
+                <Activity size={14} className="text-[var(--brand-primary)] animate-pulse shrink-0" />
                 <span className="text-sm font-medium truncate">{activeJob.job_name || 'Printing'}</span>
               </div>
-              <div className="text-right flex-shrink-0">
+              <div className="text-right shrink-0">
                 <span className="text-lg font-bold font-mono text-[var(--status-completed)]">{activeJob.progress_percent || 0}%</span>
               </div>
             </div>
@@ -172,7 +172,7 @@ function JobQueueItem({ job, onStart, onComplete, onCancel }) {
           <h4 className="font-medium truncate">{job.item_name}</h4>
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer?.name || 'Unassigned'} • {formatHours(job.duration_hours)}</p>
         </div>
-        <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
           {canDo('dashboard.actions') && job.status === 'scheduled' && (
             <span className={clsx('px-2 py-1 rounded-md text-xs font-medium',
               job.status === 'scheduled' ? 'bg-blue-900/30 text-[var(--status-printing)]' :
@@ -210,12 +210,12 @@ function MqttPrintItem({ job }) {
       <div className="flex items-center justify-between">
         <div className="min-w-0 mr-2">
           <h4 className="font-medium flex items-center gap-2 truncate">
-            <Activity size={14} className="text-[var(--brand-primary)] animate-pulse flex-shrink-0" />
+            <Activity size={14} className="text-[var(--brand-primary)] animate-pulse shrink-0" />
             <span className="truncate">{job.job_name || 'Unknown'}</span>
           </h4>
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • Started {formatTime(job.started_at)}</p>
         </div>
-        <div className="text-right flex-shrink-0">
+        <div className="text-right shrink-0">
           <p className="text-lg font-bold font-mono text-[var(--brand-primary)]">{job.progress_percent || 0}%</p>
         </div>
       </div>
@@ -238,7 +238,7 @@ function PrintHistoryItem({ job }) {
           <h4 className="font-medium truncate">{job.job_name || 'Unknown'}</h4>
           <p className="text-sm text-[var(--brand-text-muted)] truncate">{job.printer_name} • {formatTime(job.started_at)}</p>
         </div>
-        <div className="text-right flex-shrink-0">
+        <div className="text-right shrink-0">
           <div className="font-medium text-[var(--brand-primary)]">{formatDuration(job.duration_minutes)}</div>
           {job.total_layers && <p className="text-xs text-[var(--brand-text-muted)]">{job.total_layers} layers</p>}
         </div>
@@ -285,7 +285,7 @@ function AlertsWidget() {
             onClick={() => navigate(`/alerts?filter=${item.filter}`)}
             className="flex items-center gap-2 w-full text-left hover:bg-amber-900/20 rounded-md px-2 py-1.5 transition-colors"
           >
-            <span className="flex-shrink-0">{item.icon}</span>
+            <span className="shrink-0">{item.icon}</span>
             <span className="text-sm text-amber-200">
               {item.count} {item.count === 1 ? item.label : item.plural}
             </span>

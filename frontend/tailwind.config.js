@@ -1,14 +1,15 @@
 import tokens from '../design/tokens.json' with { type: 'json' };
+import legacy from './tailwind-legacy-theme.json' with { type: 'json' };
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
   theme: {
     extend: {
+      boxShadow: legacy.boxShadow,
+      blur: legacy.blur,
+      dropShadow: legacy.dropShadow,
       colors: {
+        ...legacy.colors,
         // Farm colors use CSS variables — BrandingContext overrides these per-org
         'farm': {
           50:  'rgb(var(--farm-50) / <alpha-value>)',

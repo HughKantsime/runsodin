@@ -50,7 +50,7 @@ export default function SpoolCard({ spool, onLoad, onUnload, onUse, onArchive, o
           </div>
         </div>
         <span className={clsx(
-          "px-2 py-1 rounded-md text-xs font-medium flex-shrink-0 ml-2",
+          "px-2 py-1 rounded-md text-xs font-medium shrink-0 ml-2",
           spool.status === 'active' ? "bg-green-500/20 text-green-400" :
           spool.status === 'empty' ? "bg-red-500/20 text-red-400" :
           "bg-[var(--brand-input-bg)]/30 text-[var(--brand-text-muted)]"

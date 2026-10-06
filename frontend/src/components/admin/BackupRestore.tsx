@@ -76,14 +76,14 @@ export default function BackupRestore({ onRestored }: BackupRestoreProps) {
         </label>
       ) : (
         <div className="flex items-center gap-3 p-3 bg-amber-900/20 border border-amber-600/30 rounded-md">
-          <AlertTriangle size={18} className="text-amber-400 flex-shrink-0" />
+          <AlertTriangle size={18} className="text-amber-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-amber-200">
               Restore from <span className="font-mono">{confirmFile.name}</span>?
             </p>
             <p className="text-xs text-amber-400 mt-0.5">This will replace the current database.</p>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2 shrink-0">
             <button
               onClick={handleCancel}
               className="px-3 py-1.5 text-xs bg-[var(--brand-input-bg)] hover:bg-[var(--brand-input-bg)] rounded-md"
@@ -103,7 +103,7 @@ export default function BackupRestore({ onRestored }: BackupRestoreProps) {
 
       {result && (
         <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-md flex items-center gap-2">
-          <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
+          <CheckCircle size={16} className="text-green-400 shrink-0" />
           <span className="text-green-200 text-sm">
             Database restored successfully. Safety backup: {result.safety_backup}
           </span>
@@ -112,7 +112,7 @@ export default function BackupRestore({ onRestored }: BackupRestoreProps) {
 
       {error && (
         <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-md flex items-center gap-2">
-          <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
+          <AlertTriangle size={16} className="text-red-400 shrink-0" />
           <span className="text-red-200 text-sm">{error}</span>
         </div>
       )}

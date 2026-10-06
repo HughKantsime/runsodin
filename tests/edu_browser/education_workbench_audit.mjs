@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 
 const requireFromFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url))
 const AxeBuilder = requireFromFrontend('@axe-core/playwright').default
-const { chromium } = requireFromFrontend('@playwright/test')
+const { chromium, expect } = requireFromFrontend('@playwright/test')
 
 const baseURL = process.env.EDU_FRONTEND_URL || 'http://127.0.0.1:4173'
 const outputDir = process.env.CTEC_POC_UI_OUTPUT || 'artifacts/ctec-poc-ui'
@@ -210,6 +210,7 @@ const cases = [
       assertions.push({ name: 'student sees authorized center', pass: await dialog.getByText(/Engineering Design/).count() > 0 })
       assertions.push({ name: 'sliced Bambu boundary is visible', pass: await dialog.getByText(/sliced Bambu 3MF/i).count() > 0 })
       await dialog.locator('input[type=file]').setInputFiles({ name: 'robot-bracket.3mf', mimeType: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', buffer: Buffer.from('PK\u0003\u0004') })
+      await expect(dialog.getByRole('button', { name: 'Submit for review' })).toBeEnabled()
       assertions.push({ name: 'valid .3mf enables submission', pass: await dialog.getByRole('button', { name: 'Submit for review' }).isEnabled() })
     },
   },

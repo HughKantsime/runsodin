@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { buildDependencyExclusion } from '../../vite.config.js'
 
-it.each(['braces', 'chokidar', 'fast-glob', 'micromatch', 'tailwindcss'])('rejects %s in browser modules', name => {
+it.each(['braces', 'chokidar', 'fast-glob', 'micromatch', 'tailwindcss', '@tailwindcss/postcss', '@tailwindcss/node', '@tailwindcss/oxide', 'postcss', 'lightningcss', 'source-map-js'])('rejects %s in browser modules', name => {
   const context = { getModuleIds: () => [`/build/node_modules/${name}/index.js`],
     error: (message: string) => { throw new Error(message) }, emitFile: vi.fn() }
   expect(() => buildDependencyExclusion().generateBundle.call(context)).toThrow('Build-only dependency')

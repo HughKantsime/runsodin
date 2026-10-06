@@ -36,7 +36,7 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
               type="text"
               value={formData.order_number}
               onChange={(e) => setFormData({ ...formData, order_number: e.target.value })}
-              className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none text-sm"
+              className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden text-sm"
               placeholder="ETSY-12345"
             />
           </div>
@@ -61,7 +61,7 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
               type="text"
               value={formData.customer_name}
               onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
-              className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none text-sm"
+              className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden text-sm"
             />
           </div>
           <div>
@@ -70,7 +70,7 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
               type="email"
               value={formData.customer_email}
               onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })}
-              className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none text-sm"
+              className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden text-sm"
             />
           </div>
         </div>

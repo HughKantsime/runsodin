@@ -40,7 +40,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           aria-invalid={error ? true : undefined}
           aria-describedby={[ariaDescribedBy, error ? errorId : ''].filter(Boolean).join(' ') || undefined}
           className={clsx(
-            'w-full bg-[var(--brand-input-bg)] border border-[var(--brand-input-border)] rounded-lg px-3 text-[var(--brand-input-text)] focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] focus:outline-none',
+            'w-full bg-[var(--brand-input-bg)] border border-[var(--brand-input-border)] rounded-lg px-3 text-[var(--brand-input-text)] focus:border-[var(--brand-primary)] focus:ring-1 focus:ring-[var(--brand-primary)] focus:outline-hidden',
             SIZE_CLASSES[size],
             Icon && 'pl-9',
             error && 'border-[var(--status-failed)]',

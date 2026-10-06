@@ -286,7 +286,7 @@ export default function Setup() {
     </div>
   )
 
-  const inputClass = "w-full px-3 py-2.5 rounded-md bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+  const inputClass = "w-full px-3 py-2.5 rounded-md bg-white/5 border border-white/10 text-white placeholder-white/30 focus:outline-hidden focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
   const labelClass = "block text-sm font-medium text-white/70 mb-1.5"
   const btnPrimary = "flex items-center justify-center gap-2 px-6 py-2.5 rounded-md bg-amber-500 hover:bg-amber-400 text-black font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
   const btnSecondary = "flex items-center justify-center gap-2 px-5 py-2.5 rounded-md bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 transition-all"

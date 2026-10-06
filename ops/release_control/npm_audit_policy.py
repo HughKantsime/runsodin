@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -86,11 +85,39 @@ def check_context(root: Path) -> None:
             raise AuditError('Exception dependency is not the approved development-only version')
 
 
-def assess(report: dict, exit_code: int, *, now: datetime | None = None, root: Path = ROOT) -> str:
+def lock_coverage(root: Path, lock_bytes: bytes | None = None) -> dict[str, int]:
+    """Match npm Arborist's inventory counters, including overlapping flags/root."""
+    lock = strict_json(lock_bytes if lock_bytes is not None else (root / 'frontend/package-lock.json').read_bytes())
+    packages = lock.get('packages') if isinstance(lock, dict) else None
+    if (not isinstance(lock, dict) or type(lock.get('lockfileVersion')) is not int
+            or lock['lockfileVersion'] != 3 or not isinstance(packages, dict)
+            or '' not in packages or len(packages) < 2):
+        raise AuditError('Unsupported audit lockfile')
+    flags = ('dev', 'optional', 'peer', 'peerOptional')
+    counts = dict.fromkeys(('prod', *flags), 0)
+    counts['total'] = len(packages) - 1
+    for name, node in packages.items():
+        if (not isinstance(node, dict) or node.get('link')
+                or (name != '' and (not name.startswith('node_modules/')
+                    or any(part in ('', '.', '..') for part in name.split('/'))))):
+            raise AuditError('Unsupported audit package record')
+        if any(key in node and type(node[key]) is not bool for key in (*flags, 'link')):
+            raise AuditError('Nonboolean audit package flag')
+        prod = True
+        for key in flags:
+            if node.get(key, False):
+                counts[key] += 1
+                prod = False
+        if prod:
+            counts['prod'] += 1
+    return counts
+
+
+def assess(report: dict, exit_code: int, *, now: datetime | None = None, root: Path = ROOT, audited_lock_bytes: bytes | None = None) -> str:
     if not isinstance(report, dict) or type(report.get('auditReportVersion')) is not int or report.get('auditReportVersion') != 2 or 'error' in report:
         raise AuditError('Unsupported or failed audit')
     metadata = report.get('metadata', {})
-    if (not isinstance(metadata, dict) or metadata.get('dependencies') != COVERAGE
+    if (not isinstance(metadata, dict) or metadata.get('dependencies') != lock_coverage(root, audited_lock_bytes)
             or any(type(value) is not int for value in metadata['dependencies'].values())):
         raise AuditError('Audit dependency coverage changed')
     vulnerabilities = report.get('vulnerabilities')
@@ -110,6 +137,8 @@ def assess(report: dict, exit_code: int, *, now: datetime | None = None, root: P
         raise AuditError('Audit process status disagrees')
     if not vulnerabilities:
         return 'pass'
+    if metadata['dependencies'] != COVERAGE:
+        raise AuditError('Historical exception coverage changed')
     if set(vulnerabilities) != set(VERSIONS):
         raise AuditError('Unapproved vulnerability set')
     for name, entry in vulnerabilities.items():
@@ -143,8 +172,10 @@ def audit(output: Path, decision_path: Path, root: Path = ROOT) -> int:
     try:
         with tempfile.TemporaryDirectory(prefix='odin-npm-audit-') as name:
             temporary = Path(name)
+            snapshot = {filename: (root / 'frontend' / filename).read_bytes()
+                        for filename in ('package.json', 'package-lock.json')}
             for filename in ('package.json', 'package-lock.json'):
-                shutil.copyfile(root / 'frontend' / filename, temporary / filename)
+                (temporary / filename).write_bytes(snapshot[filename])
             env = {key: os.environ[key] for key in ('PATH', 'SYSTEMROOT') if key in os.environ}
             env['HOME'] = name
             command = ['npm', 'audit', '--include=dev', '--include=optional', '--include=peer',
@@ -152,12 +183,18 @@ def audit(output: Path, decision_path: Path, root: Path = ROOT) -> int:
                        '--userconfig=' + str(temporary / 'user.npmrc'),
                        '--globalconfig=' + str(temporary / 'global.npmrc')]
             completed = subprocess.run(command, cwd=temporary, env=env, capture_output=True, timeout=180)
+        if any((root / 'frontend' / name).read_bytes() != data
+               for name, data in snapshot.items()):
+            raise AuditError('Audit inputs changed during execution')
         decision['npm_exit_code'] = completed.returncode
         report = strict_json(completed.stdout)
         # npm error payloads may contain registry credentials; never persist those.
         if not isinstance(report, dict) or 'error' in report:
             raise AuditError('npm audit failed')
-        decision['status'] = assess(report, completed.returncode, root=root)
+        decision['status'] = assess(report, completed.returncode, root=root, audited_lock_bytes=snapshot['package-lock.json'])
+        if any((root / 'frontend' / name).read_bytes() != data
+               for name, data in snapshot.items()):
+            raise AuditError('Audit inputs changed during assessment')
         # Only the validated report shape/scope may enter release artifacts.
         # Failed/unknown registry payloads remain discarded, with generic reasons.
         output.write_bytes(completed.stdout)

@@ -22,8 +22,8 @@ export default function RecentlyCompleted({ jobs: jobList }: { jobs: any[] }) {
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium truncate">{job.item_name}</span>
               {job.status === 'completed'
-                ? <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
-                : <XCircle size={14} className="text-red-400 flex-shrink-0" />
+                ? <CheckCircle size={14} className="text-green-400 shrink-0" />
+                : <XCircle size={14} className="text-red-400 shrink-0" />
               }
             </div>
             <div className="text-xs text-[var(--brand-text-muted)]">
@@ -31,7 +31,7 @@ export default function RecentlyCompleted({ jobs: jobList }: { jobs: any[] }) {
               {job.duration_hours ? ` · ${job.duration_hours}h` : ''}
             </div>
             {job.fail_reason && (
-              <div className="text-xs text-red-400 mt-1 truncate flex items-center gap-1"><AlertTriangle size={10} className="flex-shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}</div>
+              <div className="text-xs text-red-400 mt-1 truncate flex items-center gap-1"><AlertTriangle size={10} className="shrink-0" /> {job.fail_reason.replace(/_/g, ' ')}</div>
             )}
           </div>
         ))}

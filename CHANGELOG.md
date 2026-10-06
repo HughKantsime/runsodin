@@ -15,6 +15,15 @@ All notable changes to O.D.I.N. are documented here.
 - Verify Education file contents against the stored SHA-256 before dispatch
   reservation or printer commands. Missing, invalid or changed files fail safely.
 
+### Security
+
+- Replace the vulnerable Tailwind 3 build chain with Tailwind 4.3.3 and its
+  PostCSS integration; update source-map-js to 1.2.2. Full npm audit passes
+  without using the historical v1.9.17 exception.
+- Preserve existing token colors, typography, radii, shadows and focus behavior
+  while migrating the CSS compiler. Browser checks cover EDU light/dark/high
+  contrast and mobile layouts.
+
 ### Validation and upgrade notes
 
 - Backend workflow contracts, frontend tests, integrated browser scheduling,
@@ -24,8 +33,9 @@ All notable changes to O.D.I.N. are documented here.
   Historical repair requires a reviewed operator action returning affected
   pending submissions to teacher review; this release does not start them.
 - The v1.9.17 build-only advisory exception does not authorize this version.
-  Publication remains blocked pending a separately reviewed dependency fix
-  or an explicit risk decision for this candidate.
+  This release removes that vulnerable build chain instead of extending it.
+- The frontend now requires Safari 16.4+, Chrome/Chromium 111+, or Firefox 128+.
+  Older browsers are not supported; see docs/FRONTEND_BROWSER_SUPPORT.md.
 
 ## [1.9.17] — SSO callback completion
 

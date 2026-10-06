@@ -48,7 +48,7 @@ export default function StatusBadge({ status, size = 'sm', variant = 'inline' }:
         style.text,
         size === 'sm' ? 'text-xs' : 'text-sm'
       )}>
-        <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', style.dot, isPrinting && 'animate-pulse')} />
+        <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', style.dot, isPrinting && 'animate-pulse')} />
         <span className="capitalize font-medium">{label}</span>
       </span>
     )
@@ -60,7 +60,7 @@ export default function StatusBadge({ status, size = 'sm', variant = 'inline' }:
       style.text,
       size === 'sm' ? 'text-xs' : 'text-sm'
     )}>
-      <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', style.dot, isPrinting && 'animate-pulse')} />
+      <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', style.dot, isPrinting && 'animate-pulse')} />
       <span className="capitalize font-medium">{label}</span>
     </span>
   )

@@ -215,7 +215,7 @@ export default function Spools() {
               onClick={() => { setFilter('active'); setSortBy('remaining') }}
               className="mb-4 md:mb-6 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-md flex items-center gap-3 w-full text-left hover:bg-yellow-500/20 transition-colors"
             >
-              <AlertTriangle className="text-yellow-500 flex-shrink-0" size={20} />
+              <AlertTriangle className="text-yellow-500 shrink-0" size={20} />
               <span className="text-yellow-200 text-sm md:text-base">
                 {lowSpools.length} spool{lowSpools.length > 1 ? 's' : ''} running low on filament
               </span>

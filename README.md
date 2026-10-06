@@ -145,3 +145,9 @@ License keys are verified locally with Ed25519 signatures. No phone home, no clo
 Built by [Sublab 3DP](https://runsodin.com)
 
 </div>
+
+### Browser support
+
+ODIN v1.9.18 and later requires Safari 16.4+, Chrome/Chromium 111+, or
+Firefox 128+ for the frontend. Update older managed browsers before upgrading.
+See [browser support and migration notes](docs/FRONTEND_BROWSER_SUPPORT.md).

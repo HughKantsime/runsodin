@@ -207,7 +207,7 @@ export default function FilamentSlotEditor({ slot, allFilaments, spools, printer
                 <div className="text-sm text-[var(--brand-text-muted)] px-1 py-4 text-center">No filaments found</div>
               )}
             </div>
-            <div className="flex gap-2 mt-4 flex-shrink-0">
+            <div className="flex gap-2 mt-4 shrink-0">
               <button onClick={handleClear} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Clear</button>
               <button onClick={() => { setIsEditing(false); setSearch('') }} className="flex-1 text-sm bg-[var(--brand-input-bg)] hover:brightness-110 rounded-md py-2">Cancel</button>
             </div>

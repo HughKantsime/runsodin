@@ -60,7 +60,7 @@ export function NavItem({ to, icon: Icon, children, collapsed, onClick }) {
         : { color: 'var(--brand-sidebar-text)' }
       }
     >
-      <Icon size={16} className="flex-shrink-0" />
+      <Icon size={16} className="shrink-0" />
       {!collapsed && <span className="font-medium">{children}</span>}
     </NavLink>
   )
@@ -277,7 +277,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
 
         {/* Fleet Status */}
         {printersData && (!collapsed || mobileOpen) && (
-          <NavLink to="/printers" className="flex-shrink-0 px-3 py-2.5 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} aria-label={`Fleet status: ${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}>
+          <NavLink to="/printers" className="shrink-0 px-3 py-2.5 hover:opacity-80 transition-opacity overflow-hidden" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }} aria-label={`Fleet status: ${printersData.filter(p => isOnline(p)).length} of ${printersData.length} printers online`}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[10px] font-mono font-medium" style={{ color: 'var(--brand-text-muted)' }}>
                 FLEET
@@ -299,7 +299,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
         )}
 
         {/* Footer */}
-        <div className="flex-shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
+        <div className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--brand-sidebar-border)' }}>
           <div className="flex items-center justify-between">
             {(!collapsed || mobileOpen) && (
               <span className="text-[10px]" style={{ color: 'var(--brand-text-muted)' }}>v{__APP_VERSION__}</span>
@@ -315,7 +315,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }) {
             </button>
           </div>
           {(!collapsed || mobileOpen) && (
-            <p className="text-[10px] text-center mt-1" style={{ color: 'var(--brand-text-muted)', opacity: 0.6 }}>
+            <p className="text-[10px] text-center mt-1" style={{ color: 'var(--brand-text-muted)' }}>
               Powered by O.D.I.N.
             </p>
           )}

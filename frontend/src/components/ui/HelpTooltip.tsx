@@ -51,7 +51,7 @@ export default function HelpTooltip({ text, docsPath, position = 'top', size = 1
         onClick={() => setIsOpen(!isOpen)}
         onMouseEnter={() => setIsOpen(true)}
         onMouseLeave={() => setIsOpen(false)}
-        className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+        className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus:outline-hidden"
         aria-label="Help"
       >
         <HelpCircle size={size} />

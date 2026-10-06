@@ -222,7 +222,7 @@ export default function OIDCSettings() {
       )}
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <a href={provider.help} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-[var(--brand-primary)] hover:text-[var(--brand-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]">
+        <a href={provider.help} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm text-[var(--brand-primary)] hover:text-[var(--brand-accent)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]">
           Provider setup documentation <ExternalLink size={14} aria-hidden="true" />
         </a>
         <Button icon={Save} loading={saving} onClick={save}>Save configuration</Button>

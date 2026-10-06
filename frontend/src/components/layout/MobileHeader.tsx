@@ -9,7 +9,7 @@ export default function MobileHeader({ onMenuClick }) {
 
   return (
     <header
-      className="md:hidden flex items-center justify-between p-4 flex-shrink-0"
+      className="md:hidden flex items-center justify-between p-4 shrink-0"
       style={{
         backgroundColor: 'var(--brand-sidebar-bg)',
         borderBottom: '1px solid var(--brand-sidebar-border)',

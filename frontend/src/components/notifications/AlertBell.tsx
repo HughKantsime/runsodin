@@ -150,7 +150,7 @@ export default function AlertBell() {
                     }}
                   >
                     <div className="flex gap-2">
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-2 ${sev.dot}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-2 ${sev.dot}`} />
                       <div className="min-w-0 flex-1">
                         <div className={`text-sm font-medium truncate ${!alert.is_read ? 'text-white' : ''}`} style={alert.is_read ? { color: 'var(--brand-text-secondary)' } : {}}>
                           {alert.title}
@@ -164,7 +164,7 @@ export default function AlertBell() {
                           {timeAgo(alert.created_at)}
                         </div>
                       </div>
-                      {!alert.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-2" />}
+                      {!alert.is_read && <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
                     </div>
                   </button>
                 )

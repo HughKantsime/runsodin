@@ -117,7 +117,7 @@ export default function ReportScheduleManager() {
               {s.recipients?.length > 0 && ` · ${Array.isArray(s.recipients) ? s.recipients.join(', ') : s.recipients}`}
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => runNow.mutate(s.id)}
               disabled={runNow.isPending}

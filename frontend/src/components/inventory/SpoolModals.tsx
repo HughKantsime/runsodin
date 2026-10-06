@@ -144,7 +144,7 @@ export function LoadSpoolModal({ spool, printers, onClose, onLoad }: { spool: an
       <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md flex items-center gap-3">
         {spool.filament_color_hex && (
           <div
-            className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] flex-shrink-0"
+            className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] shrink-0"
             style={{ backgroundColor: `#${spool.filament_color_hex}` }}
           />
         )}
@@ -232,7 +232,7 @@ export function UseSpoolModal({ spool, onClose, onUse }: { spool: any; onClose: 
         <div className="flex items-center gap-3 mb-2">
           {spool.filament_color_hex && (
             <div
-              className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] flex-shrink-0"
+              className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] shrink-0"
               style={{ backgroundColor: `#${spool.filament_color_hex}` }}
             />
           )}
@@ -314,7 +314,7 @@ export function DryingModal({ spool, onClose, onSubmit }: { spool: any; onClose:
       <div className="mb-4 p-3 bg-[var(--brand-input-bg)] rounded-md">
         <div className="flex items-center gap-3">
           {spool.filament_color_hex && (
-            <div className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] flex-shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
+            <div className="w-6 h-6 rounded-full border border-[var(--brand-card-border)] shrink-0" style={{ backgroundColor: `#${spool.filament_color_hex}` }} />
           )}
           <span className="text-[var(--brand-text-secondary)] truncate">{spool.filament_brand} {spool.filament_name}</span>
           <span className="text-xs text-[var(--brand-text-muted)] ml-auto">{spool.filament_material}</span>

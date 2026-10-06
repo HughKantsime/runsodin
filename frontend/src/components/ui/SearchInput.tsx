@@ -27,7 +27,7 @@ export default function SearchInput({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="w-full bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] focus:outline-none pl-9 pr-3 py-2 text-sm"
+        className="w-full bg-transparent border-b border-[var(--brand-card-border)] focus:border-[var(--brand-primary)] focus:outline-hidden pl-9 pr-3 py-2 text-sm"
         {...rest}
       />
       {value && (

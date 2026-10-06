@@ -49,7 +49,7 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
             id="failure-reason"
             value={reason}
             onChange={e => setReason(e.target.value)}
-            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)] focus:outline-none focus:border-amber-500"
+            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)] focus:outline-hidden focus:border-amber-500"
           >
             <option value="">Select a reason...</option>
             {FAILURE_REASONS.map(r => (
@@ -68,7 +68,7 @@ export default function FailureReasonModal({ jobId, jobName, onSubmit, onClose, 
             onChange={e => setNotes(e.target.value)}
             placeholder="What happened? Any details that might help prevent this next time..."
             rows={3}
-            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)] placeholder-[var(--brand-text-muted)] focus:outline-none focus:border-amber-500 resize-none"
+            className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm text-[var(--brand-text-primary)] placeholder-[var(--brand-text-muted)] focus:outline-hidden focus:border-amber-500 resize-none"
           />
         </div>
       </div>

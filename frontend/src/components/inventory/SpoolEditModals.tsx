@@ -26,7 +26,7 @@ export function EditSpoolModal({ spool, onClose, onSave }: { spool: any; onClose
         <div className="flex items-center gap-3 mb-2">
           {spool.filament_color_hex && (
             <div
-              className="w-8 h-8 rounded-full border border-[var(--brand-card-border)] flex-shrink-0"
+              className="w-8 h-8 rounded-full border border-[var(--brand-card-border)] shrink-0"
               style={{ backgroundColor: '#' + spool.filament_color_hex }}
             />
           )}
@@ -180,7 +180,7 @@ export function EditFilamentModal({ filament, onClose, onSave }: { filament: any
               />
               {form.color_hex && form.color_hex.length >= 3 && (
                 <div
-                  className="w-10 h-10 rounded-md border border-[var(--brand-card-border)] flex-shrink-0"
+                  className="w-10 h-10 rounded-md border border-[var(--brand-card-border)] shrink-0"
                   style={{ backgroundColor: `#${form.color_hex}` }}
                 />
               )}

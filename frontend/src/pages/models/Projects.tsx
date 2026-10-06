@@ -127,7 +127,7 @@ function ProjectDetail({ project, onClose, onDelete }) {
       <div className="bg-[var(--brand-card-bg)] rounded-t-xl sm:rounded-xl border border-[var(--brand-card-border)] w-full max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: detail?.color || project.color || '#6366f1' }} />
+            <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: detail?.color || project.color || '#6366f1' }} />
             <h2 className="text-lg font-semibold truncate">{detail?.name || project.name}</h2>
           </div>
           <button onClick={onClose} className="text-[var(--brand-muted)] hover:text-white"><X size={20} /></button>
@@ -188,7 +188,7 @@ function ProjectDetail({ project, onClose, onDelete }) {
                 <div className="mt-1 space-y-1 max-h-[200px] overflow-y-auto">
                   {archives.map(a => (
                     <div key={a.id} className="flex items-center gap-2 px-2 py-1.5 bg-[var(--brand-input-bg)]/50 rounded text-xs">
-                      <Archive size={12} className="text-[var(--brand-muted)] flex-shrink-0" />
+                      <Archive size={12} className="text-[var(--brand-muted)] shrink-0" />
                       <span className="truncate flex-1">{a.print_name || `Archive #${a.id}`}</span>
                       <span className="text-[var(--brand-muted)]">{a.printer_nickname || a.printer_name || '--'}</span>
                     </div>
@@ -299,10 +299,10 @@ export default function ProjectsPage() {
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color || '#6366f1' }} />
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: project.color || '#6366f1' }} />
                   <span className="font-medium text-sm truncate">{project.name}</span>
                 </div>
-                <span className={`px-2 py-0.5 rounded text-xs flex-shrink-0 ml-2 ${STATUS_BADGES[project.status] || 'bg-[var(--brand-input-bg)] text-[var(--brand-muted)]'}`}>
+                <span className={`px-2 py-0.5 rounded text-xs shrink-0 ml-2 ${STATUS_BADGES[project.status] || 'bg-[var(--brand-input-bg)] text-[var(--brand-muted)]'}`}>
                   {project.status}
                 </span>
               </div>

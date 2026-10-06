@@ -282,7 +282,7 @@ export default function Alerts() {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex gap-3 min-w-0 flex-1">
-                      {(() => { const SevIcon = SEVERITY_ICONS[alert.severity] || Info; return <SevIcon size={18} className={`flex-shrink-0 ${SEVERITY_ICON_COLORS[alert.severity] || 'text-green-500'}`} /> })()}
+                      {(() => { const SevIcon = SEVERITY_ICONS[alert.severity] || Info; return <SevIcon size={18} className={`shrink-0 ${SEVERITY_ICON_COLORS[alert.severity] || 'text-green-500'}`} /> })()}
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold" style={{ color: 'var(--brand-text-primary)' }}>
                           {alert.title}
@@ -308,7 +308,7 @@ export default function Alerts() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       {alert.alert_type === 'job_submitted' && !alert.is_read && alert.job_id && (
                         <>
                           <button

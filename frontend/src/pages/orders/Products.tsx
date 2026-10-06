@@ -444,7 +444,7 @@ export default function Products() {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
+                  className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden"
                   required
                 />
               </div>
@@ -455,7 +455,7 @@ export default function Products() {
                     type="text"
                     value={formData.sku}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
+                    className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden"
                     placeholder="YODA-001"
                   />
                 </div>
@@ -466,7 +466,7 @@ export default function Products() {
                     step="0.01"
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
+                    className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden"
                     placeholder="15.00"
                   />
                 </div>
@@ -476,7 +476,7 @@ export default function Products() {
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-none"
+                  className="w-full rounded-md px-3 py-2 bg-[var(--brand-content-bg)] border border-[var(--brand-card-border)] text-[var(--brand-text)] focus:border-[var(--brand-primary)] focus:outline-hidden"
                   rows={2}
                 />
               </div>

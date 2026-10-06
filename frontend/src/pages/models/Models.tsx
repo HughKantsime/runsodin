@@ -59,7 +59,7 @@ function ModelCard({  model, onEdit, onDelete, onSchedule, onToggleFavorite, onV
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 flex-shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={() => onToggleFavorite(model)}
               className={clsx("p-1.5 md:p-2 rounded-md transition-colors", model.is_favorite ? "text-yellow-400" : "text-[var(--brand-muted)] hover:text-yellow-400")}
@@ -221,7 +221,7 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
               <div className="text-xs text-[var(--brand-primary)] font-medium px-3 py-1 bg-[var(--brand-card-bg)] sticky top-0">From Spoolman</div>
               {spoolmanFilaments.slice(0, 15).map(f => (
                 <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--brand-card-border)] cursor-pointer">
-                  <div className="w-4 h-4 rounded-md border border-[var(--brand-card-border)] flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
+                  <div className="w-4 h-4 rounded-md border border-[var(--brand-card-border)] shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
                   <span className="text-sm truncate flex-1">{f.name}</span>
                   {f.remaining_weight && <span className="text-xs text-[var(--brand-muted)]">{Math.round(f.remaining_weight)}g</span>}
                 </div>
@@ -233,7 +233,7 @@ function FilamentSelector({ value, onChange, filamentData, placeholder }) {
               <div className="text-xs text-[var(--brand-muted)] font-medium px-3 py-1 bg-[var(--brand-card-bg)] sticky top-0">From Library</div>
               {libraryFilaments.slice(0, 20).map(f => (
                 <div key={f.id} onMouseDown={(e) => { e.preventDefault(); handleSelect(f) }} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--brand-card-border)] cursor-pointer">
-                  <div className="w-4 h-4 rounded-md border border-[var(--brand-card-border)] flex-shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
+                  <div className="w-4 h-4 rounded-md border border-[var(--brand-card-border)] shrink-0" style={{ backgroundColor: f.color_hex ? `#${f.color_hex}` : '#666' }} />
                   <span className="text-sm truncate">{f.display_name}</span>
                 </div>
               ))}
