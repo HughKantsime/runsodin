@@ -6,6 +6,7 @@ const LicenseContext = createContext({
   licensee: null,
   expires: null,
   loading: true,
+  loadError: false,
   isPro: false,
   isEducation: false,
   isEnterprise: false,
@@ -23,7 +24,7 @@ export const PRO_SETTINGS_TABS = ['sso', 'webhooks', 'smtp']
 export function LicenseProvider({ children }) {
   const [license, setLicense] = useState({
     tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1,
-    installation_id: null, features: [], managed_externally: false, loading: true,
+    installation_id: null, features: [], managed_externally: false, loading: true, loadError: false,
   })
 
   const fetchLicense = async () => {
@@ -39,11 +40,12 @@ export function LicenseProvider({ children }) {
         features: Array.isArray(data.features) ? data.features : [],
         managed_externally: data.managed_externally === true,
         loading: false,
+        loadError: false,
       })
     } catch {
       setLicense({
         tier: 'community', licensee: null, expires: null, max_printers: 5, max_users: 1,
-        installation_id: null, features: [], managed_externally: false, loading: false,
+        installation_id: null, features: [], managed_externally: false, loading: false, loadError: true,
       })
     }
   }

@@ -82,19 +82,32 @@ export default function EducationWorkbench() {
     window.history.replaceState({}, '', window.location.pathname)
   }, [capabilities?.tenant_admin])
 
-  if (capabilitiesQuery.isLoading || modeQuery.isLoading) {
+  if (capabilitiesQuery.isLoading || modeQuery.isLoading || license.loading) {
     return <div className="p-4 md:p-6 text-sm text-[var(--brand-text-secondary)]">Loading Education workspace…</div>
   }
 
-  if (!license.hasFeature('education_workflows') || !capabilities?.education_enabled) {
+  if (capabilitiesQuery.isError || modeQuery.isError || license.loadError) {
+    return (
+      <div className="p-4 md:p-6">
+        <PageHeader icon={GraduationCap} title="Education" subtitle="Classroom print review and cost-center access" />
+        <Card><EmptyState icon={ShieldCheck} title="Unable to load Education access"
+          description="Reload this page to try again. Your classroom access has not been changed." /></Card>
+      </div>
+    )
+  }
+
+  const installationEnabled = license.isEducation && license.hasFeature('education_workflows')
+  if (!installationEnabled || !capabilities?.education_enabled) {
     return (
       <div className="p-4 md:p-6">
         <PageHeader icon={GraduationCap} title="Education" subtitle="Classroom print review and cost-center access" />
         <Card>
           <EmptyState
             icon={ShieldCheck}
-            title="Education entitlement required"
-            description="This installation does not currently report an active Education workflow entitlement."
+            title={installationEnabled ? 'Education access unavailable' : 'Education entitlement required'}
+            description={installationEnabled
+              ? 'The server has not enabled Education access for this account. Ask an administrator to check your organization assignment and the active server license. A global administrator without an organization assignment does not have a classroom workspace.'
+              : 'This installation does not currently report an active Education workflow entitlement. Education licensing applies to the installation, not individual users.'}
           />
         </Card>
       </div>
@@ -223,11 +236,14 @@ function Overview({
         <StatCard label="Printer grants" value={activePrinters} icon={Printer} />
         <StatCard
           label="Your access"
-          value={capabilities.tenant_admin ? 'Admin' : capabilities.manager ? 'Manager' : 'Student'}
+          value={[capabilities.tenant_admin && 'Admin', capabilities.manager && 'Manager', capabilities.student && 'Student'].filter(Boolean).join(' + ') || 'No classroom access'}
           icon={ShieldCheck}
         />
       </div>
 
+      <p className="text-sm text-[var(--brand-text-secondary)]">
+        Classroom access is assigned separately from your application role. An Operator needs Manager access in each class to review its submissions. Ask an organization administrator to update the roster under Education → Classes &amp; clubs.
+      </p>
       <div className="grid gap-4 lg:grid-cols-3">
         {capabilities.student && (
           <ActionCard

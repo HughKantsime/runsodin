@@ -18,6 +18,7 @@ function Probe() {
       <span data-testid="max-users">{String(license.maxUsers)}</span>
       <span data-testid="at-limit">{String(license.atUserLimit(1))}</span>
       <span data-testid="managed">{String(license.managed_externally)}</span>
+      <span data-testid="load-error">{String(license.loadError)}</span>
       <span data-testid="loading">{String(license.loading)}</span>
       <button onClick={license.refresh}>Refresh license</button>
     </div>
@@ -38,6 +39,7 @@ describe('LicenseProvider effective feature contract', () => {
     render(<LicenseProvider><Probe /></LicenseProvider>)
 
     await waitFor(() => expect(screen.getByTestId('tier')).toHaveTextContent('education'))
+    expect(screen.getByTestId('load-error')).toHaveTextContent('false')
     expect(screen.getByTestId('quota')).toHaveTextContent('true')
     expect(screen.getByTestId('groups')).toHaveTextContent('true')
     expect(screen.getByTestId('class-sections')).toHaveTextContent('false')
@@ -77,5 +79,6 @@ describe('LicenseProvider effective feature contract', () => {
     expect(screen.getByTestId('quota')).toHaveTextContent('false')
     expect(screen.getByTestId('max-users')).toHaveTextContent('1')
     expect(screen.getByTestId('loading')).toHaveTextContent('false')
+    expect(screen.getByTestId('load-error')).toHaveTextContent('true')
   })
 })
