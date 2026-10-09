@@ -40,9 +40,7 @@ Usage:
     printer.disconnect()
 """
 
-import ftplib  # nosec B402
 import json
-import os
 import warnings
 
 # One-shot deprecation warning on first import. Fires in dev + CI
@@ -56,7 +54,6 @@ warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
-import socket
 import ssl
 import time
 import threading
@@ -64,38 +61,6 @@ from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import paho.mqtt.client as mqtt
-
-
-class _ImplicitFTPS(ftplib.FTP):
-    """Implicit FTPS client for Bambu printers.
-
-    Bambu uses implicit TLS on port 990: TLS is negotiated immediately upon
-    connection, before any FTP commands. Python's ftplib.FTP_TLS only supports
-    explicit FTPS (STARTTLS), so we wrap the socket in SSL ourselves.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self._ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        self._ssl_ctx.check_hostname = False
-        self._ssl_ctx.verify_mode = ssl.CERT_NONE
-
-    def connect(self, host='', port=990, timeout=30, **kwargs):
-        self.host = host
-        self.port = port
-        self.timeout = timeout
-        raw_sock = socket.create_connection((host, port), timeout=timeout)
-        self.sock = self._ssl_ctx.wrap_socket(raw_sock, server_hostname=host)
-        self.af = self.sock.family
-        self.file = self.sock.makefile('r', encoding='latin-1')
-        self.welcome = self.getresp()
-        return self.welcome
-
-    def ntransfercmd(self, cmd, rest=None):
-        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
-        if not isinstance(conn, ssl.SSLSocket):
-            conn = self._ssl_ctx.wrap_socket(conn, server_hostname=self.host)
-        return conn, size
 
 
 class PrinterState(str, Enum):
@@ -443,21 +408,9 @@ class BambuPrinter:
         Returns:
             True if the upload completed without error.
         """
-        if remote_filename is None:
-            remote_filename = os.path.basename(local_path)
+        from modules.printers.telemetry.bambu.ftp_upload import upload_file
 
-        try:
-            ftp = _ImplicitFTPS()
-            ftp.connect(host=self.ip, port=self.FTPS_PORT, timeout=30)
-            ftp.login(user="bblp", passwd=self.access_code)
-            ftp.set_pasv(True)
-            with open(local_path, 'rb') as f:
-                ftp.storbinary(f"STOR {remote_filename}", f)
-            ftp.quit()
-            return True
-        except Exception as e:
-            print(f"[{self.serial}] FTPS upload error: {e}")
-            return False
+        return upload_file(self.ip, self.access_code, local_path, remote_filename)
 
     def start_print(
         self,
