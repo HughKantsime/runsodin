@@ -114,7 +114,13 @@ class Scheduler:
         self.slot_minutes = self.config.slot_duration_minutes
         
     def _time_to_slot(self, dt: datetime, start_date: datetime) -> int:
-        """Convert a datetime to a slot index."""
+        """Convert a datetime to a slot index; persisted naive times are UTC."""
+        # SQLite reloads DateTime columns without tzinfo. Scheduling writes UTC,
+        # so restore that interpretation without changing aware timestamp offsets.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=timezone.utc)
         delta = dt - start_date
         return int(delta.total_seconds() / (self.slot_minutes * 60))
     
