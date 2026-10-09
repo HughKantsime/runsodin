@@ -446,3 +446,170 @@ def test_http_multipart_parser_reserves_each_chunk_before_direct_disk_write(
             operation_id=parser.operation_id,
             paths=(parser.staging_path, parser.final_path),
         )
+
+
+@pytest.mark.parametrize('total_gib,remaining_delta,accepted', [
+    (20, -1, False), (20, 0, True), (20, 1, True),
+    (200, -1, False), (200, 0, True), (200, 1, True),
+])
+def test_storage_headroom_boundary_and_actual_upload_path(
+    submission_db, monkeypatch, total_gib, remaining_delta, accepted,
+):
+    from core.errors import OdinError
+    from modules.organizations import education_submission_service as service
+
+    db, upload_root = submission_db
+    payload = _sliced_3mf()
+    total = total_gib * 1024**3
+    reserve = max(10 * 1024**3, int(total * 0.10))
+    free = reserve + len(payload) + remaining_delta
+    checked_paths = []
+
+    def disk_usage(path):
+        checked_paths.append(path)
+        return namedtuple('usage', 'total used free')(total, total - free, free)
+
+    monkeypatch.setattr(service.shutil, 'disk_usage', disk_usage)
+    token = str(uuid.uuid4())
+    args = dict(db=db, source=io.BytesIO(payload), original_filename='pilot.gcode.3mf',
+                operation_id=token, principal=_principal(), cost_center_id=7,
+                storage_root=upload_root)
+    if accepted:
+        result = service.process_sliced_3mf_submission(**args)
+        assert result['status'] == 'submitted'
+        assert db.execute(text('SELECT COUNT(*) FROM education_submissions')).scalar_one() == 1
+    else:
+        with pytest.raises(OdinError, match='storage headroom reserve') as exc:
+            service.process_sliced_3mf_submission(**args)
+        assert exc.value.status == 507
+        assert db.execute(text('SELECT COUNT(*) FROM education_submissions')).scalar_one() == 0
+        assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one() == 0
+        assert not any(upload_root.rglob('*.*'))
+        operation = db.execute(text('SELECT state,reservation_released_at FROM education_upload_operations WHERE operation_id=:id'), {'id': token}).one()
+        assert operation.state == 'aborted' and operation.reservation_released_at is not None
+    assert checked_paths == [upload_root]
+    assert db.execute(text('SELECT COALESCE(SUM(reserved_bytes),0) FROM education_storage_accounts')).scalar_one() == 0
+
+
+def test_disk_pressure_midstream_releases_prior_chunk_and_all_staged_bytes(submission_db, monkeypatch):
+    from core.errors import OdinError
+    from modules.organizations import education_submission_service as service
+
+    db, upload_root = submission_db
+    calls = []
+    def disk_usage(path):
+        calls.append(path)
+        total = 200 * 1024**3
+        free = 100 * 1024**3 if len(calls) == 1 else 19 * 1024**3
+        return namedtuple('usage', 'total used free')(total, total - free, free)
+    monkeypatch.setattr(service.shutil, 'disk_usage', disk_usage)
+    token = str(uuid.uuid4())
+    with pytest.raises(OdinError, match='storage headroom reserve') as exc:
+        service.process_sliced_3mf_submission(
+            db, source=io.BytesIO(_sliced_3mf() + b'\0' * service.CHUNK_BYTES),
+            original_filename='pilot.3mf', operation_id=token, principal=_principal(),
+            cost_center_id=7, storage_root=upload_root,
+        )
+    assert exc.value.status == 507
+    assert calls == [upload_root, upload_root]
+    assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one() == 0
+    assert db.execute(text('SELECT COUNT(*) FROM education_submissions')).scalar_one() == 0
+    assert db.execute(text('SELECT COALESCE(SUM(reserved_bytes),0) FROM education_storage_accounts')).scalar_one() == 0
+    assert not any(upload_root.rglob('*.*'))
+    service.abort_upload(db, operation_id=token, paths=())
+    assert db.execute(text('SELECT COALESCE(SUM(reserved_bytes),0) FROM education_storage_accounts')).scalar_one() == 0
+
+
+def test_multipart_endpoint_headroom_rejection_cleans_operation(submission_db, monkeypatch):
+    from starlette.requests import Request
+    from functools import partial
+    from core.errors import OdinError
+    from modules.organizations import education_submission_service as service
+    from modules.organizations import routes_education_submissions as routes
+
+    db, upload_root = submission_db
+    total, free = 45 * 1024**3, 9 * 1024**3
+    paths = []
+    def disk_usage(path):
+        paths.append(path)
+        return namedtuple('usage', 'total used free')(total, total - free, free)
+    monkeypatch.setattr(service.shutil, 'disk_usage', disk_usage)
+    monkeypatch.setattr(routes, '_DurableMultipartParser', partial(routes._DurableMultipartParser, storage_root=upload_root))
+    boundary = 'headroom-endpoint-check'
+    token = str(uuid.uuid4())
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="cost_center_id"\r\n\r\n7\r\n'
+        f'--{boundary}\r\nContent-Disposition: form-data; name="submission_token"\r\n\r\n{token}\r\n'
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="pilot.gcode.3mf"\r\n'
+        'Content-Type: application/octet-stream\r\n\r\n'
+    ).encode() + _sliced_3mf() + f'\r\n--{boundary}--\r\n'.encode()
+    async def receive():
+        return {'type': 'http.request', 'body': body, 'more_body': False}
+    request = Request({'type': 'http', 'method': 'POST', 'path': '/education/submissions',
+                       'headers': [(b'content-type', f'multipart/form-data; boundary={boundary}'.encode())]}, receive)
+    with pytest.raises(OdinError, match='storage headroom reserve') as exc:
+        asyncio.run(routes.create_education_submission(request, _principal(), db))
+    assert exc.value.status == 507
+    assert paths == [upload_root]
+    operation = db.execute(text('SELECT state,reservation_released_at FROM education_upload_operations WHERE operation_id=:id'), {'id': token}).one()
+    assert operation.state == 'aborted' and operation.reservation_released_at is not None
+    assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one() == 0
+    assert db.execute(text('SELECT COUNT(*) FROM education_submissions')).scalar_one() == 0
+    assert db.execute(text('SELECT COALESCE(SUM(reserved_bytes),0) FROM education_storage_accounts')).scalar_one() == 0
+    assert not any(upload_root.rglob('*.*'))
+
+
+
+def test_same_file_succeeds_after_storage_capacity_is_restored(submission_db, monkeypatch):
+    from core.errors import OdinError
+    from modules.organizations import education_submission_service as service
+
+    db, upload_root = submission_db
+    available = {'free': 9 * 1024**3}
+    total = 45 * 1024**3
+    monkeypatch.setattr(service.shutil, 'disk_usage', lambda path: namedtuple('usage', 'total used free')(total, total - available['free'], available['free']))
+    payload = _sliced_3mf()
+    def submit():
+        return service.process_sliced_3mf_submission(
+            db, source=io.BytesIO(payload), original_filename='unchanged-pilot.gcode.3mf',
+            operation_id=str(uuid.uuid4()), principal=_principal(), cost_center_id=7,
+            storage_root=upload_root,
+        )
+    with pytest.raises(OdinError, match='storage headroom reserve') as exc:
+        submit()
+    assert exc.value.status == 507
+    assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one() == 0
+    assert not any(upload_root.rglob('*.*'))
+    available['free'] = 15 * 1024**3
+    result = submit()
+    assert result['status'] == 'submitted'
+    assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one() == 1
+    assert db.execute(text('SELECT COUNT(*) FROM education_submissions')).scalar_one() == 1
+    files = list(upload_root.rglob('*.3mf'))
+    assert len(files) == 1 and files[0].read_bytes() == payload
+    assert db.execute(text('SELECT COALESCE(SUM(reserved_bytes),0) FROM education_storage_accounts')).scalar_one() == 0
+
+
+def test_school_sized_disk_can_upload_with_explicit_override(submission_db, tmp_path, monkeypatch):
+    from core.errors import OdinError
+    from collections import namedtuple
+    from modules.organizations import education_submission_service as service, education_storage
+    db, _ = submission_db
+    root=tmp_path/'school-sized'; root.mkdir()
+    payload=_sliced_3mf()
+    monkeypatch.setattr(service.shutil,'disk_usage',lambda p:namedtuple('usage','total used free')(16*1024**3,0,int(8.2*1024**3)))
+    def submit():
+        return service.process_sliced_3mf_submission(db,source=io.BytesIO(payload),original_filename='pilot.gcode.3mf',operation_id=str(uuid.uuid4()),principal=_principal(),cost_center_id=7,storage_root=root)
+    monkeypatch.delenv('EDUCATION_MIN_FREE_GIB',raising=False)
+    with pytest.raises(OdinError) as rejected: submit()
+    assert rejected.value.status==507
+    monkeypatch.setenv('EDUCATION_MIN_FREE_GIB','NaN')
+    with pytest.raises(OdinError) as invalid: submit()
+    assert invalid.value.status==503
+    assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one()==0
+    assert db.execute(text('SELECT COALESCE(SUM(reserved_bytes),0) FROM education_storage_accounts')).scalar_one()==0
+    monkeypatch.setenv('EDUCATION_MIN_FREE_GIB','1')
+    assert education_storage.required_free_bytes(16*1024**3)==int(1.6*1024**3)
+    assert submit()['status']=='submitted'
+    assert db.execute(text('SELECT COUNT(*) FROM jobs')).scalar_one()==1
+    assert list(root.rglob('*.3mf'))[0].read_bytes()==payload

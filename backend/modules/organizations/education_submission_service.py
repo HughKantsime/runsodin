@@ -20,6 +20,7 @@ from core.db import SessionLocal
 from core.db_compat import execute_insert_returning_id
 from core.errors import ErrorCode, OdinError
 from modules.models_library.threemf_parser import parse_3mf
+from modules.organizations.education_storage import MIN_FREE_BYTES, StorageConfigurationError, required_free_bytes
 
 
 CHUNK_BYTES = 1024 * 1024
@@ -27,7 +28,6 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
 USER_STORAGE_CAP_BYTES = 2 * 1024 * 1024 * 1024
 TENANT_STORAGE_CAP_BYTES = 50 * 1024 * 1024 * 1024
-MIN_FREE_BYTES = 10 * 1024 * 1024 * 1024
 UPLOAD_ROOT = Path(os.environ.get("EDUCATION_UPLOAD_ROOT", "/data/education_uploads"))
 
 
@@ -293,11 +293,21 @@ def reserve_storage_chunk(
     if amount <= 0 or amount > CHUNK_BYTES:
         raise ValueError("reservation amount must be one positive upload chunk")
     usage = shutil.disk_usage(storage_root)
-    required_free = max(MIN_FREE_BYTES, int(usage.total * 0.10))
+    try:
+        required_free = required_free_bytes(usage.total)
+    except StorageConfigurationError as exc:
+        raise OdinError(ErrorCode.validation_failed,
+                        "Education upload storage configuration is invalid. "
+                        "Ask your administrator to correct EDUCATION_MIN_FREE_GIB (minimum 1 GiB).",
+                        status=503, retriable=False) from exc
     if usage.free - amount < required_free:
         raise OdinError(
             ErrorCode.quota_exceeded,
-            "Upload would violate the Education storage headroom reserve",
+            ("Upload would violate the Education storage headroom reserve. "
+             f"Available: {usage.free / (1024 ** 3):.2f} GiB; "
+             f"required reserve: {required_free / (1024 ** 3):.2f} GiB. "
+             "Ask your administrator to free space or expand the filesystem "
+             "backing Education uploads, and confirm the upload volume is mounted correctly."),
             status=507,
             retriable=True,
         )

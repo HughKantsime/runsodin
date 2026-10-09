@@ -775,3 +775,69 @@ def test_ws_token_contains_live_capability_snapshot(
     assert not ConnectionManager._education_principal_current(
         ws_principal, {"education_internal": True, "data": {}}
     )
+
+
+def _seed_readiness_class(db, center=10):
+    db.execute(text("INSERT INTO education_cost_centers (id, org_id, name_key, code_key, display_name, code, created_by) VALUES (:id,1,:key,:key,:key,:key,1)"), {"id": center, "key": str(center)})
+    db.execute(text("INSERT INTO education_cost_center_grants (org_id,cost_center_id,user_id,role,granted_by) VALUES (1,:id,2,'student',1),(1,:id,3,'manager',1)"), {"id": center})
+    db.execute(text("INSERT INTO education_cost_center_printers (org_id,cost_center_id,printer_id,granted_by) VALUES (1,:id,1,1)"), {"id": center})
+    db.commit()
+
+
+def test_readiness_requires_complete_same_class(education_db):
+    _seed_readiness_class(education_db)
+    client = _education_client(education_db)
+    assert client.get('/education/readiness').json()['pilot']['complete_centers'] == 1
+    education_db.execute(text("INSERT INTO education_cost_centers (id,org_id,name_key,code_key,display_name,code,created_by) VALUES (11,1,'second','second','Second','SECOND',1)"))
+    education_db.execute(text("UPDATE education_cost_center_grants SET cost_center_id=11 WHERE role='manager'"))
+    education_db.commit()
+    result = client.get('/education/readiness').json()['pilot']
+    assert result['student_grants'] == result['manager_grants'] == result['printer_entitlements'] == 1
+    assert result['complete_centers'] == 0
+
+
+@pytest.mark.parametrize('change', [
+    "UPDATE users SET is_active=0 WHERE id=2",
+    "UPDATE users SET is_active=0 WHERE id=3",
+    "UPDATE printers SET is_active=0 WHERE id=1",
+    "UPDATE printers SET shared=1 WHERE id=1",
+    "UPDATE education_cost_centers SET state='archived' WHERE id=10",
+    "UPDATE education_cost_center_grants SET state='revoked' WHERE role='student'",
+    "UPDATE education_cost_center_printers SET state='revoked'",
+])
+def test_readiness_excludes_invalid_resources(education_db, change):
+    _seed_readiness_class(education_db)
+    education_db.execute(text(change))
+    education_db.commit()
+    assert _education_client(education_db).get('/education/readiness').json()['pilot']['complete_centers'] == 0
+
+
+def test_readiness_storage_and_admin_scope(education_db, monkeypatch, tmp_path):
+    from modules.organizations import education_submission_service, education_storage
+    from collections import namedtuple
+    Usage = namedtuple('Usage', 'total used free')
+    monkeypatch.setattr(education_submission_service, 'UPLOAD_ROOT', tmp_path / 'new-uploads')
+    measured = []
+    monkeypatch.setattr(education_storage.shutil, 'disk_usage', lambda path: measured.append(path) or Usage(45*1024**3, 30*1024**3, 15*1024**3))
+    result = _education_client(education_db).get('/education/readiness')
+    assert result.status_code == 200
+    storage = result.json()['storage']
+    assert storage['status'] == 'ready'
+    assert storage['reserve_bytes'] == 10*1024**3
+    assert storage['upload_headroom_bytes'] == 5*1024**3
+    assert storage['upload_directory_exists'] is False
+    assert measured == [tmp_path]
+    assert not (tmp_path / 'new-uploads').exists()
+    denied = _education_client(education_db, _principal(2, 'viewer')).get('/education/readiness')
+    assert denied.status_code == 403
+    assert _education_client(education_db).get('/education/readiness?org_id=2').status_code in (403,404)
+
+
+@pytest.mark.parametrize('change', ['UPDATE users SET group_id=2 WHERE id=2', 'UPDATE users SET group_id=2 WHERE id=3', 'UPDATE printers SET org_id=2 WHERE id=1', "UPDATE education_cost_center_grants SET org_id=2 WHERE role='manager'", 'UPDATE education_cost_center_printers SET org_id=2'])
+def test_cross_tenant_readiness_references_are_schema_rejected(education_db, change):
+    from sqlalchemy.exc import IntegrityError
+    _seed_readiness_class(education_db)
+    with pytest.raises(IntegrityError):
+        education_db.execute(text(change))
+    education_db.rollback()
+    assert _education_client(education_db).get('/education/readiness').json()['pilot']['complete_centers'] == 1

@@ -178,10 +178,21 @@ export interface EducationReadiness {
   oidc: { ready: boolean; provider: string; enabled: boolean }
   classroom: ClassroomStatus
   pilot: {
+    complete_centers: number
     active_centers: number
     student_grants: number
     manager_grants: number
     printer_entitlements: number
+  }
+  storage: {
+    status: 'ready' | 'blocked' | 'unknown' | 'configuration_error'
+    configured_min_free_bytes: number | null
+    administrator_override: boolean
+    total_bytes: number | null
+    free_bytes: number | null
+    reserve_bytes: number | null
+    upload_headroom_bytes: number | null
+    upload_directory_exists: boolean | null
   }
   backup: { database_backend: string; verified_workflow_available: boolean }
 }
