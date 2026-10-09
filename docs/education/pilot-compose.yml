@@ -1,0 +1,30 @@
+# Isolated real-hardware EDU pilot. Run in its own directory and Compose project.
+name: odin-edu-pilot
+services:
+  odin:
+    image: ghcr.io/hughkantsime/odin@sha256:68537e546a1e23389442dbe022fd0ef5c2397c577bc37eb3bf910b6b5e891c1c
+    restart: unless-stopped
+    ports:
+      - "${PILOT_BIND_IP:-127.0.0.1}:${PILOT_HTTP_PORT:-18000}:8000"
+    volumes:
+      - pilot-data:/data
+      - pilot-go2rtc:/app/go2rtc
+    environment:
+      DATABASE_URL: sqlite:////data/odin.db
+      LICENSE_DIR: /data
+      AUTO_DISPATCH: "false"
+      TZ: America/New_York
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: ${PILOT_ORIGIN:-http://127.0.0.1:18000}
+      TRUSTED_HOSTS: ${PILOT_TRUSTED_HOSTS:-127.0.0.1,localhost}
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+volumes:
+  pilot-data:
+  pilot-go2rtc:

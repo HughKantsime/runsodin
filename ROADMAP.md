@@ -1,6 +1,12 @@
 # O.D.I.N. Feature Roadmap
 
-Updated — see CHANGELOG for current version.
+Updated - see CHANGELOG for current version.
+
+## Protected transfer session reuse (1.9.24 candidate)
+
+- Offer the control TLS session on protected passive Bambu transfers.
+- Connected classroom and monitor checks require actual TLS 1.2 resumption.
+- Separate cluster pilot prepared; school printer acceptance remains open.
 
 ## SSO callback completion (1.9.17)
 

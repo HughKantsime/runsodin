@@ -51,7 +51,11 @@ class _ImplicitFTPS(ftplib.FTP_TLS):
             raise ftplib.error_perm("Protected data transfer was not negotiated")
         conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
         try:
-            return self.context.wrap_socket(conn, server_hostname=self.host), size
+            # Support printer FTP servers requiring the data connection to
+            # resume the control session; sharing only SSLContext is insufficient.
+            return self.context.wrap_socket(
+                conn, server_hostname=self.host, session=self.sock.session,
+            ), size
         except Exception:
             conn.close()
             raise

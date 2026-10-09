@@ -2,6 +2,25 @@
 
 All notable changes to O.D.I.N. are documented here.
 
+## [1.9.24] - Protected Bambu transfer session reuse
+
+### Fixed
+
+- Offer the control connection's TLS session when opening the encrypted
+  passive file-transfer connection. Both legacy and V2 upload paths use the
+  shared helper, preserving protected transfer and fail-closed cleanup.
+
+### Testing
+
+- Require actual TLS 1.2 session resumption in the connected classroom upload,
+  dispatch, retry and MQTT monitor lifecycle checks. Retain an intentionally
+  broken client baseline to verify rejection without starting a print.
+- Add real Education browser journeys for student upload, teacher review,
+  operator scheduling, private student visibility, upload errors and rejection.
+- Prepare a separate pinned Kubernetes pilot with dedicated storage and
+  private access. Physical printer and school configuration acceptance remain
+  separate from local protocol evidence.
+
 ## [1.9.19] — Legacy SQLite upgrade compatibility
 
 ### Fixed
