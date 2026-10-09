@@ -1,6 +1,6 @@
 # Isolated Education printer pilot
 
-Prepared October 9, 2026. Not yet deployed or licensed. Version baseline v1.9.23 is immutable; update the digest deliberately only after a candidate is validated. The new local tests are not inside this published image.
+Updated October 9, 2026. The owner’s isolated Kubernetes pilot is deployed in odin-edu-pilot on kube3. The pinned v1.9.24 image passed all ten release gates; separate Education activation, initial admin setup and physical printer acceptance remain pending. The Compose instructions below remain an alternative setup. Do not copy production data or credentials.
 
 Use a separate Linux Docker VM on the owner's infrastructure, with its own IP and storage. A separate Compose project on a chosen existing Docker host is possible if approved, with enforceable CPU/memory limits and verified disk capacity before startup. Suggested starting allocation: 2 vCPU, 4 GiB RAM, and 40 GiB disk with at least 15 GiB free on the actual /data filesystem. This is a rehearsal allocation, not a measured capacity guarantee. The default upload headroom reserve is 10 GiB and a 10% filesystem floor, so verify available space after pulling the image and creating volumes.
 

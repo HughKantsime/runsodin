@@ -2,7 +2,7 @@
 name: odin-edu-pilot
 services:
   odin:
-    image: ghcr.io/hughkantsime/odin@sha256:68537e546a1e23389442dbe022fd0ef5c2397c577bc37eb3bf910b6b5e891c1c
+    image: ghcr.io/hughkantsime/odin@sha256:4ca8b96f8e0d41f3a8f046f9d33f678ec91f0a021188488661a368d59cb26e75
     restart: unless-stopped
     ports:
       - "${PILOT_BIND_IP:-127.0.0.1}:${PILOT_HTTP_PORT:-18000}:8000"
