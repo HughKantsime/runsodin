@@ -10,6 +10,7 @@ from core.db import get_db
 from core.rbac import require_role
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
+from modules.printers.ledger_display import ensure_local_filaments
 
 log = logging.getLogger("odin.api")
 router = APIRouter(prefix="/printers", tags=["Filament Slots"])
@@ -23,6 +24,7 @@ def assign_spool_to_slot(
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Assign a spool to a printer slot."""
+    ensure_local_filaments(printer_id)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,
@@ -55,6 +57,7 @@ def confirm_slot_assignment(
     current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
 ):
     """Confirm the spool assignment for a slot."""
+    ensure_local_filaments(printer_id)
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,
