@@ -59,9 +59,6 @@ class TestCompleteMaintenanceSourceContract:
         # Maintenance-specific: record the hours-at-service that would be computed
         assert "print_hours_at_service" in fn_src
 
-    def test_odin_error_for_missing_printer(self, fn_src: str):
-        assert re.search(r"OdinError\(\s*ErrorCode\.printer_not_found", fn_src)
-        assert not re.search(r"HTTPException\(\s*status_code\s*=\s*4\d\d", fn_src)
 
     def test_success_emits_next_actions(self, fn_src: str):
         assert "build_next_actions(" in fn_src

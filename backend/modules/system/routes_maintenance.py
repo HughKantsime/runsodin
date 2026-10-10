@@ -6,19 +6,34 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.errors import ErrorCode, OdinError
 from core.middleware.dry_run import dry_run_preview, is_dry_run
-from core.rbac import AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role
+from core.rbac import (AGENT_READ_SCOPE, AGENT_WRITE_SCOPE, require_any_scope, require_role,
+                       check_org_access, get_org_scope, should_filter_org)
 from core.responses import build_next_actions, next_action
 from modules.printers.models import Printer
 from modules.system.models import MaintenanceTask, MaintenanceLog
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+def _visible_printer_query(query, user):
+    org = get_org_scope(user)
+    if should_filter_org(user, org):
+        query = query.filter(or_(Printer.org_id == org, Printer.org_id.is_(None), Printer.shared.is_(True)))
+    return query
+
+
+def _authorized_printer(db, printer_id, user):
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(user, printer.org_id) or printer.shared):
+        raise OdinError(ErrorCode.printer_not_found, "Printer not found", status=404)
+    return printer
 
 
 # ============== Pydantic models ==============
@@ -81,7 +96,7 @@ def list_maintenance_tasks(
 
 
 @router.post("/maintenance/tasks", tags=["Maintenance"])
-def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Create a new maintenance task template."""
     task = MaintenanceTask(
         name=data.name,
@@ -99,7 +114,7 @@ def create_maintenance_task(data: MaintenanceTaskCreate, current_user: dict = De
 
 
 @router.patch("/maintenance/tasks/{task_id}", tags=["Maintenance"])
-def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Update a maintenance task template."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
     if not task:
@@ -111,8 +126,8 @@ def update_maintenance_task(task_id: int, data: MaintenanceTaskUpdate, current_u
 
 
 @router.delete("/maintenance/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
-def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Delete a maintenance task template and its logs."""
+def delete_maintenance_task(task_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
+    """Delete a task template while preserving named service history."""
     task = db.query(MaintenanceTask).filter(MaintenanceTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -130,7 +145,9 @@ def list_maintenance_logs(
     current_user: dict = Depends(require_role("viewer")),
 ):
     """List maintenance logs, optionally filtered by printer."""
-    query = db.query(MaintenanceLog).order_by(MaintenanceLog.performed_at.desc())
+    query = _visible_printer_query(
+        db.query(MaintenanceLog).join(Printer, Printer.id == MaintenanceLog.printer_id), current_user
+    ).order_by(MaintenanceLog.performed_at.desc())
     if printer_id:
         query = query.filter(MaintenanceLog.printer_id == printer_id)
     logs = query.limit(limit).all()
@@ -161,19 +178,11 @@ def create_maintenance_log(
 
     Agent-surface (v1.9.0 Phase 2): honors X-Dry-Run, emits next_actions.
     """
-    printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
-    if not printer:
-        raise OdinError(
-            ErrorCode.printer_not_found,
-            f"Printer {data.printer_id} not found",
-            status=404,
-        )
-
-    result = db.execute(text(
-        "SELECT COALESCE(SUM(duration_hours), 0) FROM jobs "
-        "WHERE printer_id = :pid AND status = 'completed'"
-    ), {"pid": data.printer_id}).scalar()
-    total_hours = float(result or 0)
+    printer = _authorized_printer(db, data.printer_id, current_user)
+    if data.task_id is not None and not db.query(MaintenanceTask).filter(MaintenanceTask.id == data.task_id).first():
+        raise HTTPException(404, "Task not found")
+    # Snapshot the same lifetime odometer used by the status calculation.
+    total_hours = max(0.0, float(printer.total_print_hours or 0))
 
     if is_dry_run(request):
         return dry_run_preview(
@@ -226,11 +235,12 @@ def create_maintenance_log(
 
 
 @router.delete("/maintenance/logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Maintenance"])
-def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
     """Delete a maintenance log entry."""
     log_entry = db.query(MaintenanceLog).filter(MaintenanceLog.id == log_id).first()
     if not log_entry:
         raise HTTPException(status_code=404, detail="Log not found")
+    _authorized_printer(db, log_entry.printer_id, current_user)
     db.delete(log_entry)
     db.commit()
 
@@ -240,12 +250,14 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
 @router.get("/maintenance/status", tags=["Maintenance"])
 def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get maintenance status for all active printers. Returns per-printer task health."""
-    printers = db.query(Printer).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
+    printers = _visible_printer_query(db.query(Printer), current_user).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
     tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active.is_(True)).all()
 
     hours_map = {p.id: float(p.total_print_hours or 0) for p in printers}
 
-    all_logs = db.query(MaintenanceLog).all()
+    all_logs = db.query(MaintenanceLog).filter(
+        MaintenanceLog.printer_id.in_([p.id for p in printers])
+    ).order_by(MaintenanceLog.performed_at.desc(), MaintenanceLog.id.desc()).all()
     log_map = {}
     for mlog in all_logs:
         key = (mlog.printer_id, mlog.task_id)
@@ -268,7 +280,7 @@ def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = D
             last_log = log_map.get((printer.id, task.id))
 
             if last_log and last_log.performed_at:
-                hours_since = total_hours - (last_log.print_hours_at_service or 0)
+                hours_since = max(0.0, total_hours - (last_log.print_hours_at_service or 0))
                 performed_at = last_log.performed_at
                 if performed_at.tzinfo is None:
                     performed_at = performed_at.replace(tzinfo=timezone.utc)

@@ -110,9 +110,9 @@ POLICY_INVENTORY = (
             "system.routes_admin",
             "system.routes_config",
             "system.routes_handoff",
-            "system.routes_maintenance",
         )
     ),
+    _entry("system.routes_maintenance", "maintenance logs/status/create/delete", "printer/service history", "read/mutate", "own/unscoped/shared printer scope before previews and writes", (), "test_maintenance_behavior.py", "guarded"),
     _entry("notifications.channels", "channel send methods", "Education alert", "external-sink", "none for Education", ("email", "webhook"), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.event_dispatcher", "event dispatch worker", "Education event", "external-sink", "none for Education", ("notification channels",), "test_education_notification_privacy.py", "batch2_required"),
     _entry("notifications.routes.webhooks", "webhook routes/worker", "Education event", "external-sink", "none for Education", ("webhook",), "test_education_notification_privacy.py", "batch2_required"),
@@ -135,6 +135,7 @@ _EXPLICIT_SURFACE_PATHS = (
     "modules/organizations/routes.py",
     "modules/printers/routes_crud.py",
     "modules/printers/routes_smart_plug.py",
+    "modules/system/routes_maintenance.py",
     "modules/printers/monitors/prusalink_monitor.py",
     "modules/printers/monitors/elegoo_monitor.py",
     "modules/archives/routes/tags.py",
