@@ -13,10 +13,45 @@ from __future__ import annotations
 import logging
 
 from core.config import settings
-from core.webhook_utils import safe_post, WebhookSSRFError
+from core.webhook_utils import _pin_dns, WebhookSSRFError
 
 log = logging.getLogger("odin.api")
 
+
+
+def _post_spoolman_usage(base: str, spool_id: int, grams: float):
+    """Direct, DNS-pinned administrator-configured integration. No redirects/proxies."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+    import httpx
+    from core.itar import is_itar_mode
+
+    if isinstance(spool_id, bool) or not isinstance(spool_id, int) or spool_id <= 0:
+        raise ValueError("Invalid Spoolman spool ID")
+    parsed = urlsplit(base)
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or
+            parsed.username is not None or parsed.password is not None or
+            parsed.query or parsed.fragment):
+        raise ValueError("Invalid configured Spoolman base URL")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    answers = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+    addresses = []
+    for answer in answers:
+        address = ipaddress.ip_address(answer[4][0])
+        checked = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped else address
+        if (checked.is_link_local or checked.is_unspecified or checked.is_multicast or
+                (checked.is_reserved and not checked.is_loopback) or str(checked) in {"100.100.100.200", "fd00:ec2::254"}):
+            raise WebhookSSRFError("Configured Spoolman destination is forbidden")
+        if is_itar_mode() and not (checked.is_private or checked.is_loopback):
+            raise WebhookSSRFError("Configured Spoolman destination is public in ITAR mode")
+        addresses.append(str(address))
+    if not addresses:
+        raise WebhookSSRFError("Configured Spoolman destination has no addresses")
+    url = base.rstrip('/') + f"/api/v1/spool/{spool_id}/use"
+    with _pin_dns(parsed.hostname, port, addresses):
+        with httpx.Client(trust_env=False, follow_redirects=False, timeout=5) as client:
+            return client.post(url, json={"use_weight": grams})
 
 def push_consumption_to_spoolman(deductions: list) -> list:
     """POST usage records to the configured Spoolman instance.
@@ -38,9 +73,9 @@ def push_consumption_to_spoolman(deductions: list) -> list:
     Design notes:
         * Fails loud — errors are returned to the caller, which surfaces
           them via log + job.notes. No silent swallowing.
-        * Uses safe_post() so the Spoolman URL (user-configured) gets the
-          SSRF DNS-pin treatment. Rebinding a Spoolman hostname to an
-          internal target is the attack we guard against.
+        * Uses a fixed administrator-configured integration destination, with
+          DNS pinning, metadata exclusions and ITAR checks. Local Spoolman
+          is supported; generic webhook policy remains unchanged.
         * Skips entries with spoolman_spool_id=None without raising.
           A job may involve spools that aren't linked to Spoolman; that's
           a supported state.
@@ -64,14 +99,10 @@ def push_consumption_to_spoolman(deductions: list) -> list:
 
         url = f"{base}/api/v1/spool/{spoolman_id}/use"
         try:
-            resp = safe_post(
-                url,
-                json={"use_weight": grams},
-                timeout=5,
-            )
+            resp = _post_spoolman_usage(base, spoolman_id, grams)
             # Spoolman returns 200 on success. 4xx is usually a bad spool
             # id or a malformed body — surface it so operators see it.
-            if hasattr(resp, "status_code") and resp.status_code >= 400:
+            if hasattr(resp, "status_code") and resp.status_code >= 300:
                 errors.append(
                     f"Spoolman spool={spoolman_id} job={d.get('job_id')} "
                     f"rejected push: HTTP {resp.status_code}"

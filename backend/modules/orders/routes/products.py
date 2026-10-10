@@ -56,6 +56,11 @@ def list_products(current_user: dict = Depends(require_role("viewer")), db: Sess
 @router.post("", response_model=ProductResponse)
 def create_product(data: ProductCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new product with optional BOM components."""
+    # Validate the complete supplied BOM before persisting the parent or any child.
+    for component in data.components or []:
+        model = db.query(Model).filter(Model.id == component.model_id).first()
+        if not model or not check_org_access(current_user, model.org_id):
+            raise HTTPException(status_code=404, detail="Model not found")
     product = Product(
         name=data.name,
         sku=data.sku,
@@ -164,7 +169,7 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
         raise HTTPException(status_code=404, detail="Product not found")
 
     model = db.query(Model).filter(Model.id == data.model_id).first()
-    if not model:
+    if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     comp = ProductComponent(

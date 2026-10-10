@@ -114,6 +114,10 @@ def _fd_count() -> int:
 
 
 def _prepare_database(path: Path):
+    # This harness must own a fresh process: imported engines/license paths are immutable.
+    if "core.db" in sys.modules or "license_manager" in sys.modules:
+        raise RuntimeError("Disposable load/privacy fixture requires a fresh subprocess before core imports")
+    os.environ["ODIN_LICENSE_FILE"] = str(path.parent / "license" / "odin.license")
     os.environ["DATABASE_URL"] = f"sqlite:///{path}"
     os.environ["DATABASE_PATH"] = str(path)
     os.environ["JWT_SECRET_KEY"] = "edu-load-jwt-secret-that-is-test-only"

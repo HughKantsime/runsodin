@@ -338,15 +338,13 @@ def dispatch_alert(
 
     Handles dedup, creates in-app records, sends push + email.
     """
-    # Resolve printer's org for org-level quiet hours + webhook
-    _printer_org_id = None
-    if printer_id:
-        try:
-            row = db.execute(text("SELECT org_id FROM printers WHERE id = :id"), {"id": printer_id}).fetchone()
-            if row and row.org_id:
-                _printer_org_id = row.org_id
-        except Exception as e:
-            logger.debug(f"Failed to resolve printer org: {e}")
+    from modules.notifications.recipient_policy import resolve_alert_scope
+    try:
+        eligible_users, _printer_org_id = resolve_alert_scope(
+            db, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
+    except Exception:
+        logger.warning("Alert resource scope could not be resolved; delivery refused")
+        return 0
 
     # Quiet hours: save alert to DB but suppress external notifications
     _suppress_external = should_suppress_notification(org_id=_printer_org_id)
@@ -364,6 +362,7 @@ def dispatch_alert(
             AlertPreference.alert_type == alert_type
         ).all()
 
+    preferences = [p for p in preferences if p.user_id in eligible_users]
     # Filter to targeted users if specified
     if target_user_ids is not None:
         target_set = set(target_user_ids)
@@ -391,8 +390,8 @@ def dispatch_alert(
     if alerts_created > 0:
         db.commit()
     
-    # Dispatch to webhooks (ntfy, telegram, discord, slack, pushover, whatsapp)
-    if not _suppress_external:
+    # Global webhooks have no tenant binding. Tenant alerts use only their org webhook.
+    if not _suppress_external and _printer_org_id is None:
         try:
             from modules.notifications.channels import send_webhook
             send_webhook(alert_type.value, title, message, severity.value,

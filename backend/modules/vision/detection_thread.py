@@ -54,7 +54,7 @@ class PrinterVisionThread(threading.Thread):
         self.settings = settings
         self.current_layer = current_layer
         self.print_job_id = print_job_id
-        self.gcode_state = gcode_state or 'RUNNING'
+        self.gcode_state = gcode_state
         self._running = True
 
         # Confirmation buffers: track consecutive detections
@@ -73,8 +73,10 @@ class PrinterVisionThread(threading.Thread):
     def update_layer(self, layer: Optional[int], job_id: Optional[int], gcode_state: Optional[str] = None):
         self.current_layer = layer
         self.print_job_id = job_id
-        if gcode_state:
-            self.gcode_state = gcode_state
+        if gcode_state != self.gcode_state:
+            for history in self._history.values():
+                history.clear()
+        self.gcode_state = gcode_state
 
     def run(self):
         log.info(f"[{self.printer_name}] Vision thread started")
@@ -102,17 +104,21 @@ class PrinterVisionThread(threading.Thread):
 
         # Determine which detections to run based on layer
         checks = []
-        if self.settings.get('spaghetti_enabled', 1) and self.engine.has_model('spaghetti'):
+        if self.gcode_state == 'RUNNING' and self.settings.get('spaghetti_enabled', 1) and self.engine.has_model('spaghetti'):
             checks.append(('spaghetti', self.settings.get('spaghetti_threshold', 0.65)))
 
-        if self.settings.get('first_layer_enabled', 1) and layer <= 3 and self.engine.has_model('first_layer'):
+        if self.gcode_state == 'RUNNING' and self.settings.get('first_layer_enabled', 1) and layer <= 3 and self.engine.has_model('first_layer'):
             checks.append(('first_layer', self.settings.get('first_layer_threshold', 0.60)))
 
-        if self.settings.get('detachment_enabled', 1) and layer > 5 and self.engine.has_model('detachment'):
+        if self.gcode_state == 'RUNNING' and self.settings.get('detachment_enabled', 1) and layer > 5 and self.engine.has_model('detachment'):
             checks.append(('detachment', self.settings.get('detachment_threshold', 0.70)))
 
         for detection_type, threshold in checks:
+            if self.gcode_state != 'RUNNING':
+                break
             detections = self.engine.infer(detection_type, frame)
+            if self.gcode_state != 'RUNNING':
+                break
             # Get best detection above threshold
             best = max(detections, key=lambda d: d['confidence'], default=None)
             above = best is not None and best['confidence'] >= threshold
@@ -281,7 +287,9 @@ class PrinterVisionThread(threading.Thread):
         })
 
         # Auto-pause if enabled
-        if self.settings.get('auto_pause', 0):
+        if (self.settings.get('auto_pause', 0)
+                and detection_type in ('spaghetti', 'first_layer', 'detachment')
+                and self.gcode_state == 'RUNNING'):
             self._auto_pause()
 
     def _insert_detection(
@@ -311,7 +319,9 @@ class PrinterVisionThread(threading.Thread):
             return None
 
     def _auto_pause(self):
-        """Pause the printer using the appropriate adapter."""
+        """Pause only with positive running telemetry, using the appropriate adapter."""
+        if self.gcode_state != 'RUNNING':
+            return
         try:
             with engine.connect() as conn:
                 row = conn.execute(
@@ -378,6 +388,7 @@ class PrinterVisionThread(threading.Thread):
                 success = adapter.pause_print()
 
             if success:
+                self.update_layer(self.current_layer, self.print_job_id, 'PAUSED')
                 log.info(f"[{self.printer_name}] Auto-paused printer")
                 # Update gcode_state in DB
                 with engine.begin() as conn3:
@@ -388,8 +399,9 @@ class PrinterVisionThread(threading.Thread):
                     # Update detection status
                     conn3.execute(
                         text("""UPDATE vision_detections SET status = 'auto_paused'
-                        WHERE printer_id = :pid AND status = 'pending'
-                        ORDER BY id DESC LIMIT 1"""),
+                        WHERE id = (SELECT id FROM vision_detections
+                            WHERE printer_id = :pid AND status = 'pending'
+                            ORDER BY id DESC LIMIT 1)"""),
                         {"pid": self.printer_id}
                     )
             else:

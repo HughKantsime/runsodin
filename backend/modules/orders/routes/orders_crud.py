@@ -132,6 +132,10 @@ def list_orders(
 @router.post("", response_model=OrderResponse)
 def create_order(data: OrderCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Create a new order with optional line items."""
+    for item in data.items or []:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if not product or not check_org_access(current_user, product.org_id):
+            raise HTTPException(status_code=404, detail="Product not found")
     order = Order(
         order_number=data.order_number,
         platform=data.platform,
@@ -155,14 +159,14 @@ def create_order(data: OrderCreate, current_user: dict = Depends(require_role("o
         for item_data in data.items:
             # Verify product exists
             product = db.query(Product).filter(Product.id == item_data.product_id).first()
-            if not product:
-                raise HTTPException(status_code=404, detail=f"Product {item_data.product_id} not found")
+            if not product or not check_org_access(current_user, product.org_id):
+                raise HTTPException(status_code=404, detail="Product not found")
 
             item = OrderItem(
                 order_id=order.id,
                 product_id=item_data.product_id,
                 quantity=item_data.quantity,
-                unit_price=item_data.unit_price if item_data.unit_price else product.price
+                unit_price=item_data.unit_price if item_data.unit_price is not None else product.price
             )
             db.add(item)
 
@@ -225,7 +229,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
         raise HTTPException(status_code=404, detail="Order not found")
 
     product = db.query(Product).filter(Product.id == data.product_id).first()
-    if not product:
+    if not product or not check_org_access(current_user, product.org_id):
         raise HTTPException(status_code=404, detail="Product not found")
 
     item = OrderItem(
@@ -309,6 +313,17 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
+    # Recheck legacy links before creating any jobs or deducting global consumables.
+    for item in order.items:
+        product = item.product
+        if not product or not check_org_access(current_user, product.org_id):
+            raise HTTPException(status_code=404, detail="Product not found")
+        for component in product.components:
+            if not component.model or not check_org_access(current_user, component.model.org_id):
+                raise HTTPException(status_code=404, detail="Model not found")
+        for link in getattr(product, 'consumable_links', []):
+            if not link.consumable:
+                raise HTTPException(status_code=404, detail="Consumable not found")
     jobs_created = []
 
     for item in order.items:

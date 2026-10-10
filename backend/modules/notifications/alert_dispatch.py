@@ -46,22 +46,25 @@ def dispatch_alert(
 
     try:
         with engine.begin() as conn:
+            from modules.notifications.recipient_policy import resolve_alert_scope
+            eligible_users, resource_org_id = resolve_alert_scope(
+                conn, printer_id=printer_id, job_id=job_id, spool_id=spool_id)
             # Get all users with preferences for this alert type
             pref_rows = conn.execute(text("""
                 SELECT DISTINCT ap.user_id, ap.in_app, ap.browser_push, ap.email
                 FROM alert_preferences ap
                 WHERE UPPER(ap.alert_type) = :atype
-                  AND (ap.in_app IS TRUE OR ap.browser_push IS TRUE OR ap.email IS TRUE)
             """), {"atype": alert_type.upper()}).mappings().fetchall()
 
+            had_preferences = bool(pref_rows)
+            pref_rows = [r for r in pref_rows if r['user_id'] in eligible_users]
             in_app_users = [r['user_id'] for r in pref_rows if r['in_app']]
             _push_users = [r['user_id'] for r in pref_rows if r['browser_push']]
             _email_users = [r['user_id'] for r in pref_rows if r['email']]
 
             # If no preferences exist, alert all users in-app (default on)
-            if not pref_rows:
-                all_users = conn.execute(text("SELECT id FROM users")).mappings().fetchall()
-                in_app_users = [row['id'] for row in all_users]
+            if not had_preferences:
+                in_app_users = sorted(eligible_users)
 
             # Check for duplicate (same type, printer, title in last 5 minutes)
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
@@ -69,10 +72,12 @@ def dispatch_alert(
                 SELECT id FROM alerts
                 WHERE alert_type = :atype
                   AND (printer_id = :pid OR (printer_id IS NULL AND :pid IS NULL))
+                  AND (job_id = :jid OR (job_id IS NULL AND :jid IS NULL))
+                  AND (spool_id = :sid OR (spool_id IS NULL AND :sid IS NULL))
                   AND title = :title
                   AND created_at > {sql.now_offset('-5 minutes')}
                 LIMIT 1
-            """), {"atype": alert_type.lower(), "pid": printer_id, "title": title}).fetchone()
+            """), {"atype": alert_type.lower(), "pid": printer_id, "jid": job_id, "sid": spool_id, "title": title}).fetchone()
 
             if dup:
                 return  # Duplicate, skip
@@ -112,7 +117,7 @@ def dispatch_alert(
         # --- External channel delivery (webhooks, push, email) ---
         try:
             from modules.notifications.quiet_hours import should_suppress_notification
-            suppress = should_suppress_notification()
+            suppress = should_suppress_notification(org_id=resource_org_id)
         except Exception:
             suppress = False
 
@@ -120,8 +125,20 @@ def dispatch_alert(
             # Webhooks (system-wide, not per-user)
             try:
                 from modules.notifications.channels import send_webhook
-                send_webhook(alert_type, title, message, severity,
-                             printer_id=printer_id, job_id=job_id)
+                if resource_org_id is None:
+                    send_webhook(alert_type, title, message, severity,
+                                 printer_id=printer_id, job_id=job_id)
+                else:
+                    from core.registry import registry
+                    from modules.notifications.alert_dispatcher import _send_org_webhook
+                    provider = registry.get_provider("OrgSettingsProvider")
+                    if provider:
+                        with engine.connect() as connection:
+                            org_settings = provider.get_org_settings(connection, resource_org_id)
+                        if org_settings.get("webhook_url"):
+                            _send_org_webhook(org_settings["webhook_url"],
+                                org_settings.get("webhook_type", "generic"),
+                                alert_type, title, message, severity)
             except Exception as e:
                 log.debug(f"Webhook delivery failed: {e}")
 

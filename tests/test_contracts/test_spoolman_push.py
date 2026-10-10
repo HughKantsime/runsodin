@@ -8,10 +8,10 @@ regresses it.
 
 Static-parsing tests (no DB / no network): they inspect the source of
 jobs_lifecycle.py + the spoolman.py helper to verify:
-  - The helper exists, uses safe_post (SSRF defense), and skips unlinked spools.
+  - The helper exists, uses dedicated configured transport, and skips unlinked spools.
   - complete_job() wires deductions through the helper after db.commit().
   - Errors are surfaced loudly (logged + appended to job.notes) — no silent drops.
-  - The helper goes through safe_post, never raw httpx.post.
+  - The helper goes through dedicated pinned transport, never raw httpx.post.
 
 Run without container: pytest tests/test_contracts/test_spoolman_push.py -v
 """
@@ -48,15 +48,11 @@ class TestPushHelperShape:
             "canonical call site."
         )
 
-    def test_helper_uses_safe_post(self):
+    def test_helper_uses_configured_spoolman_transport(self):
         src = SPOOLMAN_PATH.read_text()
         fn = _get_function_source(src, "push_consumption_to_spoolman")
-        assert "safe_post(" in fn, (
-            "push_consumption_to_spoolman must call safe_post() — the "
-            "Spoolman URL is user-configured, so SSRF DNS-pin applies. "
-            "Raw httpx.post here would re-open the rebinding window "
-            "closed under R8."
-        )
+        assert "_post_spoolman_usage(base, spoolman_id, grams)" in fn
+        # Transport behavior is proven by test_spoolman_delivery_behavior.py.
 
     def test_helper_does_not_use_raw_httpx(self):
         src = SPOOLMAN_PATH.read_text()
@@ -66,7 +62,7 @@ class TestPushHelperShape:
         code_only = re.sub(r"#[^\n]*", "", code_only)
         assert "httpx.post(" not in code_only, (
             "push_consumption_to_spoolman uses raw httpx.post — replace "
-            "with safe_post() so SSRF / DNS-rebinding is enforced."
+            "with the configured transport so DNS pinning is enforced."
         )
 
     def test_helper_skips_unlinked_spools(self):

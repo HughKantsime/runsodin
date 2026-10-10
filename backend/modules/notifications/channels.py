@@ -6,6 +6,7 @@ Called by alert_dispatch and job_events when alerts are created.
 """
 
 import json
+from html import escape
 import logging
 import smtplib
 import threading
@@ -95,7 +96,7 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
                         )
                         log.info(f"Push sent to user {user_id}")
                     except WebPushException as e:
-                        if e.response and e.response.status_code in (404, 410):
+                        if e.response is not None and e.response.status_code in (404, 410):
                             # Subscription expired, remove it
                             cur.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
                             conn.commit()
@@ -286,13 +287,16 @@ def send_email(user_id: int, alert_type: str, title: str, message: str,
         # Plain text version
         text_body = f"{title}\n\n{message}\n\n--\nO.D.I.N."
 
+        # Alert titles/messages may include user-controlled file and job names.
+        html_title = escape(str(title))
+        html_message = escape(str(message))
         # HTML version
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
             <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
-                <h2 style="color: #3b82f6; margin-top: 0;">🖨️ {title}</h2>
-                <p style="color: #d0d0d0;">{message}</p>
+                <h2 style="color: #3b82f6; margin-top: 0;">🖨️ {html_title}</h2>
+                <p style="color: #d0d0d0;">{html_message}</p>
                 <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
                 <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
             </div>

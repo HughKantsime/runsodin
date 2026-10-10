@@ -177,7 +177,9 @@ async def mfa_verify(request: Request, body: dict, db: Session = Depends(get_db)
 
     user = db.execute(text("SELECT * FROM users WHERE username = :username"),
                       {"username": token_data.username}).fetchone()
-    if not user or not user.mfa_enabled or not user.mfa_secret:
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid MFA challenge")
+    if not user.mfa_enabled or not user.mfa_secret:
         raise HTTPException(status_code=400, detail="MFA not configured for this user")
 
     from core.crypto import decrypt

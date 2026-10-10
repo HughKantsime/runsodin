@@ -226,7 +226,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 32,
+      "line": 33,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -234,7 +234,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 100,
+      "line": 101,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -242,7 +242,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 272,
+      "line": 273,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
