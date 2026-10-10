@@ -1,5 +1,7 @@
 """Printer CRUD routes — create, read, update, delete, filament slots, test-connection, bulk-update."""
 
+from core.rbac import should_filter_org
+
 from datetime import datetime, timezone
 from typing import List, Optional
 import json
@@ -59,7 +61,7 @@ def list_printers(
         query = query.filter(Printer.is_active.is_(True))
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if effective_org is not None:
+    if should_filter_org(current_user, effective_org):
         query = query.filter(
             (Printer.org_id == effective_org) | (Printer.org_id == None) | (Printer.shared == True)
         )
@@ -73,7 +75,11 @@ def list_printers(
 @router.get("/printers/tags", tags=["Printers"])
 def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
     """Get all unique tags across all printers."""
-    printers = db.query(Printer).filter(Printer.tags.isnot(None)).all()
+    query = db.query(Printer).filter(Printer.tags.isnot(None))
+    org = get_org_scope(current_user)
+    if should_filter_org(current_user, org):
+        query = query.filter((Printer.org_id == org) | Printer.org_id.is_(None) | Printer.shared.is_(True))
+    printers = query.all()
     tags = set()
     for p in printers:
         if p.tags:

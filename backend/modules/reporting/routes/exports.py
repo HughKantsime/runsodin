@@ -1,5 +1,7 @@
 """O.D.I.N. — CSV Export and Audit Log endpoints."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -34,7 +36,7 @@ def export_jobs_csv(
     """Export jobs as CSV."""
     org = get_org_scope(current_user)
     query = db.query(Job)
-    if org is not None or current_user.get("role") != "admin":
+    if should_filter_org(current_user, org):
         query = query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     if status:
         query = query.filter(Job.status == status)
@@ -82,7 +84,7 @@ def export_spools_csv(current_user: dict = Depends(require_role("operator")), db
     """Export spools as CSV."""
     org = get_org_scope(current_user)
     sq = db.query(Spool)
-    if org is not None or current_user.get("role") != "admin":
+    if should_filter_org(current_user, org):
         sq = sq.filter((Spool.org_id == org) | (Spool.org_id == None))
     spools = sq.order_by(Spool.id).all()
 
@@ -128,7 +130,7 @@ def export_filament_usage_csv(current_user: dict = Depends(require_role("operato
     """Export filament usage history as CSV."""
     org = get_org_scope(current_user)
     uq = db.query(SpoolUsage)
-    if org is not None or current_user.get("role") != "admin":
+    if should_filter_org(current_user, org):
         uq = uq.join(Spool, SpoolUsage.spool_id == Spool.id).filter(
             (Spool.org_id == org) | (Spool.org_id == None)
         )
@@ -166,7 +168,7 @@ def export_models_csv(current_user: dict = Depends(require_role("operator")), db
     """Export models as CSV."""
     org = get_org_scope(current_user)
     mq = db.query(Model)
-    if org is not None or current_user.get("role") != "admin":
+    if should_filter_org(current_user, org):
         mq = mq.filter((Model.org_id == org) | (Model.org_id == None))
     models = mq.order_by(Model.name).all()
 

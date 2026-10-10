@@ -1,5 +1,7 @@
 """Spool CRUD and action endpoints (load/unload/use/weigh/drying)."""
 
+from core.rbac import should_filter_org
+
 from typing import Optional
 import logging
 
@@ -44,7 +46,7 @@ def low_stock_spools(
     """List spools below their low-stock threshold."""
     query = db.query(Spool).filter(Spool.status == SpoolStatus.ACTIVE)
     effective_org = get_org_scope(current_user)
-    if effective_org is not None:
+    if should_filter_org(current_user, effective_org):
         query = query.filter((Spool.org_id == effective_org) | (Spool.org_id == None))
     spools = query.all()
     result = []
@@ -88,7 +90,7 @@ def list_spools(
         query = query.filter(Spool.location_printer_id == printer_id)
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if effective_org is not None:
+    if should_filter_org(current_user, effective_org):
         query = query.filter((Spool.org_id == effective_org) | (Spool.org_id == None))
 
     spools = query.all()

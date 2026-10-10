@@ -3,6 +3,8 @@
 Timelapse list/video/delete, camera list/toggle/stream/WebRTC.
 """
 
+from core.rbac import should_filter_org
+
 # Domain: printers
 # Depends on: core, organizations
 # Owns tables: timelapses (shared with archives)
@@ -57,7 +59,7 @@ def list_timelapses(
     from core.rbac import get_org_scope
     org = get_org_scope(current_user)
     q = db.query(Timelapse).order_by(Timelapse.created_at.desc())
-    if org is not None:
+    if should_filter_org(current_user, org):
         q = q.join(Printer, Timelapse.printer_id == Printer.id).filter(
             (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
         )
@@ -367,7 +369,7 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
     from core.rbac import get_org_scope
     org = get_org_scope(current_user)
     pq = db.query(Printer).filter(Printer.is_active.is_(True), Printer.camera_enabled.is_(True))
-    if org is not None:
+    if should_filter_org(current_user, org):
         pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     printers = pq.all()
 

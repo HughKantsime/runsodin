@@ -1,5 +1,7 @@
 """O.D.I.N. — Tag Management (global tag operations across archives)."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import text
@@ -23,7 +25,7 @@ def list_tags(
 ):
     """Return all unique tags across archives with usage counts."""
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         rows = db.execute(
             text(
                 "SELECT a.tags FROM print_archives a "
@@ -62,7 +64,7 @@ def rename_tag(
     new_tag = body.new.strip()
 
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         rows = db.execute(
             text(
                 "SELECT a.id, a.tags FROM print_archives a "
@@ -106,7 +108,7 @@ def delete_tag(
         raise HTTPException(status_code=400, detail="Tag name cannot be empty")
 
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         rows = db.execute(
             text(
                 "SELECT a.id, a.tags FROM print_archives a "

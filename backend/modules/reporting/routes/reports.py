@@ -1,5 +1,7 @@
 """O.D.I.N. — Chargeback Reports and Report Schedules."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -38,7 +40,7 @@ async def chargeback_report(
         WHERE j.charged_to_user_id IS NOT NULL
     """
     params = {}
-    if org is not None:
+    if should_filter_org(current_user, org):
         query += " AND (j.charged_to_org_id = :org OR j.charged_to_org_id IS NULL)"
         params["org"] = org
     if start_date:

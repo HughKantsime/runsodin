@@ -4,6 +4,8 @@ Central profile library for Klipper, OrcaSlicer, Bambu Studio, and PrusaSlicer.
 Klipper profiles can be applied live; slicer profiles are stored and exported.
 """
 
+from core.rbac import should_filter_org
+
 # Domain: system
 # Depends on: core, printers, organizations
 # Owns tables: printer_profiles
@@ -70,7 +72,7 @@ def list_profiles(
     org = get_org_scope(current_user)
     clauses = ["1=1"]
     params = {}
-    if org is not None:
+    if should_filter_org(current_user, org):
         clauses.append("(org_id = :org OR org_id IS NULL)")
         params["org"] = org
     if slicer:

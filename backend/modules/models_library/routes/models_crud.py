@@ -1,5 +1,7 @@
 """O.D.I.N. — Models CRUD, Revisions, and Variants."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -45,7 +47,7 @@ def list_models(
         query = query.filter(Model.category == category)
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if effective_org is not None:
+    if should_filter_org(current_user, effective_org):
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
 
     return query.order_by(Model.name).all()
@@ -63,7 +65,7 @@ def list_models_with_pricing(
     if category:
         query = query.filter(Model.category == category)
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if effective_org is not None:
+    if should_filter_org(current_user, effective_org):
         query = query.filter((Model.org_id == effective_org) | (Model.org_id == None))
     models = query.order_by(Model.name).all()
 

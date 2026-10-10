@@ -1,5 +1,7 @@
 """O.D.I.N. — Products and BOM Components."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -26,7 +28,7 @@ def list_products(current_user: dict = Depends(require_role("viewer")), db: Sess
     """List all products."""
     org = get_org_scope(current_user)
     query = db.query(Product)
-    if org is not None:
+    if should_filter_org(current_user, org):
         query = query.filter((Product.org_id == org) | (Product.org_id == None))
     products = query.all()
     result = []

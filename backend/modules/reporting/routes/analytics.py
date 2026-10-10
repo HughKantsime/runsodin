@@ -1,5 +1,7 @@
 """O.D.I.N. — Analytics, Stats, and Usage Reports."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -33,7 +35,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     # Printer queries — org-scoped users see their org's printers + shared + unscoped
     printer_query = db.query(Printer)
     active_printer_query = db.query(Printer).filter(Printer.is_active.is_(True))
-    if org is not None:
+    if should_filter_org(current_user, org):
         printer_org_filter = (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
         printer_query = printer_query.filter(printer_org_filter)
         active_printer_query = active_printer_query.filter(printer_org_filter)
@@ -42,7 +44,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
     # Job queries — org-scoped users see jobs charged to their org + unscoped
     job_query = db.query(Job)
-    if org is not None:
+    if should_filter_org(current_user, org):
         job_org_filter = (Job.charged_to_org_id == org) | (Job.charged_to_org_id == None)
         job_query = job_query.filter(job_org_filter)
 
@@ -56,7 +58,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
     # Include MQTT-tracked jobs
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
-    if org is not None:
+    if should_filter_org(current_user, org):
         mqtt_printing = db.execute(text(
             "SELECT COUNT(*) FROM print_jobs pj JOIN printers p ON pj.printer_id = p.id "
             "WHERE pj.status = 'running' AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
@@ -75,7 +77,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 
     # Model queries — org-scoped users see their org's models + unscoped
     model_query = db.query(Model)
-    if org is not None:
+    if should_filter_org(current_user, org):
         model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
     total_models = model_query.count()
 
@@ -94,7 +96,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
     # --- Printer utilization stats for Utilization page ---
     printer_stats = []
     all_printers_q = db.query(Printer).filter(Printer.is_active.is_(True))
-    if org is not None:
+    if should_filter_org(current_user, org):
         all_printers_q = all_printers_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     all_printers = all_printers_q.all()
     for p in all_printers:
@@ -167,7 +169,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
     # Get all models with profitability data
     model_query = db.query(Model)
-    if org is not None:
+    if should_filter_org(current_user, org):
         model_query = model_query.filter((Model.org_id == org) | (Model.org_id == None))
     models = model_query.all()
 
@@ -203,7 +205,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
     # Jobs stats
     job_query = db.query(Job)
-    if org is not None:
+    if should_filter_org(current_user, org):
         job_query = job_query.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     all_jobs = job_query.all()
     completed_jobs = [j for j in all_jobs if j.status == JobStatus.COMPLETED]
@@ -252,7 +254,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 
     # Printer utilization
     printer_q = db.query(Printer).filter(Printer.is_active.is_(True))
-    if org is not None:
+    if should_filter_org(current_user, org):
         printer_q = printer_q.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     printers = printer_q.all()
     printer_stats = []
@@ -293,7 +295,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     # Jobs over time (last 30 days)
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     recent_jobs_q = db.query(Job).filter(Job.created_at >= thirty_days_ago)
-    if org is not None:
+    if should_filter_org(current_user, org):
         recent_jobs_q = recent_jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     recent_jobs = recent_jobs_q.all()
 
@@ -359,7 +361,7 @@ def get_failure_analytics(
         db.query(Job)
         .filter(Job.status.in_([JobStatus.COMPLETED, JobStatus.FAILED]), Job.created_at >= cutoff)
     )
-    if org is not None:
+    if should_filter_org(current_user, org):
         jobs_q = jobs_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     jobs = jobs_q.all()
 
@@ -436,7 +438,7 @@ def get_failure_analytics(
     top_reasons = sorted(reason_counts.items(), key=lambda x: -x[1])[:10]
 
     # --- HMS error frequency ---
-    if org is not None:
+    if should_filter_org(current_user, org):
         hms_rows = db.execute(
             text(
                 "SELECT h.code, h.message, COUNT(*) as cnt FROM hms_error_history h "
@@ -490,7 +492,7 @@ def get_time_accuracy(
             Job.actual_end >= cutoff,
         )
     )
-    if org is not None:
+    if should_filter_org(current_user, org):
         completed_q = completed_q.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     completed = completed_q.all()
 

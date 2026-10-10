@@ -1,5 +1,7 @@
 """O.D.I.N. — Print Archive CRUD, Tags, AMS Preview, Reprint, and File Preview."""
 
+from core.rbac import should_filter_org
+
 # Domain: archives
 # Depends on: core, printers, jobs, organizations
 # Owns tables: print_archives
@@ -101,7 +103,7 @@ def _build_archive_query(conditions, params, printer_id, status, search,
 def _check_archive_org_access(db, archive_printer_id, current_user):
     """Check if user can access an archive via its printer's org."""
     org = get_org_scope(current_user)
-    if org is None:
+    if not should_filter_org(current_user, org):
         return  # superadmin
     printer = db.execute(
         text("SELECT org_id, shared FROM printers WHERE id = :pid"),
@@ -116,7 +118,7 @@ def _check_archive_org_access(db, archive_printer_id, current_user):
 def _apply_org_scope(conditions, params, current_user, join_clauses=None):
     """Add org-scoping condition for list queries. Returns any extra JOIN needed."""
     org = get_org_scope(current_user)
-    if org is None:
+    if not should_filter_org(current_user, org):
         return ""  # superadmin — no filter
     params["_org"] = org
     conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
@@ -148,7 +150,7 @@ def list_archives(
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
         params["_org"] = org
 
@@ -156,7 +158,7 @@ def list_archives(
     offset = (page - 1) * per_page
 
     # Count query needs the printer JOIN for org scoping
-    count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if org is not None else ""
+    count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if should_filter_org(user, org) else ""
     total = db.execute(
         text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     ).scalar() or 0
@@ -251,14 +253,14 @@ def archive_log(
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
         params["_org"] = org
 
     where = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
 
-    count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if org is not None else ""
+    count_join = " LEFT JOIN printers p ON a.printer_id = p.id" if should_filter_org(user, org) else ""
     total = db.execute(
         text(f"SELECT COUNT(*) FROM print_archives a{count_join} WHERE {where}"), params  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     ).scalar() or 0
@@ -313,7 +315,7 @@ def export_archive_log(
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
         params["_org"] = org
 

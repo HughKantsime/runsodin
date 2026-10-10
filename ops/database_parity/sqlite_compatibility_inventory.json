@@ -930,7 +930,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 115,
+      "line": 117,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "sqlite3",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
@@ -938,7 +938,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 180,
+      "line": 182,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",

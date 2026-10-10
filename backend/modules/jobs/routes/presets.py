@@ -1,5 +1,7 @@
 """Print presets, failure reasons, config, and print-job tracking."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -99,7 +101,7 @@ def get_print_jobs(
     """
     params = {}
 
-    if org is not None:
+    if should_filter_org(current_user, org):
         sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         params["org"] = org
     if printer_id is not None:
@@ -137,7 +139,7 @@ def get_print_job_stats(db: Session = Depends(get_db), current_user: dict = Depe
     org = get_org_scope(current_user)
     org_filter = ""
     params = {}
-    if org is not None:
+    if should_filter_org(current_user, org):
         org_filter = "WHERE (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         params["org"] = org
     duration_hours = (
@@ -181,7 +183,7 @@ def get_unlinked_print_jobs(printer_id: int = None, db: Session = Depends(get_db
     """
     params = {}
 
-    if org is not None:
+    if should_filter_org(current_user, org):
         sql += " AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         params["org"] = org
     if printer_id:

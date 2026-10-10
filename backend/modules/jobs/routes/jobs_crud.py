@@ -1,5 +1,7 @@
 """Job CRUD, creation, bulk operations, and queue management."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -307,7 +309,7 @@ def list_jobs(
         query = query.filter(Job.printer_id == printer_id)
 
     effective_org = _get_org_filter(current_user, org_id) if org_id is not None else get_org_scope(current_user)
-    if effective_org is not None:
+    if should_filter_org(current_user, effective_org):
         query = query.filter((Job.charged_to_org_id == effective_org) | (Job.charged_to_org_id == None))
 
     return query.order_by(Job.priority, Job.created_at).offset(offset).limit(limit).all()

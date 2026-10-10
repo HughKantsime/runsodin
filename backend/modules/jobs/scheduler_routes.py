@@ -1,5 +1,7 @@
 """O.D.I.N. — Scheduler & Timeline Routes"""
 
+from core.rbac import should_filter_org
+
 # Domain: jobs
 # Depends on: core, printers, inventory, organizations
 # Owns tables: scheduler_runs
@@ -56,7 +58,7 @@ def run_scheduler_endpoint(
     # Get scheduled job summaries (org-scoped)
     org = get_org_scope(current_user)
     jq = db.query(Job).filter(Job.status == JobStatus.SCHEDULED)
-    if org is not None:
+    if should_filter_org(current_user, org):
         jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     scheduled_jobs = jq.order_by(Job.scheduled_start).all()
 
@@ -124,7 +126,7 @@ def get_timeline(
     # Get printers (org-scoped)
     org = get_org_scope(current_user)
     pq = db.query(Printer).filter(Printer.is_active.is_(True))
-    if org is not None:
+    if should_filter_org(current_user, org):
         pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     printers = pq.all()
     printer_summaries = [
@@ -145,7 +147,7 @@ def get_timeline(
         Job.scheduled_end > start_date,
         Job.status.in_([JobStatus.SCHEDULED, JobStatus.PRINTING, JobStatus.COMPLETED])
     )
-    if org is not None:
+    if should_filter_org(current_user, org):
         jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     jobs = jq.all()
 
@@ -175,7 +177,7 @@ def get_timeline(
     # Add MQTT-tracked print jobs to timeline (org-scoped)
     mqtt_org_filter = ""
     mqtt_params = {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()}
-    if org is not None:
+    if should_filter_org(current_user, org):
         mqtt_org_filter = "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
         mqtt_params["org"] = org
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)

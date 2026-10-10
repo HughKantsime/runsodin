@@ -22,8 +22,6 @@ def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[
 
     if role == "admin" and not group_id:
         return request_org_id  # Superadmin — can optionally filter by org
-    if role == "admin" and request_org_id is not None:
-        return request_org_id  # Admin overriding their own group scope
     return group_id  # Regular user or org-scoped admin
 
 
@@ -44,6 +42,18 @@ def get_org_scope(current_user: dict) -> Optional[int]:
         return None  # superadmin bypass
     return group_id
 
+
+
+def should_filter_org(current_user: dict, effective_org: Optional[int]) -> bool:
+    """Only a known superadmin may omit tenant predicates.
+
+    None is also the scope of an unassigned user, who may see shared resources
+    but must not gain access to private organizations through list queries.
+    """
+    if effective_org is not None:
+        return True
+    return not (current_user and current_user.get("role") == "admin"
+                and not current_user.get("group_id"))
 
 def check_org_access(current_user: dict, resource_org_id: Optional[int]) -> bool:
     """Check whether the current user may access a resource with the given org_id.

@@ -1,5 +1,7 @@
 """O.D.I.N. — Orders CRUD, Line Items, Schedule, Invoice, and Ship."""
 
+from core.rbac import should_filter_org
+
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -102,7 +104,7 @@ def list_orders(
     org = get_org_scope(current_user)
     query = db.query(Order)
 
-    if org is not None:
+    if should_filter_org(current_user, org):
         query = query.filter((Order.org_id == org) | (Order.org_id == None))
 
     if status_filter:

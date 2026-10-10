@@ -1,4 +1,6 @@
 """System admin routes — live log viewer, support bundle, and global search."""
+
+from core.rbac import should_filter_org
 from modules.system.sanitize import sanitize_log_lines, sanitize_log_line
 
 import json
@@ -227,12 +229,12 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
     query = f"%{q.lower()}%"
 
     mq = db.query(Model).filter((Model.name.ilike(query)) | (Model.notes.ilike(query)))
-    if org is not None:
+    if should_filter_org(current_user, org):
         mq = mq.filter((Model.org_id == org) | (Model.org_id == None))
     models = mq.limit(5).all()
 
     jq = db.query(Job).filter((Job.item_name.ilike(query)) | (Job.notes.ilike(query)))
-    if org is not None:
+    if should_filter_org(current_user, org):
         jq = jq.filter((Job.charged_to_org_id == org) | (Job.charged_to_org_id == None))
     jobs = jq.order_by(Job.created_at.desc()).limit(5).all()
 
@@ -244,12 +246,12 @@ def global_search(q: str = "", db: Session = Depends(get_db), current_user: dict
         (FilamentLibrary.name.ilike(query)) |
         (FilamentLibrary.material.ilike(query))
     )
-    if org is not None:
+    if should_filter_org(current_user, org):
         sq = sq.filter((Spool.org_id == org) | (Spool.org_id == None))
     spools = sq.limit(5).all()
 
     pq = db.query(Printer).filter(Printer.name.ilike(query))
-    if org is not None:
+    if should_filter_org(current_user, org):
         pq = pq.filter((Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True))
     printers = pq.limit(5).all()
 

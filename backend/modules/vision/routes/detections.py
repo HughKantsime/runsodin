@@ -1,5 +1,7 @@
 """O.D.I.N. — Vigil AI: Detections, Settings, Frames, Stats, and Training Data."""
 
+from core.rbac import should_filter_org
+
 # Domain: vision
 # Depends on: core, printers, notifications, organizations
 # Owns tables: vision_detections, vision_settings
@@ -89,7 +91,7 @@ async def list_vision_detections(
     )
     count_query = db.query(sa_func.count(VisionDetection.id)).outerjoin(Printer, Printer.id == VisionDetection.printer_id)
 
-    if org is not None:
+    if should_filter_org(current_user, org):
         org_filter = (Printer.org_id == org) | (Printer.org_id == None) | (Printer.shared == True)
         query = query.filter(org_filter)
         count_query = count_query.filter(org_filter)

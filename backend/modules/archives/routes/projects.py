@@ -4,6 +4,8 @@ Group related print archives into named projects.
 CRUD, bulk archive assignment, ZIP export/import.
 """
 
+from core.rbac import should_filter_org
+
 # Domain: archives
 # Depends on: core, organizations
 # Owns tables: projects
@@ -91,7 +93,7 @@ def list_projects(
 
     # Org scoping — projects have org_id directly
     org = get_org_scope(user)
-    if org is not None:
+    if should_filter_org(user, org):
         conditions.append("(p.org_id = :_org OR p.org_id IS NULL)")
         params["_org"] = org
 

@@ -8,12 +8,12 @@ import qrcode
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from PIL import Image, ImageDraw, ImageFont
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access, get_org_scope, should_filter_org
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
 from ._helpers import ScanAssignRequest, ScanAssignResponse, generate_single_label
@@ -31,7 +31,11 @@ def export_spools_csv(
     import csv as csv_mod
     import io as io_mod
 
-    spools = db.query(Spool).all()
+    query = db.query(Spool)
+    org = get_org_scope(current_user)
+    if should_filter_org(current_user, org):
+        query = query.filter((Spool.org_id == org) | Spool.org_id.is_(None))
+    spools = query.all()
     output = io_mod.StringIO()
     writer = csv_mod.writer(output)
     writer.writerow([
@@ -76,8 +80,9 @@ def generate_batch_labels(
         raise HTTPException(status_code=400, detail="No valid spool IDs provided")
 
     spools = db.query(Spool).filter(Spool.id.in_(ids)).all()
-    if not spools:
-        raise HTTPException(status_code=404, detail="No spools found")
+    if (len(spools) != len(set(ids))
+            or any(not check_org_access(current_user, spool.org_id) for spool in spools)):
+        raise HTTPException(status_code=404, detail="Spool not found")
 
     # Label dimensions
     sizes = {
@@ -125,7 +130,7 @@ def generate_batch_labels(
 def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Look up spool details by QR code."""
     spool = db.query(Spool).filter(Spool.qr_code == qr_code).first()
-    if not spool:
+    if not spool or not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     return {
@@ -145,7 +150,7 @@ def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("
 @router.post("/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
 def scan_assign_spool(
     data: ScanAssignRequest,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)
 ):
     """
     Assign a spool to a printer slot by scanning its QR code.
@@ -156,7 +161,7 @@ def scan_assign_spool(
     """
     # Find spool by QR code
     spool = db.query(Spool).filter(Spool.qr_code == data.qr_code).first()
-    if not spool:
+    if not spool or not check_org_access(current_user, spool.org_id):
         return ScanAssignResponse(
             success=False,
             message=f"Spool not found: {data.qr_code}",
@@ -164,7 +169,7 @@ def scan_assign_spool(
 
     # Find printer
     printer = db.query(Printer).filter(Printer.id == data.printer_id).first()
-    if not printer:
+    if not printer or not (check_org_access(current_user, printer.org_id) or printer.shared):
         return ScanAssignResponse(
             success=False,
             message=f"Printer not found: {data.printer_id}",
@@ -182,6 +187,24 @@ def scan_assign_spool(
         FilamentSlot.printer_id == data.printer_id,
         FilamentSlot.slot_number == data.slot,
     ).first()
+
+    # Authorize every prior assignment before clearing slots or moving stock.
+    prior_slots = db.query(FilamentSlot).filter(FilamentSlot.assigned_spool_id == spool.id).all()
+    prior_printer_ids = {slot.printer_id for slot in prior_slots}
+    if spool.location_printer_id is not None:
+        prior_printer_ids.add(spool.location_printer_id)
+    for prior_id in prior_printer_ids:
+        prior_printer = db.query(Printer).filter(Printer.id == prior_id).first()
+        if not prior_printer or not (check_org_access(current_user, prior_printer.org_id) or prior_printer.shared):
+            raise HTTPException(status_code=404, detail="Printer not found")
+    displaced = None
+    if existing_slot and existing_slot.assigned_spool_id not in (None, spool.id):
+        displaced = db.query(Spool).filter(Spool.id == existing_slot.assigned_spool_id).first()
+        if not displaced or not check_org_access(current_user, displaced.org_id):
+            raise HTTPException(status_code=404, detail="Spool not found")
+    if displaced and displaced.location_printer_id == printer.id and displaced.location_slot == data.slot:
+        displaced.location_printer_id = None
+        displaced.location_slot = None
 
     if existing_slot:
         # Update existing slot
@@ -207,10 +230,11 @@ def scan_assign_spool(
     spool.location_printer_id = data.printer_id
     spool.location_slot = data.slot
 
-    # Clear any previous slot assignment for this spool on OTHER printers
+    # Clear every previous assignment except the selected printer/slot pair.
     db.query(FilamentSlot).filter(
         FilamentSlot.assigned_spool_id == spool.id,
-        FilamentSlot.printer_id != data.printer_id,
+        or_(FilamentSlot.printer_id != data.printer_id,
+            FilamentSlot.slot_number != data.slot),
     ).update({FilamentSlot.assigned_spool_id: None})
 
     db.commit()
@@ -228,7 +252,7 @@ def scan_assign_spool(
 
 
 @router.post("/bulk-update", tags=["Spools"])
-async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Bulk update spool fields for multiple spools."""
     spool_ids = body.get("spool_ids", [])
     if not spool_ids or not isinstance(spool_ids, list):
@@ -236,24 +260,31 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ro
     if len(spool_ids) > 100:
         raise HTTPException(status_code=400, detail="Maximum 100 spools per batch")
 
+    if any(type(sid) is not int or sid <= 0 for sid in spool_ids):
+        raise HTTPException(status_code=400, detail="Spool IDs must be positive integers")
+    spool_ids = list(dict.fromkeys(spool_ids))
+    selected = db.query(Spool).filter(Spool.id.in_(spool_ids)).all()
+    if (len(selected) != len(spool_ids)
+            or any(not check_org_access(current_user, spool.org_id) for spool in selected)):
+        raise HTTPException(status_code=404, detail="Spool not found")
     action = body.get("action", "")
     count = 0
 
     if action == "archive":
         for sid in spool_ids:
-            db.execute(text("UPDATE spools SET status = 'archived' WHERE id = :id AND status != 'archived'"),
+            result = db.execute(text("UPDATE spools SET status = 'archived' WHERE id = :id AND status != 'archived'"),
                        {"id": sid})
-            count += 1
+            count += result.rowcount
     elif action == "activate":
         for sid in spool_ids:
-            db.execute(text("UPDATE spools SET status = 'active' WHERE id = :id"),
+            result = db.execute(text("UPDATE spools SET status = 'active' WHERE id = :id"),
                        {"id": sid})
-            count += 1
+            count += result.rowcount
     elif action == "delete":
         for sid in spool_ids:
-            db.execute(text("DELETE FROM spools WHERE id = :id AND status IN ('archived', 'empty')"),
+            result = db.execute(text("DELETE FROM spools WHERE id = :id AND status IN ('archived', 'empty')"),
                        {"id": sid})
-            count += 1
+            count += result.rowcount
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
@@ -266,7 +297,7 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ro
 def get_spool_qr(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Get QR code data for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
-    if not spool:
+    if not spool or not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     return {
@@ -287,7 +318,7 @@ def generate_spool_label(
 ):
     """Generate a printable QR label for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
-    if not spool:
+    if not spool or not check_org_access(current_user, spool.org_id):
         raise HTTPException(status_code=404, detail="Spool not found")
 
     # Label dimensions (at 300 DPI)
