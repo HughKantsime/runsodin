@@ -136,6 +136,9 @@ def send_webhook(alert_type: str, title: str, message: str, severity: str = "inf
     Each webhook fires in a background thread to avoid blocking the caller.
     Daemon-safe: uses raw SQL via get_db().
     """
+    from core.license_manager import get_license
+    if not get_license().has_feature("webhooks"):
+        return
     try:
         with get_db() as conn:
             cur = conn.cursor()

@@ -11,7 +11,8 @@ import core.crypto as crypto
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
-from core.rbac import require_role
+from core.rbac import require_superadmin, require_scope
+from core.license_manager import require_feature, get_license
 from core.webhook_utils import _validate_webhook_url, resolve_and_check_webhook_url, safe_post, trusted_post, WebhookSSRFError
 
 log = logging.getLogger("odin.api")
@@ -43,7 +44,7 @@ def _encrypt_webhook_url(url: str) -> str:
 
 @router.get("")
 async def list_webhooks(
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
     """List all webhooks."""
@@ -56,13 +57,14 @@ async def list_webhooks(
     return results
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_scope("write"))])
 async def create_webhook(
     request: Request,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
     """Create a new webhook."""
+    require_feature("webhooks")
     data = await request.json()
 
     name = data.get("name", "Webhook")
@@ -93,14 +95,15 @@ async def create_webhook(
     return {"success": True, "message": "Webhook created"}
 
 
-@router.patch("/{webhook_id}")
+@router.patch("/{webhook_id}", dependencies=[Depends(require_scope("write"))])
 async def update_webhook(
     webhook_id: int,
     request: Request,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
     """Update a webhook."""
+    require_feature("webhooks")
     data = await request.json()
 
     updates = []
@@ -129,10 +132,10 @@ async def update_webhook(
     return {"success": True}
 
 
-@router.delete("/{webhook_id}")
+@router.delete("/{webhook_id}", dependencies=[Depends(require_scope("write"))])
 async def delete_webhook(
     webhook_id: int,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
     """Delete a webhook."""
@@ -142,13 +145,14 @@ async def delete_webhook(
     return {"success": True}
 
 
-@router.post("/{webhook_id}/test")
+@router.post("/{webhook_id}/test", dependencies=[Depends(require_scope("write"))])
 async def test_webhook(
     webhook_id: int,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_superadmin()),
     db: Session = Depends(get_db)
 ):
     """Send a test message to webhook."""
+    require_feature("webhooks")
     row = db.execute(text("SELECT * FROM webhooks WHERE id = :id"), {"id": webhook_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Webhook not found")
@@ -291,6 +295,8 @@ async def test_webhook(
 
 def _dispatch_to_webhooks(db, alert_type_value: str, title: str, message: str, severity: str):
     """Send alert to all matching enabled webhooks."""
+    if not get_license().has_feature("webhooks"):
+        return
     import httpx
 
     rows = db.execute(text("SELECT * FROM webhooks WHERE is_enabled IS TRUE")).fetchall()
