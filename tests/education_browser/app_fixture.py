@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import secrets
 from pathlib import Path
 import sys
 
@@ -19,7 +20,7 @@ def main():
                       LICENSE_SERVER_URL='http://127.0.0.1:1',
                       DATABASE_URL=f"sqlite:///{directory / 'review.db'}",
                       DATABASE_PATH=str(directory / 'review.db'),
-                      JWT_SECRET_KEY='synthetic-browser-fixture-only-secret',
+                      JWT_SECRET_KEY=secrets.token_urlsafe(48),
                       COOKIE_SECURE='false', API_KEY='', CORS_ORIGINS=f'http://127.0.0.1:{port}',
                       TRUSTED_HOSTS='127.0.0.1,localhost',
                       LICENSE_DIR=str(directory / 'license'),
@@ -31,7 +32,7 @@ def main():
     from core.auth import hash_password
     from sqlalchemy import text
     with db.get_bind().begin() as connection:
-        connection.execute(text('UPDATE users SET password_hash=:hash'), {'hash': hash_password('Synthetic-Browser-Only-2026!')})
+        connection.execute(text('UPDATE users SET password_hash=:hash'), {'hash': hash_password(os.environ['ODIN_EDU_TEST_PASSWORD'])})
         connection.execute(text("INSERT INTO system_config (key,value) VALUES ('education_mode','true'),('setup_complete','true')"))
         connection.execute(text('UPDATE users SET role=\'operator\' WHERE id=3'))
         connection.execute(text('INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) SELECT 6,\'superadmin\',\'superadmin@example.test\',password_hash,\'admin\',1,NULL FROM users WHERE id=1'))

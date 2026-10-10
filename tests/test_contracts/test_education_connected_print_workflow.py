@@ -3,6 +3,7 @@
 Local peers simulate printer firmware. No hardware or deployed API is used.
 """
 import json
+import secrets
 import shutil
 import socket
 import ssl
@@ -20,6 +21,9 @@ from tests.test_contracts.test_education_review_workflow import review_db
 from tests.test_contracts.test_education_upload_scheduler_integration import _upload_and_approve, _schedule
 
 
+SYNTHETIC_ACCESS_CODE = secrets.token_urlsafe(24)
+
+
 @pytest.fixture
 def tls_mqtt(tmp_path):
     binary = shutil.which("mosquitto")
@@ -33,14 +37,14 @@ def tls_mqtt(tmp_path):
         port = reserved.getsockname()[1]
     password_binary = shutil.which("mosquitto_passwd")
     assert password_binary, "Existing mosquitto authentication utility is required"
-    subprocess.run([password_binary, "-b", "-c", str(tmp_path / "passwords"), "bblp", "synthetic-code"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([password_binary, "-b", "-c", str(tmp_path / "passwords"), "bblp", SYNTHETIC_ACCESS_CODE], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     config = tmp_path / "mosquitto.conf"
     config.write_text(f"listener {port} 127.0.0.1\nallow_anonymous false\n"
                       f"password_file {tmp_path / 'passwords'}\ncertfile {tmp_path / 'cert.pem'}\nkeyfile {tmp_path / 'key.pem'}\n")
     ready = threading.Event()
     commands = []
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    client.username_pw_set("bblp", "synthetic-code")
+    client.username_pw_set("bblp", SYNTHETIC_ACCESS_CODE)
     client.tls_set(cert_reqs=ssl.CERT_NONE)
     client.tls_insecure_set(True)
     client.on_connect = lambda c, *args: c.subscribe("device/synthetic-printer/request")
@@ -80,7 +84,7 @@ def setup_workflow(db, tmp_path, monkeypatch, path, mqtt_port):
 
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
     db.execute(text("UPDATE printers SET api_host='127.0.0.1',api_key=:key WHERE id=9"),
-               {"key": crypto.encrypt("synthetic-printer|synthetic-code")})
+               {"key": crypto.encrypt("synthetic-printer|" + SYNTHETIC_ACCESS_CODE)})
     db.commit()
     uploaded = _upload_and_approve(db, tmp_path, "P1S")
     assert _schedule(db, monkeypatch).scheduled_count == 1
@@ -115,7 +119,7 @@ def test_classroom_connected_transport_and_lifecycle(path, failure, review_db, t
     with open(original["stored_path"], "rb") as source:
         payload = source.read()
     peer = ProtectedFTPServer(resumption_context if failure is None else server_context,
-                              require_session_reuse=failure is None, failure=failure, expected_credentials=("bblp", "synthetic-code"))
+                              require_session_reuse=failure is None, failure=failure, expected_credentials=("bblp", SYNTHETIC_ACCESS_CODE))
     monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
     try:
         ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
@@ -129,7 +133,7 @@ def test_classroom_connected_transport_and_lifecycle(path, failure, review_db, t
                                  {"id": uploaded["job_id"]}).scalar_one() == 0
         assert not commands
         assert peer.received == (payload if failure == "final_reply_reset" else b"")
-        peer = ProtectedFTPServer(resumption_context, require_session_reuse=True, expected_credentials=("bblp", "synthetic-code"))
+        peer = ProtectedFTPServer(resumption_context, require_session_reuse=True, expected_credentials=("bblp", SYNTHETIC_ACCESS_CODE))
         monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
         try:
             ok, reason = dispatch.dispatch_job(9, uploaded["job_id"])
@@ -231,7 +235,7 @@ def test_real_mqtt_monitor_ingestion_restart_and_terminal(path, terminal, expect
     port, commands = tls_mqtt
     uploaded = setup_workflow(review_db, tmp_path, monkeypatch, path, port)
     monkeypatch.setattr(db_utils, "engine", review_db.get_bind())
-    peer = ProtectedFTPServer(resumption_context, require_session_reuse=True, expected_credentials=("bblp", "synthetic-code"))
+    peer = ProtectedFTPServer(resumption_context, require_session_reuse=True, expected_credentials=("bblp", SYNTHETIC_ACCESS_CODE))
     monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
     try:
         assert dispatch.dispatch_job(9, uploaded["job_id"])[0]
@@ -246,14 +250,14 @@ def test_real_mqtt_monitor_ingestion_restart_and_terminal(path, terminal, expect
     monkeypatch.setattr(PrinterMonitor, "_trigger_reschedule", lambda *a, **k: forbidden_callbacks.put("generic-scheduling"))
     monkeypatch.setattr(PrinterMonitor, "_try_dispatch", lambda *a, **k: None)
     publisher = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    publisher.username_pw_set("bblp", "synthetic-code")
+    publisher.username_pw_set("bblp", SYNTHETIC_ACCESS_CODE)
     publisher.tls_set(cert_reqs=ssl.CERT_NONE)
     publisher.tls_insecure_set(True)
     connected = threading.Event()
     publisher.on_connect = lambda *a: connected.set()
     publisher.connect("127.0.0.1", port, keepalive=5)
     publisher.loop_start()
-    monitor = PrinterMonitor(9, "Synthetic EDU printer", "127.0.0.1", "synthetic-printer", "synthetic-code")
+    monitor = PrinterMonitor(9, "Synthetic EDU printer", "127.0.0.1", "synthetic-printer", SYNTHETIC_ACCESS_CODE)
     def report(state, percent):
         packet = {"print": {"gcode_state": state, "subtask_name": peer.remote_filename,
                             "gcode_file": "Metadata/plate_1.gcode", "job_id": "synthetic-job",
@@ -280,7 +284,7 @@ def test_real_mqtt_monitor_ingestion_restart_and_terminal(path, terminal, expect
         review_db.commit()
         # Restart the actual subscriber with a retained current-state report.
         monitor.disconnect()
-        monitor = PrinterMonitor(9, "Synthetic EDU printer", "127.0.0.1", "synthetic-printer", "synthetic-code")
+        monitor = PrinterMonitor(9, "Synthetic EDU printer", "127.0.0.1", "synthetic-printer", SYNTHETIC_ACCESS_CODE)
         assert monitor.connect()
         wait_for(lambda: monitor._current_job_id == observation)
         assert monitor._linked_job_id == uploaded["job_id"]
