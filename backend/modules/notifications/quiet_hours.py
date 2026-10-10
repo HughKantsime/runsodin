@@ -9,6 +9,7 @@ Alerts still get created in the database — just not dispatched externally.
 At quiet_hours_end, a digest email summarizes all alerts from the quiet period.
 """
 
+import html
 import time
 import json
 import logging
@@ -55,49 +56,31 @@ def _get_config() -> Dict[str, Any]:
         return _config_cache
 
 
+def _window_minutes(config):
+    start_h,start_m=map(int,config.get("start","22:00").split(":"))
+    end_h,end_m=map(int,config.get("end","07:00").split(":"))
+    if not (0<=start_h<24 and 0<=end_h<24 and 0<=start_m<60 and 0<=end_m<60):
+        raise ValueError("Invalid quiet window")
+    start,end=start_h*60+start_m,end_h*60+end_m
+    if start==end:
+        raise ValueError("Empty quiet window")
+    return start,end
+
+
 def is_quiet_time() -> bool:
-    """Check if current time is within quiet hours."""
-    config = _get_config()
-    if not config["enabled"]:
-        return False
-
-    try:
-        now = datetime.now(timezone.utc)
-        current_minutes = now.hour * 60 + now.minute
-
-        start_h, start_m = map(int, config["start"].split(":"))
-        end_h, end_m = map(int, config["end"].split(":"))
-        start_minutes = start_h * 60 + start_m
-        end_minutes = end_h * 60 + end_m
-
-        if start_minutes <= end_minutes:
-            # Same day range (e.g., 09:00 - 17:00)
-            return start_minutes <= current_minutes < end_minutes
-        else:
-            # Overnight range (e.g., 22:00 - 07:00)
-            return current_minutes >= start_minutes or current_minutes < end_minutes
-
-    except Exception as e:
-        log.debug(f"Error checking quiet hours: {e}")
-        return False
+    return _is_quiet_time_for_config(_get_config())
 
 
-def _is_quiet_time_for_config(config: Dict) -> bool:
-    """Check if current time falls within the given quiet hours config."""
-    if not config.get("enabled", False):
+def _is_quiet_time_for_config(config: Dict, now: datetime = None) -> bool:
+    if not config.get("enabled",False):
         return False
     try:
-        now = datetime.now(timezone.utc)
-        current_minutes = now.hour * 60 + now.minute
-        start_h, start_m = map(int, config.get("start", "22:00").split(":"))
-        end_h, end_m = map(int, config.get("end", "07:00").split(":"))
-        start_minutes = start_h * 60 + start_m
-        end_minutes = end_h * 60 + end_m
-        if start_minutes <= end_minutes:
-            return start_minutes <= current_minutes < end_minutes
-        else:
-            return current_minutes >= start_minutes or current_minutes < end_minutes
-    except Exception:
+        start,end=_window_minutes(config)
+        now=now or datetime.now(timezone.utc)
+        now=now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        minute=now.hour*60+now.minute
+        return start<=minute<end if start<end else minute>=start or minute<end
+    except (ValueError,TypeError,AttributeError):
         return False
 
 
@@ -177,9 +160,9 @@ def format_digest_html(alerts: list) -> str:
         emoji = severity_emoji.get(a.get("severity", "info"), "⚪")
         rows += f"""
         <tr style="border-bottom: 1px solid #333;">
-            <td style="padding: 8px; font-size: 14px;">{emoji} {a.get('severity', 'info').upper()}</td>
-            <td style="padding: 8px; font-size: 14px;">{a.get('title', '')}</td>
-            <td style="padding: 8px; font-size: 14px; color: #888;">{a.get('created_at', '')[:16]}</td>
+            <td style="padding: 8px; font-size: 14px;">{emoji} {html.escape(str(a.get('severity', 'info')).upper())}</td>
+            <td style="padding: 8px; font-size: 14px;">{html.escape(str(a.get('title', '')))}</td>
+            <td style="padding: 8px; font-size: 14px; color: #888;">{html.escape(str(a.get('created_at', ''))[:16])}</td>
         </tr>"""
 
     count_by_severity = {}
@@ -194,7 +177,7 @@ def format_digest_html(alerts: list) -> str:
 
     summary = ", ".join(summary_parts)
 
-    html = f"""
+    rendered = f"""
     <div style="font-family: system-ui, sans-serif; background: #1a1917; color: #e5e4e1; padding: 24px; border-radius: 8px;">
         <h2 style="margin: 0 0 8px; color: #fbbf24;">🔔 O.D.I.N. Quiet Hours Digest</h2>
         <p style="color: #888; margin: 0 0 20px;">
@@ -214,7 +197,7 @@ def format_digest_html(alerts: list) -> str:
         <p style="color: #555; margin-top: 20px; font-size: 11px;">— O.D.I.N. (Orchestrated Dispatch & Inventory Network)</p>
     </div>
     """
-    return html
+    return rendered
 
 
 def format_digest_text(alerts: list) -> str:
@@ -268,8 +251,13 @@ def compute_last_window_end(config: Dict[str, Any], now: datetime = None) -> Opt
     if now is None:
         now = datetime.now(timezone.utc)
 
+    try:
+        _window_minutes(config)
+    except (ValueError,TypeError,AttributeError):
+        return None
+
     # If we're currently inside the window, it hasn't ended yet.
-    if _is_quiet_time_for_config(config):
+    if _is_quiet_time_for_config(config, now=now):
         return None
 
     try:
@@ -308,43 +296,29 @@ def get_suppressed_alerts_for_window(
     Returns rows with: id, user_id, alert_type, severity, title, message,
     printer_id, created_at.
     """
+    from modules.notifications.recipient_policy import resolve_alert_scope
     try:
         with engine.connect() as conn:
-            if org_id is not None:
-                # Scope by printer.org_id → alerts from printers in this org
-                # plus alerts whose printer is unknown but whose user is in
-                # this org (rare — keep the query simple and scope by
-                # printer org only).
-                q = text("""
-                    SELECT a.id, a.user_id, a.alert_type, a.severity, a.title,
-                           a.message, a.printer_id, a.created_at
-                    FROM alerts a
-                    LEFT JOIN printers p ON a.printer_id = p.id
-                    WHERE a.created_at BETWEEN :start AND :end
-                      AND p.org_id = :org_id
-                    ORDER BY a.created_at DESC
-                """)
-                params = {
-                    "start": window_start.isoformat(),
-                    "end": window_end.isoformat(),
-                    "org_id": org_id,
-                }
-            else:
-                q = text("""
-                    SELECT id, user_id, alert_type, severity, title, message,
-                           printer_id, created_at
-                    FROM alerts
-                    WHERE created_at BETWEEN :start AND :end
-                    ORDER BY created_at DESC
-                """)
-                params = {
-                    "start": window_start.isoformat(),
-                    "end": window_end.isoformat(),
-                }
-            result = conn.execute(q, params)
-            return [dict(r._mapping) for r in result.fetchall()]
-    except Exception as e:
-        log.error(f"get_suppressed_alerts_for_window failed: {e}")
+            # SQLite contains both ORM space-separated UTC values and legacy
+            # ISO values. Parse time instead of comparing incompatible strings.
+            predicate = (
+                "datetime(created_at)>=datetime(:start) AND datetime(created_at)<datetime(:end)"
+                if conn.dialect.name == "sqlite" else "created_at>=:start AND created_at<:end"
+            )
+            query = "SELECT id,user_id,alert_type,severity,title,message,printer_id,job_id,spool_id,created_at FROM alerts WHERE " + predicate + " ORDER BY created_at DESC"
+            rows = conn.execute(text(query), {"start": window_start, "end": window_end}).mappings().all()
+            result = []
+            for row in rows:
+                try:
+                    eligible, owner = resolve_alert_scope(conn, printer_id=row['printer_id'],
+                        job_id=row['job_id'], spool_id=row['spool_id'])
+                except ValueError:
+                    continue
+                if owner == org_id and row['user_id'] in eligible:
+                    result.append(dict(row))
+            return result
+    except Exception:
+        log.error("Digest alert scope resolution failed")
         return []
 
 

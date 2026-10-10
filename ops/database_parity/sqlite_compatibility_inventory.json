@@ -106,7 +106,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 205,
+      "line": 206,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -114,7 +114,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 428,
+      "line": 429,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -122,7 +122,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 456,
+      "line": 457,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -130,7 +130,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 458,
+      "line": 459,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -138,7 +138,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 468,
+      "line": 469,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -146,7 +146,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 483,
+      "line": 484,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -154,7 +154,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 485,
+      "line": 486,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -234,7 +234,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 101,
+      "line": 103,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -242,7 +242,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 273,
+      "line": 279,
       "path": "backend/modules/notifications/channels.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",

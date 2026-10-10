@@ -34,14 +34,14 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
             subscriptions = cur.fetchall()
 
             if not subscriptions:
-                return
+                return False
 
             # Get VAPID keys
             cur.execute("SELECT value FROM system_config WHERE key = 'vapid_keys'")
             vapid_row = cur.fetchone()
             if not vapid_row:
                 log.warning("VAPID keys not configured, skipping push")
-                return
+                return False
 
             vapid_keys = json.loads(vapid_row[0])
 
@@ -81,8 +81,9 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
                         "(%d subscription(s))",
                         user_id, len(subscriptions),
                     )
-                    return
+                    return False
 
+                delivered = True
                 for endpoint, p256dh, auth in subscriptions:
                     try:
                         webpush(
@@ -96,6 +97,7 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
                         )
                         log.info(f"Push sent to user {user_id}")
                     except WebPushException as e:
+                        delivered = False
                         if e.response is not None and e.response.status_code in (404, 410):
                             # Subscription expired, remove it
                             cur.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
@@ -104,13 +106,17 @@ def send_push_notification(user_id: int, alert_type: str, title: str, message: s
                         else:
                             log.error(f"Push failed: {e}")
                     except Exception as e:
+                        delivered = False
                         log.error(f"Push error: {e}")
+                return delivered
             except ImportError:
                 log.debug("pywebpush not installed, skipping push notifications")
 
         except Exception as e:
             log.error(f"Failed to send push notification: {e}")
 
+
+    return False
 
 def _decrypt_webhook_url(url: str) -> str:
     """Decrypt a Fernet-encrypted webhook URL, falling back to plaintext."""

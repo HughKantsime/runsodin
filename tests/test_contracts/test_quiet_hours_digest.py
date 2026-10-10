@@ -96,10 +96,10 @@ class TestQuietHoursHelpers:
             "get_suppressed_alerts_for_window must accept org_id so "
             "per-org digests don't leak other orgs' alerts."
         )
-        # Must JOIN printers to map alert.printer_id → org
-        assert "printers" in fn.lower(), (
-            "org-scoping must route through printers.org_id — alerts "
-            "table doesn't have org_id directly."
+        # Shared policy validates printer, job and spool ownership. Behavioral
+        # fixtures verify missing/conflicting references and actual recipients.
+        assert "resolve_alert_scope" in fn, (
+            "Digest selection must use the shared resource recipient policy."
         )
 
     def test_group_suppressed_by_user_exists(self):

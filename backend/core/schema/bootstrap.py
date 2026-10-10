@@ -86,8 +86,8 @@ RAW_REQUIRED_COLUMNS = {
     "printer_profiles": frozenset("id created_by printer_id org_id name description slicer category file_format filament_type raw_content is_shared is_default tags last_applied_at last_applied_printer_id created_at updated_at".split()),
     "printer_telemetry": frozenset("id printer_id bed_temp nozzle_temp bed_target nozzle_target fan_speed recorded_at".split()),
     "projects": frozenset("id created_by org_id name description color status expected_parts created_at updated_at".split()),
-    "quiet_hours_digest_sends": frozenset("id user_id org_id window_ended_at sent_at delivery_status".split()),
-    "quiet_hours_org_digest_sends": frozenset("id org_id window_ended_at sent_at delivery_status".split()),
+    "quiet_hours_digest_sends": frozenset("id user_id org_id window_ended_at sent_at delivery_status scope_key".split()),
+    "quiet_hours_org_digest_sends": frozenset("id org_id window_ended_at sent_at delivery_status scope_key".split()),
     "quota_usage": frozenset("id user_id period_key grams_used hours_used jobs_used updated_at".split()),
     "report_schedules": frozenset("id name report_type frequency recipients filters is_active next_run_at last_run_at created_by created_at".split()),
     "token_blacklist": frozenset("jti expires_at".split()),
@@ -344,6 +344,12 @@ def bootstrap_database(
             connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
         if apply_python_migration(connection, monitor_migration):
             applied.append("python:003-education-monitor-claims")
+
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
+        if apply_python_migration(connection, "core.schema.migrations.004_quiet_hours_scoped_claims"):
+            applied.append("python:004-quiet-hours-scoped-claims")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

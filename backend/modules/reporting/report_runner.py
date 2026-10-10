@@ -394,97 +394,74 @@ def process_due_reports(session):
 # Quiet hours digest
 # =============================================================================
 
+def _digest_scope_key(org_id):
+    return "system" if org_id is None else f"org:{int(org_id)}"
+
+
 def _claim_digest_send(session, user_id: int, org_id, window_ended_at) -> bool:
-    """Atomically CLAIM the right to send the digest BEFORE any side effects.
-
-    Returns True if THIS worker won the race and may proceed to deliver the
-    digest; False if another worker already claimed (or is delivering) it.
-
-    Codex pass 4 (2026-04-14): the previous flow was check-then-act:
-      1. SELECT to check if sent
-      2. deliver email/push
-      3. INSERT idempotency row
-    Two workers could both pass step 1, both deliver in step 2, and only
-    then race on step 3 — duplicate notifications already out the door.
-
-    Now: claim in one atomic INSERT, then deliver. The loser of the INSERT
-    race exits BEFORE any delivery code runs. The cost is that delivery
-    failures don't undo the claim — by design, since the alternative
-    (delete the row and let next poll retry) re-opens the duplicate-send
-    window. Loud delivery errors are logged; operators can see and
-    re-trigger manually if needed.
-    """
+    """Claim before delivery; historical claims block all scopes conservatively."""
+    window = window_ended_at.isoformat()
     try:
+        legacy = session.execute(text(
+            "SELECT 1 FROM quiet_hours_digest_sends WHERE user_id=:uid "
+            "AND window_ended_at=:window AND scope_key='legacy'"
+        ), {"uid": user_id, "window": window}).first()
+        if legacy:
+            return False
         session.execute(text(
-            "INSERT INTO quiet_hours_digest_sends (user_id, org_id, window_ended_at, delivery_status) "
-            "VALUES (:uid, :oid, :wend, 'pending')"
-        ), {"uid": user_id, "oid": org_id, "wend": window_ended_at.isoformat()})
+            "INSERT INTO quiet_hours_digest_sends "
+            "(user_id,org_id,scope_key,window_ended_at,delivery_status) "
+            "VALUES (:uid,:org,:scope,:window,'pending')"
+        ), {"uid": user_id, "org": org_id, "scope": _digest_scope_key(org_id), "window": window})
         session.commit()
         return True
-    except Exception as e:
-        # IntegrityError from UNIQUE(user_id, window_ended_at) — sibling
-        # worker (or earlier poll) already claimed. We did no harm.
-        log.debug(f"Digest send claim lost for user={user_id} window={window_ended_at}: {e}")
+    except Exception:
         session.rollback()
         return False
 
 
-def _update_digest_status(session, user_id: int, window_ended_at, status: str):
-    """v1.8.8: update the claim row's delivery_status after delivery.
-
-    Called by each _deliver_digest_* helper AFTER it's done (success or
-    failure). Status values: 'sent' (all configured channels delivered)
-    or 'failed:<reason>' (at least one channel failed; reason truncated
-    to 120 chars for sanity).
-    """
+def _update_digest_status(session, user_id, window_ended_at, status, org_id=None):
     try:
         session.execute(text(
-            "UPDATE quiet_hours_digest_sends SET delivery_status = :s "
-            "WHERE user_id = :uid AND window_ended_at = :wend"
-        ), {"s": status[:120], "uid": user_id, "wend": window_ended_at.isoformat()})
+            "UPDATE quiet_hours_digest_sends SET delivery_status=:status "
+            "WHERE user_id=:uid AND scope_key=:scope AND window_ended_at=:window"
+        ), {"status": status[:120], "uid": user_id, "scope": _digest_scope_key(org_id),
+            "window": window_ended_at.isoformat()})
         session.commit()
-    except Exception as e:
-        log.debug(f"Could not update digest status for user={user_id}: {e}")
+    except Exception:
         session.rollback()
 
 
-def _update_org_digest_status(session, org_id, window_ended_at, status: str):
-    """Same as _update_digest_status but for the org-level webhook table."""
+def _claim_org_webhook_send(session, org_id, window_ended_at):
+    window = window_ended_at.isoformat()
     try:
+        legacy = session.execute(text(
+            "SELECT 1 FROM quiet_hours_org_digest_sends WHERE scope_key LIKE 'legacy:%' "
+            "AND window_ended_at=:window AND (org_id=:org OR (org_id IS NULL AND :org IS NULL))"
+        ), {"window": window, "org": org_id}).first()
+        if legacy:
+            return False
         session.execute(text(
-            "UPDATE quiet_hours_org_digest_sends SET delivery_status = :s "
-            "WHERE (org_id = :oid OR (org_id IS NULL AND :oid IS NULL)) "
-            "AND window_ended_at = :wend"
-            if org_id is None else
-            "UPDATE quiet_hours_org_digest_sends SET delivery_status = :s "
-            "WHERE org_id = :oid AND window_ended_at = :wend"
-        ), {"s": status[:120], "oid": org_id, "wend": window_ended_at.isoformat()})
-        session.commit()
-    except Exception as e:
-        log.debug(f"Could not update org digest status for org={org_id}: {e}")
-        session.rollback()
-
-
-def _claim_org_webhook_send(session, org_id, window_ended_at) -> bool:
-    """Same atomic-claim semantics as _claim_digest_send, but for the
-    per-org webhook digest.
-
-    Codex pass 4 (2026-04-14): previously the org webhook fired every
-    60-second poll for the duration of the next quiet period because
-    nothing remembered we already sent it. New table
-    quiet_hours_org_digest_sends tracks (org_id, window_ended_at).
-    org_id may be NULL for system-level webhook digests."""
-    try:
-        session.execute(text(
-            "INSERT INTO quiet_hours_org_digest_sends (org_id, window_ended_at) "
-            "VALUES (:oid, :wend)"
-        ), {"oid": org_id, "wend": window_ended_at.isoformat()})
+            "INSERT INTO quiet_hours_org_digest_sends(org_id,scope_key,window_ended_at,delivery_status) "
+            "VALUES (:org,:scope,:window,'pending')"
+        ), {"org": org_id, "scope": _digest_scope_key(org_id), "window": window})
         session.commit()
         return True
-    except Exception as e:
-        log.debug(f"Org digest webhook claim lost for org={org_id} window={window_ended_at}: {e}")
+    except Exception:
         session.rollback()
         return False
+
+
+def _update_org_digest_status(session, org_id, window_ended_at, status):
+    try:
+        session.execute(text(
+            "UPDATE quiet_hours_org_digest_sends SET delivery_status=:status "
+            "WHERE scope_key=:scope AND window_ended_at=:window"
+        ), {"status": status[:120], "scope": _digest_scope_key(org_id),
+            "window": window_ended_at.isoformat()})
+        session.commit()
+    except Exception:
+        session.rollback()
 
 
 def _deliver_digest_email(session, smtp_config, user_id, alerts, window_end):
@@ -516,7 +493,7 @@ def _deliver_digest_push(session, user_id, alerts, window_end):
         log.error(f"Cannot import send_push_notification: {e}")
         return False
     try:
-        send_push_notification(
+        return send_push_notification(
             user_id=user_id,
             alert_type="quiet_hours_digest",
             title=f"{len(alerts)} alert{'s' if len(alerts) != 1 else ''} during quiet hours",
@@ -524,8 +501,7 @@ def _deliver_digest_push(session, user_id, alerts, window_end):
                 f"Window ended {window_end.strftime('%H:%M UTC')} — "
                 "tap to review in ODIN."
             ),
-        )
-        return True
+        ) is True
     except Exception as e:
         log.error(f"Digest push failed for user {user_id}: {e}")
         return False
@@ -635,15 +611,26 @@ def process_quiet_hours_digest(session):
             if not _claim_digest_send(session, user_id, org_id, window_end):
                 continue  # another worker won the race; they own delivery
 
-            prefs = session.execute(text(
-                "SELECT "
-                "  MAX(CASE WHEN email = 1 THEN 1 ELSE 0 END) AS email_enabled, "
-                "  MAX(CASE WHEN browser_push = 1 THEN 1 ELSE 0 END) AS push_enabled "
-                "FROM alert_preferences WHERE user_id = :uid"
-            ), {"uid": user_id}).fetchone()
-
-            email_on = bool(prefs.email_enabled) if prefs else False
-            push_on = bool(prefs.push_enabled) if prefs else False
+            from core.recipient_policy import resolve_alert_scope
+            active = session.execute(text("SELECT 1 FROM users WHERE id=:id AND is_active IS TRUE"),
+                                     {"id": user_id}).first()
+            authorized = []
+            if active:
+                for alert in user_alerts:
+                    try:
+                        eligible, owner = resolve_alert_scope(session, printer_id=alert.get("printer_id"),
+                            job_id=alert.get("job_id"), spool_id=alert.get("spool_id"))
+                    except ValueError:
+                        continue
+                    if user_id in eligible and owner == org_id:
+                        authorized.append(alert)
+            preferences = session.execute(text(
+                "SELECT alert_type,email,browser_push FROM alert_preferences WHERE user_id=:id"
+            ), {"id": user_id}).mappings().all()
+            prefs = {row["alert_type"]: row for row in preferences}
+            email_alerts = [a for a in authorized if prefs.get(a.get("alert_type"),{}).get("email")]
+            push_alerts = [a for a in authorized if prefs.get(a.get("alert_type"),{}).get("browser_push")]
+            email_on,push_on = bool(email_alerts),bool(push_alerts)
 
             # Delivery is best-effort post-claim. A failure here logs ERROR
             # but does NOT undo the claim — undoing would re-open the
@@ -652,24 +639,31 @@ def process_quiet_hours_digest(session):
             # v1.8.8: also record per-delivery status in the row so the
             # Alerts page can surface "delivered / failed" without
             # scraping logs.
-            delivery_ok = True
-            failure_reasons: list[str] = []
+            delivery_ok = bool(email_on or push_on)
+            failure_reasons: list[str] = [] if delivery_ok else ["no_enabled_channel"]
+            if email_on and not smtp_config:
+                delivery_ok = False
+                failure_reasons.append("email:unconfigured")
             if email_on and smtp_config:
                 try:
-                    _deliver_digest_email(session, smtp_config, user_id, user_alerts, window_end)
+                    if _deliver_digest_email(session, smtp_config, user_id, email_alerts, window_end) is not True:
+                        delivery_ok = False
+                        failure_reasons.append("email:rejected")
                 except Exception as e:
                     log.error(f"Digest email failed for user {user_id}: {e}")
                     delivery_ok = False
                     failure_reasons.append(f"email:{type(e).__name__}")
             if push_on:
                 try:
-                    _deliver_digest_push(session, user_id, user_alerts, window_end)
+                    if _deliver_digest_push(session, user_id, push_alerts, window_end) is not True:
+                        delivery_ok = False
+                        failure_reasons.append("push:rejected")
                 except Exception as e:
                     log.error(f"Digest push failed for user {user_id}: {e}")
                     delivery_ok = False
                     failure_reasons.append(f"push:{type(e).__name__}")
             status = "sent" if delivery_ok else f"failed:{','.join(failure_reasons)}"
-            _update_digest_status(session, user_id, window_end, status)
+            _update_digest_status(session, user_id, window_end, status, org_id=org_id)
 
         # Per-org webhook (one combined digest per org).
         # Codex pass 4 (2026-04-14): the org webhook had NO idempotency

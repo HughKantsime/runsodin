@@ -67,6 +67,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.001_legacy_columns",
         "core.schema.migrations.002_education_tenant_integrity",
         "core.schema.migrations.003_education_monitor_claims",
+        "core.schema.migrations.004_quiet_hours_scoped_claims",
     }
 )
 
