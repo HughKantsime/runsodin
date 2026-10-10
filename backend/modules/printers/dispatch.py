@@ -32,10 +32,10 @@ class DispatchOutcomeUncertain(RuntimeError):
     """A print-capable operation was entered without reliable confirmation."""
 
 
-def _submit_print_command(operation, *args):
+def _submit_print_command(operation, *args, **kwargs):
     """Do not turn a lost acknowledgment into permission to send again."""
     try:
-        accepted = operation(*args)
+        accepted = operation(*args, **kwargs)
     except Exception as exc:
         raise DispatchOutcomeUncertain("Printer command outcome is unknown") from exc
     if not accepted:
@@ -185,7 +185,8 @@ def _get_next_scheduled_job(printer_id: int) -> Optional[dict]:
                 SELECT j.id, j.item_name, pf.stored_path, pf.original_filename
                 FROM jobs j
                 JOIN models m ON j.model_id = m.id
-                JOIN print_files pf ON pf.model_id = m.id
+                JOIN print_files pf ON ((j.print_file_id IS NOT NULL AND pf.id=j.print_file_id AND pf.model_id=m.id)
+                    OR (j.print_file_id IS NULL AND pf.model_id=m.id))
                 WHERE j.printer_id = :pid
                   AND j.status = 'scheduled'
                   AND pf.stored_path IS NOT NULL
@@ -211,6 +212,8 @@ def _load_job(job_id: int) -> Optional[dict]:
             row = conn.execute(
                 text("""
                 SELECT j.id, j.model_id, j.item_name, j.status, j.printer_id,
+                       j.print_file_id, j.payload_sha256, j.plate_index, j.ams_mapping,
+                       pf.filaments_json,
                        pf.stored_path, pf.original_filename, pf.file_hash,
                        pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types,
                        pf.compatibility_facts_json,
@@ -225,7 +228,10 @@ def _load_job(job_id: int) -> Optional[dict]:
                 JOIN models m ON j.model_id = m.id
                 JOIN print_files pf ON (
                     (s.print_file_id IS NOT NULL AND pf.id = s.print_file_id)
-                    OR (s.id IS NULL AND pf.model_id = m.id)
+                    OR (s.id IS NULL AND (
+                        (j.print_file_id IS NOT NULL AND pf.id = j.print_file_id AND pf.model_id = m.id)
+                        OR (j.print_file_id IS NULL AND pf.model_id = m.id)
+                    ))
                 )
                 WHERE j.id = :jid
                 """),
@@ -241,16 +247,16 @@ def _load_job(job_id: int) -> Optional[dict]:
 # Protocol-specific dispatch handlers
 # ──────────────────────────────────────────────
 
-def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+def _dispatch_bambu(job_id: int, stored_path: str, remote_filename: str, creds: dict, **print_options) -> tuple[bool, str]:
     """Dispatch to a Bambu printer: implicit FTPS upload + MQTT project_file."""
     from modules.printers.telemetry.feature_flag import is_v2_enabled
 
     if is_v2_enabled():
-        return _dispatch_bambu_v2(job_id, stored_path, remote_filename, creds)
-    return _dispatch_bambu_legacy(job_id, stored_path, remote_filename, creds)
+        return _dispatch_bambu_v2(job_id, stored_path, remote_filename, creds, **print_options)
+    return _dispatch_bambu_legacy(job_id, stored_path, remote_filename, creds, **print_options)
 
 
-def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, creds: dict, **print_options) -> tuple[bool, str]:
     """V2 dispatch: ftp_upload helper + BambuCommandAdapter.start_print via session."""
     from modules.printers.telemetry.bambu.adapter import BambuAdapterConfig
     from modules.printers.telemetry.bambu.broker_policy import resolve_bambu_broker_config
@@ -275,13 +281,13 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         access_code=creds["access_code"],
     )
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
-    ok = _submit_print_command(run_command, config, "start_print", remote_filename)
+    ok = _submit_print_command(run_command, config, "start_print", remote_filename, **print_options)
     if not ok:
         return False, "MQTT print command failed (file uploaded OK)"
     return True, "Print started"
 
 
-def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, creds: dict) -> tuple[bool, str]:
+def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, creds: dict, **print_options) -> tuple[bool, str]:
     """Legacy dispatch — unchanged."""
     from modules.printers.adapters.bambu import BambuPrinter
 
@@ -304,7 +310,7 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
     time.sleep(1)
     log.info(f"[dispatch] Sending Bambu print command for '{remote_filename}'")
     try:
-        ok = _submit_print_command(printer.start_print, remote_filename)
+        ok = _submit_print_command(printer.start_print, remote_filename, **print_options)
     finally:
         printer.disconnect()
 
@@ -386,6 +392,14 @@ def _reconcile_education_denial(
 def _authorize_education_hardware_action(job: dict, creds: dict) -> tuple[bool, str] | None:
     """Final policy and compatibility check for Education-owned jobs."""
     if job.get("education_submission_id") is None:
+        if job.get("print_file_id") is not None:
+            from core.db import engine
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                owned = conn.execute(text("SELECT 1 FROM education_submissions WHERE print_file_id=:id"),
+                                     {"id": job["print_file_id"]}).first()
+            if owned:
+                return False, "Education file requires its approval workflow; no hardware command was sent"
         if job.get("model_id") is not None:
             from core.db import engine
             from core.registry import registry
@@ -567,6 +581,55 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     if api_type not in {"bambu", "moonraker", "prusalink"}:
         return False, f"Dispatch not supported for printer type '{api_type}'"
 
+    print_options = {}
+    if job.get("print_file_id") is not None:
+        # Revalidate exact payload immediately before any transport operation.
+        from core.print_payload import validate_plate, validate_mapping
+        from fastapi import HTTPException
+        expected = str(job.get("payload_sha256") or "").lower()
+        if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+            return False, "Archived payload hash is missing or invalid; no command was sent"
+        try:
+            digest = hashlib.sha256()
+            with open(stored_path, "rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            return False, "Archived payload is unreadable; no command was sent"
+        if not hmac.compare_digest(expected, digest.hexdigest()):
+            return False, "Archived payload changed; no command was sent"
+        try:
+            plate = validate_plate(stored_path, job.get("plate_index"), api_type)
+        except HTTPException as exc:
+            return False, str(exc.detail)
+        if api_type == "bambu":
+            print_options["plate_num"] = plate
+            mapping = job.get("ams_mapping")
+            if isinstance(mapping, str):
+                try:
+                    mapping = json.loads(mapping)
+                except ValueError:
+                    return False, "Stored AMS mapping is invalid; no command was sent"
+            if mapping is not None:
+                if (not isinstance(mapping, list) or not mapping or len(mapping) > 16
+                        or any(type(slot) is not int or not 0 <= slot < 16 for slot in mapping)
+                        or len(set(mapping)) != len(mapping)):
+                    return False, "Stored AMS mapping is invalid; no command was sent"
+                from core.db import engine
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    slots = set(conn.execute(text("SELECT slot_number FROM filament_slots WHERE printer_id=:id"),
+                                             {"id": printer_id}).scalars())
+                try:
+                    validate_mapping([{"source_slot": i, "target_slot": slot + 1}
+                                      for i, slot in enumerate(mapping)],
+                                     job.get("filaments_json"), slots, api_type)
+                except HTTPException as exc:
+                    return False, str(exc.detail)
+                print_options["ams_mapping"] = mapping
+        elif job.get("ams_mapping") is not None:
+            return False, "AMS mapping requires a Bambu printer; no command was sent"
+
     # File format validation: non-Bambu printers need .gcode
     if api_type != "bambu" and stored_path.lower().endswith(".3mf"):
         return False, (
@@ -641,7 +704,7 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     uncertain = False
     try:
         if api_type == "bambu":
-            success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds)
+            success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds, **print_options)
         elif api_type == "moonraker":
             success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
         else:

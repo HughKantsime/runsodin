@@ -419,6 +419,7 @@ class BambuPrinter:
         use_ams: bool = True,
         bed_leveling: bool = True,
         timelapse: bool = False,
+        ams_mapping: Optional[list[int]] = None,
     ) -> bool:
         """Send MQTT command to start printing an uploaded .3mf file.
 
@@ -459,6 +460,8 @@ class BambuPrinter:
                 "task_id": "0",
             }
         }
+        if ams_mapping is not None:
+            payload["print"]["ams_mapping"] = ams_mapping
         return self._publish(payload)
 
     # ============== Private Methods ==============

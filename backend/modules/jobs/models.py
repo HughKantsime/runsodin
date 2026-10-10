@@ -32,6 +32,11 @@ class Job(Base):
     # What to print
     model_id = Column(Integer, ForeignKey("models.id", ondelete="SET NULL"), nullable=True)
     model_revision_id = Column(Integer, nullable=True)
+    # Exact archived payload and print options; legacy jobs retain model lookup.
+    print_file_id = Column(Integer, nullable=True)
+    payload_sha256 = Column(String(64), nullable=True)
+    plate_index = Column(Integer, nullable=True)
+    ams_mapping = Column(JSON, nullable=True)
     item_name = Column(String(200), nullable=False)  # Can override model name
     quantity = Column(Integer, default=1)
 

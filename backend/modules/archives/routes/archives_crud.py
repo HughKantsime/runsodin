@@ -6,6 +6,8 @@ from core.rbac import should_filter_org
 # Depends on: core, printers, jobs, organizations
 # Owns tables: print_archives
 
+import hashlib
+import hmac
 import csv
 import io
 import json
@@ -15,7 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, Field, StrictInt
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -47,7 +49,7 @@ class TagRename(PydanticBaseModel):
 class ReprintRequest(PydanticBaseModel):
     printer_id: int
     ams_mapping: Optional[List[dict]] = None
-    plate_index: int = 0
+    plate_index: StrictInt = Field(default=0, ge=0)
 
 
 # ──────────────────────────────────────────────
@@ -506,6 +508,8 @@ def ams_preview(
     if printer_id:
         from modules.printers.models import Printer, FilamentSlot
         printer = db.query(Printer).filter(Printer.id == printer_id).first()
+        if not printer or not (check_org_access(user, printer.org_id) or printer.shared):
+            raise HTTPException(404, "Printer not found")
         if printer:
             slots = db.query(FilamentSlot).filter(
                 FilamentSlot.printer_id == printer_id
@@ -560,31 +564,58 @@ def reprint_archive(
     ad = dict(archive._mapping)
     _check_archive_org_access(db, ad.get("printer_id"), user)
 
-    # Verify we have a file to reprint (check before printer to give better error)
-    file_path = ad.get("file_path")
-    if not file_path or not os.path.exists(file_path):
-        raise HTTPException(
-            status_code=400,
-            detail="Original print file not available for reprint",
-        )
-
-    # Verify target printer exists
-    from modules.printers.models import Printer
-    printer = db.query(Printer).filter(Printer.id == body.printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
-
-    # Create a new job pointing to the same file
+    from modules.printers.models import Printer, FilamentSlot
+    from modules.models_library.models import Model
     from modules.jobs.models import Job
+    from core.print_payload import validate_plate, validate_mapping
+    from core.registry import registry
+
+    printer = db.query(Printer).filter(Printer.id == body.printer_id).first()
+    if not printer or not (check_org_access(user, printer.org_id) or printer.shared):
+        raise HTTPException(404, "Printer not found")
+    file = db.execute(text("SELECT * FROM print_files WHERE id=:id"),
+                      {"id": ad.get("print_file_id")}).mappings().first()
+    model = db.query(Model).filter(Model.id == file["model_id"]).first() if file else None
+    if (not file or not model or not check_org_access(user, model.org_id)
+            or (file["org_id"] is not None and not check_org_access(user, file["org_id"]))):
+        raise HTTPException(400, "Original print file or model not available for reprint")
+    policy = registry.get_provider("EducationPolicyProvider")
+    if policy is None:
+        raise HTTPException(503, "Education policy unavailable")
+    policy.assert_generic_model_reference_allowed(db, model.id)
+    if db.execute(text("SELECT 1 FROM education_submissions WHERE print_file_id=:id"),
+                  {"id": file["id"]}).first():
+        raise HTTPException(409, "Education files require the Education approval workflow")
+    file_path = file["stored_path"]
+    if not file_path or not os.path.isfile(file_path):
+        raise HTTPException(400, "Original print file not available for reprint")
+    digest = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        raise HTTPException(400, "Original print file is unreadable") from None
+    payload_hash = digest.hexdigest()
+    for expected in (ad.get("file_hash"), file["file_hash"]):
+        if expected and not hmac.compare_digest(str(expected).lower(), payload_hash):
+            raise HTTPException(400, "Original print file contents changed")
+    validate_plate(file_path, body.plate_index, printer.api_type)
+    slots = {slot.slot_number for slot in db.query(FilamentSlot).filter(
+        FilamentSlot.printer_id == printer.id).all()}
+    mapping = validate_mapping(body.ams_mapping, file["filaments_json"], slots, printer.api_type)
+    identity = user if isinstance(user, dict) else vars(user)
     new_job = Job(
-        item_name=f"Reprint: {ad.get('print_name', 'Unknown')}",
-        printer_id=body.printer_id,
-        priority=5,
-        status="pending",
-        user_id=user.get("id") if isinstance(user, dict) else getattr(user, "id", None),
+        item_name=f"Reprint: {ad.get('print_name') or 'Unknown'}",
+        model_id=model.id, print_file_id=file["id"], payload_sha256=payload_hash, plate_index=body.plate_index,
+        ams_mapping=mapping, printer_id=printer.id, priority=5, status="pending",
+        submitted_by=identity.get("id"), charged_to_user_id=identity.get("id"),
+        charged_to_org_id=identity.get("group_id"), quantity=1, hold=False,
+        is_locked=False, target_type="specific",
     )
     db.add(new_job)
-    db.flush()
+    db.commit()
+    db.refresh(new_job)
 
     return {
         "status": "created",

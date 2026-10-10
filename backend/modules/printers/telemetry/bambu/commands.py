@@ -266,6 +266,7 @@ class BambuCommandAdapter:
         use_ams: bool = True,
         bed_leveling: bool = True,
         timelapse: bool = False,
+        ams_mapping: Optional[list[int]] = None,
     ) -> bool:
         """Start a print of an already-uploaded .3mf file.
 
@@ -274,7 +275,7 @@ class BambuCommandAdapter:
         at a fixed wall-clock moment.
         """
         subtask_name = remote_filename.replace(".3mf", "")
-        return self._publish({
+        payload = {
             "print": {
                 "sequence_id": str(int(time.time()) % 100000),
                 "command": "project_file",
@@ -293,4 +294,7 @@ class BambuCommandAdapter:
                 "subtask_id": "0",
                 "task_id": "0",
             }
-        })
+        }
+        if ams_mapping is not None:
+            payload["print"]["ams_mapping"] = ams_mapping
+        return self._publish(payload)

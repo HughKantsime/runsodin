@@ -540,6 +540,9 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
         raise HTTPException(status_code=404, detail="Job not found")
     assert_generic_job_mutation_allowed(db, job_id)
 
+    if (job.print_file_id is not None and "model_id" in updates.model_fields_set
+            and updates.model_id != job.model_id):
+        raise HTTPException(409, "Archived payload jobs cannot change their source model")
     assert_generic_model_reference_allowed(db, updates.model_id)
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(job, field, value)
@@ -575,9 +578,33 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
     assert_generic_job_mutation_allowed(db, job_id)
 
     assert_generic_model_reference_allowed(db, original.model_id)
+    if original.print_file_id is not None:
+        # Repeating must retain the archived payload, not reselect a model file.
+        from modules.printers.models import Printer
+        target = db.query(Printer).filter(Printer.id == original.printer_id).first()
+        if not target or not (check_org_access(current_user, target.org_id) or target.shared):
+            raise HTTPException(404, "Printer not found")
+        payload = db.execute(text("SELECT pf.model_id,pf.stored_path,pf.org_id,m.org_id AS model_org "
+                                  "FROM print_files pf JOIN models m ON m.id=pf.model_id WHERE pf.id=:id"),
+                             {"id": original.print_file_id}).first()
+        if db.execute(text("SELECT 1 FROM education_submissions WHERE print_file_id=:id"),
+                      {"id": original.print_file_id}).first():
+            raise HTTPException(409, "Education files require their approval workflow")
+        if payload and (not check_org_access(current_user, payload.org_id)
+                        or not check_org_access(current_user, payload.model_org)):
+            raise HTTPException(404, "Original print file not found")
+        if not payload or payload.model_id != original.model_id:
+            raise HTTPException(400, "Original print file not available for repeat")
     # Create new job with same settings
     new_job = Job(
         model_id=original.model_id,
+        print_file_id=original.print_file_id,
+        payload_sha256=original.payload_sha256,
+        plate_index=original.plate_index,
+        ams_mapping=original.ams_mapping,
+        charged_to_org_id=original.charged_to_org_id,
+        charged_to_user_id=current_user.get("id"),
+        submitted_by=current_user.get("id"),
         item_name=original.item_name,
         quantity=original.quantity,
         status="pending",
