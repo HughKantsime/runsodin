@@ -15,7 +15,8 @@
     "hardware_moonraker_live",
     "hardware_prusalink_live",
     "hardware_elegoo_live",
-    "manual_legal_contract"
+    "manual_legal_contract",
+    "browser_journey"
   ],
   "code_controlled_gates": [
     "foundation",
@@ -25,7 +26,8 @@
     "api_load",
     "accessibility",
     "security",
-    "artifact_scan"
+    "artifact_scan",
+    "browser_journey"
   ],
   "conditionally_blockable_gates": [
     "hardware_bambu_live",
@@ -36,6 +38,7 @@
   ],
   "never_conditionally_blockable_gates": [
     "tls_live",
-    "legal_sources_live"
+    "legal_sources_live",
+    "browser_journey"
   ]
 }

@@ -1,4 +1,4 @@
-.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness ctec-poc-preflight test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate test-practical-evidence test-promotion-workflow test-mutation-workflows test-registry-contract practical-evidence verify-practical-evidence verify bump release logs shell tokens help
+.PHONY: build test test-contracts test-contracts-structured test-candidate test-database-parity test-hardware-certification test-installer-isolation test-edu-sandbox-contracts test-edu-sandbox edu-sandbox-prepare edu-sandbox-request-license edu-sandbox-activate edu-sandbox-status edu-sandbox-reset edu-sandbox-expire edu-sandbox-reconcile edu-sandbox-purge edu-sandbox-certify test-edu test-edu-privacy test-edu-backup test-edu-hardware test-edu-load test-edu-accessibility test-edu-readiness test-edu-browser-journey ctec-poc-preflight test-telemetry-contracts-structured test-telemetry-v2-smoke-structured verify-edu-live verify-backup test-security test-e2e test-coverage scan security security-structured security-operational security-audit security-secrets security-sast security-docker release-control-local-gate trusted-validation-gate test-practical-evidence test-promotion-workflow test-mutation-workflows test-registry-contract practical-evidence verify-practical-evidence verify bump release logs shell tokens help
 
 PYTHON ?= python3
 SECURITY_PYTHON ?= python3.11
@@ -128,6 +128,9 @@ test-edu-load: ## Run isolated API/WebSocket load thresholds
 test-edu-accessibility: ## Run compiled UI axe/keyboard/motion/target-size matrix
 	$(PYTHON) ops/edu_readiness/run_accessibility.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR)
 
+test-edu-browser-journey: ## Build current checkout and run actual Education browser journeys
+	$(PYTHON) ops/edu_readiness/run_browser_journey.py --run-dir $(EDU_RUN_DIR)
+
 test-edu-readiness: ## Run all deterministic EDU readiness checks (currently fail-loud on blockers)
 	@mkdir -p $(EDU_RUN_DIR)
 	@status=0; \
@@ -135,6 +138,7 @@ test-edu-readiness: ## Run all deterministic EDU readiness checks (currently fai
 	$(PYTHON) ops/edu_readiness/run_command_gate.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) --gate privacy --minimum-assertions 17 -- $(MAKE) test-edu-privacy PYTHON=$(PYTHON) EDU_RUN_DIR=$(EDU_RUN_DIR) || status=1; \
 	$(PYTHON) ops/edu_readiness/run_command_gate.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) --gate backup_restore --minimum-assertions 8 -- $(MAKE) test-edu-backup PYTHON=$(PYTHON) || status=1; \
 	$(PYTHON) ops/edu_readiness/run_command_gate.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) --gate hardware_contracts --minimum-assertions 4 -- $(MAKE) test-edu-hardware PYTHON=$(PYTHON) || status=1; \
+	$(PYTHON) ops/edu_readiness/run_command_gate.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) --gate browser_journey --minimum-assertions 3 -- $(MAKE) test-edu-browser-journey PYTHON=$(PYTHON) EDU_RUN_DIR=$(EDU_RUN_DIR) || status=1; \
 	$(MAKE) test-edu-load PYTHON=$(PYTHON) EDU_RUN_ID=$(EDU_RUN_ID) EDU_RUN_DIR=$(EDU_RUN_DIR) || status=1; \
 	$(MAKE) test-edu-accessibility PYTHON=$(PYTHON) EDU_RUN_ID=$(EDU_RUN_ID) EDU_RUN_DIR=$(EDU_RUN_DIR) || status=1; \
 	$(PYTHON) ops/edu_readiness/run_command_gate.py --run-id $(EDU_RUN_ID) --run-dir $(EDU_RUN_DIR) --gate security --minimum-assertions 10 -- $(MAKE) security PYTHON=$(PYTHON) || status=1; \

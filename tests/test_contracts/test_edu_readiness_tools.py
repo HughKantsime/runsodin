@@ -251,3 +251,73 @@ def test_websocket_handler_has_no_global_api_key_compatibility():
     websocket_source = source[source.index('@app.websocket("/ws")'):source.index('@app.websocket("/api/v1/ws")')]
     assert "settings.api_key" not in websocket_source
     assert 'payload.get("ws") is True' in websocket_source
+
+
+@pytest.mark.parametrize('condition', ['missing', 'failed', 'zero', 'skipped', 'xfailed'])
+def test_browser_journey_cannot_be_omitted_or_accepted_as_ready(tmp_path, condition):
+    policy = json.loads(POLICY.read_text())
+    assert 'browser_journey' in policy['code_controlled_gates']
+    assert 'browser_journey' in policy['never_conditionally_blockable_gates']
+    assert 'browser_journey' not in policy['conditionally_blockable_gates']
+    for gate in policy['code_controlled_gates']:
+        if gate != 'browser_journey':
+            write_result(tmp_path, _result(gate))
+    if condition != 'missing':
+        result = _result('browser_journey', status='fail' if condition == 'failed' else 'pass')
+        if condition == 'zero':
+            result['executed_count'] = 0
+        elif condition in ('skipped', 'xfailed'):
+            result['skipped_count' if condition == 'skipped' else 'xfailed_count'] = 1
+        # Deliberately malformed purported passes must fail during aggregation.
+        (tmp_path / 'browser_journey.json').write_text(json.dumps(result))
+    (tmp_path / 'acceptances.json').write_text(json.dumps({'accepted_blockers': [{
+        'gate_id': 'browser_journey', 'decision_maker': 'synthetic-owner',
+        'accepted_at': '2026-10-10T00:00:00Z',
+    }]}))
+    assert aggregate(tmp_path, POLICY, scope='code-controlled')['status'] == 'NOT_READY'
+
+
+def test_browser_runner_rejects_reused_evidence_before_build(tmp_path, monkeypatch):
+    from ops.edu_readiness import run_browser_journey as runner
+    directory = tmp_path / 'raw' / 'browser_journey'
+    directory.mkdir(parents=True)
+    stale = directory / 'junit.xml'
+    stale.write_text('stale passing evidence')
+    monkeypatch.setattr(sys, 'argv', ['runner', '--run-dir', str(tmp_path)])
+    monkeypatch.setattr(runner.subprocess, 'run', lambda *a, **k: pytest.fail('must not rebuild over reused evidence'))
+    with pytest.raises(FileExistsError):
+        runner.main()
+    assert stale.read_text() == 'stale passing evidence'
+
+
+def test_browser_runner_build_failure_cannot_run_tests_or_create_junit(tmp_path, monkeypatch):
+    from ops.edu_readiness import run_browser_journey as runner
+    calls = []
+    def fail_build(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 1)
+    monkeypatch.setattr(sys, 'argv', ['runner', '--run-dir', str(tmp_path)])
+    monkeypatch.setattr(runner.subprocess, 'run', fail_build)
+    assert runner.main() == 1
+    assert len(calls) == 1 and calls[0][0] == 'npm'
+    assert not (tmp_path / 'raw' / 'browser_journey' / 'junit.xml').exists()
+
+
+def test_browser_junit_removes_host_identity_without_hiding_failure(tmp_path):
+    from ops.edu_readiness.run_browser_journey import remove_host_metadata
+    from xml.etree import ElementTree
+    path = tmp_path / 'junit.xml'
+    path.write_text('<testsuites><testsuite tests="1" failures="1" errors="0" skipped="0" hostname="private-machine.local"><testcase name="visible-denial"><failure message="expected test failure"/></testcase></testsuite></testsuites>')
+    remove_host_metadata(path)
+    root = ElementTree.parse(path).getroot()
+    suite = root.find('testsuite')
+    assert 'hostname' not in suite.attrib
+    assert suite.get('tests') == '1' and suite.get('failures') == '1'
+    assert root.find('.//failure').get('message') == 'expected test failure'
+
+
+def test_browser_runner_rejects_success_without_junit(tmp_path, monkeypatch):
+    from ops.edu_readiness import run_browser_journey as runner
+    monkeypatch.setattr(sys, 'argv', ['runner', '--run-dir', str(tmp_path)])
+    monkeypatch.setattr(runner.subprocess, 'run', lambda command, **kwargs: subprocess.CompletedProcess(command, 0))
+    assert runner.main() == 1

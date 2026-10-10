@@ -1,6 +1,6 @@
 # Education verification coverage
 
-Updated October 9, 2026. Source baseline: v1.9.23, d22d6627927c859b7dd4d28cd6cb2d3012263ddb. New connected tests are local pending commit/publication. A passing release gate does not certify every workflow or a physical printer.
+Updated October 10, 2026. Published baseline: v1.9.24, f96205a515beba61c6a07b2ab354dd827fa6ab10. The isolated kube3 pilot runs this exact published image. Additional browser-gate changes below are source changes after that release. A passing release gate does not certify every workflow or a physical printer.
 
 ## Evidence meanings
 
@@ -58,3 +58,9 @@ A normal published-image real-printer pilot is prepared in pilot-compose.yml and
 
 ## Session reuse regression, v1.9.24 candidate
 The shared production helper now offers the control TLS session to the protected data connection. The strict TLS 1.2 positive test uses the production method unmodified and checks actual server session_reused plus identical payload. Only the negative baseline intentionally omits reuse. Connected classroom success, healthy retry and monitor paths use the strict peer. This verifies the local protocol requirement, not firmware acceptance or strict TLS 1.3 resumption. The v1.9.23 diagnostic failure remains historical evidence, not the candidate's expected behavior.
+
+
+## October 10 mandatory browser gate and recovery rehearsal
+CV06 now requires `browser_journey` evidence, including actual JUnit, and the readiness policy cannot accept it conditionally. The target rebuilds the current checkout and refuses an existing evidence directory. Three browser journeys cover approval/scheduling/privacy, invalid upload/rejection, and storage headroom rejection with no submission created. Mac checks use an owned 4 GiB APFS sparse image and real disk policy; this measures the upload filesystem, not exhaustion of the backing host. Linux uses a private temporary upload directory and requires adequate actual capacity.
+
+The owner has no LAN-mode printer available. The isolated Kubernetes pilot restarted with the same PVC, three identity files, database schema and row counts, then passed health/readiness with nine services running. This is a fresh installation with zero users/printers, not recovery of an active classroom or an in-flight print. Private restored copies run with Docker networking disabled, no published ports and automatic dispatch disabled. Physical printing, uncertain command acknowledgment, populated-school recovery and issuer activation remain separate acceptance work.

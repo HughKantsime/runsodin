@@ -114,6 +114,7 @@ def _evidence_cards(results: dict[str, dict]) -> str:
         "backup_restore": "Backup / restore", "hardware_contracts": "Hardware contracts",
         "api_load": "API / WebSocket load", "accessibility": "Accessibility", "security": "Security + operations",
         "artifact_scan": "Artifact safety",
+        "browser_journey": "Education browser journeys",
     }
     cards = []
     for gate_id, label in labels.items():

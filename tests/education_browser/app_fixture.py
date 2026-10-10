@@ -24,8 +24,8 @@ def main():
                       COOKIE_SECURE='false', API_KEY='', CORS_ORIGINS=f'http://127.0.0.1:{port}',
                       TRUSTED_HOSTS='127.0.0.1,localhost',
                       LICENSE_DIR=str(directory / 'license'),
-                      EDUCATION_UPLOAD_ROOT=str(directory / 'uploads'),
-                      EDUCATION_MIN_FREE_GIB='1')
+                      EDUCATION_UPLOAD_ROOT=os.environ.get('ODIN_EDU_TEST_UPLOAD_ROOT', str(directory / 'uploads')),
+                      EDUCATION_MIN_FREE_GIB=os.environ.get('ODIN_EDU_TEST_MIN_FREE_GIB', '1'))
     from tests.test_contracts.test_education_review_workflow import review_db
     fixture = review_db.__wrapped__(directory)
     db = next(fixture)

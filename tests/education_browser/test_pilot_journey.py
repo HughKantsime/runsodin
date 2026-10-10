@@ -15,7 +15,30 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
-def pilot(tmp_path):
+def upload_volume(tmp_path):
+    root = tmp_path / 'upload-volume'
+    root.mkdir()
+    if sys.platform != 'darwin':
+        yield root
+        return
+    # Use a real bounded filesystem, so host-wide fullness cannot silently
+    # turn every browser journey into the storage-reserve rejection path.
+    image = tmp_path / 'browser-uploads.sparseimage'
+    subprocess.run(['hdiutil', 'create', '-size', '4g', '-type', 'SPARSE',
+                    '-fs', 'APFS', '-volname', 'ODIN-Browser-Test', str(image)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['hdiutil', 'attach', str(image), '-mountpoint', str(root),
+                    '-nobrowse', '-noverify'], check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        yield root
+    finally:
+        subprocess.run(['hdiutil', 'detach', str(root)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+@pytest.fixture
+def pilot(tmp_path, request, upload_volume):
     assert (ROOT / 'frontend/dist/index.html').exists(), 'Build current frontend before the Education browser gate'
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
@@ -24,6 +47,8 @@ def pilot(tmp_path):
     env = {k:v for k,v in os.environ.items() if not k.startswith(('ODIN_', 'DATABASE_', 'LICENSE_')) and k not in ('ENCRYPTION_KEY','API_KEY','JWT_SECRET_KEY')}
     password = secrets.token_urlsafe(24)
     env['ODIN_EDU_TEST_PASSWORD'] = password
+    env['ODIN_EDU_TEST_MIN_FREE_GIB'] = str(getattr(request, 'param', 1))
+    env['ODIN_EDU_TEST_UPLOAD_ROOT'] = str(upload_volume)
     with (tmp_path / 'app.log').open('w') as log:
         process = subprocess.Popen([sys.executable, str(Path(__file__).with_name('app_fixture.py')), str(tmp_path / 'app'), str(port)], cwd=tmp_path, env=env, stdout=log, stderr=log)
         try:
@@ -138,3 +163,26 @@ def test_invalid_upload_error_and_teacher_return_visible_to_student(pilot):
     expect(student.get_by_text('Please use the assigned material before resubmitting.',exact=True)).to_be_visible()
     student_context.close()
     teacher_context.close()
+
+
+@pytest.mark.parametrize('pilot', [1000000], indirect=True)
+def test_storage_reserve_denial_is_visible_and_creates_no_submission(pilot):
+    from tests.test_contracts.test_education_submission_upload import _sliced_3mf
+    url, browser, password = pilot
+    context, student = login(browser, url, 'student', password)
+    try:
+        student.get_by_role('button', name='Submit print', exact=True).first.click()
+        student.locator('#education-file').set_input_files({
+            'name': 'storage-pilot.3mf', 'mimeType': 'application/octet-stream',
+            'buffer': _sliced_3mf(),
+        })
+        with student.expect_response(lambda r: r.url.endswith('/api/education/submissions') and r.request.method == 'POST') as denied:
+            student.get_by_role('button', name='Submit for review', exact=True).click()
+        assert denied.value.status == 507
+        detail = denied.value.json()['detail']
+        assert 'headroom' in detail.lower()
+        expect(student.get_by_text(detail, exact=True)).to_be_visible()
+        listing = student.request.get(url + '/api/education/submissions')
+        assert listing.status == 200 and listing.json()['items'] == []
+    finally:
+        context.close()
