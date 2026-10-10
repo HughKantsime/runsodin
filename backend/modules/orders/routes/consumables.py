@@ -2,6 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import update
+from sqlalchemy.exc import DataError
+import sys
+import math
 from datetime import datetime, timezone
 import logging
 
@@ -112,16 +116,37 @@ def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Consumable not found")
-    if data.type == "restock":
-        item.current_stock += data.quantity
+    if item.current_stock is None or not math.isfinite(item.current_stock):
+        raise HTTPException(status_code=409, detail="Stored stock is invalid; correct the stock balance before adjusting it")
+    if not math.isfinite(data.quantity):
+        raise HTTPException(status_code=422, detail="Quantity must be finite")
+    statement = update(Consumable).where(Consumable.id == consumable_id)
+    if data.type == "deduct":
+        statement = statement.where(Consumable.current_stock >= data.quantity)
+        value = Consumable.current_stock - data.quantity
     else:
-        item.current_stock = max(0, item.current_stock - data.quantity)
-    usage = ConsumableUsage(
-        consumable_id=consumable_id,
-        quantity_used=data.quantity if data.type == "deduct" else -data.quantity,
-        notes=data.notes or f"Manual {data.type}"
-    )
-    db.add(usage)
-    item.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    return {"success": True, "new_stock": item.current_stock}
+        if not math.isfinite(item.current_stock + data.quantity):
+            raise HTTPException(status_code=409, detail="Adjustment would produce an invalid stock balance")
+        statement = statement.where(Consumable.current_stock <= sys.float_info.max - data.quantity)
+        value = Consumable.current_stock + data.quantity
+    try:
+        stock = db.execute(statement.values(current_stock=value,
+            updated_at=datetime.now(timezone.utc)).returning(
+                Consumable.current_stock).execution_options(synchronize_session=False)).scalar_one_or_none()
+        if stock is None:
+            raise HTTPException(status_code=409, detail="Insufficient stock; adjustment was not applied")
+        if not math.isfinite(stock):
+            raise HTTPException(status_code=409, detail="Adjustment would produce an invalid stock balance")
+        db.add(ConsumableUsage(consumable_id=consumable_id,
+            quantity_used=data.quantity if data.type == "deduct" else -data.quantity,
+            notes=data.notes or f"Manual {data.type}"))
+        db.commit()
+    except DataError as error:
+        db.rollback()
+        if getattr(error.orig, "sqlstate", None) == "22003":
+            raise HTTPException(status_code=409, detail="Adjustment would produce an invalid stock balance") from None
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    return {"success": True, "new_stock": stock}

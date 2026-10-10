@@ -5,6 +5,8 @@ from core.rbac import should_filter_org
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy import update
+import math
 from typing import List, Optional
 from datetime import datetime, timezone
 import logging
@@ -315,94 +317,103 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # Recheck legacy links before creating any jobs or deducting global consumables.
+    if order.status != OrderStatus.PENDING:
+        raise HTTPException(status_code=409, detail="Only a pending order can generate production")
+    historical_jobs = db.query(Job.id).join(OrderItem).filter(OrderItem.order_id == order.id).first()
+    historical_usage = db.query(ConsumableUsage.id).filter(ConsumableUsage.order_id == order.id).first()
+    if historical_jobs or historical_usage:
+        raise HTTPException(status_code=409, detail="This order already has production history. Review its existing jobs and usage before creating replacement work.")
+
+    # Resolve the complete authorized graph and demand before any writes.
+    planned_jobs = []
+    demand = {}
     for item in order.items:
         product = item.product
         if not product or not check_org_access(current_user, product.org_id):
             raise HTTPException(status_code=404, detail="Product not found")
+        if item.quantity <= 0:
+            raise HTTPException(status_code=409, detail="Order quantities must be positive")
         for component in product.components:
-            if not component.model or not check_org_access(current_user, component.model.org_id):
+            model = component.model
+            if not model or not check_org_access(current_user, model.org_id):
                 raise HTTPException(status_code=404, detail="Model not found")
-        for link in getattr(product, 'consumable_links', []):
-            if not link.consumable:
+            if component.quantity_needed <= 0:
+                raise HTTPException(status_code=409, detail="BOM quantities must be positive")
+            pieces_needed = item.quantity * component.quantity_needed
+            pieces_per_job = model.quantity_per_bed if model.quantity_per_bed is not None else 1
+            if pieces_per_job <= 0:
+                raise HTTPException(status_code=409, detail="Model bed quantity must be positive")
+            jobs_needed = -(-pieces_needed // pieces_per_job)
+            for index in range(jobs_needed):
+                quantity = min(pieces_per_job, pieces_needed - index * pieces_per_job)
+                planned_jobs.append((item, model, quantity))
+        for link in product.consumable_links:
+            consumable = link.consumable
+            if not consumable:
                 raise HTTPException(status_code=404, detail="Consumable not found")
+            if consumable.status != "active":
+                raise HTTPException(status_code=409, detail="A required consumable is inactive")
+            if link.quantity_per_product is None or not math.isfinite(link.quantity_per_product):
+                raise HTTPException(status_code=409, detail="Consumable BOM quantity must be finite")
+            needed = link.quantity_per_product * item.quantity
+            if not math.isfinite(needed) or needed <= 0:
+                raise HTTPException(status_code=409, detail="Consumable demand must be finite and positive")
+            previous = demand.get(consumable.id, (consumable, 0))[1]
+            total = previous + needed
+            if not math.isfinite(total):
+                raise HTTPException(status_code=409, detail="Consumable demand is too large")
+            demand[consumable.id] = (consumable, total)
+
+    if not planned_jobs and not demand:
+        db.refresh(order)
+        if order.status != OrderStatus.PENDING:
+            raise HTTPException(status_code=409, detail="Order state changed; review the order before scheduling")
+        return {"success": True, "order_id": order_id, "jobs_created": 0,
+                "details": [], "consumables_deducted": []}
+
     jobs_created = []
-
-    for item in order.items:
-        product = item.product
-        if not product or not product.components:
-            continue
-
-        # For each component in the BOM
-        for comp in product.components:
-            model = comp.model
-            if not model:
-                continue
-
-            # Calculate how many jobs needed
-            pieces_needed = item.quantity * comp.quantity_needed
-            pieces_per_job = model.quantity_per_bed or 1
-            jobs_needed = -(-pieces_needed // pieces_per_job)  # Ceiling division
-
-            # Create jobs
-            for i in range(jobs_needed):
-                qty_this_job = min(pieces_per_job, pieces_needed - (i * pieces_per_job))
-
-                job = Job(
-                    model_id=model.id,
-                    item_name=f"{model.name} (Order #{order.order_number or order.id})",
-                    quantity=1,
-                    order_item_id=item.id,
-                    quantity_on_bed=qty_this_job,
-                    status=JobStatus.PENDING,
-                    duration_hours=model.build_time_hours,
-                    filament_type=model.default_filament_type
-                )
-                db.add(job)
-                jobs_created.append({
-                    "model": model.name,
-                    "quantity_on_bed": qty_this_job
-                })
-
-    # Deduct consumables from inventory
     consumable_deductions = []
-    for item in order.items:
-        product = item.product
-        if not product:
-            continue
-        for pc in getattr(product, 'consumable_links', []):
-            consumable = pc.consumable
-            if not consumable or consumable.status != 'active':
-                continue
-            total_needed = pc.quantity_per_product * item.quantity
-            consumable.current_stock = max(0, consumable.current_stock - total_needed)
-            consumable.updated_at = datetime.now(timezone.utc)
-            usage = ConsumableUsage(
-                consumable_id=consumable.id,
-                order_id=order.id,
-                quantity_used=total_needed,
-                notes=f"Auto-deducted for Order #{order.order_number or order.id}"
-            )
-            db.add(usage)
-            consumable_deductions.append({
-                "consumable": consumable.name,
-                "quantity_deducted": total_needed,
-                "remaining_stock": consumable.current_stock
-            })
+    try:
+        # This conditional write serializes competing sessions on both providers.
+        claimed = db.execute(update(Order).where(
+            Order.id == order.id, Order.status == OrderStatus.PENDING
+        ).values(status=OrderStatus.IN_PROGRESS).execution_options(synchronize_session=False))
+        if claimed.rowcount != 1:
+            raise HTTPException(status_code=409, detail="This order was already scheduled or its state changed")
 
-    # Update order status
-    if jobs_created or consumable_deductions:
-        order.status = OrderStatus.IN_PROGRESS
+        # Successful arithmetic updates record exactly the units actually consumed.
+        for consumable_id in sorted(demand):
+            consumable, needed = demand[consumable_id]
+            remaining = db.execute(update(Consumable).where(
+                Consumable.id == consumable_id, Consumable.status == "active",
+                Consumable.current_stock >= needed
+            ).values(current_stock=Consumable.current_stock - needed,
+                     updated_at=datetime.now(timezone.utc)).returning(
+                Consumable.current_stock).execution_options(synchronize_session=False)).scalar_one_or_none()
+            if remaining is None:
+                raise HTTPException(status_code=409, detail="Insufficient active consumable stock; restock and try again")
+            if not math.isfinite(remaining):
+                raise HTTPException(status_code=409, detail="Stored consumable stock is invalid; correct it before scheduling")
+            db.add(ConsumableUsage(consumable_id=consumable_id, order_id=order.id,
+                quantity_used=needed, notes=f"Auto-deducted for Order #{order.order_number or order.id}"))
+            consumable_deductions.append({"consumable": consumable.name,
+                "quantity_deducted": needed, "remaining_stock": remaining})
 
-    db.commit()
-
-    return {
-        "success": True,
-        "order_id": order_id,
-        "jobs_created": len(jobs_created),
-        "details": jobs_created,
-        "consumables_deducted": consumable_deductions
-    }
+        for item, model, quantity in planned_jobs:
+            db.add(Job(model_id=model.id,
+                item_name=f"{model.name} (Order #{order.order_number or order.id})",
+                quantity=1, order_item_id=item.id, quantity_on_bed=quantity,
+                status=JobStatus.PENDING, duration_hours=model.build_time_hours,
+                filament_type=model.default_filament_type,
+                charged_to_org_id=order.org_id, charged_to_user_id=current_user.get("id"),
+                submitted_by=current_user.get("id")))
+            jobs_created.append({"model": model.name, "quantity_on_bed": quantity})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"success": True, "order_id": order_id, "jobs_created": len(jobs_created),
+            "details": jobs_created, "consumables_deducted": consumable_deductions}
 
 
 @router.get("/{order_id}/invoice.pdf")
