@@ -28,6 +28,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.orm import Session
 
 from core.base import AlertSeverity, AlertType, JobStatus
+from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from core.db import get_db
 from core.dependencies import log_audit
 from core.errors import ErrorCode, OdinError
@@ -76,6 +77,7 @@ def cancel_job(
 ):
     """Cancel a pending or scheduled job. Agent-surface v1.9.0."""
     job = _get_job_or_raise(db, job_id, current_user)
+    assert_generic_job_mutation_allowed(db, job_id)
     if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
         raise OdinError(
             ErrorCode.invalid_state_transition,
@@ -125,6 +127,7 @@ def approve_job(
     """Approve a submitted job. Moves it to pending status. Agent-surface v1.9.0."""
     require_feature("job_approval")
     job = _get_job_or_raise(db, job_id, current_user)
+    assert_generic_job_mutation_allowed(db, job_id)
 
     if job.status != "submitted":
         raise OdinError(
@@ -197,6 +200,7 @@ def reject_job(
     """Reject a submitted job with a required reason. Agent-surface v1.9.0."""
     require_feature("job_approval")
     job = _get_job_or_raise(db, job_id, current_user)
+    assert_generic_job_mutation_allowed(db, job_id)
 
     if job.status != "submitted":
         raise OdinError(

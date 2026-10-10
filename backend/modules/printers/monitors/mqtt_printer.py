@@ -16,7 +16,7 @@ import logging
 import time
 from urllib.parse import quote as urlquote
 from datetime import datetime, timezone
-from threading import Thread, Lock
+from threading import Thread, Lock, Event
 from typing import Dict, Optional, Any
 
 import core.crypto as crypto
@@ -66,6 +66,8 @@ class PrinterMonitor:
         self._last_spool_check: float = 0
         self._camera_discovered: bool = False
         self._lock = Lock()
+        self._status_received = Event()
+        self._pending_running_state = None
 
     def connect(self) -> bool:
         """Connect to printer MQTT.
@@ -77,6 +79,7 @@ class PrinterMonitor:
         """
         from modules.printers.telemetry.feature_flag import is_v2_enabled
 
+        self._status_received.clear()
         try:
             if is_v2_enabled():
                 return self._connect_v2()
@@ -147,8 +150,10 @@ class PrinterMonitor:
 
     def _recover_orphaned_jobs(self):
         """Close any 'running' jobs in the DB if the printer is not actually printing."""
+        # Wait before taking a lock or opening a transaction needed by callbacks.
+        self._status_received.wait(3)
         try:
-            with get_db() as conn:
+            with self._lock, get_db() as conn:
                 cur = conn.cursor()
                 rows = cur.execute(
                     "SELECT id, job_name, started_at, filename, scheduled_job_id FROM print_jobs "
@@ -157,8 +162,6 @@ class PrinterMonitor:
                 ).fetchall()
                 if not rows:
                     return
-                # Wait briefly for first MQTT status to arrive
-                time.sleep(3)
                 gcode_state = self._state.get('gcode_state', '')
                 from core.registry import registry
 
@@ -400,9 +403,40 @@ class PrinterMonitor:
                 if value is not None:
                     self._state[key] = value
             gcode_state = self._state.get('gcode_state')
-            if gcode_state and gcode_state != self._last_gcode_state:
+            self._status_received.set()
+            if gcode_state in ('RUNNING', 'PAUSE') and not self._current_job_id:
+                if self._pending_running_state is None:
+                    self._pending_running_state = dict(self._state)
+            pending = self._pending_running_state
+            if pending and not self._current_job_id:
+                pending_name = pending.get('subtask_name') or pending.get('gcode_file')
+                incoming_name = self._state.get('subtask_name') or self._state.get('gcode_file')
+                if pending_name != incoming_name:
+                    # Another token cannot erase the unresolved original start.
+                    # Keep telemetry, but await evidence for that original token.
+                    gcode_state = None
+            if pending and not self._current_job_id and gcode_state in ('FINISH', 'FAILED', 'IDLE'):
+                # A terminal packet cannot erase a start whose DB transaction
+                # failed. Retry the original observed token before ending it.
+                incoming = self._state
+                pending_name = pending.get('subtask_name') or pending.get('gcode_file')
+                incoming_name = incoming.get('subtask_name') or incoming.get('gcode_file')
+                if pending_name == incoming_name:
+                    try:
+                        self._state = pending
+                        self._on_state_change(self._last_gcode_state, pending['gcode_state'])
+                    finally:
+                        self._state = incoming
+                    if self._current_job_id:
+                        self._last_gcode_state = pending['gcode_state']
+                        self._pending_running_state = None
+            if gcode_state and (gcode_state != self._last_gcode_state or
+                                (gcode_state in ('RUNNING', 'PAUSE') and not self._current_job_id)):
                 self._on_state_change(self._last_gcode_state, gcode_state)
-                self._last_gcode_state = gcode_state
+                if not (self._pending_running_state and not self._current_job_id):
+                    self._last_gcode_state = gcode_state
+            if self._current_job_id:
+                self._pending_running_state = None
 
             incoming_hms = raw.get('hms')
             if incoming_hms:
@@ -762,7 +796,7 @@ class PrinterMonitor:
         # Guard: already tracking a job — skip duplicate start
         if self._current_job_id:
             log.debug(f"[{self.name}] _job_started called but already tracking job {self._current_job_id}")
-            return
+            return True
 
         # Check for existing running job in DB (e.g. after reconnect)
         try:
@@ -824,9 +858,10 @@ class PrinterMonitor:
                         except Exception as e:
                             log.debug(f"Failed to load spool weights for job resume: {e}")
                         log.info(f"[{self.name}] Resumed tracking existing job {row[0]} ({row[1]})")
-                        return
+                        return True
         except Exception as e:
             log.warning(f"[{self.name}] DB check for running job failed: {e}")
+            return False
 
         new_job_id, linked_job_id, start_weights = record_job_started(
             printer_id=self.printer_id,
@@ -839,6 +874,7 @@ class PrinterMonitor:
             self._current_job_id = new_job_id
             self._linked_job_id = linked_job_id
             self._start_spool_weights = start_weights
+        return new_job_id is not None
 
     def _update_progress(self):
         """Update progress data for current job."""

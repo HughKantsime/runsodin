@@ -27,6 +27,21 @@ from typing import Optional
 
 log = logging.getLogger("odin.dispatch")
 
+
+class DispatchOutcomeUncertain(RuntimeError):
+    """A print-capable operation was entered without reliable confirmation."""
+
+
+def _submit_print_command(operation, *args):
+    """Do not turn a lost acknowledgment into permission to send again."""
+    try:
+        accepted = operation(*args)
+    except Exception as exc:
+        raise DispatchOutcomeUncertain("Printer command outcome is unknown") from exc
+    if not accepted:
+        raise DispatchOutcomeUncertain("Printer command outcome is unknown")
+    return True
+
 # Graceful import — ws_hub may not be running in all contexts
 try:
     from core.ws_hub import push_event as _ws_push
@@ -195,7 +210,7 @@ def _load_job(job_id: int) -> Optional[dict]:
         with engine.connect() as conn:
             row = conn.execute(
                 text("""
-                SELECT j.id, j.item_name, j.status, j.printer_id,
+                SELECT j.id, j.model_id, j.item_name, j.status, j.printer_id,
                        pf.stored_path, pf.original_filename, pf.file_hash,
                        pf.bed_x_mm, pf.bed_y_mm, pf.compatible_api_types,
                        pf.compatibility_facts_json,
@@ -260,7 +275,7 @@ def _dispatch_bambu_v2(job_id: int, stored_path: str, remote_filename: str, cred
         access_code=creds["access_code"],
     )
     log.info(f"[dispatch] Sending Bambu V2 start_print for '{remote_filename}'")
-    ok = run_command(config, "start_print", remote_filename)
+    ok = _submit_print_command(run_command, config, "start_print", remote_filename)
     if not ok:
         return False, "MQTT print command failed (file uploaded OK)"
     return True, "Print started"
@@ -288,8 +303,10 @@ def _dispatch_bambu_legacy(job_id: int, stored_path: str, remote_filename: str, 
 
     time.sleep(1)
     log.info(f"[dispatch] Sending Bambu print command for '{remote_filename}'")
-    ok = printer.start_print(remote_filename)
-    printer.disconnect()
+    try:
+        ok = _submit_print_command(printer.start_print, remote_filename)
+    finally:
+        printer.disconnect()
 
     if not ok:
         return False, "MQTT print command failed (file uploaded OK)"
@@ -313,7 +330,7 @@ def _dispatch_moonraker(job_id: int, stored_path: str, remote_filename: str, cre
 
     _ws(job_id, "starting", "File uploaded, sending print command...")
     log.info(f"[dispatch] Moonraker start_print: {remote_filename}")
-    if not printer.start_print(remote_filename):
+    if not _submit_print_command(printer.start_print, remote_filename):
         return False, "Moonraker print start failed (file uploaded OK)"
     return True, "Print started"
 
@@ -332,7 +349,7 @@ def _dispatch_prusalink(job_id: int, stored_path: str, remote_filename: str, cre
 
     _ws(job_id, "uploading", f"Uploading {remote_filename} to PrusaLink...")
     log.info(f"[dispatch] PrusaLink upload+start: {remote_filename} → {creds['ip']}")
-    if not printer.upload_and_print(stored_path, remote_filename):
+    if not _submit_print_command(printer.upload_and_print, stored_path, remote_filename):
         return False, "PrusaLink upload or print start failed — check host and credentials"
     return True, "Print started"
 
@@ -369,6 +386,18 @@ def _reconcile_education_denial(
 def _authorize_education_hardware_action(job: dict, creds: dict) -> tuple[bool, str] | None:
     """Final policy and compatibility check for Education-owned jobs."""
     if job.get("education_submission_id") is None:
+        if job.get("model_id") is not None:
+            from core.db import engine
+            from core.registry import registry
+            from sqlalchemy.orm import Session
+            provider = registry.get_provider("EducationPolicyProvider")
+            if provider is None:
+                return False, "Education dispatch policy is unavailable; no hardware command was sent"
+            try:
+                with Session(engine) as db:
+                    provider.assert_generic_model_reference_allowed(db, int(job["model_id"]))
+            except Exception:
+                return False, "Education resource requires its submission and approval workflow; no hardware command was sent"
         return None
 
     from core.db import engine
@@ -609,6 +638,7 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
     _ws(job_id, "uploading", f"Dispatching '{job['item_name']}'...")
 
     # Route to the adapter only after the Education reservation is durable.
+    uncertain = False
     try:
         if api_type == "bambu":
             success, message = _dispatch_bambu(job_id, stored_path, remote_filename, creds)
@@ -616,12 +646,15 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
             success, message = _dispatch_moonraker(job_id, stored_path, remote_filename, creds)
         else:
             success, message = _dispatch_prusalink(job_id, stored_path, remote_filename, creds)
-    except Exception as exc:
-        log.exception("[dispatch] Hardware adapter raised for job %s", job_id)
-        success, message = False, f"Printer adapter failed: {exc}"
+    except Exception:
+        # An unexpected exception may occur after submission. Fail closed rather
+        # than removing the only durable fence against a second physical print.
+        log.warning("[dispatch] Adapter outcome requires reconciliation for job %s", job_id)
+        uncertain = True
+        success, message = False, "Printer command outcome is unknown; explicit reconciliation is required before retrying"
 
     if not success:
-        if education_reservation and not _cancel_education_reservation(
+        if education_reservation and not uncertain and not _cancel_education_reservation(
             education_provider, education_reservation
         ):
             message += "; Education reservation requires explicit reconciliation"

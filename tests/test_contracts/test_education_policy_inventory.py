@@ -51,6 +51,8 @@ def test_central_policy_interface_covers_lifecycle_and_dispatch() -> None:
     from core.interfaces.education_policy import EducationPolicyProvider
 
     assert EducationPolicyProvider.__abstractmethods__ == {
+        "assert_generic_job_mutation_allowed",
+        "assert_generic_model_reference_allowed",
         "assert_user_tenant_change_allowed",
         "assert_user_hard_delete_allowed",
         "assert_org_hard_delete_allowed",

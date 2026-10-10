@@ -305,3 +305,131 @@ def test_real_mqtt_monitor_ingestion_restart_and_terminal(path, terminal, expect
         publisher.disconnect()
         publisher.loop_stop()
         assert forbidden_callbacks.empty(), "Education emitted forbidden generic callback"
+
+
+@pytest.mark.parametrize('path', ['legacy', 'v2'])
+def test_received_command_with_lost_ack_fences_retry_and_reconciles(path, review_db, tmp_path,
+        monkeypatch, resumption_context, tls_mqtt):
+    from modules.printers import dispatch
+    from modules.printers.adapters.bambu import BambuPrinter
+    from modules.printers.telemetry.bambu.commands import BambuCommandAdapter
+    from modules.printers.telemetry.bambu import ftp_upload
+    from modules.organizations.education_policy import claim_monitor_observation
+    port, commands = tls_mqtt
+    uploaded = setup_workflow(review_db, tmp_path, monkeypatch, path, port)
+    adapter = BambuPrinter if path == 'legacy' else BambuCommandAdapter
+    original = adapter.start_print
+    def lose_ack(self, *args, **kwargs):
+        assert original(self, *args, **kwargs)
+        deadline = time.monotonic() + 3
+        while not commands and time.monotonic() < deadline:
+            time.sleep(.02)
+        assert commands, 'Peer must receive the command before acknowledgment is lost'
+        return False
+    monkeypatch.setattr(adapter, 'start_print', lose_ack)
+    peer = ProtectedFTPServer(resumption_context, require_session_reuse=True,
+        expected_credentials=('bblp', SYNTHETIC_ACCESS_CODE))
+    monkeypatch.setattr(ftp_upload, 'FTPS_PORT', peer.port)
+    try:
+        ok, message = dispatch.dispatch_job(9, uploaded['job_id'])
+    finally:
+        peer.finish()
+    assert not peer.errors
+    assert not ok and 'reconciliation' in message
+    assert states(review_db, uploaded) == ('scheduled', 'scheduled')
+    claims = review_db.execute(text('SELECT claim_id FROM education_monitor_claims WHERE job_id=:id'),
+        {'id': uploaded['job_id']}).all()
+    assert len(claims) == 1
+    def forbidden(*args, **kwargs):
+        pytest.fail('Unknown outcome must fence a second physical attempt')
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', forbidden)
+    assert not dispatch.dispatch_job(9, uploaded['job_id'])[0]
+    assert len([c for c in commands if c.get('print', {}).get('command') == 'project_file']) == 1
+    observation = review_db.execute(text("INSERT INTO print_jobs (printer_id,filename,job_name,status,started_at) VALUES (9,:filename,:filename,'running',CURRENT_TIMESTAMP) RETURNING id"),
+        {'filename': peer.remote_filename}).scalar_one()
+    recovered = claim_monitor_observation(review_db, print_job_id=observation, printer_id=9,
+        observed_filename=peer.remote_filename)
+    assert recovered['authorized']
+    review_db.commit()
+    assert states(review_db, uploaded) == ('printing', 'printing')
+
+
+@pytest.mark.parametrize('path', ['legacy','v2'])
+@pytest.mark.parametrize('retry_packet', ['RUNNING','FINISH','foreign_then_finish'])
+def test_retained_start_transaction_failure_retries_without_losing_terminal(path, retry_packet,
+        review_db, tmp_path, monkeypatch, resumption_context, tls_mqtt):
+    from types import SimpleNamespace
+    from core import db_utils
+    from modules.printers import dispatch
+    from modules.printers.monitors import mqtt_printer
+    from modules.printers.telemetry.bambu import ftp_upload
+    port, commands = tls_mqtt
+    uploaded = setup_workflow(review_db,tmp_path,monkeypatch,path,port)
+    monkeypatch.setattr(db_utils,'engine',review_db.get_bind())
+    peer=ProtectedFTPServer(resumption_context,require_session_reuse=True,expected_credentials=('bblp',SYNTHETIC_ACCESS_CODE))
+    monkeypatch.setattr(ftp_upload,'FTPS_PORT',peer.port)
+    try: assert dispatch.dispatch_job(9,uploaded['job_id'])[0]
+    finally: peer.finish()
+    original=mqtt_printer.record_job_started
+    attempted=threading.Event()
+    def fail_first(**kwargs):
+        if not attempted.is_set():
+            attempted.set();return None,None,{}
+        return original(**kwargs)
+    monkeypatch.setattr(mqtt_printer,'record_job_started',fail_first)
+    monitor=mqtt_printer.PrinterMonitor(9,'Synthetic','127.0.0.1','synthetic-printer',SYNTHETIC_ACCESS_CODE)
+    monkeypatch.setattr(monitor,'_dispatch_alert',lambda *a,**k:pytest.fail('No generic EDU alerts'))
+    monkeypatch.setattr(monitor,'_trigger_reschedule',lambda *a,**k:pytest.fail('No generic EDU reschedule'))
+    monkeypatch.setattr(monitor,'_try_dispatch',lambda:None)
+    publisher=mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    publisher.username_pw_set('bblp',SYNTHETIC_ACCESS_CODE)
+    publisher.tls_set(cert_reqs=ssl.CERT_NONE);publisher.tls_insecure_set(True)
+    publisher.connect('127.0.0.1',port);publisher.loop_start()
+    def report(state, filename=None):
+        packet={'print':{'gcode_state':state,'subtask_name':filename or peer.remote_filename,'gcode_file':'Metadata/plate_1.gcode','mc_percent':100 if state=='FINISH' else 25,'mc_remaining_time':1}}
+        result=publisher.publish('device/synthetic-printer/report',json.dumps(packet),qos=1,retain=True)
+        result.wait_for_publish(timeout=3);assert result.is_published()
+    try:
+        report('RUNNING')
+        assert monitor.connect()
+        assert attempted.wait(3)
+        assert monitor._current_job_id is None
+        if retry_packet == 'foreign_then_finish':
+            foreign_name='odin-'+secrets.token_hex(16)+'.3mf'
+            report('RUNNING',foreign_name)
+            deadline=time.monotonic()+5
+            while monitor._state.get('subtask_name')!=foreign_name:
+                assert time.monotonic()<deadline
+                time.sleep(.02)
+            assert monitor._current_job_id is None
+            assert monitor._pending_running_state['subtask_name']==peer.remote_filename
+            report('FINISH')
+        else:
+            report(retry_packet)
+        if retry_packet=='RUNNING':
+            deadline=time.monotonic()+5
+            while monitor._current_job_id is None:
+                assert time.monotonic()<deadline
+                time.sleep(.02)
+            report('FINISH')
+        deadline=time.monotonic()+5
+        while states(review_db,uploaded)!=('completed','completed'):
+            assert time.monotonic()<deadline
+            time.sleep(.02)
+        assert review_db.execute(text('SELECT count(*) FROM print_jobs WHERE printer_id=9')).scalar_one()==1
+        assert len([c for c in commands if c.get('print',{}).get('command')=='project_file'])==1
+    finally:
+        monitor.disconnect();publisher.disconnect();publisher.loop_stop()
+
+
+def test_running_lookup_failure_does_not_insert_another_observation(monkeypatch):
+    from contextlib import contextmanager
+    from modules.printers.monitors import mqtt_printer
+    @contextmanager
+    def unavailable():
+        raise RuntimeError('Synthetic lookup unavailable')
+        yield
+    monkeypatch.setattr(mqtt_printer,'get_db',unavailable)
+    monkeypatch.setattr(mqtt_printer,'record_job_started',lambda **kwargs:pytest.fail('Failed lookup must not fall through to insert'))
+    monitor=mqtt_printer.PrinterMonitor(9,'Synthetic','127.0.0.1','synthetic',SYNTHETIC_ACCESS_CODE)
+    assert monitor._job_started() is False

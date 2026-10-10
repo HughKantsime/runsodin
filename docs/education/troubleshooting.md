@@ -11,3 +11,11 @@ Open **Settings > System > Troubleshooting** as a server administrator (admin wi
 Report results carry timestamps and diagnostic IDs. Earlier printer checks keep their own timestamps and are cleared when selecting a different printer. Changing the problem description or log choice clears the preview so it must be regenerated.
 
 Checks do not establish that a physical print started or completed. Log filtering covers common credential patterns but cannot guarantee removal of arbitrary personal details; review before sharing. Preserve existing data, volumes and encryption keys during support.
+
+## A print command whose outcome is unknown
+
+A timeout or lost acknowledgment can occur after a printer receives the start command. Education keeps the original dispatch reservation and blocks another dispatch while that outcome is unresolved. A later matching printer observation can reconcile the original job without sending another start command.
+
+Use the Education workflow for these jobs. Generic reset, cancel, repeat, move and edit actions cannot bypass its approval and tracking policy. Check the physical printer and attach a reviewed support report if the outcome cannot be confirmed. Do not create a duplicate job or clear the reservation to force a retry.
+
+See [Education backup and recovery](backup-recovery.md) before restoring or upgrading an installation.

@@ -104,6 +104,21 @@ def _exists(db: Session, statement: str, params: dict) -> bool:
     return db.execute(text(statement), params).fetchone() is not None
 
 
+def assert_generic_model_reference_allowed(db: Session, model_id: int) -> None:
+    if _exists(db, "SELECT 1 FROM education_submissions s JOIN models m "
+            "ON (s.model_id=m.id OR s.print_file_id=m.print_file_id) "
+            "WHERE m.id=:id LIMIT 1", {"id": model_id}):
+        raise HTTPException(status_code=409, detail="Education files and models require the Education submission and approval workflow")
+
+
+def assert_generic_job_mutation_allowed(db: Session, job_id: int) -> None:
+    if _exists(db, "SELECT 1 FROM education_submissions WHERE job_id=:id LIMIT 1", {"id": job_id}):
+        raise HTTPException(status_code=409, detail=(
+            "This job belongs to Education. Use the Education workflow; "
+            "an unresolved printer command must be reconciled before further action."
+        ))
+
+
 def assert_user_tenant_change_allowed(db: Session, user_id: int) -> None:
     if _exists(
         db,

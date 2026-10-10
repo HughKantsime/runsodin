@@ -9,6 +9,7 @@ from pydantic import BaseModel as PydanticBaseModel
 import json
 import logging
 
+from modules.jobs.education_guard import assert_generic_job_mutation_allowed
 from core.db import get_db
 from core.db_compat import sql
 from core.dependencies import get_current_user, log_audit
@@ -60,6 +61,7 @@ def start_job(job_id: int, current_user: dict = Depends(require_role("operator")
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     if job.status not in [JobStatus.SCHEDULED, JobStatus.PENDING]:
         raise HTTPException(status_code=400, detail=f"Cannot start job in {job.status} status")
@@ -103,6 +105,7 @@ def complete_job(job_id: int, current_user: dict = Depends(require_role("operato
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     # R5: atomic state transition. The DB — not Python — enforces
     # single-winner semantics. The UPDATE's WHERE clause is the lock.
@@ -303,6 +306,7 @@ def fail_job(job_id: int, notes: Optional[str] = None, current_user: dict = Depe
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     job.status = JobStatus.FAILED
     job.actual_end = datetime.now(timezone.utc)
@@ -327,6 +331,7 @@ def reset_job(job_id: int, current_user: dict = Depends(require_role("operator")
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     job.status = JobStatus.PENDING
     job.printer_id = None
@@ -394,6 +399,7 @@ def resubmit_job(job_id: int, db: Session = Depends(get_db), current_user: dict 
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     if job.status != "rejected":
         raise HTTPException(status_code=400, detail="Only rejected jobs can be resubmitted")
@@ -440,6 +446,7 @@ def link_job_to_print(job_id: int, print_job_id: int, current_user: dict = Depen
     job_dict = dict(job_row._mapping)
     if not check_org_access(current_user, job_dict.get("charged_to_org_id")):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
     # Re-alias for downstream use
     job = job_row
 
@@ -485,6 +492,7 @@ def move_job(
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     # Verify printer exists
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
@@ -546,6 +554,7 @@ async def update_job_failure(
     job_dict = dict(job._mapping)
     if not check_org_access(current_user, job_dict.get("charged_to_org_id")):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
     if job_dict["status"] != "failed":
         raise HTTPException(status_code=400, detail="Can only add failure info to failed jobs")
 

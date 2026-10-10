@@ -25,6 +25,14 @@ def is_education_reserved_filename(value: str | None) -> bool:
 
 class EducationPolicyProvider(ABC):
     @abstractmethod
+    def assert_generic_model_reference_allowed(self, db, model_id: int) -> None:
+        """Reject reuse of Education files/models outside its approval lifecycle."""
+
+    @abstractmethod
+    def assert_generic_job_mutation_allowed(self, db, job_id: int) -> None:
+        """Reject generic mutations/clones of Education-owned jobs."""
+
+    @abstractmethod
     def assert_user_tenant_change_allowed(self, db, user_id: int) -> None:
         """Reject tenant reassignment while Education owns user references."""
 

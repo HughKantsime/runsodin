@@ -9,6 +9,7 @@ from pydantic import BaseModel as PydanticBaseModel
 import json
 import logging
 
+from modules.jobs.education_guard import assert_generic_job_mutation_allowed, assert_generic_model_reference_allowed
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
@@ -104,6 +105,7 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
 
     db_jobs = []
     for job in jobs:
+        assert_generic_model_reference_allowed(db, job.model_id)
         # Calculate cost if model is linked
         estimated_cost, suggested_price, _ = (None, None, None)
         if job.model_id:
@@ -153,6 +155,7 @@ def create_jobs_batch(
     """
     from modules.models_library.services import calculate_job_cost
 
+    assert_generic_model_reference_allowed(db, body.model_id)
     if not body.printer_ids:
         raise HTTPException(status_code=400, detail="printer_ids cannot be empty")
     if len(body.printer_ids) > 50:
@@ -206,6 +209,7 @@ async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depen
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job or not check_org_access(current_user, job.charged_to_org_id):
             continue
+        assert_generic_job_mutation_allowed(db, job_id)
         db.execute(
             text("UPDATE jobs SET queue_position = :pos WHERE id = :id AND status IN ('pending', 'scheduled')"),
             {"pos": position, "id": job_id}
@@ -230,8 +234,9 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     if action == "cancel":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if job and not check_org_access(current_user, job.charged_to_org_id):
+            if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
+            assert_generic_job_mutation_allowed(db, jid)
             db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
                        {"id": jid})
             count += 1
@@ -241,30 +246,34 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             raise HTTPException(status_code=400, detail="Priority must be 1-5")
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if job and not check_org_access(current_user, job.charged_to_org_id):
+            if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
+            assert_generic_job_mutation_allowed(db, jid)
             db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id"), {"p": priority, "id": jid})
             count += 1
     elif action == "delete":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if job and not check_org_access(current_user, job.charged_to_org_id):
+            if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
+            assert_generic_job_mutation_allowed(db, jid)
             db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
                        {"id": jid})
             count += 1
     elif action == "hold":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if job and not check_org_access(current_user, job.charged_to_org_id):
+            if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
+            assert_generic_job_mutation_allowed(db, jid)
             db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id"), {"id": jid})
             count += 1
     elif action == "unhold":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
-            if job and not check_org_access(current_user, job.charged_to_org_id):
+            if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
+            assert_generic_job_mutation_allowed(db, jid)
             db.execute(text("UPDATE jobs SET hold = FALSE WHERE id = :id"), {"id": jid})
             count += 1
     else:
@@ -328,6 +337,7 @@ def create_job(
     # Import here to avoid circular at module level
     from modules.models_library.services import calculate_job_cost
 
+    assert_generic_model_reference_allowed(db, job.model_id)
     # Check print quota before creating job
     if current_user:
         quota_jobs = current_user.get("quota_jobs")
@@ -526,7 +536,9 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
+    assert_generic_model_reference_allowed(db, updates.model_id)
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(job, field, value)
 
@@ -543,6 +555,7 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
     log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
     db.delete(job)
@@ -557,7 +570,9 @@ async def repeat_job(job_id: int, current_user: dict = Depends(require_role("ope
         raise HTTPException(status_code=404, detail="Job not found")
     if not check_org_access(current_user, original.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
+    assert_generic_job_mutation_allowed(db, job_id)
 
+    assert_generic_model_reference_allowed(db, original.model_id)
     # Create new job with same settings
     new_job = Job(
         model_id=original.model_id,

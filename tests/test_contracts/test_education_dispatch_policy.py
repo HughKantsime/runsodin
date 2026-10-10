@@ -379,3 +379,31 @@ def test_education_dispatch_rejects_unverified_contents_before_reservation(monke
     assert not ok and "integrity" in message.lower()
     assert calls == []
     assert job["status"] == "scheduled"
+
+
+@pytest.mark.parametrize('mode', ['lost_ack', 'exception'])
+def test_uncertain_print_command_preserves_education_reservation(monkeypatch, tmp_path, mode):
+    from modules.printers import dispatch
+    print_file = tmp_path / 'project.3mf'
+    print_file.write_bytes(b'fixture')
+    job = _job(_facts()) | {'stored_path': str(print_file), 'original_filename': 'project.3mf',
+        'bed_x_mm': 256, 'bed_y_mm': 256, 'compatible_api_types': 'bambu'}
+    reservation = {'remote_filename': 'odin-test.3mf'}
+    cancelled = []
+    commands = []
+    monkeypatch.setattr(dispatch, '_load_job', lambda _: job)
+    monkeypatch.setattr(dispatch, '_get_printer_info', lambda _: _printer(ip='test'))
+    monkeypatch.setattr(dispatch, '_authorize_education_hardware_action', lambda *args: (True, 'v1'))
+    monkeypatch.setattr(dispatch, '_reserve_education_hardware_action', lambda *args: ((object(), reservation), None))
+    monkeypatch.setattr(dispatch, '_cancel_education_reservation', lambda *args: cancelled.append(args) or True)
+    def accepted_without_ack(*args):
+        commands.append('accepted')
+        if mode == 'exception':
+            raise TimeoutError('acknowledgment lost')
+        return False
+    monkeypatch.setattr(dispatch, '_dispatch_bambu', lambda *args: (dispatch._submit_print_command(accepted_without_ack), 'Print started'))
+    success, message = dispatch.dispatch_job(9, 72)
+    assert not success
+    assert 'reconciliation' in message
+    assert commands == ['accepted']
+    assert cancelled == []

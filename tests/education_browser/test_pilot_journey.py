@@ -217,3 +217,54 @@ def test_guided_troubleshooting_server_report_and_safe_printer_failure(pilot):
         expect(page.get_by_role('link',name='Open email draft')).to_have_attribute('href',__import__('re').compile('^mailto:support@runsodin.com'))
         page.screenshot(path=str(ROOT/'artifacts/edu-workflow-check/troubleshooting-browser.png'),full_page=True)
     finally: context.close()
+
+
+def test_submit_dialog_keyboard_and_critical_accessibility(pilot):
+    url, browser, password = pilot
+    context, page = login(browser, url, 'student', password)
+    page.get_by_role('button', name='Submit print', exact=True).first.click()
+    expect(page.locator('#education-file')).to_be_visible()
+    page.evaluate((ROOT / 'frontend/node_modules/axe-core/axe.min.js').read_text())
+    results = page.evaluate("""async () => await axe.run(document.querySelector('[role=dialog]') || document.querySelector('#main-content'), {runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})""")
+    blocking = [{ 'id':v['id'], 'impact':v['impact'], 'elements':[n['target'] for n in v['nodes']] }
+        for v in results['violations'] if v['impact'] in ('critical','serious')]
+    assert blocking == [], blocking
+    page.keyboard.press('Escape')
+    # The accessible cancellation action must always remain keyboard reachable.
+    if page.locator('#education-file').is_visible():
+        page.get_by_role('button', name='Cancel', exact=True).focus()
+        page.keyboard.press('Enter')
+    expect(page.locator('#education-file')).not_to_be_visible()
+    context.close()
+
+
+def test_bounded_malformed_archive_http_corpus_leaves_no_submissions(pilot):
+    import io, zipfile, struct, uuid
+    from tests.test_contracts.test_education_submission_upload import _sliced_3mf
+    url, browser, password = pilot
+    context, page = login(browser,url,'student',password)
+    valid = _sliced_3mf()
+    duplicate = io.BytesIO()
+    with zipfile.ZipFile(duplicate,'w') as target, zipfile.ZipFile(io.BytesIO(valid)) as source:
+        for item in source.infolist(): target.writestr(item.filename,source.read(item))
+        target.writestr('Metadata/plate_1.gcode','G28')
+    expanded = bytearray(valid)
+    start = expanded.find(b'PK\x01\x02')
+    struct.pack_into('<I',expanded,start+24,600*1024**2)
+    corpus = [b'',b'not a zip',valid[:30],valid[:-22],duplicate.getvalue(),bytes(expanded)]
+    control=context.request.post(url+'/api/education/submissions', multipart={
+        'cost_center_id':'7','submission_token':str(uuid.uuid4()),
+        'file':{'name':'control.3mf','mimeType':'application/octet-stream','buffer':valid}})
+    assert control.status==201, control.text()
+    control_id=control.json()['id']
+    for payload in corpus:
+        started=time.monotonic()
+        response=context.request.post(url+'/api/education/submissions', multipart={
+            'cost_center_id':'7','submission_token':str(uuid.uuid4()),
+            'file':{'name':'malformed.3mf','mimeType':'application/octet-stream','buffer':payload}})
+        assert response.status in (400,422), response.text()
+        assert time.monotonic()-started < 5
+        listing=context.request.get(url+'/api/education/submissions')
+        assert listing.status==200
+        assert [item['id'] for item in listing.json()['items']]==[control_id]
+    context.close()

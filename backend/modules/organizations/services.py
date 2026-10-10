@@ -12,6 +12,8 @@ from core.interfaces.org_settings import OrgSettingsProvider
 from core.interfaces.education_policy import EducationPolicyProvider
 from modules.organizations.education_policy import (
     advance_schedule,
+    assert_generic_job_mutation_allowed,
+    assert_generic_model_reference_allowed,
     authorize_dispatch,
     cancel_dispatch_reservation,
     claim_monitor_observation,
@@ -63,6 +65,12 @@ class OrgSettingsService(OrgSettingsProvider):
 
 class EducationPolicyService(EducationPolicyProvider):
     """Registry-facing adapter for the central Education policy."""
+
+    def assert_generic_model_reference_allowed(self, db, model_id: int) -> None:
+        assert_generic_model_reference_allowed(db, model_id)
+
+    def assert_generic_job_mutation_allowed(self, db, job_id: int) -> None:
+        assert_generic_job_mutation_allowed(db, job_id)
 
     def assert_user_tenant_change_allowed(self, db, user_id: int) -> None:
         assert_user_tenant_change_allowed(db, user_id)

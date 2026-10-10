@@ -650,7 +650,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 154,
+      "line": 159,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -658,7 +658,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 227,
+      "line": 230,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -666,7 +666,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 273,
+      "line": 276,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -674,7 +674,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 324,
+      "line": 327,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -682,7 +682,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 345,
+      "line": 348,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -690,7 +690,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 352,
+      "line": 355,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -698,7 +698,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 363,
+      "line": 366,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -706,7 +706,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 373,
+      "line": 376,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -714,7 +714,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 437,
+      "line": 471,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -722,7 +722,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 455,
+      "line": 489,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -730,7 +730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 470,
+      "line": 504,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -738,7 +738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 483,
+      "line": 517,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -746,7 +746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 511,
+      "line": 545,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -754,7 +754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 526,
+      "line": 560,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -762,7 +762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 556,
+      "line": 590,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -770,7 +770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 564,
+      "line": 598,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -778,7 +778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 569,
+      "line": 603,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -786,7 +786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 574,
+      "line": 608,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -794,7 +794,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 578,
+      "line": 612,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -802,7 +802,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 582,
+      "line": 616,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -810,7 +810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 586,
+      "line": 620,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -818,7 +818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 590,
+      "line": 624,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -826,7 +826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 603,
+      "line": 637,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -834,7 +834,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 644,
+      "line": 678,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -842,7 +842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 712,
+      "line": 746,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -850,7 +850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 771,
+      "line": 805,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -858,7 +858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 815,
+      "line": 849,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -866,7 +866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 857,
+      "line": 893,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
