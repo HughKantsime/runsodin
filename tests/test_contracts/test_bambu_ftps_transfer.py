@@ -1,5 +1,6 @@
 """Exercise both Bambu upload paths against a real local TLS FTP peer."""
 import socket
+import secrets
 import ssl
 import struct
 import subprocess
@@ -9,6 +10,9 @@ import pytest
 
 from modules.printers.telemetry.bambu import ftp_upload
 from modules.printers.adapters import bambu
+
+
+SYNTHETIC_FTPS_ACCESS_CODE = secrets.token_urlsafe(24)
 
 
 def _server_context(root):
@@ -158,10 +162,10 @@ class ProtectedFTPServer:
 def upload(path, peer, source, monkeypatch):
     if path == "v2":
         monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
-        return ftp_upload.upload_file("127.0.0.1", "synthetic-test-code", str(source), "test.3mf", timeout=3)
+        return ftp_upload.upload_file("127.0.0.1", SYNTHETIC_FTPS_ACCESS_CODE, str(source), "test.3mf", timeout=3)
     printer = bambu.BambuPrinter.__new__(bambu.BambuPrinter)
     printer.ip = "127.0.0.1"
-    printer.access_code = "synthetic-test-code"
+    printer.access_code = SYNTHETIC_FTPS_ACCESS_CODE
     printer.serial = "synthetic-test-printer"
     monkeypatch.setattr(ftp_upload, "FTPS_PORT", peer.port)
     return printer.upload_file(str(source), "test.3mf")
@@ -221,7 +225,7 @@ def test_dispatch_transfer_failure_never_starts_print(path, failure, server_cont
     function = dispatch._dispatch_bambu_legacy if path == "legacy" else dispatch._dispatch_bambu_v2
     try:
         ok, reason = function(1, str(source), "test.3mf", {
-            "ip": "127.0.0.1", "access_code": "synthetic-test-code", "serial": "synthetic-test-printer",
+            "ip": "127.0.0.1", "access_code": SYNTHETIC_FTPS_ACCESS_CODE, "serial": "synthetic-test-printer",
         })
         assert not ok
         assert "FTPS upload failed" in reason
@@ -255,7 +259,7 @@ def test_strict_tls12_peer_requires_production_session_reuse(path, reuse_control
     payload = b"PK\x03\x04synthetic-tls-resumption-payload" * 1024
     source.write_bytes(payload)
     peer = ProtectedFTPServer(resumption_context, require_session_reuse=True,
-                              expected_credentials=("bblp", "synthetic-test-code"))
+                              expected_credentials=("bblp", SYNTHETIC_FTPS_ACCESS_CODE))
     try:
         result = upload(path, peer, source, monkeypatch)
     finally:
