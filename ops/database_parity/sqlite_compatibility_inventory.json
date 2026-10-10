@@ -938,11 +938,19 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 184,
+      "line": 180,
       "path": "backend/modules/system/routes_admin.py",
       "pattern": "PRAGMA",
       "reason": "SQLite integrity-check branch; PostgreSQL uses provider-specific health checks",
       "source": "integrity = conn.execute(\"PRAGMA integrity_check\").fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 8,
+      "path": "backend/modules/system/sanitize.py",
+      "pattern": "qmark-parameter",
+      "reason": "Secret-filter regular expressions contain question marks; this utility executes no SQL",
+      "source": "re.compile(r'''(?ix)[\"']?\\b(?:password|passwd|access[_-]?code|api[_-]?key|token|secret|credential|cookie|serial(?:_number)?)\\b[\"']?\\s*[:=]\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s,;}]+)'''),"
     },
     {
       "classification": "sqlite-provider-only",

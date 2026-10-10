@@ -1,6 +1,8 @@
 """System admin routes — live log viewer, support bundle, and global search."""
+from modules.system.sanitize import sanitize_log_lines, sanitize_log_line
 
 import json
+import collections
 import logging
 import os
 from datetime import datetime, timezone
@@ -51,7 +53,6 @@ def get_logs(
     if not log_path or not os.path.isfile(log_path):
         return {"lines": [], "source": source}
 
-    import collections
     result = collections.deque(maxlen=lines)
     level_upper = level.upper() if level else None
 
@@ -64,7 +65,7 @@ def get_logs(
                 continue
             result.append(stripped)
 
-    return {"lines": list(result), "source": source}
+    return {"lines": sanitize_log_lines(list(result)), "source": source}
 
 
 @router.get("/admin/logs/stream", tags=["Admin"])
@@ -99,7 +100,7 @@ async def stream_logs(
                     continue
                 if search and search.lower() not in stripped.lower():
                     continue
-                yield f"data: {json.dumps(stripped)}\n\n"
+                yield f"data: {json.dumps(sanitize_log_line(stripped))}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -109,7 +110,6 @@ async def stream_logs(
 @router.get("/admin/support-bundle", tags=["Admin"])
 def download_support_bundle(user=Depends(require_superadmin()), db: Session = Depends(get_db)):
     """Generate a privacy-filtered diagnostic ZIP for issue reporting. Superadmin only."""
-    import collections
     import io
     import platform
     import sqlite3
@@ -165,17 +165,13 @@ def download_support_bundle(user=Depends(require_superadmin()), db: Session = De
             if any(s in k.lower() for s in sensitive):
                 safe_config[k] = "[REDACTED]"
             else:
-                safe_config[k] = v
+                safe_config[k] = sanitize_log_line(str(v))
         zf.writestr("settings_safe.json", json.dumps(safe_config, indent=2))
 
-        log_path = "/data/backend.log"
-        error_lines = collections.deque(maxlen=100)
-        if os.path.isfile(log_path):
-            with open(log_path, "r", errors="replace") as f:
-                for line in f:
-                    if "WARNING" in line or "ERROR" in line:
-                        error_lines.append(line.rstrip("\n"))
-        zf.writestr("recent_errors.txt", "\n".join(error_lines))
+        from modules.system.diagnostics import _read_tail
+        recent = _read_tail('/data/backend.log', 100)
+        error_lines = [line for line in recent if 'WARNING' in line or 'ERROR' in line] if isinstance(recent, list) else []
+        zf.writestr("recent_errors.txt", "\n".join(sanitize_log_lines(error_lines)))
 
         health = {}
         if sql.is_sqlite:

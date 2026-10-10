@@ -186,3 +186,34 @@ def test_storage_reserve_denial_is_visible_and_creates_no_submission(pilot):
         assert listing.status == 200 and listing.json()['items'] == []
     finally:
         context.close()
+
+
+def test_guided_troubleshooting_server_report_and_safe_printer_failure(pilot):
+    url,browser,password=pilot
+    context,page=login(browser,url,'superadmin',password)
+    try:
+        page.goto(url+'/settings')
+        page.get_by_role('button',name='System',exact=True).click()
+        expect(page.get_by_role('heading',name='Troubleshooting',exact=True)).to_be_visible()
+        page.get_by_role('button',name='Check server',exact=True).click()
+        expect(page.get_by_text('Database query succeeded.',exact=True)).to_be_visible()
+        # Saved synthetic printer has a deliberately blocked loopback address.
+        assert page.request.get(url+'/api/printers').status==200
+        page.locator('#diagnostic-printer').select_option('99')
+        page.get_by_role('button',name='Check printer',exact=True).click()
+        expect(page.get_by_text('Saved printer address could not be safely resolved.',exact=True)).to_be_visible()
+        page.locator('#diagnostic-problem').fill('Transfer failed on our test printer')
+        page.get_by_role('button',name='Preview support report',exact=True).click()
+        preview=page.get_by_label('Support report preview')
+        expect(preview).to_contain_text('Transfer failed on our test printer')
+        expect(preview).to_contain_text('physical_print_verified')
+        with page.expect_download() as downloaded:
+            page.get_by_role('button',name='Download report',exact=True).click()
+        import json
+        report=json.loads(Path(downloaded.value.path()).read_text())
+        assert report['physical_print_verified'] is False
+        assert 'recent_logs' not in report
+        assert report['printer_checks']['checks'][0]['status']=='fail'
+        expect(page.get_by_role('link',name='Open email draft')).to_have_attribute('href',__import__('re').compile('^mailto:support@runsodin.com'))
+        page.screenshot(path=str(ROOT/'artifacts/edu-workflow-check/troubleshooting-browser.png'),full_page=True)
+    finally: context.close()

@@ -180,3 +180,10 @@ class EducationPolicyService(EducationPolicyProvider):
             expected_revision=expected_revision,
             reason=reason,
         )
+
+
+def upload_storage_probe():
+    """Shared read-only diagnostic view of the configured upload filesystem."""
+    from modules.organizations.education_submission_service import UPLOAD_ROOT
+    from modules.organizations.education_storage import storage_readiness
+    return UPLOAD_ROOT, storage_readiness(UPLOAD_ROOT)

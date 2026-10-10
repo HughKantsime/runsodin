@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Database, HardDrive, Plus, RefreshCw, Download, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileText, Shield, Wifi, Save, Smartphone } from 'lucide-react'
-import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob, adminBundle, diagnostics } from '../../api'
+import { gdpr, fetchAPI, config as configApi, backups as backupsApi, downloadBlob } from '../../api'
 import BackupRestore from './BackupRestore'
+import TroubleshootingPanel from './TroubleshootingPanel'
 import DataRetentionSettings from './DataRetentionSettings'
 import ReportScheduleManager from './ReportScheduleManager'
 import ChargebackReport from './ChargebackReport'
@@ -347,47 +348,7 @@ export default function SystemTab() {
         </div>
       </Card>
 
-      {/* Support Bundle */}
-      <Card padding="lg" className="mb-4 md:mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Support Bundle</h3>
-            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Download a privacy-filtered diagnostic ZIP for issue reporting</p>
-          </div>
-          <Button
-            variant="primary"
-            size="md"
-            icon={Download}
-            onClick={async () => {
-              try { await adminBundle.download(); toast.success('Bundle downloaded') }
-              catch { toast.error('Failed to generate bundle') }
-            }}
-          >
-            Download
-          </Button>
-        </div>
-      </Card>
-
-      {/* Diagnostics Report */}
-      <Card padding="lg" className="mb-4 md:mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Diagnostics Report</h3>
-            <p className="text-xs text-[var(--brand-text-muted)] mt-1">Download a JSON diagnostic report for troubleshooting</p>
-          </div>
-          <Button
-            variant="primary"
-            size="md"
-            icon={Download}
-            onClick={async () => {
-              try { await diagnostics.download(); toast.success('Diagnostics downloaded') }
-              catch { toast.error('Failed to download diagnostics') }
-            }}
-          >
-            Download
-          </Button>
-        </div>
-      </Card>
+      <TroubleshootingPanel />
 
       {/* Database Backups */}
       <Card padding="lg" className="mb-4 md:mb-6">

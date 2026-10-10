@@ -33,12 +33,14 @@ def main():
     from sqlalchemy import text
     with db.get_bind().begin() as connection:
         connection.execute(text('UPDATE users SET password_hash=:hash'), {'hash': hash_password(os.environ['ODIN_EDU_TEST_PASSWORD'])})
+        connection.execute(text("INSERT INTO printers (id,name,api_type,api_host,is_active) VALUES (99,'Synthetic diagnostic printer','bambu','127.0.0.1',1)"))
         connection.execute(text("INSERT INTO system_config (key,value) VALUES ('education_mode','true'),('setup_complete','true')"))
         connection.execute(text('UPDATE users SET role=\'operator\' WHERE id=3'))
         connection.execute(text('INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) SELECT 6,\'superadmin\',\'superadmin@example.test\',password_hash,\'admin\',1,NULL FROM users WHERE id=1'))
         connection.execute(text("INSERT INTO users (id,username,email,password_hash,role,is_active,group_id) SELECT 7,'student-two','student-two@example.test',password_hash,'viewer',1,1 FROM users WHERE id=1"))
         connection.execute(text("INSERT INTO education_cost_center_grants (org_id,cost_center_id,user_id,role,state,granted_by) VALUES (1,7,7,'student','active',6)"))
     with db.get_bind().begin() as connection:
+        connection.execute(text("UPDATE printers SET slot_count=4,tags='[]',timelapse_enabled=0,shared=0"))
         for table, column, value in [('education_submissions','id',14),('jobs','id',13),('models','id',12),('print_files','id',11),('education_upload_operations','operation_id','upload-1')]:
             connection.execute(text(f'DELETE FROM {table} WHERE {column}=:value'), {'value': value})
     import license_manager

@@ -40,7 +40,12 @@ def _read_tail(filepath: str, max_lines: int) -> list[str] | str:
     if not p.exists():
         return "not found"
     try:
-        lines = p.read_text(errors="replace").splitlines()
+        with p.open("rb") as stream:
+            offset = max(0, p.stat().st_size - 65536)
+            stream.seek(offset)
+            lines = stream.read(65536).decode(errors="replace").splitlines()
+            if offset:
+                lines = lines[1:]  # discard a partial line whose secret label may be missing
         return lines[-max_lines:]
     except Exception as e:
         return f"error: {e}"
@@ -202,7 +207,7 @@ def _database_info() -> dict:
 @router.get("/system/diagnostics")
 async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     """Admin-only diagnostics bundle for troubleshooting."""
-    from modules.system.sanitize import sanitize_log_lines
+    from modules.system.sanitize import sanitize_log_lines, sanitize_structure
     from core.error_buffer import error_buffer
 
     result = {}
@@ -249,7 +254,7 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
 
     # Error buffer
     try:
-        result["error_buffer"] = error_buffer.entries()
+        result["error_buffer"] = sanitize_structure(error_buffer.entries())
     except Exception as e:
         result["error_buffer"] = {"error": str(e)}
 
@@ -289,4 +294,4 @@ async def get_diagnostics(current_user: dict = Depends(require_role("admin"))):
     except Exception as e:
         result["database"] = {"error": str(e)}
 
-    return result
+    return sanitize_structure(result)

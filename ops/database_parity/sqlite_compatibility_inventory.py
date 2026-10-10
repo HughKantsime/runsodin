@@ -15,6 +15,10 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/system/sanitize.py": (
+        "dialect-neutral",
+        "Secret-filter regular expressions contain question marks; this utility executes no SQL",
+    ),
     "backend/core/app.py": (
         "dialect-neutral",
         "Runtime SQL executes through the dialect-aware shared DBAPI compatibility adapter",
