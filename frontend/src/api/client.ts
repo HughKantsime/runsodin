@@ -2,7 +2,7 @@ import { clearSensitiveBrowserState } from '../permissions'
 
 const API_BASE = '/api'
 
-export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function fetchAPI<T = unknown>(endpoint: string, options: RequestInit = {}, responseFormat: 'json' | 'csv' = 'json'): Promise<T> {
   const headers = new Headers(options.headers)
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -41,6 +41,11 @@ export async function fetchAPI<T = unknown>(endpoint: string, options: RequestIn
     throw new Error(err.detail || err.message || 'Request failed. Please try again.')
   }
   if (response.status === 204) return null as unknown as T
+  if (responseFormat === 'csv') {
+    const mediaType = (response.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
+    if (mediaType !== 'text/csv') throw new Error('Unexpected export response')
+    return await response.text() as T
+  }
   return response.json()
 }
 

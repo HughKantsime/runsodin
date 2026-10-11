@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { useQuery } from '@tanstack/react-query'
 import { archives, printers as printersApi } from '../../api'
 import { ClipboardList, Search, Download, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -13,6 +14,7 @@ const STATUS_BADGES = {
 
 export default function PrintLog() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [exporting, setExporting] = useState(false)
 
   const [page, setPage] = useState(() => {
     const p = parseInt(searchParams.get('page'), 10)
@@ -59,7 +61,7 @@ export default function PrintLog() {
     queryFn: () => printersApi.list(),
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['print-log', page, search, filterPrinter, filterStatus],
     queryFn: () => archives.log({
       page,
@@ -71,20 +73,28 @@ export default function PrintLog() {
   })
 
   const handleExport = async () => {
+    if (exporting) return
+    setExporting(true)
+    let url: string | undefined
     try {
       const csv = await archives.logExport({
         search: search || undefined,
         printer_id: filterPrinter || undefined,
         status: filterStatus || undefined,
       })
+      if (typeof csv !== 'string') throw new Error('Unexpected export response')
       const blob = new Blob([csv], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
+      url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = 'print_log.csv'
       a.click()
-      URL.revokeObjectURL(url)
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      toast.error('Export failed: ' + (err?.message || 'Unknown error'))
+    } finally {
+      if (url) URL.revokeObjectURL(url)
+      setExporting(false)
+    }
   }
 
   const items = data?.items || []
@@ -137,6 +147,7 @@ export default function PrintLog() {
         </select>
         <button
           onClick={handleExport}
+          disabled={exporting}
           className="flex items-center gap-1.5 px-3 py-2 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md text-sm hover:bg-[var(--brand-card-border)] transition-colors"
         >
           <Download size={14} />
@@ -147,6 +158,11 @@ export default function PrintLog() {
       {/* Table */}
       {isLoading ? (
         <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</div>
+      ) : isError ? (
+        <div role="alert" className="py-8 text-center">
+          <p>Print log unavailable</p>
+          <button onClick={() => refetch()} className="mt-3 px-3 py-2 rounded bg-[var(--brand-input-bg)]">Retry</button>
+        </div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 text-[var(--brand-text-muted)]">
           <ClipboardList size={40} className="mx-auto mb-3 opacity-30" />

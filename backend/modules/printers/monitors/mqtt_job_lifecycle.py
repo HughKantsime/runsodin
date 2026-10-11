@@ -18,6 +18,8 @@ from core.order_production import (prepare_job_write, reconcile_job_write, prepa
 from core.db_utils import get_db
 from core.db_compat import as_utc_datetime, sql
 
+from modules.archives.services import capture_attempt_spools
+
 log = logging.getLogger('mqtt_monitor')
 
 
@@ -109,6 +111,7 @@ def record_job_started(
                     linked_job_id = (
                         int(claimed["job_id"]) if claimed.get("authorized") else None
                     )
+                    capture_attempt_spools(conn, new_job_id, printer_id, source="bambu-mqtt-first-start")
                     conn.execute("COMMIT")
                     return new_job_id, linked_job_id, {}
 
@@ -291,6 +294,8 @@ def record_job_started(
                     new_job_id = cur.fetchone()[0]
                 else:
                     new_job_id = cur.lastrowid
+
+                capture_attempt_spools(conn, new_job_id, printer_id, source="bambu-mqtt-first-start")
 
                 # Snapshot AMS remain percentages at job start for filament usage calc
                 try:

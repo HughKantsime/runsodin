@@ -11,7 +11,7 @@ def preview_not_found():
 
 def accessible_preview_file(db, file_id, principal):
     row = db.execute(text(
-        "SELECT id,org_id,stored_path,original_filename,mesh_data FROM print_files WHERE id=:id"
+        "SELECT id,org_id,stored_path,original_filename,mesh_data,filaments_json FROM print_files WHERE id=:id"
     ), {"id": file_id}).fetchone()
     if not row or not check_org_access(principal, row.org_id):
         raise preview_not_found()

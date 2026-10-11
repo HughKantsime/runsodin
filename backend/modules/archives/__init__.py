@@ -8,6 +8,7 @@ ROUTES = [
 
 TABLES = [
     "print_archives",
+    "filament_delivery_outbox",
     "projects",
     "timelapses",
 ]

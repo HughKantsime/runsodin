@@ -719,3 +719,41 @@ def test_compiled_camera_detail_load_retry_and_fullscreen_failure(role_page_fact
     expect(page.get_by_text('Fullscreen unavailable',exact=True)).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
     page.unroute_all(behavior='wait')
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_archive_history_recovery_and_real_csv_download(role_page_factory,mobile):
+    import re
+    page=role_page_factory('admin',mobile=mobile)
+    state={'unavailable':True}
+    def archive_history(route):
+        if state['unavailable']:
+            route.fulfill(status=503,json={'detail':'Synthetic history unavailable'})
+        else:
+            route.continue_()
+    page.route(re.compile(r'/api/archives\?'),archive_history)
+    _goto(page,'/archives')
+    alert=page.get_by_role('alert')
+    expect(alert).to_contain_text('Archive history unavailable',timeout=20_000)
+    expect(page.get_by_text('No archived prints yet',exact=True)).to_have_count(0)
+    state['unavailable']=False
+    page.get_by_role('button',name='Retry',exact=True).click()
+    expect(page.get_by_text('No archived prints yet',exact=True)).to_be_visible(timeout=20_000)
+    _goto(page,'/print-log?q=Synthetic+missing&status=completed')
+    expect(page.get_by_role('heading',name='Print Log',exact=True)).to_be_visible()
+    expected=page.request.get(BASE_URL+'/api/archives/log/export?status=completed&search=Synthetic+missing')
+    assert expected.status==200
+    assert expected.headers['content-type'].split(';')[0]=='text/csv'
+    assert expected.body().startswith(b'Print Name,Printer,User,Status,Started,Completed,Duration (s),Filament (g),Cost,Tags')
+    with page.expect_download(timeout=10_000) as delivered:
+        page.get_by_role('button',name='Export CSV',exact=True).click()
+    download=delivered.value
+    assert download.suggested_filename=='print_log.csv'
+    path=download.path()
+    assert path and Path(path).read_bytes()==expected.body()
+    page.route('**/api/archives/log/export?*',lambda route:route.fulfill(status=403,json={'detail':'Synthetic export denied'}))
+    downloads=[]
+    page.on('download',lambda event:downloads.append(event))
+    page.get_by_role('button',name='Export CSV',exact=True).click()
+    expect(page.get_by_text('Export failed: Synthetic export denied',exact=True)).to_be_visible(timeout=10_000)
+    assert downloads==[]

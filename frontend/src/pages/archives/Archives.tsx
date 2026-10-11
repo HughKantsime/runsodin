@@ -81,8 +81,8 @@ function CompareModal({ a, b, onClose }) {
     { key: 'printer_display', label: 'Printer' },
     { key: 'status', label: 'Status' },
     { key: 'actual_duration_seconds', label: 'Duration', fmt: formatDuration },
-    { key: 'filament_used_grams', label: 'Filament (g)', fmt: v => v ? `${v.toFixed(1)}g` : '--' },
-    { key: 'cost_estimate', label: 'Cost', fmt: v => v ? `$${v.toFixed(2)}` : '--' },
+    { key: 'filament_used_grams', label: 'Filament (g)', fmt: v => v != null ? `${v.toFixed(1)}g` : '--' },
+    { key: 'cost_estimate', label: 'Cost', fmt: v => v != null ? `$${v.toFixed(2)}` : '--' },
     { key: 'started_at', label: 'Started', fmt: formatDate },
     { key: 'completed_at', label: 'Completed', fmt: formatDate },
   ]
@@ -210,7 +210,7 @@ function ArchiveDetail({ archive, onClose, onDelete, onNotesUpdate, onTagsUpdate
           </div>
           <div>
             <span className="text-[var(--brand-text-muted)] text-xs">Filament</span>
-            <p>{archive.filament_used_grams ? `${archive.filament_used_grams.toFixed(1)}g` : '--'}</p>
+            <p>{archive.filament_used_grams != null ? `${archive.filament_used_grams.toFixed(1)}g` : '--'}</p>
           </div>
         </div>
 
@@ -399,7 +399,7 @@ export default function ArchivesPage() {
     queryFn: () => printersApi.list(),
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['archives', page, search, filterPrinter, filterStatus, filterTag],
     queryFn: () => archives.list({
       page,
@@ -486,6 +486,11 @@ export default function ArchivesPage() {
       {/* Table */}
       {isLoading ? (
         <div className="text-center py-12 text-[var(--brand-text-muted)]">Loading...</div>
+      ) : isError ? (
+        <div role="alert" className="py-8 text-center">
+          <p>Archive history unavailable</p>
+          <Button onClick={() => refetch()} className="mt-3">Retry</Button>
+        </div>
       ) : items.length === 0 ? (
         <EmptyState
           icon={Archive}
@@ -549,7 +554,7 @@ export default function ArchivesPage() {
                       <span className="flex items-center gap-1"><Clock size={12} /> {formatDuration(item.actual_duration_seconds)}</span>
                     </td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] hidden lg:table-cell">
-                      {item.filament_used_grams ? `${item.filament_used_grams.toFixed(1)}g` : '--'}
+                      {item.filament_used_grams != null ? `${item.filament_used_grams.toFixed(1)}g` : '--'}
                     </td>
                     <td className="py-2 px-3 text-[var(--brand-text-muted)] text-xs">{formatDate(item.completed_at)}</td>
                   </tr>

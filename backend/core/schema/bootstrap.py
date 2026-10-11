@@ -50,6 +50,7 @@ RAW_REQUIRED_TABLES = frozenset(
         "oidc_pending_states",
         "password_reset_tokens",
         "print_archives",
+        "filament_delivery_outbox",
         "print_files",
         "print_jobs",
         "printer_profiles",
@@ -354,6 +355,8 @@ def bootstrap_database(
             applied.append("python:005-order-production-snapshots")
         if apply_python_migration(connection, "core.schema.migrations.006_print_job_measurements"):
             applied.append("python:006-print-job-measurements")
+        if apply_python_migration(connection, "core.schema.migrations.007_attempt_accounting"):
+            applied.append("python:007-attempt-accounting")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

@@ -117,6 +117,31 @@ _SUBMISSION_AUDIENCE = (
 )
 
 
+def archive_audience_sql() -> str:
+    """Filter archive projections before count, pagination and export."""
+    audience = _SUBMISSION_AUDIENCE.replace(":is_admin", ":_arc_admin").replace(":user_id", ":_arc_user")
+    return (
+        "((a.education_submission_id IS NULL AND NOT EXISTS ("
+        "SELECT 1 FROM education_submissions raw WHERE raw.print_file_id=a.print_file_id OR raw.job_id=a.job_id)"
+        " AND NOT EXISTS (SELECT 1 FROM education_upload_operations raw_o JOIN print_files raw_f"
+        " ON raw_f.id=a.print_file_id WHERE raw_o.final_path=raw_f.stored_path AND raw_o.final_path IS NOT NULL))"
+        " OR EXISTS (" + _BASE_SELECT
+        + " JOIN print_files f ON f.id=s.print_file_id AND f.org_id=s.org_id"
+        + " AND f.created_by=s.submitted_by"
+        + " JOIN education_upload_operations o ON o.operation_id=s.operation_id"
+        + " AND o.org_id=s.org_id AND o.user_id=s.submitted_by"
+        + " AND o.final_path=f.stored_path AND o.state='committed'"
+        + " JOIN models m ON m.id=s.model_id AND m.org_id=s.org_id"
+        + " AND m.print_file_id=f.id AND j.model_id=m.id"
+        + " WHERE s.id=a.education_submission_id AND s.org_id=a.org_id"
+        + " AND s.org_id=:_arc_org AND s.job_id=a.job_id"
+        + " AND s.print_file_id=a.print_file_id"
+        + " AND NOT EXISTS (SELECT 1 FROM education_upload_operations other_o"
+        + " WHERE other_o.final_path=f.stored_path AND other_o.final_path IS NOT NULL"
+        + " AND other_o.operation_id<>s.operation_id) AND " + audience + "))"
+    )
+
+
 def assert_file_preview_allowed(db: Session, *, file_id: int, principal: dict) -> None:
     """Authorize every Education owner through the submission visibility policy."""
     org_id = _org_id(principal)

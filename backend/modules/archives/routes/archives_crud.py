@@ -20,10 +20,11 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel, Field, StrictInt
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 from core.db import get_db
 from core.dependencies import get_current_user
-from core.rbac import check_org_access, get_org_scope, require_role
+from core.rbac import check_org_access, get_org_scope, require_role, require_superadmin
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
@@ -103,34 +104,46 @@ def _build_archive_query(conditions, params, printer_id, status, search,
         params["tag_end"] = f"%, {tag}"
 
 
-def _check_archive_org_access(db, archive_printer_id, current_user):
-    """Check if user can access an archive via its printer's org."""
-    org = get_org_scope(current_user)
-    if not should_filter_org(current_user, org):
-        return  # superadmin
-    printer = db.execute(
-        text("SELECT org_id, shared FROM printers WHERE id = :pid"),
-        {"pid": archive_printer_id},
-    ).fetchone()
-    if not printer:
-        return  # orphaned archive, allow access
-    if not check_org_access(current_user, printer.org_id) and not printer.shared:
-        raise HTTPException(status_code=404, detail="Archive not found")
+from modules.archives.access import archive_visibility, assert_archive_access
+
+
+def _check_archive_org_access(db, archive_id, current_user):
+    assert_archive_access(db, archive_id, current_user)
 
 
 def _apply_org_scope(conditions, params, current_user, join_clauses=None):
-    """Add org-scoping condition for list queries. Returns any extra JOIN needed."""
-    org = get_org_scope(current_user)
-    if not should_filter_org(current_user, org):
-        return ""  # superadmin — no filter
-    params["_org"] = org
-    conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
-    return " JOIN printers p ON a.printer_id = p.id" if join_clauses is None else ""
+    predicate, bindings = archive_visibility(current_user)
+    conditions.append(predicate)
+    params.update(bindings)
+    return ""
 
 
 # ──────────────────────────────────────────────
 # Archive CRUD
 # ──────────────────────────────────────────────
+
+class OwnershipReconciliation(PydanticBaseModel):
+    limit: StrictInt = Field(default=100, ge=1, le=100)
+    after_archive_id: StrictInt = Field(default=0, ge=0)
+
+
+@router.post("/archives/reconcile-ownership", tags=["Archives"])
+def reconcile_archive_ownership(body: OwnershipReconciliation,
+    user=Depends(require_superadmin(scope="write:jobs")), db: Session=Depends(get_db)):
+    from modules.archives.legacy_ownership import resolve_legacy_archive_ownership
+    try:
+        result=resolve_legacy_archive_ownership(db,limit=body.limit,after_archive_id=body.after_archive_id)
+        db.commit()
+        return result
+    except OperationalError as exc:
+        db.rollback()
+        if getattr(exc.orig, 'sqlstate', None) == '55P03':
+            raise HTTPException(409, 'Archive repair is temporarily busy. Retry after current activity finishes.') from None
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
 
 @router.get("/archives", tags=["Archives"])
 def list_archives(
@@ -142,7 +155,7 @@ def list_archives(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """List print archives with pagination and filters."""
@@ -153,9 +166,9 @@ def list_archives(
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
-    if should_filter_org(user, org):
-        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
-        params["_org"] = org
+    predicate, bindings = archive_visibility(user)
+    conditions.append(predicate)
+    params.update(bindings)
 
     where = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
@@ -189,7 +202,7 @@ def list_archives(
 def compare_archives(
     a: int = Query(..., description="First archive ID"),
     b: int = Query(..., description="Second archive ID"),
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Side-by-side comparison of two archive entries."""
@@ -213,8 +226,8 @@ def compare_archives(
     if not row_a or not row_b:
         raise HTTPException(status_code=404, detail="One or both archives not found")
 
-    _check_archive_org_access(db, dict(row_a._mapping).get("printer_id"), user)
-    _check_archive_org_access(db, dict(row_b._mapping).get("printer_id"), user)
+    _check_archive_org_access(db, dict(row_a._mapping)["id"], user)
+    _check_archive_org_access(db, dict(row_b._mapping)["id"], user)
 
     da = _archive_row_to_dict(row_a)
     db_dict = _archive_row_to_dict(row_b)
@@ -245,7 +258,7 @@ def archive_log(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Chronological print log — flat rows sorted by completed_at desc."""
@@ -256,9 +269,9 @@ def archive_log(
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
-    if should_filter_org(user, org):
-        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
-        params["_org"] = org
+    predicate, bindings = archive_visibility(user)
+    conditions.append(predicate)
+    params.update(bindings)
 
     where = " AND ".join(conditions) if conditions else "1=1"
     offset = (page - 1) * per_page
@@ -307,7 +320,7 @@ def export_archive_log(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Export print log as CSV."""
@@ -318,9 +331,9 @@ def export_archive_log(
 
     # Org scoping — main query already JOINs printers as p
     org = get_org_scope(user)
-    if should_filter_org(user, org):
-        conditions.append("(p.org_id = :_org OR p.org_id IS NULL OR p.shared IS TRUE)")
-        params["_org"] = org
+    predicate, bindings = archive_visibility(user)
+    conditions.append(predicate)
+    params.update(bindings)
 
     where = " AND ".join(conditions) if conditions else "1=1"
 
@@ -371,7 +384,7 @@ def export_archive_log(
 @router.get("/archives/{archive_id}", tags=["Archives"])
 def get_archive(
     archive_id: int,
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Get a single print archive with full detail."""
@@ -386,7 +399,7 @@ def get_archive(
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, dict(row._mapping).get("printer_id"), user)
+    _check_archive_org_access(db, dict(row._mapping)["id"], user)
     return _archive_row_to_dict(row)
 
 
@@ -394,7 +407,7 @@ def get_archive(
 def update_archive(
     archive_id: int,
     body: ArchiveNotesUpdate,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Update archive notes."""
@@ -403,7 +416,7 @@ def update_archive(
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, existing.printer_id, user)
+    _check_archive_org_access(db, existing.id, user)
 
     db.execute(
         text("UPDATE print_archives SET notes = :notes WHERE id = :id"),
@@ -416,7 +429,7 @@ def update_archive(
 @router.delete("/archives/{archive_id}", tags=["Archives"])
 def delete_archive(
     archive_id: int,
-    user=Depends(require_role("admin")),
+    user=Depends(require_role("admin", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Delete a print archive. Admin only."""
@@ -425,7 +438,7 @@ def delete_archive(
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, existing.printer_id, user)
+    _check_archive_org_access(db, existing.id, user)
 
     db.execute(text("DELETE FROM print_archives WHERE id = :id"), {"id": archive_id})
     db.commit()
@@ -440,7 +453,7 @@ def delete_archive(
 def update_archive_tags(
     archive_id: int,
     body: TagsUpdate,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Set tags on an archive entry."""
@@ -449,7 +462,7 @@ def update_archive_tags(
     ).fetchone()
     if not existing:
         raise HTTPException(status_code=404, detail="Archive not found")
-    _check_archive_org_access(db, existing.printer_id, user)
+    _check_archive_org_access(db, existing.id, user)
 
     # Store as comma-separated, trimmed, deduplicated
     clean = list(dict.fromkeys(t.strip() for t in body.tags if t.strip()))
@@ -471,7 +484,7 @@ def update_archive_tags(
 def ams_preview(
     archive_id: int,
     printer_id: Optional[int] = Query(None),
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Return filament requirements from an archive's file alongside a printer's AMS state."""
@@ -482,19 +495,17 @@ def ams_preview(
         raise HTTPException(status_code=404, detail="Archive not found")
 
     ad = dict(archive._mapping)
-    _check_archive_org_access(db, ad.get("printer_id"), user)
+    _check_archive_org_access(db, ad["id"], user)
 
     # Try to find the associated print_file for filament metadata
     required = []
     file_id = ad.get("print_file_id")
     if file_id:
-        pf = db.execute(
-            text("SELECT filaments_json FROM print_files WHERE id = :id"),
-            {"id": file_id},
-        ).fetchone()
-        if pf and pf[0]:
+        from core.model_preview_access import accessible_preview_file
+        pf = accessible_preview_file(db, file_id, user)
+        if pf.filaments_json:
             try:
-                filaments = json.loads(pf[0])
+                filaments = json.loads(pf.filaments_json)
                 for i, f in enumerate(filaments):
                     required.append({
                         "slot": i,
@@ -552,7 +563,7 @@ def ams_preview(
 def reprint_archive(
     archive_id: int,
     body: ReprintRequest,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Reprint an archived job on a specified printer with optional AMS remapping."""
@@ -563,7 +574,7 @@ def reprint_archive(
         raise HTTPException(status_code=404, detail="Archive not found")
 
     ad = dict(archive._mapping)
-    _check_archive_org_access(db, ad.get("printer_id"), user)
+    _check_archive_org_access(db, ad["id"], user)
 
     from modules.printers.models import Printer, FilamentSlot
     from modules.models_library.models import Model

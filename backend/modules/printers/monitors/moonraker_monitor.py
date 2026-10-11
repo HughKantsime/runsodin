@@ -448,6 +448,8 @@ class MoonrakerMonitor:
                 self._current_job_db_id = execute_insert_returning_id(
                     conn, insert_sql, params
                 )
+                from modules.archives.services import capture_attempt_spools
+                capture_attempt_spools(conn, self._current_job_db_id, self.printer_id, source="moonraker-first-start")
                 self._last_filename = filename
                 if education_sensitive:
                     claimed = policy.claim_monitor_observation(

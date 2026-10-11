@@ -33,7 +33,8 @@ def as_utc_datetime(value):
 
 def execute_insert_returning_id(executor, statement: str, parameters: dict) -> int:
     """Execute an INSERT and return its integer identity on either dialect."""
-    dialect = executor.bind.dialect.name
+    dialect = (executor.dialect.name if hasattr(executor, "dialect")
+               else executor.get_bind().dialect.name)
     sql_text = statement.strip().rstrip(";")
     if dialect == "postgresql":
         value = executor.execute(

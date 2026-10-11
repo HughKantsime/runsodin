@@ -11,6 +11,7 @@ from typing import Optional
 from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
 from core.db_utils import get_db
+from modules.archives.services import capture_attempt_spools
 from core.db_compat import sql
 from core.event_bus import get_event_bus
 from core.interfaces.event_bus import Event
@@ -68,6 +69,7 @@ def job_started(
                     printer_id=printer_id,
                     observed_filename=job_name,
                 )
+            capture_attempt_spools(conn, job_id, printer_id, source="printer-event-first-start")
             conn.commit()
 
         log.info(f"Job started on printer {printer_id}: {job_name} (print_jobs.id={job_id})")

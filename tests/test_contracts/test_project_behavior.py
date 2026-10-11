@@ -13,6 +13,7 @@ def project_client(token_client,review_db):
         review_db.execute(text('INSERT INTO projects(id,name,org_id,created_by) VALUES(:id,:name,:org,3)'),{'id':identifier,'name':name,'org':org})
     for identifier,printer,name in [(201,9,'Own archive'),(202,19,'Foreign archive')]:
         review_db.execute(text("INSERT INTO print_archives(id,printer_id,print_name,status) VALUES(:id,:printer,:name,'completed')"),{'id':identifier,'printer':printer,'name':name})
+    review_db.execute(text("UPDATE print_archives SET org_id=CASE id WHEN 201 THEN 1 ELSE 2 END,ownership_state='known',ownership_source='synthetic_owner'"))
     review_db.commit();return client,issue
 
 def zip_metadata():
@@ -116,14 +117,14 @@ def test_write_permission_alone_does_not_grant_project_reads(project_client,scop
     client,issue=project_client
     assert client.get('/projects/101',headers=issue(scopes)).status_code==403
 
-def test_shared_foreign_archive_is_readable_but_not_assignable(project_client,review_db):
+def test_shared_foreign_printer_does_not_expose_private_archive(project_client,review_db):
     client,issue=project_client
     review_db.execute(text('UPDATE printers SET shared=TRUE WHERE id=19'))
     review_db.execute(text('UPDATE print_archives SET project_id=101'));review_db.commit()
     headers=issue(['read:jobs','write:jobs'])
     data=client.get('/projects/101',headers=headers).json()
-    assert {a['id'] for a in data['archives']}=={201,202}
-    assert next(p for p in client.get('/projects',headers=headers).json() if p['id']==101)['archive_count']==2
+    assert {a['id'] for a in data['archives']}=={201}
+    assert next(p for p in client.get('/projects',headers=headers).json() if p['id']==101)['archive_count']==1
     review_db.execute(text('UPDATE print_archives SET project_id=NULL'));review_db.commit()
     assert client.post('/projects/101/archives',headers=headers,json={'archive_ids':[202]}).status_code==404
     assert review_db.execute(text('SELECT project_id FROM print_archives WHERE id=202')).scalar_one() is None
@@ -147,7 +148,7 @@ def test_interactive_project_edit_and_soft_delete_persist(project_client,review_
     assert client.get('/projects?status=active',headers=headers).json()==[]
 
 @pytest.mark.parametrize('parent',['null','unscoped','missing'])
-def test_legacy_archive_parent_policy_is_explicit(project_client,review_db,parent):
+def test_private_archive_ownership_survives_missing_or_global_printer(project_client,review_db,parent):
     client,issue=project_client
     if parent=='unscoped':
         review_db.execute(text('UPDATE printers SET org_id=NULL WHERE id=19'));printer=19
@@ -157,9 +158,9 @@ def test_legacy_archive_parent_policy_is_explicit(project_client,review_db,paren
     review_db.execute(text('UPDATE print_archives SET printer_id=:printer,project_id=101 WHERE id=202'),{'printer':printer});review_db.commit()
     headers=issue(['read:jobs','write:jobs'])
     archives=client.get('/projects/101',headers=headers).json()['archives']
-    assert [a['id'] for a in archives]==([] if parent=='missing' else [202])
+    assert [a['id'] for a in archives]==[]
     response=client.post('/projects/101/archives',headers=headers,json={'archive_ids':[202]})
-    assert response.status_code==(404 if parent=='missing' else 200)
+    assert response.status_code==404
 
 def test_export_excludes_foreign_file_bytes_before_filesystem_access(project_client,review_db,tmp_path,monkeypatch):
     from modules.archives.routes import projects

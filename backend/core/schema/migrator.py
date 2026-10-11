@@ -70,6 +70,7 @@ _ALLOWED_PYTHON_MIGRATIONS = frozenset(
         "core.schema.migrations.004_quiet_hours_scoped_claims",
         "core.schema.migrations.005_order_production_snapshots",
         "core.schema.migrations.006_print_job_measurements",
+        "core.schema.migrations.007_attempt_accounting",
     }
 )
 

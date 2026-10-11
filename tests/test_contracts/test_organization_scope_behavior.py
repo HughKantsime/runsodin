@@ -42,6 +42,7 @@ def scope_client(review_db,monkeypatch):
     review_db.commit()
     for identifier in (101,102,103):
         review_db.execute(text("INSERT INTO print_archives(id,printer_id,print_name,status) VALUES(:id,:id,'Synthetic archive','completed')"),{'id':identifier})
+    review_db.execute(text("UPDATE print_archives SET org_id=CASE id WHEN 101 THEN 1 WHEN 102 THEN 2 ELSE NULL END,ownership_state='known',ownership_source='synthetic_owner'"))
     review_db.execute(text("UPDATE jobs SET quantity=COALESCE(quantity,1),hold=COALESCE(hold,0),is_locked=COALESCE(is_locked,0)"))
     review_db.execute(text("UPDATE models SET default_filament_type=COALESCE(default_filament_type,'PLA')"))
     review_db.execute(text("UPDATE printers SET slot_count=COALESCE(slot_count,4),tags=COALESCE(tags,'[]'),timelapse_enabled=COALESCE(timelapse_enabled,0),shared=COALESCE(shared,0)"))
@@ -106,15 +107,15 @@ def test_unassigned_dashboard_and_search_hide_private_resources(scope_client):
     assert 'Foreign private' not in response.text
 
 
-def test_shared_printer_and_archive_remain_visible(scope_client,review_db):
+def test_shared_printer_does_not_share_private_archive(scope_client,review_db):
     client,identity=scope_client;identity.update(group_id=None)
     review_db.execute(text('UPDATE printers SET shared=1 WHERE id=102'));review_db.commit()
     response=client.get('/printers');assert response.status_code==200,response.text
     assert {r['id'] for r in response.json() if r['id']>=101}=={102,103}
     response=client.get('/archives?per_page=1');assert response.status_code==200,response.text
-    assert response.json()['total']==2
+    assert response.json()['total']==1
     assert len(response.json()['items'])==1
-    assert client.get('/archives/102').status_code==200
+    assert client.get('/archives/102').status_code==404
 
 
 def test_foreign_archive_write_denied_and_tags_scoped(scope_client,review_db):
@@ -127,12 +128,12 @@ def test_foreign_archive_write_denied_and_tags_scoped(scope_client,review_db):
     assert 'tag-103' in response.text and 'tag-102' not in response.text and 'tag-101' not in response.text
 
 
-def test_orphan_archive_visibility_is_not_broadened(scope_client,review_db):
+def test_unknown_orphan_archive_does_not_become_global(scope_client,review_db):
     client,identity=scope_client;identity.update(group_id=None)
     review_db.execute(text("INSERT INTO print_archives(id,printer_id,print_name,status) VALUES(104,NULL,'Orphan','completed')"));review_db.commit()
     response=client.get('/archives');assert response.status_code==200,response.text
-    assert {r['id'] for r in response.json()['items']}=={103,104}
-    assert response.json()['total']==2
+    assert {r['id'] for r in response.json()['items']}=={103}
+    assert response.json()['total']==1
 
 
 def test_alternate_export_and_printer_tags_hide_foreign(scope_client,review_db):

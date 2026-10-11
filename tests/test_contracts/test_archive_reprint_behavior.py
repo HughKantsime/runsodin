@@ -23,6 +23,7 @@ def reprint_client(review_db,tmp_path,monkeypatch):
     review_db.execute(text("INSERT INTO jobs(id,item_name,model_id,printer_id,status,charged_to_org_id,quantity,hold) VALUES(101,'Original print',101,9,'completed',1,1,0)"))
     review_db.execute(text("INSERT INTO print_files(id,model_id,job_id,stored_path,original_filename,plate_count) VALUES(101,101,101,:path,'synthetic.gcode.3mf',1)"),{'path':str(source)})
     review_db.execute(text("INSERT INTO print_archives(id,job_id,printer_id,print_file_id,print_name,status,file_path,plate_count) VALUES(101,101,9,101,'Original print','completed',:path,1)"),{'path':str(source)})
+    review_db.execute(text("UPDATE print_archives SET org_id=1,ownership_state='known',ownership_source='synthetic_job_file' WHERE id=101"))
     review_db.execute(text("INSERT INTO printers(id,name,api_type,org_id,is_active) VALUES(11,'Foreign private','bambu',2,1)"))
     review_db.commit()
     app=FastAPI();app.include_router(archives_crud.router)

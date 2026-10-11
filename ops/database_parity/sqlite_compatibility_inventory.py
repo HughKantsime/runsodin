@@ -15,6 +15,22 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/modules/archives/attempt_accounting.py": (
+        "dialect-neutral",
+        "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+    ),
+    "backend/modules/archives/ownership.py": (
+        "dialect-neutral",
+        "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+    ),
+    "backend/modules/archives/legacy_ownership.py": (
+        "dialect-neutral",
+        "Named SQLAlchemy queries and typed expanding paths; PostgreSQL NOWAIT source locks avoid terminal-policy inversion, SQLite no-op updates serialize its writer",
+    ),
+    "backend/core/schema/migrations/007_attempt_accounting.py": (
+        "sqlite-provider-only",
+        "BEGIN IMMEDIATE is guarded by the SQLite dialect; SQLAlchemy reflection and additive schema/index validation run on both providers with adoption and unknown-legacy preservation tests",
+    ),
     "backend/core/order_production.py": (
         "dialect-neutral",
         "ORM named parameters and raw qmark operations use the shared DBAPI adapter; owned PostgreSQL production tests cover both boundaries",

@@ -44,6 +44,9 @@ def _entry(
 
 
 POLICY_INVENTORY = (
+    _entry("archives.attempt_accounting", "capture_attempt_spools/account_archive", "physical attempt/job/file/spool", "capture/account", "trusted archive persistence; unresolved ownership leaves inventory unchanged", ("spool usage", "filament delivery outbox"), "test_archive_ownership_accounting_boundary.py", "guarded"),
+    _entry("archives.ownership", "capture_content_owner", "job/file/model/Education submission", "read ownership", "trusted first-start or explicit superadmin repair", ("immutable archive ownership",), "test_archive_legacy_ownership_behavior.py", "guarded"),
+    _entry("archives.legacy_ownership", "resolve_legacy_archive_ownership", "archive/job/file/Education source graph", "bounded ownership repair", "explicit superadmin with write:jobs; caller-owned atomic transaction", ("archive visibility",), "test_archive_legacy_ownership_behavior.py", "guarded"),
     _entry("organizations.routes_education", "router:/education/*", "center/grant/printer", "read/mutate", "current tenant principal", (), "test_education_admin_core.py", "guarded"),
     _entry("organizations.routes_education_submissions", "router:POST /education/submissions", "submission/job/model/file", "mutate", "active student grant", ("Education outbox",), "test_education_submission_upload.py", "guarded"),
     _entry("organizations.education_submission_service", "process_sliced_3mf_submission", "submission/job/model/file", "mutate", "active student grant", ("Education outbox",), "test_education_submission_upload.py", "guarded"),

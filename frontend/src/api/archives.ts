@@ -49,7 +49,7 @@ export const archives = {
     if (params.tag) q.set('tag', params.tag)
     return fetchAPI(`/archives/log?${q}`)
   },
-  logExport: (params: ArchiveLogParams = {}): Promise<unknown> => {
+  logExport: async (params: ArchiveLogParams = {}): Promise<string> => {
     const q = new URLSearchParams()
     if (params.printer_id) q.set('printer_id', String(params.printer_id))
     if (params.user_id) q.set('user_id', String(params.user_id))
@@ -58,7 +58,10 @@ export const archives = {
     if (params.start_date) q.set('start_date', params.start_date)
     if (params.end_date) q.set('end_date', params.end_date)
     if (params.tag) q.set('tag', params.tag)
-    return fetchAPI(`/archives/log/export?${q}`)
+    const csv = await fetchAPI<string>(`/archives/log/export?${q}`, {}, 'csv')
+    if (csv === undefined) throw new Error('Export unavailable. Sign in and try again.')
+    if (typeof csv !== 'string') throw new Error('Unexpected export response')
+    return csv
   },
   previewModel: (fileId: number): string => `${window.location.origin}/api/files/${fileId}/preview-model`,
 };

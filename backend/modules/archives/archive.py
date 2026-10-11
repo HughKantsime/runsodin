@@ -15,193 +15,130 @@ log = logging.getLogger("odin.archive")
 
 def create_print_archive(print_job_id: int, printer_id: int, success: bool,
                          result_status: str = None):
-    """Create a print_archives row from a completed print_jobs record.
+    """Create exactly one archive and account locally in one transaction.
 
-    Args:
-        print_job_id: Row ID in print_jobs table.
-        printer_id: Printer that ran the job.
-        success: True if completed, False if failed/cancelled.
-        result_status: Explicit status override ("completed", "failed", "cancelled").
-                       If None, derived from `success`.
+    Provider delivery is queued durably; no request occurs inside this commit.
+    Missing historical attribution produces an archive requiring reconciliation.
     """
+    import json
+    import math
+    from core.db_compat import as_utc_datetime
+    from .attempt_accounting import account_archive
     try:
         with get_db() as conn:
             cur = conn.cursor()
-
-            # Fetch the print_jobs row
-            cur.execute(
-                "SELECT job_name, started_at, ended_at, scheduled_job_id, "
-                "filament_slots, status FROM print_jobs WHERE id = ?",
-                (print_job_id,),
-            )
-            pj = cur.fetchone()
-            if not pj:
-                log.debug(f"Archive skip: print_job {print_job_id} not found")
-                return
-
-            job_name = pj[0] or "Unknown"
-            started_at = pj[1]
-            ended_at = pj[2]
-            scheduled_job_id = pj[3]
-            status = result_status or pj[5] or ("completed" if success else "failed")
-
-            # Compute actual duration
-            duration_seconds = None
-            if started_at and ended_at:
-                try:
-                    from datetime import datetime
-                    fmt = "%Y-%m-%d %H:%M:%S"
-                    # Handle both ISO and sqlite datetime formats
-                    sa = started_at.replace("T", " ").split(".")[0]
-                    ea = ended_at.replace("T", " ").split(".")[0]
-                    dt_start = datetime.strptime(sa, fmt)
-                    dt_end = datetime.strptime(ea, fmt)
-                    duration_seconds = int((dt_end - dt_start).total_seconds())
-                except Exception as e:
-                    log.debug(f"Failed to parse archive duration: {e}")
-
-            # Try to find filament used from the scheduled job's print_file
-            filament_used = None
-            thumbnail_b64 = None
-            file_path = None
-            user_id = None
-            cost_estimate = None
-            print_file_id = None
-            plate_count = 1
-
-            if scheduled_job_id:
-                # Get user_id and cost_estimate from the scheduled job
-                cur.execute(
-                    "SELECT submitted_by, estimated_cost FROM jobs WHERE id = ?",
-                    (scheduled_job_id,),
-                )
-                job_row = cur.fetchone()
-                if job_row:
-                    user_id = job_row[0]
-                    cost_estimate = job_row[1]
-
-                # Get print file info (thumbnail, weight, path, id, plate_count)
-                cur.execute(
-                    "SELECT id, thumbnail_b64, stored_path, filament_weight_grams, "
-                    "plate_count FROM print_files WHERE job_id = ?",
-                    (scheduled_job_id,),
-                )
-                pf = cur.fetchone()
-                if pf:
-                    print_file_id = pf[0]
-                    thumbnail_b64 = pf[1]
-                    file_path = pf[2]
-                    filament_used = pf[3]
-                    plate_count = pf[4] or 1
-
-            # Insert archive row
-            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- values are bound and the only interpolated fragment is sql.returning_id()
-            cur.execute(
-                f"""INSERT INTO print_archives
-                   (job_id, print_job_id, printer_id, user_id, print_name,
-                    status, started_at, completed_at, actual_duration_seconds,
-                    filament_used_grams, cost_estimate, thumbnail_b64, file_path,
-                    print_file_id, plate_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                {sql.returning_id()}""",
-                (
-                    scheduled_job_id,
-                    print_job_id,
-                    printer_id,
-                    user_id,
-                    job_name,
-                    status,
-                    started_at,
-                    ended_at,
-                    duration_seconds,
-                    filament_used,
-                    cost_estimate,
-                    thumbnail_b64,
-                    file_path,
-                    print_file_id,
-                    plate_count,
-                ),
-            )
-            if sql.is_postgres:
-                archive_id = cur.fetchone()[0]
-            else:
-                archive_id = cur.lastrowid
-            conn.commit()
-            log.info(f"Print archive created for job '{job_name}' on printer {printer_id}")
-
-            # Auto-deduct filament consumption from spool remaining_weight
-            if filament_used and filament_used > 0 and success:
-                _deduct_filament_consumption(conn, printer_id, filament_used, archive_id)
-
-    except Exception as e:
-        log.error(f"Failed to create print archive for print_job {print_job_id}: {e}")
-
-
-def _deduct_filament_consumption(conn, printer_id: int, grams_used: float, archive_id: int):
-    """Deduct filament from the primary spool assigned to this printer.
-
-    Finds the active spool via filament_slots -> assigned_spool_id,
-    deducts grams from remaining_weight_g, and stores consumption
-    breakdown in the archive's consumption_json.
-    """
-    try:
-        cur = conn.cursor()
-        consumption = []
-
-        # Find spools assigned to this printer's filament slots
-        cur.execute("""
-            SELECT fs.slot_number, fs.assigned_spool_id, s.id as spool_id,
-                   s.remaining_weight_g, s.spoolman_spool_id
-            FROM filament_slots fs
-            LEFT JOIN spools s ON s.id = fs.assigned_spool_id
-            WHERE fs.printer_id = ? AND fs.assigned_spool_id IS NOT NULL
-            ORDER BY fs.slot_number
-        """, (printer_id,))
-        slots = cur.fetchall()
-
-        if not slots:
-            return
-
-        # Distribute weight across all assigned spools
-        # (exact per-color data isn't available from most protocols,
-        # so we split evenly across active slots)
-        num_slots = len(slots)
-        per_slot_grams = grams_used / num_slots
-
-        for spool_row in slots:
-            spool_id = spool_row[2]
-            remaining = spool_row[3]
-            spoolman_id = spool_row[4]
-
-            if spool_id and remaining is not None:
-                deduct = per_slot_grams if num_slots > 1 else grams_used
-                new_remaining = max(0, remaining - deduct)
-                cur.execute(
-                    "UPDATE spools SET remaining_weight_g = ? WHERE id = ?",
-                    (new_remaining, spool_id),
-                )
-                consumption.append({"spool_id": spool_id, "grams_used": round(deduct, 1)})
-
-                # Sync to Spoolman if configured
-                if spoolman_id:
+            try:
+                cur.execute("UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled')",
+                            (print_job_id, printer_id))
+                if cur.rowcount != 1:
+                    conn.rollback()
+                    return None
+                cur.execute('SELECT id FROM print_archives WHERE print_job_id=? ORDER BY id', (print_job_id,))
+                existing = cur.fetchone()
+                if existing:
+                    conn.commit()
+                    return existing[0]
+                cur.execute('SELECT job_name,started_at,ended_at,scheduled_job_id,status,'
+                            'spool_snapshot,filament_used_g,print_duration_seconds '
+                            'FROM print_jobs WHERE id=?', (print_job_id,))
+                pj = cur.fetchone()
+                name, started, ended, scheduled, stored_status, snapshot_json, measured, duration = pj
+                if result_status is not None and result_status != stored_status:
+                    conn.rollback()
+                    return None
+                status = stored_status
+                if duration is None and started and ended:
                     try:
-                        _sync_spoolman_consumption(spoolman_id, deduct)
-                    except Exception as e:
-                        log.debug(f"Spoolman consumption sync failed: {e}")
-
-        # Store consumption breakdown in archive
-        if consumption:
-            import json
-            cur.execute(
-                "UPDATE print_archives SET consumption_json = ? WHERE id = ?",
-                (json.dumps(consumption), archive_id),
-            )
-            conn.commit()
-            spool_ids = [c["spool_id"] for c in consumption]
-            log.debug(f"Deducted {grams_used:.1f}g across spools {spool_ids} for archive {archive_id}")
-
-    except Exception as e:
-        log.warning(f"Filament consumption deduction failed for printer {printer_id}: {e}")
+                        duration = (as_utc_datetime(ended)-as_utc_datetime(started)).total_seconds()
+                    except (ValueError, TypeError):
+                        duration = None
+                if duration is not None and (type(duration) not in (int, float) or not math.isfinite(duration) or duration < 0):
+                    duration = None
+                cur.execute('SELECT org_id FROM printers WHERE id=?', (printer_id,))
+                org = cur.fetchone()[0]
+                user_id = cost = explicit_file = None
+                job_present = scheduled is None
+                if scheduled is not None:
+                    cur.execute('SELECT submitted_by,estimated_cost,print_file_id,charged_to_org_id FROM jobs WHERE id=?', (scheduled,))
+                    job = cur.fetchone()
+                    if job:
+                        job_present = True
+                        user_id, cost, explicit_file = job[:3]
+                        org = job[3] if job[3] is not None else org
+                pf = None
+                if explicit_file is not None:
+                    cur.execute('SELECT id,thumbnail_b64,stored_path,filament_weight_grams,plate_count,org_id FROM print_files WHERE id=?', (explicit_file,))
+                    pf = cur.fetchone()
+                elif scheduled is not None:
+                    cur.execute('SELECT id,thumbnail_b64,stored_path,filament_weight_grams,plate_count,org_id FROM print_files WHERE job_id=? ORDER BY id', (scheduled,))
+                    files = cur.fetchall()
+                    if len(files) == 1:
+                        pf = files[0]
+                if pf is not None and pf[5] is not None and pf[5] != org:
+                    pf = None
+                file_id, thumbnail, path, estimate, plates = pf[:5] if pf else (None, None, None, None, 1)
+                grams = measured if measured is not None else estimate
+                if grams is not None and (type(grams) not in (int, float) or not math.isfinite(grams) or grams < 0):
+                    grams = None
+                # The start plan remains immutable on disk. A changed current
+                # graph cannot authorize deductions from its historical tenant.
+                captured = None
+                accounting_snapshot = snapshot_json
+                try:
+                    captured = json.loads(snapshot_json) if isinstance(snapshot_json, str) else snapshot_json
+                    plan = captured.get('material_plan') if isinstance(captured, dict) else None
+                    if isinstance(plan, dict) and (not job_present or plan.get('org_id') != org
+                            or (plan.get('print_file_id') is not None and plan.get('print_file_id') != file_id)):
+                        captured = dict(captured)
+                        captured['material_plan'] = dict(plan, state='unresolved', reason='archive_graph_changed', allocations=[])
+                        accounting_snapshot = captured
+                except (ValueError, TypeError):
+                    pass  # account_archive records an explicit invalid-snapshot reason.
+                from .ownership import capture_content_owner
+                current_owner = capture_content_owner(conn, scheduled)
+                captured_owner = captured.get('content_owner') if isinstance(captured, dict) else None
+                owner = dict(current_owner)
+                if isinstance(captured_owner, dict):
+                    owner = dict(captured_owner)
+                    keys = ('state', 'org_id', 'scheduled_job_id', 'print_file_id', 'education_submission_id')
+                    if any(owner.get(key) != current_owner.get(key) for key in keys):
+                        owner.update(state='unresolved', source='source_graph_changed')
+                    elif owner.get('state') == 'known':
+                        owner['source'] = 'first_start'
+                if owner.get('state') != 'known':
+                    # Never attach metadata from a changed/foreign source to
+                    # a historical ownership anchor.
+                    file_id = thumbnail = path = cost = user_id = None
+                owner_org = owner.get('org_id')
+                owner_state = owner.get('state', 'unresolved')
+                owner_source = owner.get('source', 'missing_job_file')
+                education_id = owner.get('education_submission_id')
+                cur.execute(f"""INSERT INTO print_archives
+                    (job_id,print_job_id,printer_id,user_id,print_name,status,started_at,completed_at,
+                     actual_duration_seconds,filament_used_grams,cost_estimate,thumbnail_b64,file_path,print_file_id,plate_count,
+                     org_id,ownership_state,ownership_source,education_submission_id)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?){sql.returning_id()}""",
+                    (scheduled,print_job_id,printer_id,user_id,name or 'Unknown',status,started,ended,
+                     duration,grams,cost,thumbnail,path,file_id,plates or 1,
+                     owner_org,owner_state,owner_source,education_id))
+                archive_id = cur.fetchone()[0] if sql.is_postgres else cur.lastrowid
+                if owner_state == 'known':
+                    accounting_state, reason, _ = account_archive(conn, archive_id=archive_id,
+                        print_job_id=print_job_id, printer_id=printer_id, snapshot_json=accounting_snapshot,
+                        scheduled_job_id=scheduled, measured_grams=measured, success=status=='completed')
+                else:
+                    accounting_state, reason = 'unresolved', 'archive_ownership_unresolved'
+                cur.execute('UPDATE print_archives SET accounting_state=?,accounting_reason=? WHERE id=?',
+                            (accounting_state, reason, archive_id))
+                conn.commit()
+                return archive_id
+            except BaseException:
+                conn.rollback()
+                raise
+    except Exception as exc:
+        log.error('Archive persistence failed for attempt %s (%s); reconciliation required',
+                  print_job_id, type(exc).__name__)
+        return None
 
 
 def _sync_spoolman_consumption(spoolman_spool_id: int, grams_used: float):
@@ -284,3 +221,38 @@ def register_subscribers(bus) -> None:
     bus.subscribe(ev.JOB_FAILED, _on_job_completed_event)
     bus.subscribe(ev.JOB_CANCELLED, _on_job_cancelled_event)
     log.debug("archive subscribed to event bus")
+    try:
+        recovered = recover_missing_archives()
+        if recovered["attempted"]:
+            log.info("Archive startup recovery: %s of %s attempts persisted", recovered["recovered"], recovered["attempted"])
+        if recovered["pending_count"]:
+            log.warning("Archive recovery backlog: %s attempts; next cursor %s", recovered["pending_count"], recovered["next_after_id"])
+    except Exception as exc:
+        log.error("Archive startup recovery unavailable (%s); terminal attempts retained", type(exc).__name__)
+
+
+def recover_missing_archives(limit: int = 100, *, after_attempt_id: int = 0):
+    """Recover a bounded batch from durable terminal rows, with no provider I/O.
+
+    Failed persistence remains in this query for a later recovery attempt.
+    """
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError('Archive recovery limit must be 1 through 100')
+    if type(after_attempt_id) is not int or after_attempt_id < 0:
+        raise ValueError('Archive recovery cursor must be a nonnegative attempt ID')
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT pj.id,pj.printer_id,pj.status FROM print_jobs pj "
+                    "WHERE pj.id>? AND pj.status IN ('completed','failed','cancelled') "
+                    "AND NOT EXISTS(SELECT 1 FROM print_archives a WHERE a.print_job_id=pj.id) "
+                    "ORDER BY pj.id LIMIT ?", (after_attempt_id, limit))
+        pending = cur.fetchall()
+    recovered = 0
+    for attempt_id, printer_id, status in pending:
+        if create_print_archive(attempt_id, printer_id, status == 'completed', result_status=status) is not None:
+            recovered += 1
+    with get_db() as conn:
+        remaining = conn.execute("SELECT COUNT(*) FROM print_jobs pj WHERE pj.status IN ('completed','failed','cancelled') "
+            "AND NOT EXISTS(SELECT 1 FROM print_archives a WHERE a.print_job_id=pj.id)").fetchone()[0]
+    return {'attempted': len(pending), 'recovered': recovered, 'pending_count': remaining,
+            'next_after_id': pending[-1][0] if pending else None}

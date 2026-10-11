@@ -50,7 +50,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 46,
+      "line": 47,
       "path": "backend/core/db_compat.py",
       "pattern": "lastrowid",
       "reason": "Provider abstraction translates qmark SQL and normalizes insert identity semantics",
@@ -58,7 +58,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 48,
+      "line": 49,
       "path": "backend/core/db_compat.py",
       "pattern": "lastrowid",
       "reason": "Provider abstraction translates qmark SQL and normalizes insert identity semantics",
@@ -66,7 +66,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 195,
+      "line": 196,
       "path": "backend/core/db_compat.py",
       "pattern": "PRAGMA",
       "reason": "Provider abstraction translates qmark SQL and normalizes insert identity semantics",
@@ -74,7 +74,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 197,
+      "line": 198,
       "path": "backend/core/db_compat.py",
       "pattern": "PRAGMA",
       "reason": "Provider abstraction translates qmark SQL and normalizes insert identity semantics",
@@ -122,7 +122,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 208,
+      "line": 209,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -130,7 +130,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 431,
+      "line": 432,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -138,7 +138,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 459,
+      "line": 460,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -146,7 +146,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 461,
+      "line": 462,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -154,7 +154,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 471,
+      "line": 472,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -162,7 +162,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 486,
+      "line": 487,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -170,7 +170,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 488,
+      "line": 489,
       "path": "backend/core/schema/migrator.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
@@ -178,67 +178,291 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 33,
+      "line": 31,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "\"SELECT job_name, started_at, ended_at, scheduled_job_id, \""
+      "source": "cur.execute(\"UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? AND status IN ('completed','failed','cancelled')\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 75,
+      "line": 36,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "\"SELECT submitted_by, estimated_cost FROM jobs WHERE id = ?\","
+      "source": "cur.execute('SELECT id FROM print_archives WHERE print_job_id=? ORDER BY id', (print_job_id,))"
     },
     {
       "classification": "dialect-neutral",
-      "line": 85,
+      "line": 41,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "\"SELECT id, thumbnail_b64, stored_path, filament_weight_grams, \""
+      "source": "cur.execute('SELECT job_name,started_at,ended_at,scheduled_job_id,status,'"
     },
     {
       "classification": "dialect-neutral",
-      "line": 100,
+      "line": 57,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "f\"\"\"INSERT INTO print_archives"
+      "source": "cur.execute('SELECT org_id FROM printers WHERE id=?', (printer_id,))"
     },
     {
       "classification": "dialect-neutral",
-      "line": 128,
+      "line": 62,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute('SELECT submitted_by,estimated_cost,print_file_id,charged_to_org_id FROM jobs WHERE id=?', (scheduled,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 70,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute('SELECT id,thumbnail_b64,stored_path,filament_weight_grams,plate_count,org_id FROM print_files WHERE id=?', (explicit_file,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 73,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute('SELECT id,thumbnail_b64,stored_path,filament_weight_grams,plate_count,org_id FROM print_files WHERE job_id=? ORDER BY id', (scheduled,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 116,
+      "path": "backend/modules/archives/archive.py",
+      "pattern": "qmark-parameter",
+      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
+      "source": "cur.execute(f\"\"\"INSERT INTO print_archives"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 124,
       "path": "backend/modules/archives/archive.py",
       "pattern": "lastrowid",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "archive_id = cur.lastrowid"
+      "source": "archive_id = cur.fetchone()[0] if sql.is_postgres else cur.lastrowid"
     },
     {
       "classification": "dialect-neutral",
-      "line": 152,
+      "line": 131,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "cur.execute(\"\"\""
+      "source": "cur.execute('UPDATE print_archives SET accounting_state=?,accounting_reason=? WHERE id=?',"
     },
     {
       "classification": "dialect-neutral",
-      "line": 180,
+      "line": 245,
       "path": "backend/modules/archives/archive.py",
       "pattern": "qmark-parameter",
       "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "\"UPDATE spools SET remaining_weight_g = ? WHERE id = ?\","
+      "source": "cur.execute(\"SELECT pj.id,pj.printer_id,pj.status FROM print_jobs pj \""
     },
     {
       "classification": "dialect-neutral",
-      "line": 196,
-      "path": "backend/modules/archives/archive.py",
+      "line": 38,
+      "path": "backend/modules/archives/attempt_accounting.py",
       "pattern": "qmark-parameter",
-      "reason": "Insert identity is supplied by the dialect-aware DBAPI result adapter",
-      "source": "\"UPDATE print_archives SET consumption_json = ? WHERE id = ?\","
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "\"UPDATE print_jobs SET id=id WHERE id=? AND printer_id=? \""
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 43,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "printer = execute(connection, 'SELECT org_id FROM printers WHERE id=?', (printer_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 47,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'SELECT fs.slot_number,fs.assigned_spool_id,s.org_id,s.id '"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 51,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "\"SELECT id,org_id FROM spools WHERE location_printer_id=? AND status='active' ORDER BY id\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 54,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "scheduled = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()[0]"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 65,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'UPDATE print_jobs SET spool_snapshot=? WHERE id=? AND printer_id=? AND spool_snapshot IS NULL',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 79,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "attempt = execute(connection, 'SELECT scheduled_job_id FROM print_jobs WHERE id=?', (print_job_id,)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 87,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'SELECT j.printer_id,j.charged_to_org_id,j.print_file_id,j.ams_mapping,'"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 103,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'SELECT id,org_id,filament_weight_grams,filaments_json FROM print_files WHERE job_id=? ORDER BY id',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 151,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "current = execute(connection, 'SELECT id,org_id FROM spools WHERE id=?', (row[1],)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 249,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'SELECT id FROM spool_usage WHERE job_id=? AND print_job_id IS NULL LIMIT 1',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 252,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "if execute(connection, 'SELECT id FROM spool_usage WHERE print_job_id=? LIMIT 1',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 259,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "locked = execute(connection, 'UPDATE spools SET id=id WHERE id=?', (spool_id,))"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 263,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'SELECT org_id,remaining_weight_g,spoolman_spool_id FROM spools WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 278,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'UPDATE spools SET remaining_weight_g=CASE WHEN remaining_weight_g>? THEN remaining_weight_g-? ELSE 0 END WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 281,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "'INSERT INTO spool_usage(spool_id,job_id,print_job_id,weight_used_g,notes) VALUES(?,?,?,?,?)',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 285,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "\"INSERT INTO filament_delivery_outbox(id,print_job_id,spool_id,spoolman_spool_id,grams_used,state) VALUES(?,?,?,?,?,'pending')\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 292,
+      "path": "backend/modules/archives/attempt_accounting.py",
+      "pattern": "qmark-parameter",
+      "reason": "Caller-owned SQLAlchemy or shared DBAPI transaction translates qmark SQL; actual PostgreSQL accounting, duplicate-attempt and inventory contention tests cover the boundary",
+      "source": "execute(connection, 'UPDATE print_archives SET consumption_json=? WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 11,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "job = execute(connection, 'SELECT print_file_id,charged_to_org_id,model_id FROM jobs WHERE id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 16,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "files = execute(connection, 'SELECT id,org_id,model_id,stored_path FROM print_files WHERE id=?', (job[0],)).fetchall()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 18,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "files = execute(connection, 'SELECT id,org_id,model_id,stored_path FROM print_files WHERE job_id=? ORDER BY id',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 28,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "model = execute(connection, 'SELECT org_id FROM models WHERE id=?', (job[2],)).fetchone()"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 37,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "'SELECT id,org_id,job_id,print_file_id,model_id,operation_id,submitted_by FROM education_submissions WHERE job_id=? OR print_file_id=?',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 40,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "'SELECT operation_id,org_id,user_id,state FROM education_upload_operations WHERE final_path=? AND final_path IS NOT NULL',"
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 51,
+      "path": "backend/modules/archives/ownership.py",
+      "pattern": "qmark-parameter",
+      "reason": "Authoritative job/file/Education graph reads use the shared attempt SQL adapter on SQLite and PostgreSQL; no device-sharing ownership inference",
+      "source": "'SELECT s.id FROM education_submissions s '"
     },
     {
       "classification": "dialect-neutral",
@@ -330,7 +554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 53,
+      "line": 54,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -338,7 +562,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 61,
+      "line": 62,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -346,7 +570,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 137,
+      "line": 139,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -354,7 +578,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 146,
+      "line": 148,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -362,7 +586,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 154,
+      "line": 156,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -370,7 +594,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 161,
+      "line": 163,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -378,7 +602,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 260,
+      "line": 262,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -386,7 +610,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 268,
+      "line": 270,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -394,7 +618,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 275,
+      "line": 277,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -402,7 +626,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 281,
+      "line": 283,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -410,7 +634,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 330,
+      "line": 332,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -418,7 +642,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 333,
+      "line": 335,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -426,7 +650,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 336,
+      "line": 338,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -434,7 +658,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 348,
+      "line": 350,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -506,7 +730,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 125,
+      "line": 128,
       "path": "backend/modules/organizations/education_policy_inventory.py",
       "pattern": "qmark-parameter",
       "reason": "Static source-discovery regex contains SQL vocabulary and regex question marks; it executes no database statement",
@@ -514,7 +738,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 90,
+      "line": 92,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -522,7 +746,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 102,
+      "line": 104,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -530,7 +754,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 117,
+      "line": 120,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -538,7 +762,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 128,
+      "line": 131,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -546,7 +770,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 142,
+      "line": 145,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -554,7 +778,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 144,
+      "line": 147,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -562,7 +786,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 160,
+      "line": 163,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -570,7 +794,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 233,
+      "line": 236,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -578,7 +802,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 246,
+      "line": 249,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -586,7 +810,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 259,
+      "line": 262,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -594,7 +818,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 261,
+      "line": 264,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -602,7 +826,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 280,
+      "line": 283,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -610,7 +834,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 293,
+      "line": 296,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -618,7 +842,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 297,
+      "line": 302,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -626,7 +850,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 378,
+      "line": 383,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -634,7 +858,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 388,
+      "line": 393,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -642,7 +866,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 426,
+      "line": 431,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -650,7 +874,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 449,
+      "line": 454,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -658,7 +882,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 462,
+      "line": 467,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -666,7 +890,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 469,
+      "line": 474,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -674,7 +898,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 478,
+      "line": 483,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "lastrowid",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -682,7 +906,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 479,
+      "line": 484,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -690,7 +914,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 507,
+      "line": 512,
       "path": "backend/modules/printers/monitors/mqtt_job_lifecycle.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",

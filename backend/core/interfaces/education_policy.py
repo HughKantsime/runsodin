@@ -23,7 +23,25 @@ def is_education_reserved_filename(value: str | None) -> bool:
     return parse_education_token(value) is not None
 
 
+def generic_archive_audience_sql() -> str:
+    """Absent/older authorities exclude every identifiable Education source."""
+    return (
+        "(a.education_submission_id IS NULL AND NOT EXISTS ("
+        "SELECT 1 FROM education_submissions raw_s WHERE raw_s.print_file_id=a.print_file_id OR raw_s.job_id=a.job_id)"
+        " AND NOT EXISTS (SELECT 1 FROM education_upload_operations raw_o JOIN print_files raw_f"
+        " ON raw_f.id=a.print_file_id WHERE raw_o.final_path=raw_f.stored_path AND raw_o.final_path IS NOT NULL))"
+    )
+
+
 class EducationPolicyProvider(ABC):
+    def archive_audience_sql(self) -> str:
+        """Older authorities fail closed for Education-marked archive history.
+
+        Return a correlated predicate using archive alias a and bound principal
+        parameters _arc_org, _arc_user, _arc_admin. Never include user text.
+        """
+        return generic_archive_audience_sql()
+
     @abstractmethod
     def assert_file_preview_allowed(self, db, *, file_id: int, principal: dict) -> None:
         """Authorize Education file previews using current submission visibility."""

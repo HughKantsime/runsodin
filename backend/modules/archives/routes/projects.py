@@ -89,43 +89,16 @@ def _locked_project(db, project_id):
 
 
 def _lock_assignment_owners(db, archive_ids):
-    suffix = " FOR UPDATE" if db.get_bind().dialect.name == 'postgresql' else ""
-    rows = db.execute(
-        text("SELECT id, printer_id FROM print_archives WHERE id IN :archive_ids ORDER BY id" + suffix)
-        .bindparams(bindparam("archive_ids", expanding=True)),
-        {"archive_ids": archive_ids},
-    ).fetchall()
-    printer_ids = sorted({row.printer_id for row in rows if row.printer_id is not None})
-    locked_printers = set()
-    if printer_ids:
-        locked_rows = db.execute(
-            text("SELECT id FROM printers WHERE id IN :printer_ids ORDER BY id" + suffix)
-            .bindparams(bindparam("printer_ids", expanding=True)),
-            {"printer_ids": printer_ids},
-        ).fetchall()
-        locked_printers = {row.id for row in locked_rows}
-    return locked_printers
+    # Ownership is anchored on the archive, not a mutable printer row.
+    for archive_id in sorted(archive_ids):
+        db.execute(text("UPDATE print_archives SET id=id WHERE id=:id"), {"id": archive_id})
 
 
-def _archive_visibility(user):
-    """Read shared records; explicitly retain NULL-parent legacy archives."""
-    org = get_org_scope(user)
-    if not should_filter_org(user, org):
-        return "1=1", {}
-    return (
-        "(a.printer_id IS NULL OR (ap.id IS NOT NULL AND "
-        "(ap.org_id = :_archive_org OR ap.org_id IS NULL OR ap.shared IS TRUE)))",
-        {"_archive_org": org},
-    )
+from modules.archives.access import archive_visibility as _archive_visibility, assert_archive_access
 
 
-def _check_assignment_archive(row, user):
-    if not should_filter_org(user, get_org_scope(user)):
-        return
-    if row.printer_id is None:
-        return  # Preserve explicitly unowned legacy records.
-    if row.owner_printer_id is None or not check_org_access(user, row.owner_org):
-        raise HTTPException(status_code=404, detail="Archive not found")
+def _check_assignment_archive(db, row, user):
+    assert_archive_access(db, row.id, user)
 
 
 # ──────────────────────────────────────────────
@@ -293,7 +266,7 @@ def assign_archives(
         raise HTTPException(status_code=400, detail="archive_ids cannot be empty")
 
     archive_ids = sorted(set(body.archive_ids))
-    locked_printers = _lock_assignment_owners(db, archive_ids)
+    _lock_assignment_owners(db, archive_ids)
     found = db.execute(
         text("SELECT a.id, a.printer_id, ap.id AS owner_printer_id, ap.org_id AS owner_org "
              "FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
@@ -303,10 +276,7 @@ def assign_archives(
     if len(found) != len(archive_ids):
         raise HTTPException(status_code=404, detail="Archive not found")
     for row in found:
-        if (should_filter_org(user, get_org_scope(user))
-                and row.printer_id is not None and row.printer_id not in locked_printers):
-            raise HTTPException(status_code=404, detail="Archive not found")
-        _check_assignment_archive(row, user)
+        _check_assignment_archive(db, row, user)
     db.execute(
         text("UPDATE print_archives SET project_id = :pid WHERE id IN :archive_ids")
         .bindparams(bindparam("archive_ids", expanding=True)),

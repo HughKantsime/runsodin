@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.rbac import get_org_scope, require_role
 
+from modules.archives.access import archive_visibility
+
 router = APIRouter()
 
 
@@ -20,20 +22,21 @@ class TagRename(PydanticBaseModel):
 
 @router.get("/tags", tags=["Archives"])
 def list_tags(
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Return all unique tags across archives with usage counts."""
     org = get_org_scope(user)
+    predicate, bindings = archive_visibility(user)
     if should_filter_org(user, org):
         rows = db.execute(
             text(
                 "SELECT a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+                f"AND {predicate}"
             ),
-            {"org": org},
+            bindings,
         ).fetchall()
     else:
         rows = db.execute(
@@ -53,7 +56,7 @@ def list_tags(
 @router.post("/tags/rename", tags=["Archives"])
 def rename_tag(
     body: TagRename,
-    user=Depends(require_role("admin")),
+    user=Depends(require_role("admin", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Bulk-rename a tag across all archives. Admin only."""
@@ -64,15 +67,16 @@ def rename_tag(
     new_tag = body.new.strip()
 
     org = get_org_scope(user)
+    predicate, bindings = archive_visibility(user)
     if should_filter_org(user, org):
         rows = db.execute(
             text(
                 "SELECT a.id, a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+                f"AND {predicate}"
             ),
-            {"org": org},
+            bindings,
         ).fetchall()
     else:
         rows = db.execute(
@@ -99,7 +103,7 @@ def rename_tag(
 @router.delete("/tags/{tag}", tags=["Archives"])
 def delete_tag(
     tag: str,
-    user=Depends(require_role("admin")),
+    user=Depends(require_role("admin", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Remove a tag from all archives. Admin only."""
@@ -108,15 +112,16 @@ def delete_tag(
         raise HTTPException(status_code=400, detail="Tag name cannot be empty")
 
     org = get_org_scope(user)
+    predicate, bindings = archive_visibility(user)
     if should_filter_org(user, org):
         rows = db.execute(
             text(
                 "SELECT a.id, a.tags FROM print_archives a "
                 "LEFT JOIN printers p ON a.printer_id = p.id "
                 "WHERE a.tags IS NOT NULL AND a.tags != '' "
-                "AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE)"
+                f"AND {predicate}"
             ),
-            {"org": org},
+            bindings,
         ).fetchall()
     else:
         rows = db.execute(

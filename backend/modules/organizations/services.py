@@ -66,6 +66,10 @@ class OrgSettingsService(OrgSettingsProvider):
 class EducationPolicyService(EducationPolicyProvider):
     """Registry-facing adapter for the central Education policy."""
 
+    def archive_audience_sql(self) -> str:
+        from modules.organizations.education_review_service import archive_audience_sql
+        return archive_audience_sql()
+
     def assert_file_preview_allowed(self, db, *, file_id: int, principal: dict) -> None:
         from modules.organizations.education_review_service import assert_file_preview_allowed
         assert_file_preview_allowed(db, file_id=file_id, principal=principal)
