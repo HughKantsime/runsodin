@@ -158,8 +158,8 @@ export interface NozzleLifecycle {
   notes: string | null;
   installed_at: string;
   removed_at: string | null;
-  print_hours_accumulated: number;
-  print_count: number;
+  print_hours_accumulated: number | null;
+  print_count: number | null;
 }
 
 // ---- Telemetry ----

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { canDo } from '../../permissions'
 import { printers, printerTelemetry } from '../../api'
 
 interface HmsEntry {
@@ -36,18 +37,31 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const generation = useRef(0)
+  const clearPending = useRef(false)
+  const canClear = canDo('printers.edit')
 
-  useEffect(() => { loadData() }, [printerId, days])
+  useEffect(() => {
+    generation.current += 1
+    setData({ entries: [], frequency: {}, total: 0 })
+    loadData()
+    return () => { generation.current += 1 }
+  }, [printerId, days])
 
   const loadData = async () => {
+    const requestGeneration = generation.current
     setLoading(true)
+    setError(null)
     try {
       const result = await printerTelemetry.hmsHistory(printerId, days)
+      if (requestGeneration !== generation.current) return
       setData(result || { entries: [], frequency: {}, total: 0 })
-    } catch (err) {
-      console.error('Failed to load HMS history:', err)
+    } catch {
+      if (requestGeneration !== generation.current) return
+      setError('Could not load HMS history. Please try again.')
     } finally {
-      setLoading(false)
+      if (requestGeneration === generation.current) setLoading(false)
     }
   }
 
@@ -72,12 +86,22 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
               {d}d
             </button>
           ))}
-          {apiType === 'bambu' && data.total > 0 && (
+          {canClear && !error && apiType === 'bambu' && data.total > 0 && (
             <button
               onClick={async () => {
+                if (!canClear || clearPending.current) return
+                const requestGeneration = generation.current
+                clearPending.current = true
                 setClearing(true)
-                try { await printers.clearErrors(printerId); loadData() } catch (err: any) { toast.error('Clear errors failed: ' + (err?.message || 'Unknown error')) }
-                setClearing(false)
+                try {
+                  await printers.clearErrors(printerId)
+                  if (requestGeneration === generation.current) await loadData()
+                } catch {
+                  if (requestGeneration === generation.current) toast.error('Clear errors failed. Please try again.')
+                } finally {
+                  clearPending.current = false
+                  setClearing(false)
+                }
               }}
               disabled={clearing}
               className="px-2 py-1 rounded-md text-xs bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors disabled:opacity-50"
@@ -93,6 +117,8 @@ export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHist
 
       {loading ? (
         <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+      ) : error ? (
+        <div><p role="alert">{error}</p><button onClick={loadData}>Retry</button></div>
       ) : data.total === 0 ? (
         <div className="text-center py-8 text-[var(--brand-text-muted)] text-sm">No HMS errors in the last {days} days</div>
       ) : (

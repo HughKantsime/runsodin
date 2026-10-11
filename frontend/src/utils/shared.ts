@@ -76,5 +76,11 @@ export function formatMMSS(sec: number): string {
 
 /** Check whether a printer is online based on its last_seen timestamp. */
 export function isOnline(printer: Printer): boolean {
-  return !!(printer.last_seen && (Date.now() - new Date(printer.last_seen + 'Z').getTime()) < ONLINE_THRESHOLD_MS)
+  if (!printer.last_seen) return false
+  // Server timestamps without a zone are UTC; preserve explicit zones.
+  const timestamp = printer.last_seen.trim()
+  const qualified = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp)
+  const lastSeen = new Date(qualified ? timestamp : `${timestamp}Z`).getTime()
+  const age = Date.now() - lastSeen
+  return Number.isFinite(lastSeen) && age >= 0 && age < ONLINE_THRESHOLD_MS
 }

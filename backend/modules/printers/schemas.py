@@ -156,7 +156,15 @@ class NozzleLifecycleBase(BaseModel):
 
 
 class NozzleInstall(NozzleLifecycleBase):
-    pass
+    nozzle_type: Optional[str] = Field(default=None, max_length=20)
+    nozzle_diameter: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @field_validator("nozzle_diameter", mode="before")
+    @classmethod
+    def reject_boolean_diameter(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Nozzle diameter must be a positive finite number")
+        return value
 
 
 class NozzleLifecycleResponse(NozzleLifecycleBase):
@@ -166,8 +174,8 @@ class NozzleLifecycleResponse(NozzleLifecycleBase):
     printer_id: int
     installed_at: datetime
     removed_at: Optional[datetime] = None
-    print_hours_accumulated: float = 0
-    print_count: int = 0
+    print_hours_accumulated: Optional[float] = 0
+    print_count: Optional[int] = 0
 
 
 # ============== Telemetry Schemas ==============

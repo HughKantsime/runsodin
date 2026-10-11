@@ -424,3 +424,91 @@ def test_compiled_printer_telemetry_panel_reads_authorized_history(role_page_fac
         page.get_by_role('button',name='6h',exact=True).click()
     assert narrowed.value.status==200 and narrowed.value.json()==[]
     assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_nozzle_install_retire_and_viewer_controls(role_page_factory, admin, mobile):
+    listing = admin.get(f'{BASE_URL}/api/printers', timeout=10).json()
+    printers = listing if isinstance(listing, list) else listing['items']
+    printer = next(row for row in printers if row['name'] == 'ODIN Candidate Gate Printer')
+    identifier = printer['id']
+    page = role_page_factory('operator', mobile=mobile)
+    _goto(page, '/printers')
+    page.get_by_role('button', name='Nozzle lifecycle', exact=True).click()
+    page.get_by_role('button', name='Track Nozzle', exact=True).click()
+    page.get_by_placeholder('Notes (optional)').fill('Synthetic compiled nozzle acceptance')
+    page.get_by_role('button', name='Install', exact=True).click()
+    expect(page.get_by_role('button', name='Retire', exact=True)).to_be_visible()
+    current = admin.get(f'{BASE_URL}/api/printers/{identifier}/nozzle', timeout=10).json()
+    assert current['notes'] == 'Synthetic compiled nozzle acceptance'
+    assert current['print_hours_accumulated'] == 0 and current['print_count'] == 0
+    viewer = role_page_factory('viewer', mobile=mobile)
+    _goto(viewer, '/printers')
+    viewer.get_by_role('button', name='Nozzle lifecycle', exact=True).click()
+    expect(viewer.get_by_text('hardened_steel', exact=True)).to_be_visible()
+    expect(viewer.get_by_role('button', name='Retire', exact=True)).to_have_count(0)
+    expect(viewer.get_by_role('button', name='Replace', exact=True)).to_have_count(0)
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.get_by_role('button', name='Retire', exact=True).click()
+    expect(page.get_by_text('No nozzle tracked', exact=True)).to_be_visible()
+    assert admin.get(f'{BASE_URL}/api/printers/{identifier}/nozzle', timeout=10).json() is None
+    history = admin.get(f'{BASE_URL}/api/printers/{identifier}/nozzle/history', timeout=10).json()
+    assert next(row for row in history if row['id'] == current['id'])['removed_at'] is not None
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_printer_heartbeat_timezone_and_future_display(role_page_factory, mobile):
+    from datetime import datetime, timedelta, timezone
+    page = role_page_factory('viewer', mobile=mobile)
+    heartbeat = {'value': (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()}
+    def synthetic_timestamp(route):
+        response = route.fetch()
+        data = response.json()
+        rows = data if isinstance(data, list) else data['items']
+        for row in rows:
+            row['last_seen'] = heartbeat['value']
+        route.fulfill(response=response, json=data)
+    # Substitute only heartbeat presentation, never command a real printer.
+    import re
+    page.route(re.compile(r'/api/printers(?:\?|$)'), synthetic_timestamp)
+    _goto(page, '/printers')
+    expect(page.get_by_test_id('printer-status')).to_have_text('Online')
+    heartbeat['value'] = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    page.reload(wait_until='domcontentloaded')
+    expect(page.get_by_test_id('printer-status')).to_have_text('Offline')
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+    page.unroute_all(behavior='wait')
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_hms_viewer_controls_and_visible_history_failure(role_page_factory, mobile):
+    import re
+    page = role_page_factory('viewer', mobile=mobile)
+    mode = {'fail': False}
+    def synthetic_history(route):
+        response = route.fetch()
+        assert response.status == 200
+        if mode['fail']:
+            route.fulfill(status=503, json={'detail': 'Synthetic history unavailable'})
+        else:
+            route.fulfill(response=response, json={'entries': [{'id': 1, 'code': 'SYNTHETIC', 'message': 'Synthetic history evidence', 'severity': 'error', 'occurred_at': '2026-10-11T12:00:00Z'}], 'frequency': {'SYNTHETIC': 1}, 'total': 1})
+    # Historical presentation fixture only; never issue a clear command.
+    page.route(re.compile(r'/api/printers/\d+/hms-history\?'), synthetic_history)
+    _goto(page, '/printers')
+    page.get_by_role('button', name='HMS error history', exact=True).click()
+    expect(page.get_by_text('Top Recurring (1 total)', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='Clear Errors', exact=True)).to_have_count(0)
+    mode['fail'] = True
+    page.get_by_role('button', name='7d', exact=True).click()
+    expect(page.get_by_role('alert')).to_contain_text('Could not load HMS history')
+    expect(page.get_by_text('No HMS errors in the last 7 days', exact=True)).to_have_count(0)
+    mode['fail'] = False
+    page.get_by_role('button', name='Retry', exact=True).click()
+    expect(page.get_by_text('Top Recurring (1 total)', exact=True)).to_be_visible()
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+    page.unroute_all(behavior='wait')
+
+@pytest.mark.parametrize('role', ['operator', 'viewer'])
+def test_compiled_audit_direct_route_denies_non_admin(role_page_factory, role):
+    page = role_page_factory(role)
+    _goto(page, '/audit')
+    page.wait_for_url(BASE_URL + '/', timeout=20_000)
+    expect(page.get_by_role('heading', name='Dashboard', exact=True)).to_be_visible()

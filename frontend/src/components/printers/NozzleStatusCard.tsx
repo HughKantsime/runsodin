@@ -1,5 +1,6 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { X } from 'lucide-react'
+import { canDo } from '../../permissions'
 import { printerTelemetry } from '../../api'
 import type { NozzleLifecycle } from '../../types'
 
@@ -20,55 +21,99 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
   const [showHistory, setShowHistory] = useState(false)
   const [showInstall, setShowInstall] = useState(false)
   const [installForm, setInstallForm] = useState<InstallForm>({ nozzle_type: 'hardened_steel', nozzle_diameter: 0.4, notes: '' })
+  const [error, setError] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [pending, setPending] = useState(false)
+  const mutationPending = useRef(false)
+  const generation = useRef(0)
+  const canManage = canDo('printers.edit')
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { loadNozzle() }, [printerId])
+  useEffect(() => {
+    generation.current += 1
+    setCurrent(null)
+    setHistory([])
+    setShowHistory(false)
+    setShowInstall(false)
+    setInstallForm({ nozzle_type: 'hardened_steel', nozzle_diameter: 0.4, notes: '' })
+    loadNozzle()
+    return () => { generation.current += 1 }
+  }, [printerId])
 
   const loadNozzle = async () => {
+    const requestGeneration = generation.current
     setLoading(true)
+    setLoadFailed(false)
+    setError(null)
     try {
       const n = await printerTelemetry.nozzle(printerId)
+      if (requestGeneration !== generation.current) return
       setCurrent(n)
     } catch {
-      setCurrent(null)
+      if (requestGeneration !== generation.current) return
+      setLoadFailed(true)
+      setError('Could not load nozzle. Please try again.')
     } finally {
-      setLoading(false)
+      if (requestGeneration === generation.current) setLoading(false)
     }
   }
 
   const loadHistory = async () => {
+    const requestGeneration = generation.current
+    setError(null)
     try {
       const h = await printerTelemetry.nozzleHistory(printerId)
+      if (requestGeneration !== generation.current) return
       setHistory(h || [])
       setShowHistory(true)
-    } catch (err) {
-      console.error('Failed to load nozzle history:', err)
+    } catch {
+      if (requestGeneration !== generation.current) return
+      setError('Could not load nozzle history. Please try again.')
     }
   }
 
   const handleInstall = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canManage || mutationPending.current) return
+    const requestGeneration = generation.current
+    mutationPending.current = true
+    setPending(true)
+    setError(null)
     try {
       await printerTelemetry.installNozzle(printerId, installForm)
+      if (requestGeneration !== generation.current) return
       setShowInstall(false)
       setInstallForm({ nozzle_type: 'hardened_steel', nozzle_diameter: 0.4, notes: '' })
-      loadNozzle()
-    } catch (err) {
-      console.error('Failed to install nozzle:', err)
+      await loadNozzle()
+    } catch {
+      if (requestGeneration !== generation.current) return
+      setError('Could not install nozzle. Please try again.')
+    } finally {
+      mutationPending.current = false
+      setPending(false)
     }
   }
 
   const handleRetire = async () => {
-    if (!current || !confirm('Retire this nozzle?')) return
+    if (!canManage || mutationPending.current || !current || !confirm('Retire this nozzle?')) return
+    const requestGeneration = generation.current
+    mutationPending.current = true
+    setPending(true)
+    setError(null)
     try {
       await printerTelemetry.retireNozzle(printerId, current.id)
-      loadNozzle()
-    } catch (err) {
-      console.error('Failed to retire nozzle:', err)
+      if (requestGeneration !== generation.current) return
+      await loadNozzle()
+    } catch {
+      if (requestGeneration !== generation.current) return
+      setError('Could not retire nozzle. Please try again.')
+    } finally {
+      mutationPending.current = false
+      setPending(false)
     }
   }
 
-  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString() : '\u2014'
+  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString() : 'Unknown'
 
   return (
     <div className="rounded-md p-4" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-sidebar-border)' }}>
@@ -81,26 +126,29 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
         </div>
       </div>
 
+      {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
       {loading ? (
         <div className="text-center py-4 text-[var(--brand-text-muted)] text-sm">Loading...</div>
+      ) : loadFailed ? (
+        <button onClick={loadNozzle}>Retry</button>
       ) : current ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <span className="text-[var(--brand-text-muted)] text-xs">Type</span>
-              <div style={{ color: 'var(--brand-text-primary)' }}>{current.nozzle_type || '\u2014'}</div>
+              <div style={{ color: 'var(--brand-text-primary)' }}>{current.nozzle_type || 'Unknown'}</div>
             </div>
             <div>
               <span className="text-[var(--brand-text-muted)] text-xs">Diameter</span>
-              <div className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{current.nozzle_diameter ? `${current.nozzle_diameter}mm` : '\u2014'}</div>
+              <div className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{current.nozzle_diameter ? `${current.nozzle_diameter}mm` : 'Unknown'}</div>
             </div>
             <div>
               <span className="text-[var(--brand-text-muted)] text-xs">Print Hours</span>
-              <div className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{current.print_hours_accumulated?.toFixed(1) || '0'}h</div>
+              <div className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{current.print_hours_accumulated == null ? 'Unknown' : `${current.print_hours_accumulated.toFixed(1)}h`}</div>
             </div>
             <div>
               <span className="text-[var(--brand-text-muted)] text-xs">Print Count</span>
-              <div className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{current.print_count || 0}</div>
+              <div className="font-mono" style={{ color: 'var(--brand-text-primary)' }}>{current.print_count ?? 'Unknown'}</div>
             </div>
             <div>
               <span className="text-[var(--brand-text-muted)] text-xs">Installed</span>
@@ -108,12 +156,12 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
             </div>
           </div>
           <div className="flex gap-2 pt-1">
-            <button onClick={handleRetire} className="px-3 py-1 bg-red-600/20 text-red-400 rounded-md text-xs hover:bg-red-600/30">
+            {canManage && <button disabled={pending} onClick={handleRetire} className="px-3 py-1 bg-red-600/20 text-red-400 rounded-md text-xs hover:bg-red-600/30">
               Retire
-            </button>
-            <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] rounded-md text-xs hover:bg-[var(--brand-primary)]/30">
+            </button>}
+            {canManage && <button disabled={pending} onClick={() => setShowInstall(true)} className="px-3 py-1 bg-[var(--brand-primary)]/20 text-[var(--brand-primary)] rounded-md text-xs hover:bg-[var(--brand-primary)]/30">
               Replace
-            </button>
+            </button>}
             <button onClick={loadHistory} className="px-3 py-1 bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-xs hover:bg-[var(--brand-card-bg)]">
               History
             </button>
@@ -122,14 +170,14 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
       ) : (
         <div className="text-center py-4">
           <p className="text-[var(--brand-text-muted)] text-sm mb-2">No nozzle tracked</p>
-          <button onClick={() => setShowInstall(true)} className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded-md text-xs hover:bg-[var(--brand-primary-hover)]">
+          {canManage && <button disabled={pending} onClick={() => setShowInstall(true)} className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded-md text-xs hover:bg-[var(--brand-primary-hover)]">
             Track Nozzle
-          </button>
+          </button>}
         </div>
       )}
 
       {/* Install modal */}
-      {showInstall && (
+      {showInstall && canManage && (
         <div className="mt-3 pt-3 border-t border-[var(--brand-card-border)]">
           <form onSubmit={handleInstall} className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
@@ -159,8 +207,8 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
               onChange={e => setInstallForm(f => ({ ...f, notes: e.target.value }))}
               className="w-full bg-[var(--brand-card-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-sm" style={{ color: 'var(--brand-text-primary)' }} />
             <div className="flex gap-2">
-              <button type="submit" className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded-md text-xs hover:bg-[var(--brand-primary-hover)]">Install</button>
-              <button type="button" onClick={() => setShowInstall(false)} className="px-3 py-1 bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-xs hover:bg-[var(--brand-card-bg)]">Cancel</button>
+              <button disabled={pending} type="submit" className="px-3 py-1 bg-[var(--brand-primary)] text-white rounded-md text-xs hover:bg-[var(--brand-primary-hover)]">Install</button>
+              <button disabled={pending} type="button" onClick={() => setShowInstall(false)} className="px-3 py-1 bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-xs hover:bg-[var(--brand-card-bg)]">Cancel</button>
             </div>
           </form>
         </div>
@@ -180,10 +228,10 @@ export default function NozzleStatusCard({ printerId, onClose }: NozzleStatusCar
                   {n.nozzle_type || '?'} {n.nozzle_diameter}mm
                 </span>
                 <span className="text-[var(--brand-text-muted)]">
-                  {n.print_hours_accumulated?.toFixed(1)}h / {n.print_count} prints
+                  {n.print_hours_accumulated == null ? 'Unknown hours' : `${n.print_hours_accumulated.toFixed(1)}h`} / {n.print_count == null ? 'Unknown print count' : `${n.print_count} prints`}
                 </span>
                 <span className="text-[var(--brand-text-muted)]">
-                  {formatDate(n.installed_at)} — {n.removed_at ? formatDate(n.removed_at) : 'active'}
+                  {formatDate(n.installed_at)} to {n.removed_at ? formatDate(n.removed_at) : 'active'}
                 </span>
               </div>
             ))}
