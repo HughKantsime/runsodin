@@ -176,45 +176,158 @@ def _build_go2rtc_config(db: Session) -> dict:
     }
 
 
-def _go2rtc_restart_with_lock(config: dict, *, force: bool = False):
-    """Write go2rtc config and restart if changed, with cross-process locking."""
-    lockfd = None
+_go2rtc_retry_lock = threading.Lock()
+_go2rtc_retry_timers = {}
+_go2rtc_pending_configs = {}
+_go2rtc_retry_workers = {}
+
+
+def _go2rtc_read_state(path):
+    import json
     try:
-        lockfd = open(_GO2RTC_LOCKFILE, "w")
-        fcntl.flock(lockfd, fcntl.LOCK_EX)
+        with open(path + '.sync-state.json') as stream:
+            state = json.load(stream)
+        return state if isinstance(state, dict) else {}
+    except (FileNotFoundError, ValueError):
+        return {}
 
-        # Check if config actually changed
-        try:
-            with open(GO2RTC_CONFIG, "r") as f:
-                existing = yaml.safe_load(f)
-            if existing == config and not force:
-                return  # nothing changed, skip restart
-        except (FileNotFoundError, yaml.YAMLError):
-            pass  # file missing or corrupt — write it
 
-        # Cooldown: check mtime of lockfile as cross-process timestamp
-        if not force:
-            try:
-                mtime = os.path.getmtime(GO2RTC_CONFIG)
-                if (time.time() - mtime) < _GO2RTC_MIN_RESTART_INTERVAL:
-                    with open(GO2RTC_CONFIG, "w") as f:
-                        yaml.dump(config, f, default_flow_style=False)
-                    log.debug("go2rtc config updated but restart skipped (cooldown)")
-                    return
-            except OSError:
-                pass
+def _go2rtc_revision(state):
+    value = state.get('intent_revision', 0)
+    return value if type(value) is int and value >= 0 else 0
 
-        with open(GO2RTC_CONFIG, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
 
-        try:
-            import subprocess
-            subprocess.run(["supervisorctl", "restart", "go2rtc"], capture_output=True, timeout=5)
-            log.info("go2rtc restarted (config changed)")
-        except Exception as e:
-            log.debug(f"Failed to restart go2rtc: {e}")
+def _go2rtc_atomic_write(path: str, content: str):
+    """Replace sensitive configuration/state without exposing a partial file."""
+    import tempfile
+    fd, temporary = tempfile.mkstemp(prefix='.go2rtc-', dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
     finally:
-        if lockfd:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _go2rtc_schedule_retry(path: str, lock_path: str, delay: float):
+    """Coalesce local work; every worker reads latest disk state under flock."""
+    with _go2rtc_retry_lock:
+        if path in _go2rtc_retry_timers:
+            return
+        def retry():
+            with _go2rtc_retry_lock:
+                _go2rtc_retry_timers.pop(path, None)
+                _go2rtc_retry_workers.setdefault(path, set()).add(threading.current_thread())
+            try:
+                _go2rtc_restart_with_lock(None, _path=path, _lock_path=lock_path)
+            except Exception:
+                log.warning('go2rtc deferred configuration sync failed')
+                _go2rtc_schedule_retry(path, lock_path, max(_GO2RTC_MIN_RESTART_INTERVAL, 1.0))
+            finally:
+                with _go2rtc_retry_lock:
+                    _go2rtc_retry_workers.get(path, set()).discard(threading.current_thread())
+        timer = threading.Timer(max(delay, 0.01), retry)
+        timer.daemon = True
+        _go2rtc_retry_timers[path] = timer
+        timer.start()
+
+
+def _go2rtc_restart_with_lock(config: Optional[dict], *, force: bool = False, _path=None, _lock_path=None):
+    """Persist desired configuration and eventually restart the latest version.
+
+    A credential-free sidecar tracks the last successful fingerprint and restart
+    attempt. Startup sync reconciles unfinished work after process replacement.
+    """
+    import hashlib
+    import json
+    import subprocess
+    import math
+    path = _path or GO2RTC_CONFIG
+    lock_path = _lock_path or _GO2RTC_LOCKFILE
+    lockfd = None
+    registered = False
+    initial_revision = None
+    try:
+        initial_revision = _go2rtc_revision(_go2rtc_read_state(path))
+        lockfd = open(lock_path, 'a')
+        fcntl.flock(lockfd, fcntl.LOCK_EX)
+        state_path = path + '.sync-state.json'
+        state = _go2rtc_read_state(path)
+        revision = _go2rtc_revision(state)
+        with _go2rtc_retry_lock:
+            if config is not None:
+                _go2rtc_pending_configs[path] = (config, revision)
+                registered = True
+        if config is not None:
+            # Every explicit request advances intent, including unchanged/ABA values.
+            state['intent_revision'] = revision + 1
+            _go2rtc_atomic_write(state_path, json.dumps(state))
+            revision += 1
+            with _go2rtc_retry_lock:
+                _go2rtc_pending_configs[path] = (config, revision)
+        with _go2rtc_retry_lock:
+            pending = _go2rtc_pending_configs.get(path)
+        try:
+            with open(path) as stream:
+                desired = yaml.safe_load(stream)
+        except (FileNotFoundError, yaml.YAMLError):
+            desired = None
+        if pending is not None and pending[1] != revision:
+            # Another process accepted a newer request after our failed write.
+            with _go2rtc_retry_lock:
+                _go2rtc_pending_configs.pop(path, None)
+            pending = None
+        if pending is not None:
+            pending = pending[0]
+            if desired != pending:
+                _go2rtc_atomic_write(path, yaml.safe_dump(pending))
+            desired = pending
+            with _go2rtc_retry_lock:
+                _go2rtc_pending_configs.pop(path, None)
+        if desired is None:
+            return
+        os.chmod(path, 0o600)
+        fingerprint = hashlib.sha256(yaml.safe_dump(desired, sort_keys=True).encode()).hexdigest()
+        if state.get('applied') == fingerprint and not force:
+            return
+        last_attempt = state.get('last_attempt')
+        if isinstance(last_attempt, bool) or not isinstance(last_attempt, (int, float)) or not math.isfinite(last_attempt):
+            last_attempt = None
+        now = time.time()
+        if last_attempt is not None and last_attempt > now:
+            last_attempt = now
+            state['last_attempt'] = now
+            _go2rtc_atomic_write(state_path, json.dumps(state))
+        remaining = 0 if last_attempt is None else min(_GO2RTC_MIN_RESTART_INTERVAL, max(0, _GO2RTC_MIN_RESTART_INTERVAL - (now - last_attempt)))
+        if remaining and not force:
+            _go2rtc_schedule_retry(path, lock_path, remaining)
+            return
+        state['last_attempt'] = now
+        _go2rtc_atomic_write(state_path, json.dumps(state))
+        try:
+            result = subprocess.run(['supervisorctl', 'restart', 'go2rtc'], capture_output=True, timeout=5)
+            succeeded = result.returncode == 0
+        except Exception:
+            succeeded = False
+        if succeeded:
+            state['applied'] = fingerprint
+            _go2rtc_atomic_write(state_path, json.dumps(state))
+            log.info('go2rtc restarted with current configuration')
+        else:
+            log.warning('go2rtc restart failed; configuration remains pending')
+            _go2rtc_schedule_retry(path, lock_path, max(_GO2RTC_MIN_RESTART_INTERVAL, 0.01))
+    except Exception:
+        # A one-shot request must survive transient config/state persistence failure.
+        if config is not None and not registered:
+            with _go2rtc_retry_lock:
+                _go2rtc_pending_configs.setdefault(path, (config, initial_revision))
+        log.warning('go2rtc configuration sync remains pending')
+        _go2rtc_schedule_retry(path, lock_path, max(_GO2RTC_MIN_RESTART_INTERVAL, 0.01))
+    finally:
+        if lockfd is not None:
             fcntl.flock(lockfd, fcntl.LOCK_UN)
             lockfd.close()
 
