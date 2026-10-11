@@ -690,3 +690,32 @@ def test_compiled_tv_failure_retry_and_fleet_counts(role_page_factory):
     page.keyboard.press('Escape')
     expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20_000)
     page.unroute_all(behavior='wait')
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_camera_detail_load_retry_and_fullscreen_failure(role_page_factory,mobile):
+    page=role_page_factory('admin')
+    if mobile:page.set_viewport_size({'width':390,'height':844})
+    state={'failed':True}
+    printer={'id':900,'name':'Synthetic detail printer','gcode_state':'RUNNING','nozzle_temp':210,'nozzle_target_temp':220,'bed_temp':60,'bed_target_temp':60,'fan_speed':0,'mc_percent':45,'mc_remaining_time':75,'gcode_file':'Synthetic detail job','layer_num':12,'total_layer_num':100,'filament_slots':[]}
+    def printer_list(route):
+        if state['failed']:route.fulfill(status=503,json={'detail':'Synthetic unavailable'})
+        else:route.fulfill(json=[printer])
+    page.route('**/api/printers?*',printer_list)
+    page.route('**/api/cameras/900/webrtc',lambda route:route.fulfill(status=503,json={'detail':'Synthetic unavailable'}))
+    page.route('**/api/printers/900/vision',lambda route:route.fulfill(json={'enabled':False}))
+    _goto(page,'/cameras/900')
+    expect(page.get_by_role('alert')).to_contain_text('Printer data unavailable',timeout=20_000)
+    expect(page.get_by_text('Printer not found',exact=True)).to_have_count(0)
+    state['failed']=False
+    page.get_by_role('button',name='Retry printer data',exact=True).click()
+    expect(page.get_by_role('heading',name='Synthetic detail printer',exact=True)).to_be_visible(timeout=20_000)
+    expect(page.get_by_text('210°/220°C',exact=True)).to_be_visible()
+    expect(page.get_by_text('0%',exact=True)).to_be_visible()
+    expect(page.get_by_text('Synthetic detail job',exact=True)).to_be_visible()
+    expect(page.get_by_text('Layer 12/100',exact=True)).to_be_visible()
+    page.evaluate("()=>{HTMLElement.prototype.requestFullscreen=()=>Promise.reject(new Error('Synthetic unsupported'))}")
+    page.get_by_title('Toggle fullscreen',exact=True).click()
+    expect(page.get_by_text('Fullscreen unavailable',exact=True)).to_be_visible()
+    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+    page.unroute_all(behavior='wait')

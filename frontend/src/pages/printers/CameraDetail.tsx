@@ -95,7 +95,7 @@ export default function CameraDetail() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const printerId = parseInt(id)
 
-  const { data: printerList, isLoading } = useQuery({
+  const { data: printerList, isLoading, isError, refetch } = useQuery({
     queryKey: ['printers'],
     queryFn: () => printers.list(true),
     refetchInterval: 15000,
@@ -104,12 +104,16 @@ export default function CameraDetail() {
   const printer = printerList?.find(p => p.id === printerId)
 
   // Fullscreen toggle
-  const toggleFullscreen = () => {
+  const toggleFullscreen = async () => {
     if (!containerRef.current) return
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen()
-    } else {
-      document.exitFullscreen()
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current.requestFullscreen()
+      } else {
+        await document.exitFullscreen()
+      }
+    } catch {
+      toast.error('Fullscreen unavailable')
     }
   }
 
@@ -119,9 +123,17 @@ export default function CameraDetail() {
     return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
 
+  if (isError) {
+    return <div role="alert" className="p-4 md:p-6 space-y-3">
+      <p>Printer data unavailable</p>
+      <button onClick={() => refetch()} className="underline">Retry printer data</button>
+      <Link to="/cameras" className="block underline">Back to Cameras</Link>
+    </div>
+  }
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-[var(--brand-text-muted)] gap-2">
+      <div role="status" className="flex items-center justify-center py-12 text-[var(--brand-text-muted)] gap-2">
         <RefreshCw size={16} className="animate-spin" />Loading...
       </div>
     )
