@@ -783,3 +783,45 @@ def test_compiled_model_material_search_and_favorite_persist(role_page_factory, 
         assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
     finally:
         assert admin.delete(f'{BASE_URL}/api/models/{identifier}', timeout=10).status_code == 204
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_profile_import_download_and_unavailable_retry(role_page_factory, admin, mobile, tmp_path):
+    import json,re
+    label = f'Synthetic_Profile_{mobile}'
+    content = json.dumps({'name':label,'type':'filament','filament_type':['PETG'],'filament_flow_ratio':['0.98']})
+    page = role_page_factory('admin', mobile=mobile)
+    identifiers = []
+    try:
+        _goto(page, '/profiles')
+        expect(page.get_by_role('heading',name='Profiles',exact=True)).to_be_visible()
+        page.locator('input[type=file]').set_input_files({'name':f'{label}.json','mimeType':'application/json','buffer':content.encode()})
+        expect(page.get_by_text('Imported 1 profile(s)',exact=True)).to_be_visible()
+        page.get_by_placeholder('Search profiles...').fill(label)
+        expect(page.get_by_text(label,exact=True)).to_be_visible()
+        saved = admin.get(f'{BASE_URL}/api/profiles',params={'search':label},timeout=10).json()['profiles']
+        identifiers = [row['id'] for row in saved]
+        assert len(identifiers)==1
+        detail = admin.get(f'{BASE_URL}/api/profiles/{identifiers[0]}',timeout=10).json()
+        assert detail['raw_content']==content and detail['filament_type']=='PETG'
+        card = page.locator('div').filter(has=page.get_by_text(label,exact=True)).filter(has=page.get_by_title('Download')).last
+        with page.expect_download() as event:
+            card.get_by_title('Download').click()
+        download = event.value
+        assert download.failure() is None and download.suggested_filename==f'{label}.json'
+        target = tmp_path/f'{label}.json';download.save_as(target)
+        assert target.read_text()==content
+        matcher = re.compile(r'/api/profiles(?:\?.*)?$')
+        page.route(matcher,lambda route:route.fulfill(status=503,json={'detail':'Synthetic profile list unavailable'}))
+        _goto(page,'/profiles')
+        expect(page.get_by_text('Unable to load profiles',exact=True)).to_be_visible(timeout=20_000)
+        expect(page.get_by_text('No profiles yet',exact=True)).to_have_count(0)
+        page.unroute(matcher)
+        page.get_by_role('button',name='Retry',exact=True).click()
+        expect(page.get_by_text(label,exact=True)).to_be_visible()
+        assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+    finally:
+        if not identifiers:
+            identifiers = [row['id'] for row in admin.get(f'{BASE_URL}/api/profiles',params={'search':label},timeout=10).json()['profiles']]
+        for identifier in identifiers:
+            assert admin.delete(f'{BASE_URL}/api/profiles/{identifier}',timeout=10).status_code==204

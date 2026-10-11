@@ -14,6 +14,7 @@ import configparser
 import io
 import json
 import logging
+import math
 import os
 import re
 import zipfile
@@ -36,6 +37,76 @@ router = APIRouter()
 VALID_SLICERS = {"klipper", "orca", "bambu_studio", "prusa", "generic"}
 VALID_CATEGORIES_SLICER = {"printer", "filament", "process"}
 VALID_CATEGORIES_KLIPPER = {"temperature", "speed", "macro_set", "custom"}
+
+
+
+async def _profile_request_body(request: Request) -> dict:
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeError):
+        raise HTTPException(status_code=400, detail="Profile body must be valid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Profile body must be a JSON object")
+    return body
+
+
+def _accessible_profile_printer(db: Session, printer_id, current_user: dict):
+    if isinstance(printer_id, bool) or not isinstance(printer_id, int) or printer_id <= 0:
+        raise HTTPException(status_code=400, detail="printer_id must be a positive integer")
+    printer = db.execute(text(
+        "SELECT id, name, org_id, api_type, api_host FROM printers WHERE id = :id"
+    ), {"id": printer_id}).fetchone()
+    if printer is None or not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer
+
+
+
+def _profile_command_number(value) -> int:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise HTTPException(status_code=400, detail="Profile command values must be finite nonnegative numbers")
+    try:
+        number = float(value)
+        if not math.isfinite(number) or number < 0:
+            raise ValueError("Invalid command number")
+        return int(number)
+    except (ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Profile command values must be finite nonnegative numbers")
+
+
+def _profile_commands(category: str, data) -> list[str]:
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Profile command content must be a JSON object")
+    commands = []
+    if category == "temperature":
+        for key, heater in (("nozzle_temp", "extruder"), ("bed_temp", "heater_bed")):
+            if data.get(key) is not None:
+                commands.append(f"SET_HEATER_TEMPERATURE HEATER={heater} TARGET={_profile_command_number(data[key])}")
+    elif category == "speed":
+        parts = []
+        for key, parameter in (("print_speed", "VELOCITY"), ("accel", "ACCEL"), ("accel_to_decel", "ACCEL_TO_DECEL")):
+            if data.get(key) is not None:
+                parts.append(f"{parameter}={_profile_command_number(data[key])}")
+        if parts:
+            commands.append("SET_VELOCITY_LIMIT " + " ".join(parts))
+    elif category == "macro_set":
+        macros = data.get("macros", [])
+        if not isinstance(macros, list):
+            raise HTTPException(status_code=400, detail="Profile macros must be a list")
+        for macro in macros:
+            command = macro.get("gcode") if isinstance(macro, dict) else macro
+            if not isinstance(command, str):
+                raise HTTPException(status_code=400, detail="Profile macro commands must be text")
+            commands.append(command)
+    elif category == "custom":
+        content = data.get("gcode", "")
+        if not isinstance(content, str):
+            raise HTTPException(status_code=400, detail="Profile GCode must be text")
+        commands.extend(content.splitlines())
+    commands = [command.strip() for command in commands if command.strip()]
+    if not commands:
+        raise HTTPException(status_code=400, detail="Profile has no commands to apply")
+    return commands
 
 
 def _profile_row_to_dict(row) -> dict:
@@ -64,7 +135,7 @@ def list_profiles(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, le=200),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer", scope="read:models")),
 ):
     """List profiles with optional filters."""
     if not current_user:
@@ -108,19 +179,26 @@ def list_profiles(
 async def create_profile(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:models")),
 ):
     """Create a profile from JSON body."""
-    body = await request.json()
+    body = await _profile_request_body(request)
     name = body.get("name")
     slicer = body.get("slicer")
     category = body.get("category")
     raw_content = body.get("raw_content", "")
     if not name or not slicer or not category:
         raise HTTPException(status_code=400, detail="name, slicer, and category are required")
-    if slicer not in VALID_SLICERS:
+    if not isinstance(slicer, str) or slicer not in VALID_SLICERS:
         raise HTTPException(status_code=400, detail=f"slicer must be one of {VALID_SLICERS}")
 
+    valid_categories = VALID_CATEGORIES_KLIPPER if slicer == "klipper" else VALID_CATEGORIES_SLICER
+    if not isinstance(category, str) or category not in valid_categories:
+        raise HTTPException(status_code=400, detail="Invalid profile category")
+    if not isinstance(name, str) or not name.strip() or not isinstance(raw_content, str):
+        raise HTTPException(status_code=400, detail="Profile name and raw_content must be text")
+    if body.get("printer_id") is not None:
+        _accessible_profile_printer(db, body["printer_id"], current_user)
     file_format = "ini" if slicer == "prusa" else "json"
     insert_sql = """
         INSERT INTO printer_profiles
@@ -154,17 +232,24 @@ async def create_profile(
 def _parse_orca_json(content: str) -> dict:
     """Parse OrcaSlicer / Bambu Studio JSON profile."""
     data = json.loads(content)
+    if not isinstance(data, dict):
+        raise ValueError("Profile JSON must be an object")
     name = data.get("name", "Imported Profile")
     ptype = data.get("type", "").lower()
     category = {"machine": "printer", "filament": "filament", "process": "process"}.get(ptype, "process")
-    filament_type = data.get("filament_type", [None])[0] if isinstance(data.get("filament_type"), list) else data.get("filament_type")
+    filament_type = data.get("filament_type")
+    if isinstance(filament_type, list):
+        filament_type = filament_type[0] if filament_type else None
     slicer = "bambu_studio" if data.get("from") == "system" else "orca"
     return {"name": name, "category": category, "filament_type": filament_type, "slicer": slicer, "file_format": "json"}
 
 
 def _parse_prusa_ini(content: str) -> dict:
     """Parse PrusaSlicer INI profile."""
-    cp = configparser.ConfigParser()
+    cp = configparser.ConfigParser(interpolation=None)
+    meaningful = [line.strip() for line in content.splitlines() if line.strip() and not line.lstrip().startswith(("#", ";"))]
+    if meaningful and not meaningful[0].startswith("["):
+        content = "[profile]\n" + content
     cp.read_string(content)
     # PrusaSlicer INIs don't always have sections; check first non-comment line
     name = "Imported Profile"
@@ -195,7 +280,7 @@ def _parse_prusa_ini(content: str) -> dict:
 async def import_profile(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:models")),
 ):
     """Import profile from file upload (.json, .ini, .3mf)."""
     MAX_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -206,60 +291,63 @@ async def import_profile(
     filename = file.filename or ""
     profiles_created = []
 
-    if filename.endswith(".3mf"):
-        # Extract embedded profiles from 3MF ZIP
-        try:
-            zf = zipfile.ZipFile(io.BytesIO(content_bytes))
-        except zipfile.BadZipFile:
-            raise HTTPException(status_code=400, detail="Invalid .3mf file")
-        for name in zf.namelist():
-            if name.endswith(".ini") or name.endswith(".json"):
-                inner = zf.read(name).decode("utf-8", errors="replace")
-                if name.endswith(".json"):
-                    meta = _parse_orca_json(inner)
-                else:
-                    meta = _parse_prusa_ini(inner)
-                meta["raw_content"] = inner
-                profiles_created.append(meta)
-        if not profiles_created:
-            raise HTTPException(status_code=400, detail="No profiles found in .3mf archive")
-
-    elif filename.endswith(".json"):
-        content = content_bytes.decode("utf-8")
-        meta = _parse_orca_json(content)
-        meta["raw_content"] = content
-        profiles_created.append(meta)
-
-    elif filename.endswith(".ini"):
-        content = content_bytes.decode("utf-8")
-        meta = _parse_prusa_ini(content)
-        meta["raw_content"] = content
-        profiles_created.append(meta)
-
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported file format. Use .json, .ini, or .3mf")
+    try:
+        if filename.lower().endswith(".3mf"):
+            with zipfile.ZipFile(io.BytesIO(content_bytes)) as archive:
+                members = archive.infolist()
+                if len(members) > 128 or sum(member.file_size for member in members) > MAX_SIZE:
+                    raise HTTPException(status_code=413, detail="Profile archive exceeds extraction limits")
+                for member in members:
+                    extension = os.path.splitext(member.filename)[1].lower()
+                    if extension not in {".json", ".ini"} or member.is_dir():
+                        continue
+                    inner = archive.read(member).decode("utf-8")
+                    meta = _parse_orca_json(inner) if extension == ".json" else _parse_prusa_ini(inner)
+                    meta["raw_content"] = inner
+                    profiles_created.append(meta)
+            if not profiles_created:
+                raise HTTPException(status_code=400, detail="No profiles found in .3mf archive")
+        elif filename.lower().endswith((".json", ".ini")):
+            content = content_bytes.decode("utf-8")
+            meta = _parse_orca_json(content) if filename.lower().endswith(".json") else _parse_prusa_ini(content)
+            meta["raw_content"] = content
+            profiles_created.append(meta)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Use .json, .ini, or .3mf")
+    except (ValueError, TypeError, IndexError, AttributeError, UnicodeError, configparser.Error, zipfile.BadZipFile, RuntimeError):
+        raise HTTPException(status_code=400, detail="Invalid profile file content")
+    for profile in profiles_created:
+        if not isinstance(profile["name"], str) or not profile["name"].strip():
+            raise HTTPException(status_code=400, detail="Profile name must be text")
+        if profile.get("filament_type") is not None and not isinstance(profile["filament_type"], str):
+            raise HTTPException(status_code=400, detail="Profile filament_type must be text")
 
     ids = []
-    for p in profiles_created:
-        import_insert_sql = """
-            INSERT INTO printer_profiles
-                (created_by, name, slicer, category, file_format, filament_type, raw_content, is_shared)
-            VALUES (:created_by, :name, :slicer, :category, :file_format, :filament_type, :raw_content, 1)
-        """
-        import_params = {
-            "created_by": current_user.get("id"),
-            "name": p["name"],
-            "slicer": p["slicer"],
-            "category": p["category"],
-            "file_format": p["file_format"],
-            "filament_type": p.get("filament_type"),
-            "raw_content": p["raw_content"],
-        }
-        pid = execute_insert_returning_id(db, import_insert_sql, import_params)
-        db.flush()
-        ids.append(pid)
-        log_audit(db, "create", "profile", pid, {"name": p["name"], "slicer": p["slicer"], "source": "import"})
+    try:
+        for p in profiles_created:
+            import_insert_sql = """
+                INSERT INTO printer_profiles
+                    (created_by, org_id, name, slicer, category, file_format, filament_type, raw_content, is_shared)
+                VALUES (:created_by, :org_id, :name, :slicer, :category, :file_format, :filament_type, :raw_content, 1)
+            """
+            import_params = {
+                "created_by": current_user.get("id"),
+                "org_id": current_user.get("group_id"),
+                "name": p["name"],
+                "slicer": p["slicer"],
+                "category": p["category"],
+                "file_format": p["file_format"],
+                "filament_type": p.get("filament_type"),
+                "raw_content": p["raw_content"],
+            }
+            pid = execute_insert_returning_id(db, import_insert_sql, import_params)
+            db.flush()
+            ids.append(pid)
+            log_audit(db, "create", "profile", pid, {"name": p["name"], "slicer": p["slicer"], "source": "import"})
         db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {"imported": len(ids), "ids": ids}
 
@@ -268,7 +356,7 @@ async def import_profile(
 def get_profile(
     profile_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer", scope="read:models")),
 ):
     """Get single profile with raw_content."""
     if not current_user:
@@ -288,7 +376,7 @@ async def update_profile(
     profile_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:models")),
 ):
     """Update profile metadata."""
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
@@ -299,12 +387,14 @@ async def update_profile(
     # Operator can edit own; admin can edit any
     if current_user.get("role") != "admin" and row.created_by != current_user.get("id"):
         raise HTTPException(status_code=403, detail="Can only edit your own profiles")
-    body = await request.json()
+    body = await _profile_request_body(request)
     allowed = {"name", "description", "tags", "is_shared", "printer_id", "filament_type"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields")
     sets = ", ".join(f"{k} = :{k}" for k in updates)
+    if updates.get("printer_id") is not None:
+        _accessible_profile_printer(db, updates["printer_id"], current_user)
     updates["id"] = profile_id
     db.execute(text(f"UPDATE printer_profiles SET {sets}, updated_at = {sql.now()} WHERE id = :id"), updates)  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
     log_audit(db, "update", "profile", profile_id, updates)
@@ -316,7 +406,7 @@ async def update_profile(
 def delete_profile(
     profile_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:models")),
 ):
     """Delete a profile."""
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
@@ -335,7 +425,7 @@ def delete_profile(
 def export_profile(
     profile_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("viewer", scope="read:models")),
 ):
     """Download profile in native format."""
     if not current_user:
@@ -360,7 +450,8 @@ async def apply_profile(
     profile_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
+    _profile_reader: dict = Depends(require_role("viewer", scope="read:models")),
 ):
     """Apply a Klipper profile to a printer via Moonraker GCode API."""
     row = db.execute(text("SELECT * FROM printer_profiles WHERE id = :id"), {"id": profile_id}).fetchone()
@@ -374,17 +465,12 @@ async def apply_profile(
             detail="Only Klipper profiles can be applied directly. Download this profile and import it into your slicer.",
         )
 
-    body = await request.json()
+    body = await _profile_request_body(request)
     target_printer_id = body.get("printer_id")
     if not target_printer_id:
         raise HTTPException(status_code=400, detail="printer_id is required")
 
-    printer = db.execute(
-        text("SELECT id, name, api_type, api_host FROM printers WHERE id = :id"),
-        {"id": target_printer_id},
-    ).fetchone()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+    printer = _accessible_profile_printer(db, target_printer_id, current_user)
     if printer.api_type != "moonraker":
         raise HTTPException(status_code=400, detail="Profile can only be applied to Klipper/Moonraker printers")
 
@@ -394,70 +480,35 @@ async def apply_profile(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid profile JSON content")
 
-    # Build GCode commands based on category
+    gcodes = _profile_commands(row.category, profile_data)
     from modules.printers.adapters.moonraker import MoonrakerPrinter
     adapter = MoonrakerPrinter(printer.api_host)
-
-    gcodes = []
-    category = row.category
-    if category == "temperature":
-        nozzle = profile_data.get("nozzle_temp")
-        bed = profile_data.get("bed_temp")
-        if nozzle is not None:
-            gcodes.append(f"SET_HEATER_TEMPERATURE HEATER=extruder TARGET={int(nozzle)}")
-        if bed is not None:
-            gcodes.append(f"SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={int(bed)}")
-    elif category == "speed":
-        velocity = profile_data.get("print_speed")
-        accel = profile_data.get("accel")
-        accel_to_decel = profile_data.get("accel_to_decel")
-        parts = []
-        if velocity:
-            parts.append(f"VELOCITY={int(velocity)}")
-        if accel:
-            parts.append(f"ACCEL={int(accel)}")
-        if accel_to_decel:
-            parts.append(f"ACCEL_TO_DECEL={int(accel_to_decel)}")
-        if parts:
-            gcodes.append("SET_VELOCITY_LIMIT " + " ".join(parts))
-    elif category == "macro_set":
-        macros = profile_data.get("macros", [])
-        for macro in macros:
-            if isinstance(macro, str):
-                gcodes.append(macro)
-            elif isinstance(macro, dict):
-                gcodes.append(macro.get("gcode", ""))
-    elif category == "custom":
-        custom = profile_data.get("gcode", "")
-        if custom:
-            gcodes.extend(custom.strip().split("\n"))
-
-    if not gcodes:
-        raise HTTPException(status_code=400, detail="Profile has no commands to apply")
 
     # Send each GCode
     failures = []
     for gcode in gcodes:
-        gcode = gcode.strip()
-        if not gcode:
-            continue
-        success = adapter.send_gcode(gcode)
+        try:
+            success = adapter.send_gcode(gcode)
+        except Exception as exc:
+            log.warning("Profile command delivery unconfirmed profile=%s printer=%s error=%s", profile_id, target_printer_id, type(exc).__name__)
+            success = False
         if not success:
             failures.append(gcode)
 
-    # Update last_applied
+    # Only a fully successful application advances the success anchor.
     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-    db.execute(text(f"""
-        UPDATE printer_profiles
-        SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
-        WHERE id = :id
-    """), {"pid": target_printer_id, "id": profile_id})
+    if not failures:
+        db.execute(text(f"""
+            UPDATE printer_profiles
+            SET last_applied_at = {sql.now()}, last_applied_printer_id = :pid
+            WHERE id = :id
+        """), {"pid": target_printer_id, "id": profile_id})
     log_audit(db, "apply", "profile", profile_id, {
         "printer_id": target_printer_id, "printer_name": printer.name,
-        "commands_sent": len(gcodes), "failures": len(failures),
+        "commands_sent": len(gcodes) - len(failures), "failures": len(failures),
     })
     db.commit()
 
     if failures:
-        return {"applied": True, "warnings": f"{len(failures)} command(s) failed", "failed_commands": failures}
-    return {"applied": True, "commands_sent": len(gcodes)}
+        return {"applied": False, "outcome": "failed" if len(failures) == len(gcodes) else "partial", "commands_sent": len(gcodes) - len(failures), "commands_failed": len(failures), "warnings": f"{len(failures)} command(s) failed", "failed_commands": failures}
+    return {"applied": True, "outcome": "applied", "commands_sent": len(gcodes), "commands_failed": 0}

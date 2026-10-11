@@ -207,10 +207,6 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Model not found")
 
     update_data = updates.model_dump(exclude_unset=True)
-    if "color_requirements" in update_data and update_data["color_requirements"]:
-        update_data["color_requirements"] = {
-            k: v.model_dump() for k, v in update_data["color_requirements"].items()
-        }
 
     for field, value in update_data.items():
         setattr(model, field, value)
@@ -294,7 +290,7 @@ def schedule_from_model(
 async def list_model_revisions(model_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     """List all revisions for a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
+    if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     rows = db.execute(text(
@@ -318,7 +314,7 @@ async def create_model_revision(
 ):
     """Upload a new revision for a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
+    if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     # Get next revision number
@@ -358,7 +354,7 @@ async def revert_model_revision(
 ):
     """Revert a model to a previous revision by creating a new revision from it."""
     model = db.query(Model).filter(Model.id == model_id).first()
-    if not model:
+    if not model or not check_org_access(current_user, model.org_id):
         raise HTTPException(status_code=404, detail="Model not found")
 
     # Find the target revision

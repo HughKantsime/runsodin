@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { profilesApi, printers as printersApi } from '../../api'
 import { SlidersHorizontal, Upload, Plus, Download, Play, Trash2, Pencil, Loader2, Search, X } from 'lucide-react'
 import ConfirmModal from '../../components/shared/ConfirmModal'
+import { canDo, getCurrentUser } from '../../permissions'
 
 const SLICER_TABS = [
   { key: '', label: 'All' },
@@ -43,7 +44,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
   const [applyPrinterId, setApplyPrinterId] = useState('')
   const [importing, setImporting] = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['profiles', slicer, category, search, page, filterPrinterId],
     queryFn: () => profilesApi.list({ slicer, category, search: search || undefined, page, printer_id: filterPrinterId }),
   })
@@ -66,8 +67,14 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
     mutationFn: ({ profileId, printerId }) => profilesApi.apply(profileId, printerId),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['profiles'] })
-      toast.success(`Profile applied — ${res.commands_sent} command(s) sent`)
-      setApplyProfile(null)
+      if (res.applied === true) {
+        toast.success(`Profile applied: ${res.commands_sent} command(s) sent`)
+        setApplyProfile(null)
+      } else {
+        toast.error(res.outcome === 'partial'
+          ? 'Some commands failed. Check the printer before trying again.'
+          : 'Profile was not applied. Printer commands failed.')
+      }
     },
     onError: (e) => toast.error(e.message || 'Apply failed'),
   })
@@ -91,7 +98,14 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
   const items = data?.profiles || []
   const total = data?.total || 0
   const totalPages = Math.ceil(total / 50)
-  const klipperPrinters = (printersList || []).filter(p => p.api_type === 'moonraker' && p.is_active)
+  const currentUser = getCurrentUser()
+  const operator = currentUser && ['operator', 'admin'].includes(currentUser.role)
+  const canManageProfiles = operator && canDo('models.edit')
+  const canApplyProfiles = operator && canDo('printers.edit')
+  const klipperPrinters = (printersList || []).filter(p => p.api_type === 'moonraker' && p.is_active && currentUser && (
+    (currentUser.role === 'admin' && !currentUser.group_id) || p.org_id === null ||
+    (currentUser.group_id != null && p.org_id === currentUser.group_id)
+  ))
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
@@ -105,15 +119,15 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input ref={fileInputRef} type="file" accept=".json,.ini,.3mf" className="hidden" onChange={handleImport} />
-          <button
+          {canManageProfiles && <input ref={fileInputRef} type="file" accept=".json,.ini,.3mf" className="hidden" onChange={handleImport} />}
+          {canManageProfiles && <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
             className="flex items-center gap-1.5 px-3 py-2 bg-[var(--brand-card-border)] hover:bg-[var(--brand-card-border)] rounded-md text-sm transition-colors"
           >
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             Import
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -162,6 +176,11 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
         <div className="flex items-center justify-center py-20 text-[var(--brand-muted)]">
           <Loader2 className="animate-spin mr-2" size={20} /> Loading...
         </div>
+      ) : isError ? (
+        <div role="alert" className="text-center py-20 text-[var(--brand-muted)]">
+          <p>Unable to load profiles</p>
+          <button onClick={() => refetch()} className="mt-3 px-4 py-2 rounded-md bg-[var(--brand-input-bg)]">Retry</button>
+        </div>
       ) : items.length === 0 ? (
         <div className="text-center py-20 text-[var(--brand-muted)]">
           <SlidersHorizontal size={48} className="mx-auto mb-4 opacity-50" />
@@ -194,7 +213,7 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {p.slicer === 'klipper' && (
+                {canApplyProfiles && p.slicer === 'klipper' && (
                   <button
                     onClick={() => { setApplyProfile(p); setApplyPrinterId('') }}
                     className="flex items-center gap-1 px-2 py-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded text-xs transition-colors"
@@ -210,13 +229,13 @@ export default function Profiles({ filterPrinterId, filterSlicer } = {}) {
                 >
                   <Download size={10} />
                 </a>
-                <button
+                {canManageProfiles && (currentUser.role === 'admin' || p.created_by === currentUser.id) && <button
                   onClick={() => setConfirmDeleteId(p.id)}
                   className="flex items-center gap-1 px-2 py-1 bg-[var(--brand-card-border)] hover:bg-red-600/30 text-[var(--brand-muted)] hover:text-red-400 rounded text-xs transition-colors"
                   title="Delete"
                 >
                   <Trash2 size={10} />
-                </button>
+                </button>}
               </div>
             </div>
           ))}
