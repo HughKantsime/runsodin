@@ -1,3 +1,4 @@
+import useCameraList from '../../hooks/useCameraList'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -363,14 +364,7 @@ export default function Dashboard() {
   const queryClient = useQueryClient()
 
   const [cameraTarget, setCameraTarget] = useState(null)
-  const { data: activeCameras } = useQuery({
-    queryKey: ['cameras'],
-    queryFn: async () => {
-      const response = await fetch('/api/cameras', { credentials: 'include' })
-      if (!response.ok) return []
-      return response.json()
-    }
-  })
+  const { data: activeCameras } = useCameraList()
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
 
   const { data: statsData, isLoading: statsLoading } = useQuery({ queryKey: ['stats'], queryFn: () => stats.get() })

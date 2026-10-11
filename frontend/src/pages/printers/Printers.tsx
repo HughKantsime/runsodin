@@ -1,3 +1,4 @@
+import useCameraList from '../../hooks/useCameraList'
 import QRScannerModal from '../../components/inventory/QRScannerModal';
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -20,10 +21,7 @@ import { PageHeader, Button, SearchInput, EmptyState } from '../../components/ui
 export default function Printers() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
   const [cameraTarget, setCameraTarget] = useState(null)
-  const { data: activeCameras } = useQuery({
-    queryKey: ['cameras'],
-    queryFn: () => printers.getCameras().catch(() => [])
-  })
+  const { data: activeCameras } = useCameraList()
   const cameraIds = new Set((activeCameras || []).map(c => c.id))
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)

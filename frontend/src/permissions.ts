@@ -8,6 +8,8 @@
  */
 
 interface CachedUser {
+  id?: number
+  group_id?: number | null
   username: string
   role: string
 }
@@ -91,7 +93,7 @@ export async function refreshPermissions(): Promise<PermissionsConfig | null> {
     }
     const me = await meRes.json()
     const data = await permRes.json()
-    currentUser = { username: me.username, role: me.role }
+    currentUser = { id: me.id, group_id: me.group_id ?? null, username: me.username, role: me.role }
     permissions = data
     return data
   } catch {

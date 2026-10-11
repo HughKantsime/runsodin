@@ -335,7 +335,7 @@ async def set_require_mfa(body: RequireMFARequest, current_user: dict = Depends(
 async def get_me(current_user: dict = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"username": current_user["username"], "email": current_user["email"],
+    return {"id": current_user["id"], "username": current_user["username"], "email": current_user["email"],
             "role": current_user["role"], "group_id": current_user.get("group_id")}
 
 

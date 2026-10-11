@@ -25,6 +25,10 @@ def is_education_reserved_filename(value: str | None) -> bool:
 
 class EducationPolicyProvider(ABC):
     @abstractmethod
+    def assert_file_preview_allowed(self, db, *, file_id: int, principal: dict) -> None:
+        """Authorize Education file previews using current submission visibility."""
+
+    @abstractmethod
     def assert_generic_model_reference_allowed(self, db, model_id: int) -> None:
         """Reject reuse of Education files/models outside its approval lifecycle."""
 

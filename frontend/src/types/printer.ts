@@ -314,8 +314,8 @@ export interface ConnectionTestResult {
 
 export interface Camera {
   id: number;
-  printer_id: number;
-  url: string;
   name: string | null;
-  type: string | null;
+  camera_enabled: boolean;
+  has_camera: boolean;
+  display_order: number;
 }

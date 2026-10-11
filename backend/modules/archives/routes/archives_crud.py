@@ -27,6 +27,7 @@ from core.rbac import check_org_access, get_org_scope, require_role
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+PREVIEW_STORAGE_ROOT = "/data"
 
 
 # ──────────────────────────────────────────────
@@ -631,27 +632,22 @@ def reprint_archive(
 @router.get("/files/{file_id}/preview-model", tags=["Archives"])
 def preview_model(
     file_id: int,
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:models")),
     db: Session = Depends(get_db),
 ):
     """Stream a 3MF or STL file for 3D model preview."""
-    row = db.execute(
-        text("SELECT stored_path, original_filename FROM print_files WHERE id = :id"),
-        {"id": file_id},
-    ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    stored_path = row[0]
-    original_name = row[1] or "model"
-
-    if not stored_path or not os.path.exists(stored_path):
-        raise HTTPException(status_code=404, detail="File not available on disk")
-
-    # Validate path is under /data/
+    from core.model_preview_access import accessible_preview_file, preview_not_found
+    row = accessible_preview_file(db, file_id, user)
+    stored_path = row.stored_path
+    original_name = row.original_filename or "model"
+    if not stored_path:
+        raise preview_not_found()
     real_path = os.path.realpath(stored_path)
-    if not real_path.startswith("/data/"):
+    root = os.path.realpath(PREVIEW_STORAGE_ROOT).rstrip(os.sep) + os.sep
+    if not real_path.startswith(root):
         raise HTTPException(status_code=400, detail="Invalid file path")
+    if not os.path.exists(real_path):
+        raise preview_not_found()
 
     # Determine media type
     ext = os.path.splitext(original_name)[1].lower()

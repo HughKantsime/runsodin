@@ -43,14 +43,14 @@ describe('in-memory permission state', () => {
     expect(canDo('jobs.approve')).toBe(false)
 
     vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(response({ username: 'admin@school.test', role: 'admin' }))
+      .mockResolvedValueOnce(response({ id: 3, group_id: 1, username: 'admin@school.test', role: 'admin' }))
       .mockResolvedValueOnce(response({
         page_access: { settings: ['admin'] },
         action_access: { 'jobs.approve': ['admin', 'operator'] },
       })))
 
     expect(await refreshPermissions()).not.toBeNull()
-    expect(getCurrentUser()).toEqual({ username: 'admin@school.test', role: 'admin' })
+    expect(getCurrentUser()).toEqual({ id: 3, group_id: 1, username: 'admin@school.test', role: 'admin' })
     expect(canAccessPage('settings')).toBe(true)
     expect(canDo('jobs.approve')).toBe(true)
     expect(window.localStorage.getItem('odin_user')).toBeNull()

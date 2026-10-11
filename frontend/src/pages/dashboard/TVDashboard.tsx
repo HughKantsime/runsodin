@@ -128,13 +128,13 @@ export default function TVDashboard() {
   const autoPageTimerRef = useRef(null)
 
   // Data
-  const { data: printerList, isLoading: printersLoading } = useQuery({
+  const { data: printerList, isLoading: printersLoading, isError: printersError, refetch: retryPrinters } = useQuery({
     queryKey: ['printers'],
     queryFn: () => printersApi.list(true),
     refetchInterval: 15000,
   })
 
-  const { data: alertSummary } = useQuery({
+  const { data: alertSummary, isError: alertsError, isLoading: alertsLoading } = useQuery({
     queryKey: ['alert-summary-tv'],
     queryFn: alertsApi.summary,
     refetchInterval: 60000,
@@ -177,8 +177,8 @@ export default function TVDashboard() {
             {branding.app_name || 'O.D.I.N.'}
           </h1>
           <div className="flex items-center gap-4 text-sm">
-            <span className="text-[var(--status-completed)] font-medium">{printingCount}/{allPrinters.length} Printing</span>
-            {errorCount > 0 && <span className="text-[var(--status-failed)] font-medium">{errorCount} Error{errorCount !== 1 ? 's' : ''}</span>}
+            {!printersLoading && !printersError && <span className="text-[var(--status-completed)] font-medium">{printingCount}/{allPrinters.length} Printing</span>}
+            {!printersError && errorCount > 0 && <span className="text-[var(--status-failed)] font-medium">{errorCount} Error{errorCount !== 1 ? 's' : ''}</span>}
           </div>
         </div>
         <div className="flex items-center gap-6">
@@ -202,8 +202,14 @@ export default function TVDashboard() {
 
       {/* Printer grid */}
       <div className="flex-1 overflow-hidden p-4">
-        {printersLoading ? (
-          <div className="flex items-center justify-center h-full">
+        {printersError ? (
+          <div role="alert" className="flex flex-col items-center justify-center gap-3 h-full">
+            <p>Printer data unavailable</p>
+            <button onClick={() => retryPrinters()} className="underline">Retry printer data</button>
+          </div>
+        ) : printersLoading ? (
+          <div role="status" className="flex items-center justify-center gap-2 h-full">
+            <span>Loading printers</span>
             <Loader2 size={32} className="animate-spin text-[var(--brand-text-muted)]" />
           </div>
         ) : (
@@ -218,10 +224,12 @@ export default function TVDashboard() {
       {/* Stats bar */}
       <div className="flex items-center justify-between px-6 py-2.5 border-t border-[var(--brand-card-border)] shrink-0 text-sm">
         <div className="flex items-center gap-6 text-[var(--brand-text-secondary)]">
-          {unreadAlerts > 0 && (
+          {alertsError && <span>Alert status unavailable</span>}
+          {alertsLoading && <span>Loading alerts</span>}
+          {!alertsError && !alertsLoading && unreadAlerts > 0 && (
             <span className="text-amber-400">{unreadAlerts} Active Alert{unreadAlerts !== 1 ? 's' : ''}</span>
           )}
-          {unreadAlerts === 0 && <span className="text-[var(--brand-text-muted)]">No active alerts</span>}
+          {!alertsError && !alertsLoading && unreadAlerts === 0 && <span className="text-[var(--brand-text-muted)]">No active alerts</span>}
         </div>
         <div className="flex items-center gap-3">
           {totalPages > 1 && (

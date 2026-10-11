@@ -65,6 +65,7 @@ import MobileHeader from './components/layout/MobileHeader'
 import MobileBottomNav from './components/ui/MobileBottomNav'
 import ThemeToggle from './components/layout/ThemeToggle'
 import ProtectedRoute from './components/auth/ProtectedRoute'
+import CameraPipProvider from './components/printers/CameraPipProvider'
 import RoleGate from './components/auth/RoleGate'
 import NotFound from './components/layout/NotFound'
 
@@ -125,6 +126,7 @@ export default function App() {
 
   return (
     <ProtectedRoute>
+      <CameraPipProvider>
       <div className="h-screen flex flex-col md:flex-row overflow-hidden">
         {/* Skip to content — WCAG 2.4.1 */}
         <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-[var(--brand-primary)] focus:text-[var(--brand-on-primary)] focus:rounded-lg focus:text-sm">
@@ -199,6 +201,7 @@ export default function App() {
         </div>
         <MobileBottomNav />
       </div>
+      </CameraPipProvider>
     </ProtectedRoute>
   )
 }

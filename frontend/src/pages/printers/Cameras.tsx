@@ -6,100 +6,11 @@ import clsx from 'clsx'
 import CameraModal from '../../components/printers/CameraModal'
 import { PageHeader, Button, Card, EmptyState } from '../../components/ui'
 import useWebRTC from '../../hooks/useWebRTC'
+import useCameraList from '../../hooks/useCameraList'
+import { useCameraPip } from '../../components/printers/CameraPipProvider'
 
 const API_BASE = '/api'
 
-
-function PipPlayer({ camera, onClose }) {
-  const [position, setPosition] = useState({ x: window.innerWidth - 340, y: window.innerHeight - 240 })
-  const [dragging, setDragging] = useState(false)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [size, setSize] = useState('medium') // small, medium
-  
-  const sizes = {
-    small: { width: 240, height: 180 },
-    medium: { width: 320, height: 220 },
-  }
-  const { width, height } = sizes[size]
-
-  useEffect(() => {
-    if (!dragging) return
-    const onMove = (e) => {
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY
-      setPosition({
-        x: Math.max(0, Math.min(window.innerWidth - width, clientX - dragOffset.x)),
-        y: Math.max(0, Math.min(window.innerHeight - height, clientY - dragOffset.y)),
-      })
-    }
-    const onUp = () => setDragging(false)
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    window.addEventListener('touchmove', onMove, { passive: false })
-    window.addEventListener('touchend', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      window.removeEventListener('touchmove', onMove)
-      window.removeEventListener('touchend', onUp)
-    }
-  }, [dragging, dragOffset, width, height])
-
-  const streamUrl = camera.stream_url || `/api/cameras/${camera.id}/stream`
-
-  return (
-    <div 
-      className="fixed z-[9999] rounded-md overflow-hidden shadow-2xl border border-[var(--brand-card-border)] bg-black"
-      style={{ left: position.x, top: position.y, width, height }}
-    >
-      {/* Header bar */}
-      <div 
-        className="absolute top-0 left-0 right-0 h-6 bg-[var(--brand-card-bg)]/90 backdrop-blur-sm z-10 flex items-center justify-between px-2 cursor-move"
-        onMouseDown={(e) => {
-          setDragging(true)
-          setDragOffset({ x: e.clientX - position.x, y: e.clientY - position.y })
-          e.preventDefault()
-        }}
-        onTouchStart={(e) => {
-          const touch = e.touches[0]
-          setDragging(true)
-          setDragOffset({ x: touch.clientX - position.x, y: touch.clientY - position.y })
-        }}
-      >
-        <div className="flex items-center gap-1.5">
-          <GripVertical size={10} className="text-white/50" />
-          <span className="text-[10px] text-white/70 font-medium truncate">{camera.printer_name || camera.name || 'Camera'}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button 
-            onClick={() => setSize(s => s === 'small' ? 'medium' : 'small')}
-            className="p-0.5 hover:bg-white/20 rounded-lg text-white/60 hover:text-white"
-          >
-            {size === 'small' ? <Maximize2 size={8} /> : <Minimize2 size={8} />}
-          </button>
-          <button
-            onClick={onClose}
-            className="p-0.5 hover:bg-red-500/50 rounded-lg text-white/60 hover:text-white"
-          >
-            <X size={8} />
-          </button>
-        </div>
-      </div>
-      {/* Stream */}
-      <img
-        src={streamUrl}
-        alt="Camera stream"
-        className="w-full h-full object-cover"
-        style={{ pointerEvents: 'none' }}
-      />
-      {/* Live indicator */}
-      <div className="absolute bottom-1.5 left-2 flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-        <span className="text-[10px] font-mono text-white/70">LIVE</span>
-      </div>
-    </div>
-  )
-}
 
 function AiIndicator({ printerId }) {
   const { data } = useQuery({
@@ -184,7 +95,7 @@ export default function Cameras() {
   const [expandedCamera, setExpandedCamera] = useState(null)
   const [columns, setColumns] = useState(2)
   const [controlRoom, setControlRoom] = useState(false)
-  const [pipCamera, setPipCamera] = useState(null)
+  const { open: openPip } = useCameraPip()
   const [currentTime, setCurrentTime] = useState(new Date())
 
   // Update clock every second in control room mode
@@ -194,11 +105,14 @@ export default function Cameras() {
     return () => clearInterval(interval)
   }, [controlRoom])
 
-  // Keyboard shortcut: Shift+F for fullscreen control room
+  // Keyboard shortcut: F for fullscreen control room (Shift+F also works).
   useEffect(() => {
     const handleKey = (e) => {
-      if (e.key === 'F' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      if (e.defaultPrevented) return
+      const target = e.target instanceof Element ? e.target : null
+      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
         setControlRoom(prev => !prev)
       }
       if (e.key === 'Escape' && controlRoom) {
@@ -257,15 +171,7 @@ export default function Cameras() {
     }
   }
 
-  const { data: cameras, isLoading } = useQuery({
-    queryKey: ['cameras'],
-    queryFn: async () => {
-      const response = await fetch(API_BASE + '/cameras', { credentials: 'include' })
-      if (!response.ok) throw new Error('Failed to fetch cameras')
-      return response.json()
-    },
-    refetchInterval: 30000
-  })
+  const { data: cameras, isLoading, isError, refetch, ready } = useCameraList()
 
   const filteredCameras = (cameras || []).filter(cam =>
     !filter || cam.name.toLowerCase().includes(filter.toLowerCase())
@@ -372,11 +278,13 @@ export default function Cameras() {
         </Card>
       )}
 
+      {!ready && <div role="alert">Camera access is not ready. Refresh your session.</div>}
+      {ready && isError && <div role="alert">Unable to load cameras. <button onClick={() => refetch()}>Retry cameras</button></div>}
       {isLoading && (
         <div className="text-center text-[var(--brand-text-muted)] py-12 text-sm">Loading cameras...</div>
       )}
 
-      {filteredCameras.length === 0 && !isLoading && (
+      {filteredCameras.length === 0 && !isLoading && !isError && ready && (
         <EmptyState
           icon={VideoOff}
           title="No cameras configured"
@@ -387,12 +295,12 @@ export default function Cameras() {
       {filteredCameras.length > 0 && (
         <div className={'grid gap-3 md:gap-4 ' + gridClass}>
           {filteredCameras.map(camera => (
-            <CameraCard key={camera.id} camera={camera} onExpand={setExpandedCamera} onPip={setPipCamera} />
+            <CameraCard key={camera.id} camera={camera} onExpand={setExpandedCamera} onPip={openPip} />
           ))}
         </div>
       )}
 
-      {pipCamera && <PipPlayer camera={pipCamera} onClose={() => setPipCamera(null)} />}
+
       {expandedCamera && (
         <CameraModal printer={expandedCamera} onClose={() => setExpandedCamera(null)} />
       )}

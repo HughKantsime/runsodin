@@ -109,6 +109,45 @@ _BASE_SELECT = (
 )
 
 
+_SUBMISSION_AUDIENCE = (
+    "(:is_admin=1 OR s.submitted_by=:user_id OR EXISTS ("
+    "SELECT 1 FROM education_cost_center_grants g WHERE g.org_id=s.org_id "
+    "AND g.cost_center_id=s.cost_center_id AND g.user_id=:user_id "
+    "AND g.role='manager' AND g.state='active' AND c.state='active'))"
+)
+
+
+def assert_file_preview_allowed(db: Session, *, file_id: int, principal: dict) -> None:
+    """Authorize every Education owner through the submission visibility policy."""
+    org_id = _org_id(principal)
+    references = db.execute(text(
+        "SELECT id,operation_id FROM education_submissions WHERE print_file_id=:file_id"
+    ), {"file_id": file_id}).fetchall()
+    if not references:
+        raise _not_found()  # Operation-only files require recovery, not generic access.
+    visible = db.execute(text(
+        _BASE_SELECT
+        + " JOIN print_files f ON f.id=s.print_file_id AND f.org_id=s.org_id"
+        + " AND f.created_by=s.submitted_by"
+        + " JOIN education_upload_operations o ON o.operation_id=s.operation_id"
+        + " AND o.org_id=s.org_id AND o.user_id=s.submitted_by"
+        + " AND o.final_path=f.stored_path AND o.state='committed'"
+        + " JOIN models m ON m.id=s.model_id AND m.org_id=s.org_id"
+        + " AND m.print_file_id=f.id AND j.model_id=m.id"
+        + " WHERE s.print_file_id=:file_id AND s.org_id=:org_id AND "
+        + _SUBMISSION_AUDIENCE
+    ), {"file_id": file_id, "org_id": org_id, "user_id": int(principal["id"]),
+        "is_admin": 1 if _tenant_admin(principal) else 0}).fetchall()
+    if {row.id for row in references} != {row.id for row in visible}:
+        raise _not_found()
+    operations = db.execute(text(
+        "SELECT o.operation_id FROM education_upload_operations o JOIN print_files f "
+        "ON o.final_path=f.stored_path WHERE f.id=:file_id AND o.final_path IS NOT NULL"
+    ), {"file_id": file_id}).scalars().all()
+    if not set(operations).issubset({row.operation_id for row in references}):
+        raise _not_found()
+
+
 def list_visible_submissions(
     db: Session,
     *,
@@ -126,12 +165,7 @@ def list_visible_submissions(
             status=422,
             extra={"fields": ["status"]},
         )
-    audience = (
-        "(:is_admin=1 OR s.submitted_by=:user_id OR EXISTS ("
-        "SELECT 1 FROM education_cost_center_grants g WHERE g.org_id=s.org_id "
-        "AND g.cost_center_id=s.cost_center_id AND g.user_id=:user_id "
-        "AND g.role='manager' AND g.state='active' AND c.state='active'))"
-    )
+    audience = _SUBMISSION_AUDIENCE
     filters = ["s.org_id=:org_id", audience]
     params = {
         "org_id": org_id,

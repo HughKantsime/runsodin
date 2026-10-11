@@ -608,3 +608,85 @@ def test_compiled_energy_zero_save_and_load_retry(admin,role_page_factory,mobile
         widget.screenshot(path=str(Path(os.environ['ODIN_CANDIDATE_ARTIFACT_DIR'])/f'energy-widget-{mobile}.png'))
     finally:
         assert admin.put(f'{BASE_URL}/api/settings/energy-rate',json={'energy_cost_per_kwh':0.12},timeout=10).status_code==200
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_camera_pip_navigation_and_access_cleanup(role_page_factory,mobile):
+    """Actual auth/bootstrap/App; synthetic camera list, signaling and browser media."""
+    import os
+    page=role_page_factory('admin',mobile=mobile)
+    me=page.request.get(BASE_URL+'/api/auth/me')
+    assert me.status==200 and isinstance(me.json().get('id'),int) and me.json()['id']>0
+    page.add_init_script("""(() => {
+      window._cameraPeers=[];
+      window.RTCPeerConnection=class {
+        constructor(){this.closed=false;this.iceConnectionState='new';window._cameraPeers.push(this)}
+        addTransceiver(){}
+        async createOffer(){return {type:'offer',sdp:'synthetic-offer'}}
+        async setLocalDescription(){}
+        async setRemoteDescription(){
+          if(this.closed)return;
+          const canvas=document.createElement('canvas');canvas.width=32;canvas.height=32;
+          const paint=()=>{const c=canvas.getContext('2d');c.fillStyle='#00aa44';c.fillRect(0,0,32,32)};
+          paint();this.stream=canvas.captureStream(10);this.timer=setInterval(paint,100);
+          this.ontrack?.({streams:[this.stream]});
+        }
+        close(){this.closed=true;clearInterval(this.timer);this.stream?.getTracks().forEach(t=>t.stop())}
+      };
+    })();""")
+    state={'removed':False,'denied':False}
+    def camera_list(route):
+        if state['denied']:route.fulfill(status=403,json={'detail':'Synthetic access revoked'})
+        else:route.fulfill(json=[] if state['removed'] else [{'id':900,'name':'Synthetic camera','camera_enabled':True,'has_camera':True,'display_order':0}])
+    page.route('**/api/cameras',camera_list)
+    page.route('**/api/cameras/900/webrtc',lambda route:route.fulfill(status=200,content_type='application/sdp',body='synthetic-answer'))
+    page.route('**/api/printers/900/vision',lambda route:route.fulfill(json={'enabled':False}))
+    _goto(page,'/cameras')
+    expect(page.get_by_role('link',name='Synthetic camera',exact=True)).to_be_visible(timeout=20_000)
+    page.get_by_title('Picture-in-Picture',exact=True).click()
+    player=page.get_by_role('region',name='Picture-in-picture camera')
+    expect(player).to_be_visible();expect(player.get_by_text('LIVE',exact=True)).to_be_visible()
+    assert player.locator('video').evaluate('(video)=>video.srcObject?.getVideoTracks().length===1')
+    page.wait_for_function("""()=>{const video=document.querySelector('[aria-label="Camera stream"]');return video?.readyState>=2&&video.videoWidth===32}""",timeout=15_000)
+    if mobile:
+        assert player.evaluate('(node)=>node.getBoundingClientRect().bottom<=document.querySelector("nav.fixed").getBoundingClientRect().top')
+    assert page.evaluate('window._cameraPeers.filter(peer=>!peer.closed).length')==2
+    # Use the rendered router link, preserving the same document and provider.
+    page.locator('nav.fixed a[href="/jobs"]' if mobile else 'a[href="/jobs"]:visible').first.click()
+    expect(page.get_by_role('heading',name='Jobs',exact=True)).to_be_visible(timeout=20_000)
+    expect(player).to_be_visible();assert page.evaluate('window._cameraPeers.filter(peer=>!peer.closed).length')==1
+    player.get_by_role('button',name='Resize camera player').click()
+    assert player.evaluate('(node)=>{const r=node.getBoundingClientRect();return r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight}')
+    player.screenshot(path=str(Path(os.environ['ODIN_CANDIDATE_ARTIFACT_DIR'])/f'camera-player-{mobile}.png'))
+    state['denied']=True
+    # The periodic list recheck is 30 seconds; advance browser timers naturally.
+    expect(player).to_have_count(0,timeout=40_000)
+    assert page.evaluate('window._cameraPeers.filter(peer=>!peer.closed).length')==0
+    page.unroute_all(behavior='wait')
+
+
+def test_compiled_tv_failure_retry_and_fleet_counts(role_page_factory):
+    page=role_page_factory('admin')
+    state={'failed':True}
+    printers=[{'id':i,'name':f'TV synthetic {i}','gcode_state':'IDLE','camera_enabled':False,'last_seen':None} for i in range(1,14)]
+    printers[0].update(gcode_state='RUNNING',mc_percent=45,mc_remaining_time=75,gcode_file='Synthetic TV job')
+    printers[-1].update(gcode_state='PAUSE',hms_errors=[{'code':'Synthetic HMS'}])
+    def printer_list(route):
+        if state['failed']:route.fulfill(status=503,json={'detail':'Synthetic unavailable'})
+        else:route.fulfill(json=printers)
+    page.route('**/api/printers?*',printer_list)
+    page.route('**/api/alerts/summary',lambda route:route.fulfill(status=503,json={'detail':'Synthetic unavailable'}))
+    _goto(page,'/tv')
+    expect(page.get_by_role('alert')).to_contain_text('Printer data unavailable',timeout=20_000)
+    expect(page.get_by_text('Alert status unavailable',exact=True)).to_be_visible(timeout=20_000)
+    expect(page.get_by_text('No active alerts',exact=True)).to_have_count(0)
+    expect(page.get_by_text('0/0 Printing',exact=True)).to_have_count(0)
+    state['failed']=False
+    page.get_by_role('button',name='Retry printer data',exact=True).click()
+    expect(page.get_by_text('2/13 Printing',exact=True)).to_be_visible(timeout=20_000)
+    expect(page.get_by_text('1 Error',exact=True)).to_be_visible()
+    expect(page.get_by_test_id('tv-printer-card')).to_have_count(12)
+    expect(page.get_by_test_id('tv-printer-job')).to_have_text('Synthetic TV job')
+    expect(page.get_by_text('ETA 1h 15m',exact=True)).to_be_visible()
+    page.keyboard.press('Escape')
+    expect(page.get_by_role('heading',name='Dashboard',exact=True)).to_be_visible(timeout=20_000)
+    page.unroute_all(behavior='wait')

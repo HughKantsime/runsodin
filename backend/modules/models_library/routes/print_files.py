@@ -634,36 +634,23 @@ def schedule_print_file(
 # ──────────────────────────────────────────────
 
 @router.get("/print-files/{file_id}/mesh", tags=["3D Viewer"])
-async def get_print_file_mesh(file_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
-    """Get mesh geometry data for 3D viewer from a print file."""
-    result = db.execute(text(
-        "SELECT mesh_data FROM print_files WHERE id = :id"
-    ), {"id": file_id}).fetchone()
-
-    if not result or not result[0]:
-        raise HTTPException(status_code=404, detail="No mesh data available for this file")
-
-    import json as json_stdlib
-    return json_stdlib.loads(result[0])
+async def get_print_file_mesh(file_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
+    """Get geometry only after file and Education audience authorization."""
+    from core.model_preview_access import accessible_preview_file, preview_not_found
+    row = accessible_preview_file(db, file_id, current_user)
+    if not row.mesh_data:
+        raise preview_not_found()
+    try:
+        return json.loads(row.mesh_data)
+    except (TypeError, ValueError):
+        raise preview_not_found() from None
 
 
 @router.get("/models/{model_id}/mesh", tags=["3D Viewer"])
-async def get_model_mesh(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
-    """Get mesh geometry for a model (via its linked print_file)."""
-    # Find print_file_id from model
-    model = db.execute(text(
-        "SELECT print_file_id FROM models WHERE id = :id"
-    ), {"id": model_id}).fetchone()
-
-    if not model or not model[0]:
-        raise HTTPException(status_code=404, detail="Model has no linked print file")
-
-    result = db.execute(text(
-        "SELECT mesh_data FROM print_files WHERE id = :id"
-    ), {"id": model[0]}).fetchone()
-
-    if not result or not result[0]:
-        raise HTTPException(status_code=404, detail="No mesh data available")
-
-    import json as json_stdlib
-    return json_stdlib.loads(result[0])
+async def get_model_mesh(model_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
+    """Authorize both the model and its linked original file."""
+    from core.model_preview_access import preview_not_found
+    model = db.execute(text("SELECT print_file_id,org_id FROM models WHERE id=:id"), {"id": model_id}).fetchone()
+    if not model or not model.print_file_id or not check_org_access(current_user, model.org_id):
+        raise preview_not_found()
+    return await get_print_file_mesh(model.print_file_id, current_user, db)
