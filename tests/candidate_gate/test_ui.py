@@ -221,3 +221,42 @@ def test_compiled_order_confirmation_persists_bounded_corrections(role_page_fact
     assert persisted['items'][0]['fulfilled_quantity']==0
     dimensions = page.evaluate('() => ({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
     assert dimensions['scroll']<=dimensions['client']+1
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_order_edit_keeps_zero_and_downloads_invoice(role_page_factory,admin,mobile,tmp_path):
+    from pypdf import PdfReader
+    label=f'Synthetic compiled zero finances {mobile}'
+    product=admin.post(f'{BASE_URL}/api/products',json={'name':label,'price':0},timeout=10)
+    assert product.status_code==200
+    created=admin.post(f'{BASE_URL}/api/orders',json={'order_number':label,'revenue':0,
+        'platform_fees':0,'payment_fees':0,'shipping_charged':0,
+        'items':[{'product_id':product.json()['id'],'quantity':2,'unit_price':0}]},timeout=10)
+    assert created.status_code==200
+    identifier=created.json()['id']
+    page=role_page_factory('admin',mobile=mobile)
+    def feature_facts(route):
+        response=route.fetch();data=response.json();data['tier']='pro'
+        data['features']=list(set(data.get('features',[]))|{'orders','products'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',feature_facts)
+    _goto(page,'/orders')
+    page.get_by_placeholder('Search by order number or customer...').fill(label)
+    page.locator('button[title="Edit Order"]:visible').first.click()
+    expect(page.get_by_role('button',name='Save Changes',exact=True)).to_be_visible()
+    page.get_by_role('button',name='Save Changes',exact=True).click()
+    expect(page.get_by_text('Order updated',exact=True)).to_be_visible()
+    saved=admin.get(f'{BASE_URL}/api/orders/{identifier}',timeout=10).json()
+    assert all(saved[key]==0 for key in ('revenue','platform_fees','payment_fees','shipping_charged'))
+    assert saved['items'][0]['unit_price']==0 and saved['items'][0]['subtotal']==0
+    page.get_by_role('button',name=label,exact=True).click()
+    with page.expect_download() as receipt:
+        page.get_by_role('button',name='Invoice',exact=True).click()
+    download=receipt.value
+    # The browser API client chooses its own local filename; server header tested separately.
+    assert download.failure() is None
+    path=tmp_path/'synthetic-invoice.pdf';download.save_as(path)
+    text='\n'.join(p.extract_text() for p in PdfReader(path).pages)
+    assert 'Invoice Total:' in text and '$0.00' in text
+    assert 'Profit:' not in text and 'Platform Fees' not in text
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')

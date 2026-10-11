@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from io import BytesIO
+from pypdf import PdfReader
 from urllib.parse import urlparse
 
 import requests
@@ -20,6 +22,26 @@ def _items(payload):
         if isinstance(payload.get(key), list):
             return payload[key]
     raise AssertionError(f"response does not contain an item list: {payload}")
+
+
+def test_candidate_customer_invoice_packaged_fonts_and_permissions(operator, viewer, base_url):
+    products=_items(_json(operator.get(f'{base_url}/api/products',timeout=10)))
+    product=next(row for row in products if row.get('sku')=='ODIN-CANDIDATE-001')
+    created=operator.post(f'{base_url}/api/orders',json={
+        'order_number':'Synthetic 客户 invoice', 'customer_name':'Synthetic José 日本語 한국어',
+        'revenue':0, 'shipping_charged':0, 'platform_fees':2, 'payment_fees':1,
+        'items':[{'product_id':product['id'],'quantity':1,'unit_price':0}],
+    },timeout=10)
+    assert created.status_code==200
+    identifier=_json(created)['id']
+    assert viewer.get(f'{base_url}/api/orders/{identifier}/invoice.pdf',timeout=10).status_code==403
+    response=operator.get(f'{base_url}/api/orders/{identifier}/invoice.pdf',timeout=15)
+    assert response.status_code==200
+    assert response.headers['content-disposition']==f'attachment; filename="invoice_{identifier}.pdf"'
+    assert response.content.startswith(b'%PDF-')
+    text='\n'.join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
+    assert all(value in text for value in ['客户','José','日本語','한국어','Invoice Total:','$0.00'])
+    assert all(value not in text for value in ['Platform Fees','Payment Fees','Cost Analysis','Profit:'])
 
 
 def test_candidate_health_spa_static_setup_and_perimeter(base_url: str, api_key: str, admin):

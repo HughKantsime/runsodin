@@ -14,7 +14,7 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
     updated[index][field] = value
     if (field === 'product_id' && value) {
       const product = productList.find(p => p.id === parseInt(value))
-      if (product?.price) updated[index].unit_price = product.price
+      updated[index].unit_price = product?.price ?? ''
     }
     setItems(updated)
   }
@@ -273,7 +273,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
                   <ProductionConfirmation key={`${order.id}-${item.id}-${item.fulfilled_quantity}`} item={item} onConfirm={onConfirmProduction} />
                 )}
                 <div className="flex items-center gap-4 text-sm">
-                  <span className="text-[var(--brand-text-secondary)]">${item.subtotal?.toFixed(2)}</span>
+                  <span className="text-[var(--brand-text-secondary)]">{item.subtotal == null ? 'Not recorded' : `$${item.subtotal.toFixed(2)}`}</span>
                   <span className={item.is_fulfilled ? 'text-status-printing' : 'text-status-pending'}>
                     {item.is_fulfilled ? 'Done' : `${item.fulfilled_quantity}/${item.quantity}`}
                   </span>
@@ -303,7 +303,7 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
           <div className="rounded-md p-3 space-y-1 text-sm font-mono bg-[var(--brand-content-bg)]">
             <div className="flex justify-between">
               <span className="text-[var(--brand-muted)] font-sans">Revenue</span>
-              <span className="font-medium text-[var(--brand-text)]">${order.revenue?.toFixed(2) || '0.00'}</span>
+              <span className="font-medium text-[var(--brand-text)]">{order.revenue == null ? 'Not recorded' : `$${order.revenue.toFixed(2)}`}</span>
             </div>
             {order.platform_fees > 0 && (
               <div className="flex justify-between text-[var(--brand-muted)]">
@@ -482,7 +482,7 @@ export function EditOrderModal({ isOpen, order, onClose, onSubmit, editFormData,
                       updated[i].product_id = e.target.value
                       if (e.target.value) {
                         const product = productList.find(p => p.id === parseInt(e.target.value))
-                        if (product?.price) updated[i].unit_price = product.price
+                        updated[i].unit_price = product?.price ?? ''
                       }
                       setEditItems(updated)
                     }}

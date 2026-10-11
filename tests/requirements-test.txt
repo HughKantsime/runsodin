@@ -10,3 +10,4 @@ defusedxml==0.7.1
 python-dotenv>=1.0
 playwright>=1.40
 websocket-client>=1.6
+pypdf==6.10.0

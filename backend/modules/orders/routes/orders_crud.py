@@ -68,7 +68,7 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
         if product:
             item_resp.product_name = product.name
             item_resp.product_sku = product.sku
-        item_resp.subtotal = (item.unit_price or 0) * item.quantity
+        item_resp.subtotal = item.unit_price * item.quantity if item.unit_price is not None else None
         item_resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
         item_resp.production_mode = modes.get(item.id)
         item_resp.can_confirm_production = (item.quantity > 0 and modes.get(item.id) not in ('printed', 'mixed')
@@ -282,7 +282,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
     resp = OrderItemResponse.model_validate(item)
     resp.product_name = product.name
     resp.product_sku = product.sku
-    resp.subtotal = (item.unit_price or 0) * item.quantity
+    resp.subtotal = item.unit_price * item.quantity if item.unit_price is not None else None
     resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
     return resp
 
@@ -317,7 +317,7 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
     if product:
         resp.product_name = product.name
         resp.product_sku = product.sku
-    resp.subtotal = (item.unit_price or 0) * item.quantity
+    resp.subtotal = item.unit_price * item.quantity if item.unit_price is not None else None
     resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
     return resp
 
@@ -477,6 +477,7 @@ def get_order_invoice(
     db: Session = Depends(get_db)
 ):
     """Generate a branded PDF invoice for an order."""
+    from modules.orders.invoice_generator import InvoiceGenerator, InvoiceUnsupportedText, InvoiceInvalidAmount, InvoiceFooterTooLarge
     order = db.query(Order).options(joinedload(Order.items)).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -488,20 +489,23 @@ def get_order_invoice(
         enriched = _enrich_order_response(order, db)
         branding = branding_to_dict(get_or_create_branding(db))
 
-        from modules.orders.invoice_generator import InvoiceGenerator
         gen = InvoiceGenerator(branding, enriched.model_dump())
         pdf_bytes = bytes(gen.generate())
+    except InvoiceUnsupportedText:
+        raise HTTPException(status_code=422, detail="Invoice text contains characters outside the supported fonts.")
+    except InvoiceInvalidAmount:
+        raise HTTPException(status_code=409, detail="Invoice contains invalid billing amounts.")
+    except InvoiceFooterTooLarge:
+        raise HTTPException(status_code=422, detail="Branding footer is too long for the invoice. Shorten it before downloading.")
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        log.error(f"PDF generation failed for order {order_id}: {e}\n{tb}")
+        log.error("PDF generation failed for order %s (%s)", order_id, type(e).__name__)
         raise HTTPException(status_code=500, detail="PDF generation failed. Check server logs for details.")
 
     return FastAPIResponse(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=invoice_{order.order_number or order.id}.pdf",
+            "Content-Disposition": f'attachment; filename="invoice_{order.id}.pdf"',
             "Content-Length": str(len(pdf_bytes)),
         }
     )

@@ -1,0 +1,18 @@
+{
+  "url": "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/Variable/TTF/NotoSansCJKsc-VF.ttf",
+  "source_sha256": "990c807e79c25662a5a9ecf7f971baeb2bf2eab9a559e5ecf15cdfdb8561d21f",
+  "revision": "f8d157532fbfaeda587e826d4cd5b21a49186f7c",
+  "derivation": "fontTools.varLib.instancer.instantiateVariableFont wght=400/700; all source glyphs retained",
+  "files": {
+    "NotoSansSC-Regular.ttf": {
+      "bytes": 21659516,
+      "sha256": "e6819485517a8729d85e569e371db1d69e3a28136984efc86bc599b5ba326878",
+      "weight": 400
+    },
+    "NotoSansSC-Bold.ttf": {
+      "bytes": 21638656,
+      "sha256": "4e175978b5a21d0c4a20baf2854d9b0033ba33b21ee9b9b82851767586f26c29",
+      "weight": 700
+    }
+  }
+}

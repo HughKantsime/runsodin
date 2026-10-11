@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { orders, products, orderInvoice } from '../../api'
 import { ShoppingCart, Plus, RefreshCw, Clock, TrendingUp, Package, Truck, DollarSign } from 'lucide-react'
 import { canDo } from '../../permissions'
@@ -18,6 +18,13 @@ const STATUS_CLASSES = {
 }
 
 const EMPTY_ORDER_FORM = { order_number: '', platform: 'etsy', customer_name: '', customer_email: '', revenue: '', platform_fees: '', payment_fees: '', shipping_charged: '', shipping_cost: '', notes: '' }
+
+const optionalAmount = (value) => {
+  if (value == null || String(value).trim() === '') return null
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) throw new Error('Enter a finite amount')
+  return amount
+}
 
 function OrderStatsBar({ orders: ordersList }) {
   if (!ordersList.length) return null
@@ -43,6 +50,9 @@ export default function Orders() {
   const [formData, setFormData] = useState(EMPTY_ORDER_FORM)
   const [items, setItems] = useState([])
   const [editingOrder, setEditingOrder] = useState(null)
+  const editRequest = useRef(0)
+  const closeEdit = () => { editRequest.current += 1; setEditingOrder(null) }
+  useEffect(() => () => { editRequest.current += 1 }, [])
   const [editFormData, setEditFormData] = useState({})
   const [editItems, setEditItems] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -56,7 +66,7 @@ export default function Orders() {
   }, [statusFilter])
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key !== 'Escape') return; if (shippingOrder) setShippingOrder(null); else if (editingOrder) setEditingOrder(null); else if (showDetailModal) setShowDetailModal(false); else if (showModal) setShowModal(false) }
+    const onKey = (e) => { if (e.key !== 'Escape') return; if (shippingOrder) setShippingOrder(null); else if (editingOrder) closeEdit(); else if (showDetailModal) setShowDetailModal(false); else if (showModal) setShowModal(false) }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [shippingOrder, editingOrder, showDetailModal, showModal])
@@ -89,16 +99,16 @@ export default function Orders() {
         platform: formData.platform,
         customer_name: formData.customer_name || null,
         customer_email: formData.customer_email || null,
-        revenue: formData.revenue ? parseFloat(formData.revenue) : null,
-        platform_fees: formData.platform_fees ? parseFloat(formData.platform_fees) : null,
-        payment_fees: formData.payment_fees ? parseFloat(formData.payment_fees) : null,
-        shipping_charged: formData.shipping_charged ? parseFloat(formData.shipping_charged) : null,
-        shipping_cost: formData.shipping_cost ? parseFloat(formData.shipping_cost) : null,
+        revenue: optionalAmount(formData.revenue),
+        platform_fees: optionalAmount(formData.platform_fees),
+        payment_fees: optionalAmount(formData.payment_fees),
+        shipping_charged: optionalAmount(formData.shipping_charged),
+        shipping_cost: optionalAmount(formData.shipping_cost),
         notes: formData.notes || null,
         items: items.filter(i => i.product_id).map(i => ({
           product_id: parseInt(i.product_id),
           quantity: parseInt(i.quantity) || 1,
-          unit_price: i.unit_price ? parseFloat(i.unit_price) : null
+          unit_price: optionalAmount(i.unit_price)
         }))
       }
       await orders.create(data)
@@ -112,30 +122,34 @@ export default function Orders() {
   }
 
   const openEditModal = async (order) => {
-    setEditFormData({
-      customer_name: order.customer_name || '',
-      customer_email: order.customer_email || '',
-      platform: order.platform || 'etsy',
-      order_number: order.order_number || '',
-      notes: order.notes || '',
-      tracking_number: order.tracking_number || '',
-      revenue: order.revenue || '',
-      platform_fees: order.platform_fees || '',
-      payment_fees: order.payment_fees || '',
-      shipping_charged: order.shipping_charged || '',
-    })
+    const request = ++editRequest.current
     try {
+      // The list is a summary. Load all editable fields before permitting a save.
       const full = await orders.get(order.id)
+      if (request !== editRequest.current) return
+      setEditFormData({
+        customer_name: full.customer_name ?? '',
+        customer_email: full.customer_email ?? '',
+        platform: full.platform ?? 'etsy',
+        order_number: full.order_number ?? '',
+        notes: full.notes ?? '',
+        tracking_number: full.tracking_number ?? '',
+        revenue: full.revenue ?? '',
+        platform_fees: full.platform_fees ?? '',
+        payment_fees: full.payment_fees ?? '',
+        shipping_charged: full.shipping_charged ?? '',
+      })
       setEditItems((full.items || []).map(i => ({
         id: i.id,
         product_id: String(i.product_id),
         quantity: i.quantity,
-        unit_price: i.unit_price || ''
+        unit_price: i.unit_price ?? ''
       })))
+      setEditingOrder(full)
     } catch {
-      setEditItems([])
+      if (request !== editRequest.current) return
+      toast.error('Could not load order for editing')
     }
-    setEditingOrder(order)
   }
 
   const handleEditSubmit = async (e) => {
@@ -148,10 +162,10 @@ export default function Orders() {
         order_number: editFormData.order_number || null,
         notes: editFormData.notes || null,
         tracking_number: editFormData.tracking_number || null,
-        revenue: editFormData.revenue ? parseFloat(editFormData.revenue) : null,
-        platform_fees: editFormData.platform_fees ? parseFloat(editFormData.platform_fees) : null,
-        payment_fees: editFormData.payment_fees ? parseFloat(editFormData.payment_fees) : null,
-        shipping_charged: editFormData.shipping_charged ? parseFloat(editFormData.shipping_charged) : null,
+        revenue: optionalAmount(editFormData.revenue),
+        platform_fees: optionalAmount(editFormData.platform_fees),
+        payment_fees: optionalAmount(editFormData.payment_fees),
+        shipping_charged: optionalAmount(editFormData.shipping_charged),
       })
       // Sync line items
       const full = await orders.get(editingOrder.id)
@@ -160,13 +174,13 @@ export default function Orders() {
         if (item.id && existingIds.has(item.id)) {
           await orders.updateItem(editingOrder.id, item.id, {
             quantity: parseInt(item.quantity) || 1,
-            unit_price: item.unit_price ? parseFloat(item.unit_price) : null
+            unit_price: optionalAmount(item.unit_price)
           })
         } else if (!item.id && item.product_id) {
           await orders.addItem(editingOrder.id, {
             product_id: parseInt(item.product_id),
             quantity: parseInt(item.quantity) || 1,
-            unit_price: item.unit_price ? parseFloat(item.unit_price) : null
+            unit_price: optionalAmount(item.unit_price)
           })
         }
       }
@@ -316,7 +330,7 @@ export default function Orders() {
       <EditOrderModal
         isOpen={!!editingOrder}
         order={editingOrder}
-        onClose={() => setEditingOrder(null)}
+        onClose={closeEdit}
         onSubmit={handleEditSubmit}
         editFormData={editFormData}
         setEditFormData={setEditFormData}

@@ -1,255 +1,196 @@
-"""
-O.D.I.N. Invoice Generator
-
-Generates branded PDF invoices from order data using fpdf2.
-Uses the branding system (app name, colors, logo) and enriched
-order response data (items, P&L, customer info).
-"""
+"""Customer-facing invoices with local fonts and no internal cost disclosure."""
+from datetime import datetime, timezone
+from math import isfinite
+from pathlib import Path
 
 from fpdf import FPDF
-from datetime import datetime, timezone
+from fpdf.fonts import FontFace
+
+_FONT_DIR = Path(__file__).with_name('fonts')
+_BRANDING_DIR = Path(__file__).resolve().parents[1] / 'static' / 'branding'
 
 
-def _hex_to_rgb(hex_color: str) -> tuple:
-    """Convert '#RRGGBB' to (R, G, B) tuple."""
-    h = hex_color.lstrip("#")
-    if len(h) != 6:
-        return (34, 197, 94)  # Default green
-    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+class InvoiceUnsupportedText(ValueError):
+    """Text contains a glyph outside the packaged fonts' verified coverage."""
 
 
-def _fmt(val, prefix="$", default="—"):
-    """Format a currency value or return a dash."""
-    if val is None:
-        return default
-    return f"{prefix}{val:,.2f}"
+class InvoiceInvalidAmount(ValueError):
+    """Stored billing amounts cannot be rendered safely."""
+
+
+class InvoiceFooterTooLarge(ValueError):
+    """Branding footer does not fit the reserved printable region."""
+
+
+def _hex_to_rgb(value):
+    try:
+        value = value.lstrip('#')
+        if len(value) == 6:
+            return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+    except (AttributeError, ValueError):
+        pass
+    return (34, 197, 94)
+
+
+def _fmt(value):
+    if value is None:
+        return 'Not recorded'
+    if not isfinite(value):
+        raise InvoiceInvalidAmount('Invalid stored billing amount')
+    return f'${value:,.2f}'
+
+
+class _InvoicePDF(FPDF):
+    def __init__(self, branding, color):
+        super().__init__()
+        self.branding = branding
+        self.color = color
+        for family, regular, bold in (
+            ('Invoice', 'NotoSans-Regular.ttf', 'NotoSans-Bold.ttf'),
+            ('InvoiceCJK', 'NotoSansSC-Regular.ttf', 'NotoSansSC-Bold.ttf'),
+        ):
+            self.add_font(family, '', _FONT_DIR / regular)
+            self.add_font(family, 'B', _FONT_DIR / bold)
+        self.set_fallback_fonts(['InvoiceCJK'])
+        self._supported_glyphs = {
+            style: frozenset(self.fonts['invoice'+style].cmap) | frozenset(self.fonts['invoicecjk'+style].cmap)
+            for style in ('', 'B')
+        }
+        self.alias_nb_pages()
+        self.set_auto_page_break(auto=True, margin=30)
+
+    def normalize_text(self, value):
+        # Controls must not inject layout; preserve intentional line breaks.
+        value = ''.join(c if c == '\n' or ord(c) >= 32 else ' ' for c in str(value))
+        if self.current_font and hasattr(self.current_font, 'cmap'):
+            supported = self._supported_glyphs[self.font_style.replace('U', '')]
+            if any(ord(c) not in supported for c in value if c != '\n'):
+                raise InvoiceUnsupportedText('Invoice text uses unsupported characters')
+        return super().normalize_text(value)
+
+    def footer(self):
+        self.set_font('Invoice', '', 8)
+        footer = self.branding.get('footer_text') or ''
+        if footer and self.multi_cell(0, 4, footer, dry_run=True, output='HEIGHT') > 12:
+            raise InvoiceFooterTooLarge('Invoice branding footer exceeds printable space')
+        self.set_y(-25)
+        self.set_draw_color(*self.color)
+        self.line(self.l_margin, self.y, self.w-self.r_margin, self.y)
+        self.set_font('Invoice', '', 8)
+        self.set_text_color(100, 100, 100)
+        if footer:
+            self.multi_cell(0, 4, footer, align='C', new_x='LMARGIN', new_y='NEXT')
+        self.cell(0, 5, f'Page {self.page_no()}/{{nb}}', align='C')
 
 
 class InvoiceGenerator:
-    """Generate a PDF invoice from branding + enriched order data."""
-
-    def __init__(self, branding: dict, order: dict):
+    def __init__(self, branding, order):
         self.branding = branding
         self.order = order
-        self.primary_rgb = _hex_to_rgb(branding.get("primary_color", "#22c55e"))
-        self.pdf = FPDF()
-        self.pdf.set_auto_page_break(auto=True, margin=25)
+        self.primary_rgb = _hex_to_rgb(branding.get('primary_color'))
+        self.pdf = _InvoicePDF(branding, self.primary_rgb)
 
     def _add_header(self):
         pdf = self.pdf
-        pr, pg, pb = self.primary_rgb
-
-        # Color bar at top
-        pdf.set_fill_color(pr, pg, pb)
-        pdf.rect(0, 0, 210, 8, "F")
-
-        # App name / company
+        pdf.set_fill_color(*self.primary_rgb)
+        pdf.rect(0, 0, pdf.w, 8, 'F')
         pdf.set_y(14)
-        pdf.set_font("Helvetica", "B", 20)
-        pdf.set_text_color(pr, pg, pb)
-        app_name = self.branding.get("app_name", "O.D.I.N.")
-        pdf.cell(0, 10, app_name, new_x="LMARGIN", new_y="NEXT")
-
-        # "INVOICE" title
-        pdf.set_font("Helvetica", "B", 28)
+        # Only uploaded local raster assets are eligible; never fetch a logo URL.
+        logo = self.branding.get('logo_url')
+        if logo in ('/static/branding/logo.png', '/static/branding/logo.jpg', '/static/branding/logo.webp'):
+            path = (_BRANDING_DIR / logo.rsplit('/', 1)[1]).resolve()
+            if path.is_relative_to(_BRANDING_DIR.resolve()) and path.is_file() and path.stat().st_size <= 5*1024*1024:
+                from PIL import Image
+                with Image.open(path) as image:
+                    if image.format in ('PNG', 'JPEG', 'WEBP') and 0 < image.width*image.height <= 4_000_000:
+                        image.verify()
+                        pdf.image(path, x=pdf.w-45, y=14, w=30, h=15, keep_aspect_ratio=True)
+        pdf.set_font('Invoice', 'B', 20)
+        pdf.set_text_color(*self.primary_rgb)
+        pdf.multi_cell(pdf.epw-35, 10, self.branding.get('app_name') or 'O.D.I.N.', new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('Invoice', 'B', 26)
         pdf.set_text_color(60, 60, 60)
-        pdf.cell(0, 14, "INVOICE", new_x="LMARGIN", new_y="NEXT")
-
-        # Order number and date
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_text_color(100, 100, 100)
-        order_num = self.order.get("order_number") or f"#{self.order.get('id', '—')}"
-        pdf.cell(0, 6, f"Invoice: {order_num}", new_x="LMARGIN", new_y="NEXT")
-
-        order_date = self.order.get("order_date")
-        if order_date:
-            if isinstance(order_date, str):
-                try:
-                    order_date = datetime.fromisoformat(order_date.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    order_date = None
-            if order_date:
-                pdf.cell(0, 6, f"Date: {order_date.strftime('%B %d, %Y')}", new_x="LMARGIN", new_y="NEXT")
-
-        generated = datetime.now(timezone.utc).strftime("%B %d, %Y")
-        pdf.cell(0, 6, f"Generated: {generated}", new_x="LMARGIN", new_y="NEXT")
-
-        platform = self.order.get("platform")
-        if platform:
-            pdf.cell(0, 6, f"Platform: {platform.title()}", new_x="LMARGIN", new_y="NEXT")
-
+        pdf.cell(0, 14, 'INVOICE', new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('Invoice', '', 10)
+        number = self.order.get('order_number') or f"#{self.order.get('id', '')}"
+        pdf.multi_cell(0, 6, f'Invoice: {number}', new_x='LMARGIN', new_y='NEXT')
+        date = self.order.get('order_date')
+        if isinstance(date, str):
+            try:
+                date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+            except ValueError:
+                date = None
+        if date:
+            pdf.cell(0, 6, f"Date: {date.strftime('%B %d, %Y')}", new_x='LMARGIN', new_y='NEXT')
+        pdf.cell(0, 6, f"Generated: {datetime.now(timezone.utc).strftime('%B %d, %Y')}", new_x='LMARGIN', new_y='NEXT')
         pdf.ln(4)
 
     def _add_customer(self):
-        pdf = self.pdf
-        name = self.order.get("customer_name")
-        email = self.order.get("customer_email")
-        if not name and not email:
-            return
-
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.set_text_color(60, 60, 60)
-        pdf.cell(0, 8, "Bill To:", new_x="LMARGIN", new_y="NEXT")
-
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_text_color(80, 80, 80)
-        if name:
-            pdf.cell(0, 6, name, new_x="LMARGIN", new_y="NEXT")
-        if email:
-            pdf.cell(0, 6, email, new_x="LMARGIN", new_y="NEXT")
-
-        pdf.ln(6)
+        name = self.order.get('customer_name')
+        email = self.order.get('customer_email')
+        if name or email:
+            pdf = self.pdf
+            pdf.set_font('Invoice', 'B', 11)
+            pdf.cell(0, 8, 'Bill To:', new_x='LMARGIN', new_y='NEXT')
+            pdf.set_font('Invoice', '', 10)
+            for value in (name, email):
+                if value:
+                    pdf.multi_cell(0, 6, value, new_x='LMARGIN', new_y='NEXT')
+            pdf.ln(4)
 
     def _add_line_items(self):
         pdf = self.pdf
-        pr, pg, pb = self.primary_rgb
-        items = self.order.get("items", [])
-
-        # Table header
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(pr, pg, pb)
-        pdf.set_text_color(255, 255, 255)
-
-        col_widths = [70, 30, 25, 30, 35]  # Item, SKU, Qty, Unit Price, Subtotal
-        headers = ["Item", "SKU", "Qty", "Unit Price", "Subtotal"]
-
-        for i, header in enumerate(headers):
-            align = "R" if i >= 2 else "L"
-            pdf.cell(col_widths[i], 8, header, border=0, fill=True, align=align)
-        pdf.ln()
-
-        # Table rows
-        pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(60, 60, 60)
+        pdf.set_font('Invoice', '', 9)
+        pdf.set_fill_color(255, 255, 255)
         subtotal = 0.0
-        fill = False
+        complete = bool(self.order.get('items'))
+        with pdf.table(col_widths=(70, 30, 20, 35, 35), line_height=6, padding=1,
+                       text_align=('LEFT', 'LEFT', 'RIGHT', 'RIGHT', 'RIGHT'),
+                       headings_style=FontFace(emphasis='BOLD', color=(255,255,255), fill_color=self.primary_rgb),
+                       borders_layout='HORIZONTAL_LINES', repeat_headings=1) as table:
+            row = table.row()
+            for value in ('Item', 'SKU', 'Qty', 'Unit Price', 'Subtotal'):
+                row.cell(value)
+            for item in self.order.get('items', []):
+                quantity = item.get('quantity', 0)
+                price = item.get('unit_price')
+                # A missing price must never become a free line through enrichment.
+                value = price * quantity if price is not None else None
+                if value is None:
+                    complete = False
+                else:
+                    subtotal += value
+                row = table.row()
+                for text in (item.get('product_name') or f"Product #{item.get('product_id', '?')}",
+                             item.get('product_sku') or '-', str(quantity), _fmt(price), _fmt(value)):
+                    row.cell(text)
+        pdf.ln(5)
+        return subtotal if complete else None
 
-        for item in items:
-            if fill:
-                pdf.set_fill_color(245, 245, 245)
-            else:
-                pdf.set_fill_color(255, 255, 255)
-
-            product_name = item.get("product_name") or f"Product #{item.get('product_id', '?')}"
-            sku = item.get("product_sku") or "-"
-            qty = item.get("quantity", 0)
-            unit_price = item.get("unit_price")
-            line_subtotal = item.get("subtotal")
-            if line_subtotal is None and unit_price is not None:
-                line_subtotal = unit_price * qty
-            if line_subtotal:
-                subtotal += line_subtotal
-
-            pdf.cell(col_widths[0], 7, product_name[:35], border=0, fill=True)
-            pdf.cell(col_widths[1], 7, str(sku)[:15], border=0, fill=True)
-            pdf.cell(col_widths[2], 7, str(qty), border=0, fill=True, align="R")
-            pdf.cell(col_widths[3], 7, _fmt(unit_price), border=0, fill=True, align="R")
-            pdf.cell(col_widths[4], 7, _fmt(line_subtotal), border=0, fill=True, align="R")
-            pdf.ln()
-            fill = not fill
-
-        # Separator line
-        pdf.set_draw_color(200, 200, 200)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(4)
-
-        return subtotal
-
-    def _add_totals(self, items_subtotal: float):
+    def _add_totals(self, subtotal):
         pdf = self.pdf
-        pr, pg, pb = self.primary_rgb
-        o = self.order
+        # Keep this small block together rather than splitting totals across pages.
+        if pdf.will_page_break(30):
+            pdf.add_page()
+        pdf.set_font('Invoice', '', 10)
+        def row(label, value, bold=False):
+            pdf.set_font('Invoice', 'B' if bold else '', 10)
+            pdf.set_x(110)
+            pdf.cell(55, 8, label, align='R')
+            pdf.cell(35, 8, _fmt(value), align='R', new_x='LMARGIN', new_y='NEXT')
+        row('Items Subtotal:', subtotal)
+        shipping = self.order.get('shipping_charged')
+        if shipping is not None:
+            row('Shipping:', shipping)
+        # Revenue already includes charged shipping; adding it again double bills.
+        total = self.order.get('revenue')
+        if total is None and subtotal is not None:
+            total = subtotal + (shipping if shipping is not None else 0)
+        row('Invoice Total:', total, bold=True)
 
-        # Right-aligned totals block
-        x_label = 120
-        x_val = 170
-        w_label = 50
-        w_val = 25
-
-        def _row(label, value, bold=False):
-            pdf.set_font("Helvetica", "B" if bold else "", 10)
-            pdf.set_text_color(80, 80, 80)
-            pdf.set_x(x_label)
-            pdf.cell(w_label, 7, label, align="R")
-            pdf.set_text_color(60, 60, 60)
-            if bold:
-                pdf.set_text_color(pr, pg, pb)
-            pdf.cell(w_val, 7, value, align="R", new_x="LMARGIN", new_y="NEXT")
-
-        _row("Items Subtotal:", _fmt(items_subtotal))
-
-        # Fees
-        platform_fees = o.get("platform_fees")
-        if platform_fees:
-            _row("Platform Fees:", f"-{_fmt(platform_fees, prefix='$')}")
-
-        payment_fees = o.get("payment_fees")
-        if payment_fees:
-            _row("Payment Fees:", f"-{_fmt(payment_fees, prefix='$')}")
-
-        shipping_charged = o.get("shipping_charged")
-        if shipping_charged:
-            _row("Shipping (charged):", _fmt(shipping_charged))
-
-        shipping_cost = o.get("shipping_cost")
-        if shipping_cost:
-            _row("Shipping (cost):", f"-{_fmt(shipping_cost, prefix='$')}")
-
-        # Revenue
-        revenue = o.get("revenue")
-        if revenue:
-            pdf.ln(2)
-            pdf.set_draw_color(200, 200, 200)
-            pdf.line(x_label, pdf.get_y(), x_label + w_label + w_val, pdf.get_y())
-            pdf.ln(2)
-            _row("Total Revenue:", _fmt(revenue), bold=True)
-
-        # Cost & Profit
-        estimated_cost = o.get("estimated_cost")
-        actual_cost = o.get("actual_cost")
-        profit = o.get("profit")
-        margin = o.get("margin_percent")
-
-        if estimated_cost or actual_cost:
-            pdf.ln(4)
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_text_color(80, 80, 80)
-            pdf.set_x(x_label)
-            pdf.cell(w_label + w_val, 7, "Cost Analysis", align="C", new_x="LMARGIN", new_y="NEXT")
-
-            if estimated_cost:
-                _row("Estimated Cost:", _fmt(estimated_cost))
-            if actual_cost:
-                _row("Actual Cost:", _fmt(actual_cost))
-            if profit is not None:
-                margin_str = f" ({margin}%)" if margin is not None else ""
-                _row("Profit:", f"{_fmt(profit)}{margin_str}", bold=True)
-
-    def _add_footer(self):
-        pdf = self.pdf
-        pr, pg, pb = self.primary_rgb
-        footer_text = self.branding.get("footer_text", "")
-
-        # Bottom bar
-        pdf.set_y(-20)
-        pdf.set_draw_color(pr, pg, pb)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(150, 150, 150)
-
-        if footer_text:
-            pdf.cell(0, 6, footer_text, align="C", new_x="LMARGIN", new_y="NEXT")
-
-        app_name = self.branding.get("app_name", "O.D.I.N.")
-        pdf.cell(0, 6, f"Generated by {app_name}", align="C")
-
-    def generate(self) -> bytes:
-        """Build and return the PDF as bytes."""
+    def generate(self):
         self.pdf.add_page()
         self._add_header()
         self._add_customer()
-        items_subtotal = self._add_line_items()
-        self._add_totals(items_subtotal)
-        self._add_footer()
+        self._add_totals(self._add_line_items())
         return self.pdf.output()
