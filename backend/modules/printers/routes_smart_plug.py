@@ -1,6 +1,7 @@
 """Smart plug routes — plug configuration, power control, energy monitoring."""
 
 import logging
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
@@ -37,9 +38,17 @@ def _require_printer_org_access(printer_id: int, current_user: dict, db: Session
     return printer
 
 
+def _require_visible_plug_printer(printer_id: int, current_user: dict, db: Session) -> Printer:
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer
+
+
 @router.get("/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
+async def get_plug_config(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Get smart plug configuration for a printer."""
+    _require_printer_org_access(printer_id, current_user, db)
     result = db.execute(text("""
         SELECT plug_type, plug_host, plug_entity_id, plug_auto_on, plug_auto_off,
                plug_cooldown_minutes, plug_power_state, plug_energy_kwh
@@ -55,7 +64,7 @@ async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
         "entity_id": result[2],
         "auto_on": bool(result[3]) if result[3] is not None else True,
         "auto_off": bool(result[4]) if result[4] is not None else True,
-        "cooldown_minutes": result[5] or 5,
+        "cooldown_minutes": result[5] if result[5] is not None else 5,
         "power_state": result[6],
         "energy_kwh": result[7] or 0,
         "configured": result[0] is not None,
@@ -63,7 +72,7 @@ async def get_plug_config(printer_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def update_plug_config(printer_id: int, request: Request, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Update smart plug configuration for a printer."""
     _require_printer_org_access(printer_id, current_user, db)
     data = await request.json()
@@ -98,13 +107,13 @@ async def update_plug_config(printer_id: int, request: Request, current_user: di
 
 
 @router.delete("/printers/{printer_id}/plug", tags=["Smart Plug"])
-async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def remove_plug_config(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Remove smart plug configuration from a printer."""
     _require_printer_org_access(printer_id, current_user, db)
     db.execute(text("""
         UPDATE printers SET
             plug_type = NULL, plug_host = NULL, plug_entity_id = NULL,
-            plug_auth_token = NULL, plug_auto_on = 1, plug_auto_off = 1,
+            plug_auth_token = NULL, plug_auto_on = TRUE, plug_auto_off = TRUE,
             plug_cooldown_minutes = 5, plug_power_state = NULL
         WHERE id = :id
     """), {"id": printer_id})
@@ -113,7 +122,7 @@ async def remove_plug_config(printer_id: int, current_user: dict = Depends(requi
 
 
 @router.post("/printers/{printer_id}/plug/on", tags=["Smart Plug"])
-async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def plug_power_on(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn on a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_on(printer_id)
@@ -123,7 +132,7 @@ async def plug_power_on(printer_id: int, current_user: dict = Depends(require_ro
 
 
 @router.post("/printers/{printer_id}/plug/off", tags=["Smart Plug"])
-async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def plug_power_off(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Turn off a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_off(printer_id)
@@ -133,7 +142,7 @@ async def plug_power_off(printer_id: int, current_user: dict = Depends(require_r
 
 
 @router.post("/printers/{printer_id}/plug/toggle", tags=["Smart Plug"])
-async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def plug_power_toggle(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle a printer's smart plug."""
     _require_printer_org_access(printer_id, current_user, db)
     result = smart_plug.power_toggle(printer_id)
@@ -143,8 +152,9 @@ async def plug_power_toggle(printer_id: int, current_user: dict = Depends(requir
 
 
 @router.get("/printers/{printer_id}/plug/energy", tags=["Smart Plug"])
-async def plug_energy(printer_id: int):
+async def plug_energy(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Get current energy data from smart plug."""
+    _require_visible_plug_printer(printer_id, current_user, db)
     data = smart_plug.get_energy(printer_id)
     if data is None:
         raise HTTPException(400, "No energy data available")
@@ -152,8 +162,9 @@ async def plug_energy(printer_id: int):
 
 
 @router.get("/printers/{printer_id}/plug/state", tags=["Smart Plug"])
-async def plug_state(printer_id: int):
+async def plug_state(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Query current power state from smart plug."""
+    _require_visible_plug_printer(printer_id, current_user, db)
     state = smart_plug.get_power_state(printer_id)
     if state is None:
         raise HTTPException(400, "No smart plug configured or plug unreachable")
@@ -161,17 +172,33 @@ async def plug_state(printer_id: int):
 
 
 @router.get("/settings/energy-rate", tags=["Smart Plug"])
-async def get_energy_rate(db: Session = Depends(get_db)):
+async def get_energy_rate(current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Get energy cost per kWh."""
     result = db.execute(text("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")).fetchone()
-    return {"energy_cost_per_kwh": float(result[0]) if result else 0.12}
+    try:
+        rate = float(result[0]) if result else 0.12
+    except (TypeError, ValueError):
+        raise HTTPException(409, "Stored energy rate is invalid") from None
+    if not math.isfinite(rate) or rate < 0:
+        raise HTTPException(409, "Stored energy rate is invalid")
+    return {"energy_cost_per_kwh": rate}
 
 
 @router.put("/settings/energy-rate", tags=["Smart Plug"])
-async def set_energy_rate(request: Request, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def set_energy_rate(request: Request, current_user: dict = Depends(require_role("admin", scope="admin")), db: Session = Depends(get_db)):
     """Set energy cost per kWh."""
     data = await request.json()
+    if not isinstance(data, dict):
+        raise HTTPException(422, "Expected an energy rate object")
     rate = data.get("energy_cost_per_kwh", 0.12)
+    if type(rate) not in (int, float):
+        raise HTTPException(422, "Energy rate must be a finite nonnegative number")
+    try:
+        valid_rate = math.isfinite(rate) and rate >= 0
+    except OverflowError:
+        valid_rate = False
+    if not valid_rate:
+        raise HTTPException(422, "Energy rate must be a finite nonnegative number")
     db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         f"{sql.upsert_prefix()} system_config (key, value) VALUES ('energy_cost_per_kwh', :rate)"
         f"{sql.on_conflict_suffix('key', ['value'])}"
