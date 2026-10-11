@@ -673,7 +673,8 @@ export default function Models() {
   // Filter by search query
   const filteredModels = modelsData?.filter(m => {
     if (showFavoritesOnly && !m.is_favorite) return false
-    if (searchQuery && !m.name.toLowerCase().includes(searchQuery.toLowerCase())) return false
+    if (searchQuery && ![m.name, m.default_filament_type].some(value =>
+      value?.toLowerCase().includes(searchQuery.toLowerCase()))) return false
     return true
   })
 

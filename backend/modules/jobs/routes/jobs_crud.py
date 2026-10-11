@@ -31,6 +31,7 @@ from core.quota import _get_period_key, _get_quota_usage
 from core.base import JobStatus, AlertType, AlertSeverity
 from modules.jobs.models import Job
 from modules.printers.models import Printer
+from modules.models_library.models import Model
 from modules.jobs.schemas import (
     JobCreate, JobUpdate, JobResponse, JobSummary,
 )
@@ -158,11 +159,17 @@ def create_jobs_batch(
     """
     from modules.models_library.services import calculate_job_cost
 
-    assert_generic_model_reference_allowed(db, body.model_id)
     if not body.printer_ids:
         raise HTTPException(status_code=400, detail="printer_ids cannot be empty")
     if len(body.printer_ids) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 printers per batch")
+    if len(set(body.printer_ids)) != len(body.printer_ids):
+        raise HTTPException(status_code=400, detail="printer_ids must be unique")
+    if body.model_id is not None:
+        model = db.query(Model).filter(Model.id == body.model_id).first()
+        if model is None or not check_org_access(current_user, model.org_id):
+            raise HTTPException(status_code=404, detail="Model not found")
+    assert_generic_model_reference_allowed(db, body.model_id)
 
     # Validate all printers exist and are accessible
     printers = db.query(Printer).filter(Printer.id.in_(body.printer_ids)).all()
@@ -194,6 +201,7 @@ def create_jobs_batch(
             suggested_price=suggested_price,
             charged_to_user_id=current_user.get("id"),
             charged_to_org_id=current_user.get("group_id"),
+            submitted_by=current_user.get("id"),
         )
         db.add(db_job)
         created.append(db_job)

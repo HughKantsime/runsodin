@@ -757,3 +757,29 @@ def test_archive_history_recovery_and_real_csv_download(role_page_factory,mobile
     page.get_by_role('button',name='Export CSV',exact=True).click()
     expect(page.get_by_text('Export failed: Synthetic export denied',exact=True)).to_be_visible(timeout=10_000)
     assert downloads==[]
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_model_material_search_and_favorite_persist(role_page_factory, admin, mobile):
+    label = f'Synthetic material search {mobile}'
+    created = admin.post(f'{BASE_URL}/api/models', json={'name':label, 'default_filament_type':'PETG'}, timeout=10)
+    assert created.status_code == 201
+    identifier = created.json()['id']
+    try:
+        page = role_page_factory('admin', mobile=mobile)
+        _goto(page, '/models?q=petg')
+        card = page.locator('div').filter(has=page.get_by_role('heading', name=label, exact=True)).filter(has=page.get_by_role('button', name='Schedule print job', exact=True)).last
+        expect(page.get_by_role('heading', name=label, exact=True)).to_be_visible()
+        card.get_by_role('button', name='Add to favorites', exact=True).click()
+        expect(card.get_by_role('button', name='Remove from favorites', exact=True)).to_be_visible()
+        assert admin.get(f'{BASE_URL}/api/models/{identifier}', timeout=10).json()['is_favorite'] is True
+        page.reload(wait_until='domcontentloaded')
+        expect(page.get_by_role('heading', name=label, exact=True)).to_be_visible()
+        expect(page.get_by_placeholder('Search models...')).to_have_value('petg')
+        card = page.locator('div').filter(has=page.get_by_role('heading', name=label, exact=True)).filter(has=page.get_by_role('button', name='Schedule print job', exact=True)).last
+        card.get_by_role('button', name='Remove from favorites', exact=True).click()
+        expect(card.get_by_role('button', name='Add to favorites', exact=True)).to_be_visible()
+        assert admin.get(f'{BASE_URL}/api/models/{identifier}', timeout=10).json()['is_favorite'] is False
+        assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+    finally:
+        assert admin.delete(f'{BASE_URL}/api/models/{identifier}', timeout=10).status_code == 204
