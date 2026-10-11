@@ -563,3 +563,48 @@ def test_compiled_ams_units_humidity_label_and_request_recovery(role_page_factor
         page.locator('#main-content').evaluate('(element) => { element.scrollTop = element.scrollHeight }')
     panel.screenshot(path=artifact_dir / f'compiled-ams-mobile-{mobile}.png')
     page.unroute_all(behavior='wait')
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_energy_zero_save_and_load_retry(admin,role_page_factory,mobile):
+    """Real rate API/DB and compiled UI; license and measured-energy inputs substituted."""
+    import os,re
+    assert admin.put(f'{BASE_URL}/api/settings/energy-rate',json={'energy_cost_per_kwh':0},timeout=10).status_code==200
+    page=role_page_factory('admin',mobile=mobile)
+    def feature_facts(route):
+        response=route.fetch();data=response.json();data['tier']='pro'
+        data['features']=list(set(data.get('features',[]))|{'analytics'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',feature_facts)
+    page.route(re.compile(r'/api/print-jobs\?'),lambda route:route.fulfill(json=[{'id':999,'energy_kwh':2,'completed_at':'2026-10-11T12:00:00Z'}]))
+    failure={'active':False}
+    def rate_read(route):
+        if route.request.method=='GET' and failure['active']:
+            route.fulfill(status=503,json={'detail':'Synthetic rate unavailable'})
+        else:route.continue_()
+    page.route('**/api/settings/energy-rate',rate_read)
+    try:
+        _goto(page,'/analytics')
+        expect(page.get_by_role('heading',name='Energy Consumption',exact=True)).to_be_visible(timeout=20_000)
+        widget=page.get_by_role('heading',name='Energy Consumption',exact=True).locator('..').locator('..').locator('..')
+        expect(widget.get_by_role('button',name='$0/kWh',exact=True)).to_be_visible()
+        expect(widget.get_by_text('$0.00',exact=True)).to_be_visible()
+        page.get_by_role('button',name='$0/kWh',exact=True).click()
+        page.get_by_role('spinbutton',name='Energy rate per kWh').fill('0.25')
+        page.get_by_role('button',name='Save',exact=True).click()
+        expect(page.get_by_role('button',name='$0.25/kWh',exact=True)).to_be_visible()
+        assert admin.get(f'{BASE_URL}/api/settings/energy-rate',timeout=10).json()['energy_cost_per_kwh']==0.25
+        expect(widget.get_by_text('$0.50',exact=True)).to_be_visible()
+        failure['active']=True
+        page.reload(wait_until='domcontentloaded')
+        expect(widget.get_by_role('alert')).to_contain_text('Energy rate unavailable')
+        expect(widget.get_by_text('--',exact=True)).to_be_visible()
+        expect(widget.get_by_text('$0.50',exact=True)).to_have_count(0)
+        failure['active']=False
+        widget.get_by_role('button',name='Retry',exact=True).click()
+        expect(page.get_by_role('button',name='$0.25/kWh',exact=True)).to_be_visible()
+        expect(widget.get_by_text('$0.50',exact=True)).to_be_visible()
+        assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+        widget.screenshot(path=str(Path(os.environ['ODIN_CANDIDATE_ARTIFACT_DIR'])/f'energy-widget-{mobile}.png'))
+    finally:
+        assert admin.put(f'{BASE_URL}/api/settings/energy-rate',json={'energy_cost_per_kwh':0.12},timeout=10).status_code==200

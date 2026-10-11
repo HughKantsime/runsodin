@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Zap, Pencil } from 'lucide-react'
 import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../../api'
@@ -6,40 +6,54 @@ import { getEnergyRate, setEnergyRate as updateEnergyRate } from '../../api'
 const CHART_TOOLTIP = { backgroundColor: 'var(--chart-tooltip-bg)', border: 'none', borderRadius: '6px', boxShadow: 'var(--chart-tooltip-shadow)', color: 'var(--brand-text-primary)' }
 
 export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
-  const [rate, setRate] = useState(0.12)
+  const [rate, setRate] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
-  const [tempRate, setTempRate] = useState('0.12')
-
+  const [tempRate, setTempRate] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const requestVersion = useRef(0)
+  const validRate = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
   useEffect(() => {
     loadRate()
+    return () => { requestVersion.current += 1 }
   }, [])
-
   const loadRate = async () => {
+    const version = ++requestVersion.current
+    setLoading(true); setError(null)
     try {
       const data = await getEnergyRate()
-      if (data?.energy_cost_per_kwh) {
-        setRate(data.energy_cost_per_kwh)
-        setTempRate(String(data.energy_cost_per_kwh))
-      }
-    } catch (e) {}
+      if (version !== requestVersion.current) return
+      if (!validRate(data?.energy_cost_per_kwh)) throw new Error('Invalid rate response')
+      setRate(data.energy_cost_per_kwh); setTempRate(String(data.energy_cost_per_kwh))
+    } catch {
+      if (version === requestVersion.current) setError('Energy rate unavailable')
+    } finally {
+      if (version === requestVersion.current) setLoading(false)
+    }
   }
-
   const saveRate = async () => {
-    const val = parseFloat(tempRate)
-    if (isNaN(val) || val < 0) return
+    if (saving) return
+    const value = tempRate.trim() === '' ? NaN : Number(tempRate)
+    if (!validRate(value)) { setError('Enter a finite nonnegative energy rate'); return }
+    const version = ++requestVersion.current
+    setSaving(true); setError(null)
     try {
-      await updateEnergyRate(val)
-      setRate(val)
-      setEditing(false)
-    } catch (e) {
-      console.error('Failed to save energy rate:', e)
+      const data = await updateEnergyRate(value)
+      if (version !== requestVersion.current) return
+      if (!validRate(data?.energy_cost_per_kwh)) throw new Error('Invalid rate response')
+      setRate(data.energy_cost_per_kwh); setTempRate(String(data.energy_cost_per_kwh)); setEditing(false)
+    } catch {
+      if (version === requestVersion.current) setError('Could not save energy rate')
+    } finally {
+      if (version === requestVersion.current) setSaving(false)
     }
   }
 
   // Aggregate energy data from jobs that have kWh data
   const jobsWithEnergy = (jobs || []).filter(j => j.energy_kwh > 0)
   const totalKwh = jobsWithEnergy.reduce((sum, j) => sum + (j.energy_kwh || 0), 0)
-  const totalCost = totalKwh * rate
+  const totalCost = rate === null ? null : totalKwh * rate
 
   // Group by day for chart
   const byDay = {}
@@ -47,7 +61,7 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
     const day = j.completed_at ? new Date(j.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Unknown'
     byDay[day] = (byDay[day] || 0) + (j.energy_kwh || 0)
   })
-  const chartData = Object.entries(byDay).map(([day, kwh]) => ({ day, kwh: parseFloat(kwh.toFixed(2)), cost: parseFloat((kwh * rate).toFixed(2)) }))
+  const chartData = Object.entries(byDay).map(([day, kwh]) => ({ day, kwh: parseFloat(kwh.toFixed(2)), cost: rate === null ? null : parseFloat((kwh * rate).toFixed(2)) }))
 
   return (
     <div className="rounded-md p-5" style={{ backgroundColor: 'var(--brand-card-bg)', border: '1px solid var(--brand-card-border)' }}>
@@ -63,15 +77,20 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
               <input
                 type="number"
                 step="0.01"
+                min="0"
+                disabled={saving}
+                aria-label="Energy rate per kWh"
                 value={tempRate}
                 onChange={(e) => setTempRate(e.target.value)}
                 className="w-20 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-2 py-1 text-sm"
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && saveRate()}
               />
-              <button onClick={saveRate} className="text-green-400 hover:text-green-300">Save</button>
-              <button onClick={() => setEditing(false)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">Cancel</button>
+              <button disabled={saving} onClick={saveRate} className="text-green-400 hover:text-green-300">{saving ? 'Saving...' : 'Save'}</button>
+              <button disabled={saving} onClick={() => { setEditing(false); setError(null); setTempRate(String(rate)) }} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-secondary)]">Cancel</button>
             </>
+          ) : rate === null ? (
+            <span>{loading ? 'Loading energy rate...' : 'Rate unavailable'}</span>
           ) : (
             <button onClick={() => setEditing(true)} className="text-[var(--brand-text-muted)] hover:text-[var(--brand-text-primary)] transition-colors">
               ${rate}/kWh <Pencil size={10} className="inline ml-1" />
@@ -80,13 +99,17 @@ export default function EnergyWidget({ jobs }: { jobs?: any[] }) {
         </div>
       </div>
 
+      {error && <div role="alert" className="mb-3 text-sm text-red-400">
+        {error}
+        {rate === null && <button disabled={loading} onClick={loadRate} className="ml-2 underline">Retry</button>}
+      </div>}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-center">
           <div className="text-2xl font-bold text-yellow-400">{totalKwh.toFixed(1)}</div>
           <div className="text-xs text-[var(--brand-text-muted)]">Total kWh</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-400">${totalCost.toFixed(2)}</div>
+          <div className="text-2xl font-bold text-green-400">{totalCost === null ? '--' : `$${totalCost.toFixed(2)}`}</div>
           <div className="text-xs text-[var(--brand-text-muted)]">Total Cost</div>
         </div>
         <div className="text-center">
