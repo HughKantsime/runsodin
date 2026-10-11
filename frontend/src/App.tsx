@@ -141,7 +141,7 @@ export default function App() {
         />
 
         {/* Main content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden mb-[calc(3.5rem+env(safe-area-inset-bottom))] md:mb-0">
           {/* Desktop search header */}
           <div className="hidden md:flex items-center justify-end gap-3 px-4 py-2 border-b border-[var(--brand-card-border)]" role="toolbar" aria-label="Global actions" style={{ backgroundColor: 'var(--brand-content-bg)' }}>
             <GlobalSearch />

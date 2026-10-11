@@ -278,12 +278,14 @@ export interface PlugState {
 // ---- AMS Environment ----
 
 export interface AmsEnvironmentData {
-  history: Array<{
-    recorded_at: string;
+  printer_id: number;
+  hours: number;
+  humidity_unit?: 'level' | 'unknown';
+  units: Record<string, Array<{
+    time: string;
     temperature: number | null;
     humidity: number | null;
-    unit: number | null;
-  }>;
+  }>>;
 }
 
 export interface AmsCurrentData {

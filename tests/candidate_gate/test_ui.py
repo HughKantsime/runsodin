@@ -512,3 +512,54 @@ def test_compiled_audit_direct_route_denies_non_admin(role_page_factory, role):
     _goto(page, '/audit')
     page.wait_for_url(BASE_URL + '/', timeout=20_000)
     expect(page.get_by_role('heading', name='Dashboard', exact=True)).to_be_visible()
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_ams_units_humidity_label_and_request_recovery(role_page_factory, mobile):
+    from datetime import datetime, timedelta, timezone
+    import re
+    page = role_page_factory('viewer', mobile=mobile)
+    mode = {'fail': False}
+    def historical_presentation(route):
+        response = route.fetch()
+        assert response.status == 200
+        if mode['fail']:
+            route.fulfill(status=503, json={'detail': 'Synthetic AMS history unavailable'})
+            return
+        now = datetime.now(timezone.utc)
+        units = {str(unit): [{'time':(now-timedelta(hours=2)).isoformat(),'temperature':20+unit*10,'humidity':2+unit}, {'time':(now-timedelta(minutes=30)).isoformat(),'temperature':24+unit*10,'humidity':3+unit}] for unit in (0,1)}
+        route.fulfill(response=response, json={'printer_id':1,'hours':24,'units':units,'humidity_unit':'level'})
+    # Historical presentation only. Actual typed storage acceptance runs separately.
+    page.route(re.compile(r'/api/printers/\d+/ams/environment\?'), historical_presentation)
+    _goto(page, '/printers')
+    page.get_by_role('button', name='AMS environment data', exact=True).click()
+    select = page.get_by_role('combobox', name='AMS unit', exact=True)
+    expect(select).to_have_value('0')
+    expect(page.get_by_text('Humidity level (1–5)', exact=True)).to_be_visible()
+    expect(page.get_by_text('Humidity (%)', exact=True)).to_have_count(0)
+    expect(page.locator('.recharts-line-curve')).to_have_count(2)
+    select.select_option('1')
+    expect(select).to_have_value('1')
+    expect(page.locator('.recharts-line-curve')).to_have_count(2)
+    mode['fail'] = True
+    page.get_by_role('button', name='6h', exact=True).click()
+    expect(page.get_by_role('alert')).to_contain_text('Could not load AMS environment data')
+    expect(page.get_by_text('No AMS environment data available', exact=True)).to_have_count(0)
+    mode['fail'] = False
+    page.get_by_role('button', name='Retry', exact=True).click()
+    expect(select).to_have_value('1')
+    expect(page.locator('.recharts-line-curve')).to_have_count(2)
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+    import os
+    artifact_dir = Path(os.environ['ODIN_CANDIDATE_ARTIFACT_DIR'])
+    page.wait_for_timeout(1600)  # Finish the chart's presentation animation before visual QA.
+    panel = page.get_by_role('heading', name='AMS Environment', exact=True).locator('..').locator('..')
+    if mobile:
+        # The scroll viewport itself must stop above fixed navigation, so its
+        # final content remains reachable without being covered by the tabs.
+        main_box = page.locator('#main-content').bounding_box()
+        nav_box = page.locator('nav.fixed').filter(has=page.get_by_role('link', name='Dashboard', exact=True)).bounding_box()
+        assert main_box and nav_box
+        assert main_box['y'] + main_box['height'] <= nav_box['y'] + 1
+        page.locator('#main-content').evaluate('(element) => { element.scrollTop = element.scrollHeight }')
+    panel.screenshot(path=artifact_dir / f'compiled-ams-mobile-{mobile}.png')
+    page.unroute_all(behavior='wait')

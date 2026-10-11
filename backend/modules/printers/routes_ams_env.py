@@ -10,11 +10,18 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access
 from modules.printers.models import Printer, FilamentSlot
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+def _ams_printer(printer_id: int, db: Session, current_user: dict, *, write: bool = False):
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not (check_org_access(current_user, printer.org_id) or (not write and printer.shared)):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer
 
 
 # ====================================================================
@@ -26,9 +33,11 @@ async def get_ams_environment(
     printer_id: int,
     hours: int = Query(default=24, ge=1, le=168),
     unit: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
     """Get AMS humidity/temperature history for charts."""
+    printer = _ams_printer(printer_id, db, current_user)
     _cutoff = sql.now_offset(f"-{hours} hours")
     query = f"""
         SELECT ams_unit, humidity, temperature, recorded_at
@@ -53,21 +62,26 @@ async def get_ams_environment(
             units[u] = []
         units[u].append({"humidity": row[1], "temperature": row[2], "time": row[3]})
 
-    return {"printer_id": printer_id, "hours": hours, "units": units}
+    return {"printer_id": printer_id, "hours": hours, "units": units,
+            "humidity_unit": "level" if printer.api_type == "bambu" else "unknown"}
 
 
 @router.get("/printers/{printer_id}/ams/current", tags=["AMS"])
-async def get_ams_current(printer_id: int, db: Session = Depends(get_db)):
+async def get_ams_current(printer_id: int, db: Session = Depends(get_db),
+                          current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Get latest AMS environmental readings for a printer."""
+    _ams_printer(printer_id, db, current_user)
     rows = db.execute(text("""
         SELECT ams_unit, humidity, temperature, recorded_at
-        FROM ams_telemetry
-        WHERE printer_id = :pid
-        AND recorded_at = (
-            SELECT MAX(recorded_at) FROM ams_telemetry t2
-            WHERE t2.printer_id = ams_telemetry.printer_id
-            AND t2.ams_unit = ams_telemetry.ams_unit
-        )
+        FROM (
+            SELECT ams_unit, humidity, temperature, recorded_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ams_unit ORDER BY recorded_at DESC, id DESC
+                   ) AS reading_rank
+            FROM ams_telemetry
+            WHERE printer_id = :pid AND recorded_at IS NOT NULL
+        ) AS latest
+        WHERE reading_rank = 1
         ORDER BY ams_unit
     """), {"pid": printer_id}).fetchall()
 
@@ -90,14 +104,12 @@ async def get_ams_current(printer_id: int, db: Session = Depends(get_db)):
 @router.post("/printers/{printer_id}/ams/refresh", tags=["AMS"])
 async def refresh_ams_rfid(
     printer_id: int,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Trigger AMS RFID re-read on a Bambu printer."""
     from modules.printers.route_utils import _bambu_command_direct
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+    printer = _ams_printer(printer_id, db, current_user, write=True)
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="AMS refresh is only supported on Bambu printers")
     if _bambu_command_direct(printer, "refresh_ams_rfid"):
@@ -118,7 +130,7 @@ async def configure_ams_slot(
     ams_id: int,
     slot_id: int,
     body: AMSSlotConfigRequest,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Configure an AMS slot's filament settings (Bambu only).
@@ -126,9 +138,7 @@ async def configure_ams_slot(
     Body: {"material": "PETG", "color": "#FF5500", "k_factor": 0.028, "spool_id": 12}
     """
     from modules.printers.route_utils import _bambu_command_direct
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+    printer = _ams_printer(printer_id, db, current_user, write=True)
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="AMS slot config is only supported on Bambu printers")
     if ams_id < 0 or ams_id > 3 or slot_id < 0 or slot_id > 3:
@@ -139,18 +149,27 @@ async def configure_ams_slot(
     k_factor = body.k_factor
     spool_id = body.spool_id
 
-    _bambu_command_direct(printer, "set_ams_filament", ams_id, slot_id, material, color, k_factor)
-
+    slot = None
     if spool_id is not None:
+        from modules.inventory.models import Spool
+        spool = db.query(Spool).filter(Spool.id == spool_id).first()
+        if not spool or not check_org_access(current_user, spool.org_id):
+            raise HTTPException(status_code=404, detail="Spool not found")
         slot_number = ams_id * 4 + slot_id
         slot = db.query(FilamentSlot).filter(
             FilamentSlot.printer_id == printer_id,
             FilamentSlot.slot_number == slot_number,
         ).first()
-        if slot:
-            slot.filament_type = material
-            slot.color = body.color
-            slot.assigned_spool_id = spool_id
-            db.commit()
+        if not slot:
+            raise HTTPException(status_code=404, detail="Filament slot not found")
+
+    if not _bambu_command_direct(printer, "set_ams_filament", ams_id, slot_id, material, color, k_factor):
+        raise HTTPException(status_code=503, detail="Printer unreachable or command failed")
+
+    if slot is not None:
+        slot.filament_type = material
+        slot.color = body.color
+        slot.assigned_spool_id = spool_id
+        db.commit()
 
     return {"success": True, "message": f"AMS {ams_id} slot {slot_id} configured"}
