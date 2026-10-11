@@ -7,7 +7,7 @@ import type {
   ConnectionTestRequest,
   ConnectionTestResult,
   TelemetryDataPoint,
-  HmsErrorHistoryEntry,
+  HmsHistoryResponse,
   NozzleInstall,
   NozzleLifecycle,
   MaintenanceTask,
@@ -45,7 +45,7 @@ export const printers = {
 
 export const printerTelemetry = {
   get: (printerId: number, hours = 24): Promise<TelemetryDataPoint[]> => fetchAPI(`/printers/${printerId}/telemetry?hours=${hours}`),
-  hmsHistory: (printerId: number, days = 30): Promise<HmsErrorHistoryEntry[]> => fetchAPI(`/printers/${printerId}/hms-history?days=${days}`),
+  hmsHistory: (printerId: number, days = 30): Promise<HmsHistoryResponse> => fetchAPI(`/printers/${printerId}/hms-history?days=${days}`),
   nozzle: (printerId: number): Promise<NozzleLifecycle | null> => fetchAPI(`/printers/${printerId}/nozzle`),
   nozzleStatus: (printerId: number): Promise<unknown> => fetchAPI(`/printers/${printerId}/nozzle-status`),
   installNozzle: (printerId: number, data: NozzleInstall): Promise<NozzleLifecycle> => fetchAPI(`/printers/${printerId}/nozzle`, { method: 'POST', body: JSON.stringify(data) }),

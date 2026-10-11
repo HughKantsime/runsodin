@@ -183,6 +183,12 @@ export interface HmsErrorHistoryEntry {
   occurred_at: string;
 }
 
+export interface HmsHistoryResponse {
+  entries: HmsErrorHistoryEntry[];
+  frequency: Record<string, number>;
+  total: number;
+}
+
 // ---- Maintenance ----
 
 export interface MaintenanceTask {

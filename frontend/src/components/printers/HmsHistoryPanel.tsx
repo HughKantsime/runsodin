@@ -4,20 +4,7 @@ import toast from 'react-hot-toast'
 import { canDo } from '../../permissions'
 import { printers, printerTelemetry } from '../../api'
 
-interface HmsEntry {
-  id: number
-  code: string
-  message: string | null
-  severity: string
-  occurred_at: string
-  [key: string]: any
-}
-
-interface HmsData {
-  entries: HmsEntry[]
-  frequency: Record<string, number>
-  total: number
-}
+import type { HmsHistoryResponse } from '../../types'
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: 'bg-red-600/10 text-red-400/80',
@@ -33,7 +20,7 @@ interface HmsHistoryPanelProps {
 }
 
 export default function HmsHistoryPanel({ printerId, apiType, onClose }: HmsHistoryPanelProps) {
-  const [data, setData] = useState<HmsData>({ entries: [], frequency: {}, total: 0 })
+  const [data, setData] = useState<HmsHistoryResponse>({ entries: [], frequency: {}, total: 0 })
   const [days, setDays] = useState(30)
   const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState(false)

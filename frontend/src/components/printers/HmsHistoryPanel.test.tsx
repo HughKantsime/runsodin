@@ -7,7 +7,7 @@ import toast from 'react-hot-toast'
 import { canDo } from '../../permissions'
 vi.mock('../../api', () => ({ printers: { clearErrors: vi.fn() }, printerTelemetry: { hmsHistory: vi.fn() } }))
 vi.mock('../../permissions', () => ({ canDo: vi.fn() }))
-const history = { entries: [{ id: 1, code: 'SYNTHETIC', message: 'Synthetic error', severity: 'error', occurred_at: '2026-10-11T12:00:00Z' }], frequency: { SYNTHETIC: 1 }, total: 1 }
+const history = { entries: [{ id: 1, printer_id: 1, source: 'mqtt', code: 'SYNTHETIC', message: 'Synthetic error', severity: 'error', occurred_at: '2026-10-11T12:00:00Z' }], frequency: { SYNTHETIC: 1 }, total: 1 }
 beforeEach(() => { vi.mocked(canDo).mockReturnValue(true); vi.mocked(printerTelemetry.hmsHistory).mockResolvedValue(history) })
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 it('does not offer printer commands to a viewer', async () => {
