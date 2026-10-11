@@ -8,6 +8,8 @@ Also sends quiet hours digest when the quiet period ends.
 import os
 import time
 import json
+from html import escape
+from modules.reporting.recipient_policy import normalize_recipients
 import logging
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -67,6 +69,7 @@ def get_smtp_config(session):
 def send_report_email(smtp_config, recipient, subject, html_body):
     """Send an HTML email to a single recipient."""
     try:
+        recipient = normalize_recipients([recipient])[0]
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = smtp_config.get("from_address", "odin@localhost")
@@ -77,20 +80,17 @@ def send_report_email(smtp_config, recipient, subject, html_body):
         from core.itar import enforce_host_destination
         enforce_host_destination(smtp_config["host"], scheme="smtp")
 
-        if smtp_config.get("use_tls", True):
-            server = smtplib.SMTP(smtp_config["host"], smtp_config.get("port", 587))
-            server.starttls()
-        else:
-            server = smtplib.SMTP(smtp_config["host"], smtp_config.get("port", 25))
-
-        if smtp_config.get("username") and smtp_config.get("password"):
-            server.login(smtp_config["username"], smtp_config["password"])
-
-        server.send_message(msg)
-        server.quit()
+        with smtplib.SMTP(smtp_config["host"], smtp_config.get("port", 587 if smtp_config.get("use_tls", True) else 25)) as server:
+            if smtp_config.get("use_tls", True):
+                server.starttls()
+            if smtp_config.get("username") and smtp_config.get("password"):
+                server.login(smtp_config["username"], smtp_config["password"])
+            refused = server.send_message(msg, to_addrs=[recipient])
+            if refused:
+                return False
         return True
     except Exception as e:
-        log.error(f"Failed to send email to {recipient}: {e}")
+        log.error("Report email delivery failed (%s)", type(e).__name__)
         return False
 
 
@@ -162,7 +162,7 @@ def generate_job_summary(session, filters):
     for r in rows:
         table_rows += f"""
         <tr style="border-bottom: 1px solid #333;">
-            <td style="padding: 8px; font-size: 14px;">{r[0]}</td>
+            <td style="padding: 8px; font-size: 14px;">{escape(str(r[0]))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
         </tr>"""
         total += r[1]
@@ -196,7 +196,7 @@ def generate_filament_consumption(session, filters):
     for r in rows:
         table_rows += f"""
         <tr style="border-bottom: 1px solid #333;">
-            <td style="padding: 8px; font-size: 14px;">{r[0] or 'Unknown'}</td>
+            <td style="padding: 8px; font-size: 14px;">{escape(str(r[0] or 'Unknown'))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[1], 1)}g</td>
         </tr>"""
 
@@ -237,7 +237,7 @@ def generate_failure_analysis(session, filters):
     for r in rows:
         detect_rows_html += f"""
         <tr style="border-bottom: 1px solid #333;">
-            <td style="padding: 8px; font-size: 14px;">{r[0]}</td>
+            <td style="padding: 8px; font-size: 14px;">{escape(str(r[0]))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[2] * 100, 1)}%</td>
         </tr>"""
@@ -246,7 +246,7 @@ def generate_failure_analysis(session, filters):
     for r in fail_rows:
         fail_rows_html += f"""
         <tr style="border-bottom: 1px solid #333;">
-            <td style="padding: 8px; font-size: 14px;">{r[0]}</td>
+            <td style="padding: 8px; font-size: 14px;">{escape(str(r[0]))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
         </tr>"""
 
@@ -284,7 +284,7 @@ def generate_chargeback_summary(session, filters):
         LEFT JOIN users u ON j.charged_to_user_id = u.id
         WHERE j.charged_to_user_id IS NOT NULL
           AND j.created_at >= {sql.now_offset('-30 days')}
-        GROUP BY j.charged_to_user_id
+        GROUP BY j.charged_to_user_id, u.username
         ORDER BY total_cost DESC
     """)).fetchall()
 
@@ -292,7 +292,7 @@ def generate_chargeback_summary(session, filters):
     for r in rows:
         table_rows += f"""
         <tr style="border-bottom: 1px solid #333;">
-            <td style="padding: 8px; font-size: 14px;">{r[0] or 'Unknown'}</td>
+            <td style="padding: 8px; font-size: 14px;">{escape(str(r[0] or 'Unknown'))}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{r[1]}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">${round(r[2], 2)}</td>
             <td style="padding: 8px; font-size: 14px; text-align: right;">{round(r[3], 1)}h</td>
@@ -371,7 +371,7 @@ def process_due_reports(session):
                     sent += 1
             log.info(f"Report '{name}' (type={report_type}) sent to {sent}/{len(recipients)} recipients")
         except Exception as e:
-            log.error(f"Failed to generate report '{name}': {e}")
+            log.error("Report generation failed for schedule %s (%s)", sched_id, type(e).__name__)
 
         # Update schedule timing
         if frequency == "daily":
@@ -694,6 +694,14 @@ def process_quiet_hours_digest(session):
 # On-demand report execution (called by API)
 # =============================================================================
 
+class ReportDeliveryError(RuntimeError):
+    """Safe delivery counts, without recipients or transport exception details."""
+    def __init__(self,sent,total):
+        super().__init__('Report delivery incomplete')
+        self.sent=sent
+        self.failed=total-sent
+
+
 def run_report(schedule: dict) -> None:
     """Generate and send a single scheduled report immediately.
 
@@ -724,6 +732,10 @@ def run_report(schedule: dict) -> None:
         except (json.JSONDecodeError, TypeError):
             filters = {}
 
+        try:
+            recipients = normalize_recipients(recipients)
+        except ValueError:
+            raise RuntimeError("Report recipients are invalid") from None
         html = generator(session, filters)
         subject = f"O.D.I.N. Report: {schedule.get('name', 'Report')}"
         sent = 0
@@ -731,6 +743,8 @@ def run_report(schedule: dict) -> None:
             if send_report_email(smtp_config, recip.strip(), subject, html):
                 sent += 1
         log.info(f"Run-now report '{schedule.get('name')}' (type={report_type}) sent to {sent}/{len(recipients)} recipients")
+        if sent != len(recipients):
+            raise ReportDeliveryError(sent,len(recipients))
     finally:
         session.close()
 

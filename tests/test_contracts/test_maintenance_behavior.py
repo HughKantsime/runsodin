@@ -166,3 +166,37 @@ def test_global_template_crud_and_owned_log_delete(maintenance_client,review_db)
     assert client.delete('/api/v1/maintenance/logs/101').status_code==204
     assert review_db.execute(text('SELECT count(*) FROM maintenance_logs WHERE id=101')).scalar_one()==0
     assert client.delete(f'/api/v1/maintenance/tasks/{identifier}').status_code==204
+
+
+@pytest.mark.parametrize('days,expected,progress',[(7,'ok',70),(8,'due_soon',80),(10,'overdue',100),(20,'overdue',150)])
+def test_maintenance_day_thresholds_and_progress_cap(maintenance_client,review_db,days,expected,progress):
+    from datetime import datetime,timedelta,timezone
+    client,_=maintenance_client
+    review_db.execute(text('UPDATE maintenance_tasks SET interval_print_hours=NULL,interval_days=10 WHERE id=101'))
+    review_db.execute(text('UPDATE maintenance_logs SET performed_at=:performed WHERE id=101'),{'performed':datetime.now(timezone.utc)-timedelta(days=days,minutes=1)})
+    review_db.commit()
+    state=next(p for p in client.get('/api/v1/maintenance/status').json() if p['printer_id']==9)
+    task=next(t for t in state['tasks'] if t['task_id']==101)
+    assert task['days_since_service']==days and task['status']==expected and task['progress_percent']==progress
+    assert state['overall_status']==expected
+
+
+def test_maintenance_model_filter_and_inactive_template(maintenance_client,review_db):
+    client,_=maintenance_client
+    review_db.execute(text("INSERT INTO maintenance_tasks(id,name,printer_model_filter,interval_print_hours,is_active) VALUES(199,'Synthetic matching','P1S',10,1),(200,'Synthetic unrelated','X1',10,1),(201,'Synthetic inactive',NULL,10,0)"))
+    review_db.commit()
+    task_ids={t['task_id'] for p in client.get('/api/v1/maintenance/status').json() if p['printer_id']==9 for t in p['tasks']}
+    assert 199 in task_ids and 200 not in task_ids and 201 not in task_ids
+
+
+def test_maintenance_default_seeding_is_idempotent_and_admin_only(maintenance_client,review_db):
+    client,user=maintenance_client
+    first=client.post('/api/v1/maintenance/seed-defaults')
+    assert first.status_code==200
+    count=review_db.execute(text('SELECT COUNT(*) FROM maintenance_tasks')).scalar_one()
+    second=client.post('/api/v1/maintenance/seed-defaults')
+    assert second.status_code==200
+    assert review_db.execute(text('SELECT COUNT(*) FROM maintenance_tasks')).scalar_one()==count
+    user['role']='operator'
+    assert client.post('/api/v1/maintenance/seed-defaults').status_code==403
+    assert review_db.execute(text('SELECT COUNT(*) FROM maintenance_tasks')).scalar_one()==count

@@ -84,15 +84,11 @@ class TestCameraRouteTokenValidation:
             "Logged-out sessions would remain valid until the JWT expires."
         )
 
-    def test_camera_video_endpoints_still_require_auth(self):
-        """The early-return 401 guard must remain — don't accidentally drop it."""
-        source = CAMERA_ROUTES.read_text()
-        # Both endpoints should still raise 401 when current_user is still None
-        # after the token validation attempt.
-        occurrences = source.count('raise HTTPException(status_code=401, detail="Not authenticated")')
-        assert occurrences >= 2, (
-            f"Expected at least 2 unauthenticated-401 raises in camera_routes.py "
-            f"(one each for /video and /stream). Found {occurrences}. "
-            f"If the guard was removed, timelapse content would be served to "
-            f"anonymous requests with no token at all."
-        )
+    def test_camera_video_endpoints_still_require_auth(self, camera_client):
+        """Anonymous media requests are denied through the actual HTTP stack."""
+        client, _, _ = camera_client
+        for path in ("video", "stream", "download"):
+            response = client.get(f"/timelapses/199/{path}")
+            assert response.status_code == 401
+
+from tests.test_contracts.test_camera_scope_behavior import camera_client, token_client, review_db

@@ -22,7 +22,7 @@ router = APIRouter(prefix="/consumables", tags=["Consumables"])
 
 
 @router.get("")
-def list_consumables(status: str = None, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def list_consumables(status: str = None, current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """List all consumables with low-stock flag."""
     query = db.query(Consumable)
     if status:
@@ -37,7 +37,7 @@ def list_consumables(status: str = None, current_user: dict = Depends(require_ro
 
 
 @router.post("")
-def create_consumable(data: ConsumableCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_consumable(data: ConsumableCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Create a new consumable item."""
     item = Consumable(**data.model_dump())
     db.add(item)
@@ -49,7 +49,7 @@ def create_consumable(data: ConsumableCreate, current_user: dict = Depends(requi
 
 
 @router.get("/low-stock")
-def low_stock_consumables(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def low_stock_consumables(current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """Get consumables below their minimum stock threshold."""
     items = db.query(Consumable).filter(
         Consumable.status == "active",
@@ -65,7 +65,7 @@ def low_stock_consumables(current_user: dict = Depends(require_role("viewer")), 
 
 
 @router.get("/{consumable_id}")
-def get_consumable(consumable_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_consumable(consumable_id: int, current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """Get a consumable with recent usage history."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
@@ -84,7 +84,7 @@ def get_consumable(consumable_id: int, current_user: dict = Depends(require_role
 
 
 @router.patch("/{consumable_id}")
-def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Update a consumable."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
@@ -100,7 +100,7 @@ def update_consumable(consumable_id: int, data: ConsumableUpdate, current_user: 
 
 
 @router.delete("/{consumable_id}")
-def delete_consumable(consumable_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def delete_consumable(consumable_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
     """Delete a consumable."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:
@@ -111,7 +111,7 @@ def delete_consumable(consumable_id: int, current_user: dict = Depends(require_r
 
 
 @router.post("/{consumable_id}/adjust")
-def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def adjust_consumable_stock(consumable_id: int, data: ConsumableAdjust, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Manual stock adjustment (restock or deduct)."""
     item = db.query(Consumable).filter(Consumable.id == consumable_id).first()
     if not item:

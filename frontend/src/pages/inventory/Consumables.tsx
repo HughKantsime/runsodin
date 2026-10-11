@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Package, Trash2, Pencil, X, AlertTriangle, ArrowUpDown } from 'lucide-react'
 import clsx from 'clsx'
@@ -24,6 +24,7 @@ export default function Consumables() {
   const [adjustData, setAdjustData] = useState({ quantity: '', type: 'restock', notes: '' })
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [confirmLargeAdjust, setConfirmLargeAdjust] = useState(false)
+  const adjusting = useRef(false)
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['consumables', statusFilter],
@@ -55,6 +56,7 @@ export default function Consumables() {
     mutationFn: ({ id, data }) => consumables.adjust(id, data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['consumables'] }); setShowAdjustModal(null) },
     onError: mutErr('Adjust stock failed'),
+    onSettled: () => { adjusting.current = false },
   })
 
   const handleCloseModal = () => {
@@ -67,7 +69,7 @@ export default function Consumables() {
     setEditingItem(item)
     setFormData({
       name: item.name, sku: item.sku || '', unit: item.unit || 'piece',
-      cost_per_unit: item.cost_per_unit || '', current_stock: item.current_stock || '',
+      cost_per_unit: item.cost_per_unit ?? '', current_stock: item.current_stock || '',
       min_stock: item.min_stock || '', vendor: item.vendor || '', notes: item.notes || '',
       status: item.status || 'active'
     })
@@ -78,7 +80,7 @@ export default function Consumables() {
     e.preventDefault()
     const payload = {
       ...formData,
-      cost_per_unit: parseFloat(formData.cost_per_unit) || 0,
+      cost_per_unit: editingItem && formData.cost_per_unit === '' ? null : parseFloat(formData.cost_per_unit) || 0,
       current_stock: parseFloat(formData.current_stock) || 0,
       min_stock: parseFloat(formData.min_stock) || 0,
     }
@@ -93,12 +95,14 @@ export default function Consumables() {
 
   const handleAdjust = (e) => {
     e.preventDefault()
+    if (adjusting.current) return
     const qty = parseFloat(adjustData.quantity)
     if (qty >= LARGE_ADJUST_THRESHOLD && !confirmLargeAdjust) {
       setConfirmLargeAdjust(true)
       return
     }
     setConfirmLargeAdjust(false)
+    adjusting.current = true
     adjustMutation.mutate({
       id: showAdjustModal.id,
       data: { quantity: qty, type: adjustData.type, notes: adjustData.notes }
@@ -213,15 +217,17 @@ export default function Consumables() {
                     {item.min_stock > 0 && <span className="text-[var(--brand-text-muted)] text-xs ml-1">/ min {item.min_stock}</span>}
                   </td>
                   <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.unit}</td>
-                  <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.cost_per_unit ? `$${item.cost_per_unit.toFixed(2)}` : '—'}</td>
+                  <td className="p-3 text-[var(--brand-text-muted)] hidden md:table-cell">{item.cost_per_unit != null ? `$${item.cost_per_unit.toFixed(2)}` : '—'}</td>
                   <td className="p-3 text-[var(--brand-text-muted)] hidden lg:table-cell">{item.vendor || '—'}</td>
                   <td className="p-3 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {canDo('models.edit') && (
                       <button onClick={() => { setShowAdjustModal(item); setAdjustData({ quantity: '', type: 'restock', notes: '' }) }}
                         className="p-1.5 text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] rounded-md" title="Adjust Stock">
                         <ArrowUpDown size={14} />
                       </button>
-                      {canDo('models.update') && (
+                      )}
+                      {canDo('models.edit') && (
                         <button onClick={() => handleEdit(item)} className="p-1.5 text-[var(--brand-text-muted)] hover:bg-[var(--brand-card-border)] rounded-md" title="Edit">
                           <Pencil size={14} />
                         </button>
@@ -322,7 +328,7 @@ export default function Consumables() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-[var(--brand-text-muted)]">Type</label>
-                  <select value={adjustData.type} onChange={e => setAdjustData(d => ({ ...d, type: e.target.value }))}
+                  <select value={adjustData.type} onChange={e => { setAdjustData(d => ({ ...d, type: e.target.value })); setConfirmLargeAdjust(false) }}
                     className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm">
                     <option value="restock">Restock</option>
                     <option value="deduct">Deduct</option>
@@ -348,7 +354,7 @@ export default function Consumables() {
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => { setShowAdjustModal(null); setConfirmLargeAdjust(false) }} className="px-4 py-2 bg-[var(--brand-card-border)] text-[var(--brand-text-secondary)] rounded-md text-sm">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-[var(--brand-primary)] text-white rounded-md text-sm hover:opacity-90">Adjust</button>
+                <button type="submit" disabled={adjustMutation.isPending} className="px-4 py-2 bg-[var(--brand-primary)] text-white rounded-md text-sm hover:opacity-90 disabled:opacity-50">Adjust</button>
               </div>
             </form>
           </div>

@@ -18,6 +18,18 @@ from ops.release_gate.runner import ResourceNames, validate_run_id
 from ops.release_control.validation_image_cleanup import VALIDATION_CAPACITY_COMMAND
 
 
+@pytest.fixture(autouse=True)
+def isolated_image_lifecycle_lock(tmp_path: Path, monkeypatch):
+    """Mocked Docker peers must not contend with real candidate runs."""
+    from ops.release_control import validation_image_cleanup
+    acquire = validation_image_cleanup.acquire_image_lifecycle_lock
+    monkeypatch.setattr(
+        validation_image_cleanup,
+        "acquire_image_lifecycle_lock",
+        lambda: acquire(tmp_path / "synthetic-image-lifecycle.lock"),
+    )
+
+
 def _write_junit(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path

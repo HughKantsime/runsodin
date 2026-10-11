@@ -61,3 +61,14 @@ def test_viewer_cannot_create_or_adjust(consumable_client):
     assert client.post('/consumables',json={"name":"Denied"}).status_code==403
     assert client.post(f'/consumables/{identifier}/adjust',json={"type":"deduct","quantity":1}).status_code==403
     assert client.get(f'/consumables/{identifier}').json()['current_stock']==10
+
+
+
+def test_consumable_unknown_cost_can_be_saved_without_false_zero_or_server_error(consumable_client):
+    client,_=consumable_client
+    created=client.post('/consumables',json={'name':'Synthetic unknown cost','current_stock':5,'cost_per_unit':2}).json()
+    response=client.patch(f"/consumables/{created['id']}",json={'cost_per_unit':None})
+    assert response.status_code==200
+    assert response.json()['cost_per_unit'] is None
+    detail=client.get(f"/consumables/{created['id']}")
+    assert detail.status_code==200 and detail.json()['cost_per_unit'] is None

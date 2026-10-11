@@ -260,3 +260,66 @@ def test_compiled_order_edit_keeps_zero_and_downloads_invoice(role_page_factory,
     assert 'Invoice Total:' in text and '$0.00' in text
     assert 'Profit:' not in text and 'Platform Fees' not in text
     assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_consumable_adjustment_persists_and_shortage_is_visible(role_page_factory,admin,mobile):
+    import re
+    label=f'Synthetic compiled inventory {mobile}'
+    created=admin.post(f'{BASE_URL}/api/consumables',json={'name':label,'current_stock':3,'min_stock':2},timeout=10)
+    assert created.status_code==200
+    identifier=created.json()['id']
+    page=role_page_factory('admin',mobile=mobile)
+    def feature_facts(route):
+        response=route.fetch();data=response.json();data['tier']='pro'
+        data['features']=list(set(data.get('features',[]))|{'products'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',feature_facts)
+    _goto(page,'/consumables')
+    page.get_by_placeholder('Search name or SKU...').fill(label)
+    page.get_by_title('Adjust Stock').click()
+    page.locator('select:has(option[value="deduct"])').select_option('deduct')
+    page.get_by_role('spinbutton').fill('2')
+    page.get_by_role('button',name='Adjust',exact=True).click()
+    expect(page.get_by_role('button',name='Adjust',exact=True)).not_to_be_visible()
+    saved=admin.get(f'{BASE_URL}/api/consumables/{identifier}',timeout=10).json()
+    assert saved['current_stock']==1 and saved['is_low_stock']
+    assert [r['quantity_used'] for r in saved['usage_history']]==[2]
+    expect(page.locator('tr').filter(has_text=label).get_by_text('1',exact=True)).to_be_visible()
+    page.get_by_title('Adjust Stock').click()
+    page.locator('select:has(option[value="deduct"])').select_option('deduct')
+    page.get_by_role('spinbutton').fill('2')
+    page.get_by_role('button',name='Adjust',exact=True).click()
+    expect(page.get_by_text(re.compile('Adjust stock failed'))).to_be_visible()
+    saved=admin.get(f'{BASE_URL}/api/consumables/{identifier}',timeout=10).json()
+    assert saved['current_stock']==1 and len(saved['usage_history'])==1
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+
+
+def test_compiled_report_schedule_persistence_and_run_now_failure(role_page_factory,admin):
+    import re
+    page=role_page_factory('admin')
+    _goto(page,'/settings')
+    page.get_by_role('button',name='System',exact=True).click()
+    expect(page.get_by_role('heading',name='Scheduled Reports',exact=True)).to_be_visible()
+    page.get_by_role('button',name='New Schedule',exact=True).click()
+    page.locator('#rs-name').fill('Synthetic compiled report')
+    page.locator('#rs-type').select_option('job_summary')
+    page.locator('#rs-recipients').fill('synthetic@example.invalid')
+    page.get_by_role('button',name='Create Schedule',exact=True).click()
+    expect(page.get_by_text('Synthetic compiled report',exact=True)).to_be_visible()
+    records=admin.get(f'{BASE_URL}/api/report-schedules',timeout=10)
+    assert records.status_code==200
+    record=next(r for r in records.json() if r['name']=='Synthetic compiled report')
+    assert record['report_type']=='job_summary' and record['recipients']==['synthetic@example.invalid']
+    page.get_by_role('button',name='Pause schedule',exact=True).click()
+    expect(page.get_by_role('button',name='Activate schedule',exact=True)).to_be_visible()
+    records=admin.get(f'{BASE_URL}/api/report-schedules',timeout=10).json()
+    assert next(r for r in records if r['id']==record['id'])['is_active'] is False
+    # This owned candidate has no configured SMTP transport. Failure must be visible, never sent.
+    page.get_by_role('button',name='Run "Synthetic compiled report" now',exact=True).click()
+    expect(page.get_by_text(re.compile('Failed to send report:'))).to_be_visible()
+    expect(page.get_by_text('Report sent',exact=True)).to_have_count(0)
+    page.get_by_role('button',name='Delete schedule',exact=True).click()
+    expect(page.get_by_text('Synthetic compiled report',exact=True)).to_have_count(0)
+    assert all(r['id']!=record['id'] for r in admin.get(f'{BASE_URL}/api/report-schedules',timeout=10).json())

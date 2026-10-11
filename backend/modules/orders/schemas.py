@@ -246,7 +246,7 @@ class ConsumableResponse(BaseModel):
     name: str
     sku: Optional[str] = None
     unit: str = "piece"
-    cost_per_unit: float = 0
+    cost_per_unit: Optional[float] = None
     current_stock: float = 0
     min_stock: float = 0
     vendor: Optional[str] = None

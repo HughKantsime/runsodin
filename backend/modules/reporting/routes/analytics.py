@@ -29,7 +29,7 @@ router = APIRouter(tags=["Analytics"])
 # ============== Stats ==============
 
 @router.get("/stats")
-async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
     """Get dashboard statistics."""
     org = get_org_scope(current_user)
 
@@ -162,7 +162,7 @@ async def get_stats(db: Session = Depends(get_db), current_user: dict = Depends(
 # ============== Analytics ==============
 
 @router.get("/analytics")
-def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
     """Get analytics data for dashboard."""
     from sqlalchemy import func
 
@@ -363,7 +363,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
 def get_failure_analytics(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:analytics")),
 ):
     """Fleet failure analytics — rates by printer, model, filament, common reasons, HMS errors."""
     org = get_org_scope(current_user)
@@ -491,7 +491,7 @@ def get_failure_analytics(
 def get_time_accuracy(
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:analytics")),
 ):
     """Estimated vs actual print time accuracy stats."""
     org = get_org_scope(current_user)
@@ -582,7 +582,7 @@ def get_time_accuracy(
 def get_education_usage_report(
     days: int = Query(default=30, ge=7, le=90),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="read:analytics")),
 ):
     """Education usage report — per-user job metrics and summary stats."""
     require_feature("usage_reports")

@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -26,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit, validate_access_token
-from core.rbac import require_role, check_org_access
+from core.rbac import require_role, check_org_access, has_permission, token_scope_granted
 from modules.printers.models import Printer
 from modules.archives.models import Timelapse
 from modules.printers.routes import get_camera_url, sync_go2rtc_config
@@ -38,8 +39,29 @@ router = APIRouter()
 def _check_printer_org(current_user: dict, printer_id: int, db) -> None:
     """Verify the caller has org access to the printer behind a timelapse/camera."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if printer and not check_org_access(current_user, printer.org_id) and not printer.shared:
+    if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
         raise HTTPException(status_code=404, detail="Not found")
+
+
+def _authorize_media(current_user: dict) -> None:
+    """Apply the same role and scoped-token policy after optional media-token validation."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not has_permission(current_user["role"], "viewer"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    scopes = current_user.get("_token_scopes", [])
+    if scopes or current_user.get("_auth_kind") == "user_api_token":
+        if not token_scope_granted(scopes, "read:printers"):
+            raise HTTPException(status_code=403, detail="Insufficient token scope")
+
+
+def _finite_edit_number(value) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 # ====================================================================
@@ -53,7 +75,7 @@ def list_timelapses(
     limit: int = Query(default=50, le=200),
     offset: int = 0,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
     """List timelapse recordings with optional filters."""
     from core.rbac import get_org_scope
@@ -96,7 +118,7 @@ def list_timelapses(
 def get_timelapse(
     timelapse_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:printers")),
 ):
     """Get a single timelapse by ID."""
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
@@ -126,8 +148,7 @@ def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Sess
     # rejects ws/mfa_pending/mfa_setup_required tokens.
     if not current_user and token:
         current_user = validate_access_token(token, db)
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _authorize_media(current_user)
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
@@ -143,7 +164,7 @@ def get_timelapse_video(timelapse_id: int, token: Optional[str] = None, db: Sess
 
 
 @router.delete("/timelapses/{timelapse_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Timelapses"])
-def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin"))):
+def delete_timelapse(timelapse_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("admin", scope="write:printers"))):
     """Delete a timelapse recording and its video file."""
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
@@ -194,8 +215,7 @@ def stream_timelapse(
     # Same query-param token flow as /video — use full validator.
     if not current_user and token:
         current_user = validate_access_token(token, db)
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _authorize_media(current_user)
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
@@ -213,8 +233,7 @@ def download_timelapse(
     current_user: dict = Depends(get_current_user),
 ):
     """Download timelapse as attachment."""
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    _authorize_media(current_user)
     t = db.query(Timelapse).filter(Timelapse.id == timelapse_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Timelapse not found")
@@ -236,7 +255,7 @@ def trim_timelapse(
     timelapse_id: int,
     body: dict = Body(...),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
 ):
     """Trim timelapse to start/end points using ffmpeg. Overwrites original."""
     if not _check_ffmpeg():
@@ -245,6 +264,8 @@ def trim_timelapse(
     end_seconds = body.get("end_seconds")
     if end_seconds is None:
         raise HTTPException(status_code=400, detail="end_seconds is required")
+    if not _finite_edit_number(start_seconds) or not _finite_edit_number(end_seconds):
+        raise HTTPException(status_code=400, detail="Time range must contain finite numbers")
     if start_seconds < 0 or end_seconds <= start_seconds:
         raise HTTPException(status_code=400, detail="Invalid time range")
 
@@ -294,13 +315,13 @@ def speed_timelapse(
     timelapse_id: int,
     body: dict = Body(...),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
 ):
     """Create speed-adjusted copy of timelapse using ffmpeg."""
     if not _check_ffmpeg():
         raise HTTPException(status_code=501, detail="ffmpeg is not installed — timelapse editing is unavailable")
     multiplier = body.get("multiplier")
-    if multiplier is None or float(multiplier) not in VALID_SPEED_MULTIPLIERS:
+    if not _finite_edit_number(multiplier) or multiplier not in VALID_SPEED_MULTIPLIERS:
         raise HTTPException(status_code=400, detail=f"multiplier must be one of {sorted(VALID_SPEED_MULTIPLIERS)}")
     multiplier = float(multiplier)
 
@@ -359,7 +380,7 @@ def speed_timelapse(
 # ====================================================================
 
 @router.get("/cameras", tags=["Cameras"])
-def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """List printers with active camera streams.
 
     Returns cameras based on DB state (printers with camera URLs).
@@ -388,7 +409,7 @@ def list_cameras(db: Session = Depends(get_db), current_user: dict = Depends(req
 
 
 @router.patch("/cameras/{printer_id}/toggle", tags=["Cameras"])
-def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle camera on/off for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -406,7 +427,7 @@ def toggle_camera(printer_id: int, current_user: dict = Depends(require_role("op
 
 
 @router.get("/cameras/{printer_id}/stream", tags=["Cameras"])
-def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Get go2rtc stream info for a printer camera."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -414,6 +435,8 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    if not printer.is_active or not printer.camera_enabled:
+        raise HTTPException(status_code=404, detail="Camera not found")
     camera_url = get_camera_url(printer)
     if not camera_url:
         raise HTTPException(status_code=404, detail="Camera not found")
@@ -429,7 +452,7 @@ def get_camera_stream(printer_id: int, db: Session = Depends(get_db), current_us
 
 
 @router.post("/cameras/{printer_id}/webrtc", tags=["Cameras"])
-async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Proxy WebRTC signaling to go2rtc."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -437,6 +460,8 @@ async def camera_webrtc(printer_id: int, request: Request, db: Session = Depends
     if not check_org_access(current_user, printer.org_id) and not printer.shared:
         raise HTTPException(status_code=404, detail="Printer not found")
 
+    if not printer.is_active or not printer.camera_enabled:
+        raise HTTPException(status_code=404, detail="Camera not found")
     camera_url = get_camera_url(printer)
     if not camera_url:
         raise HTTPException(status_code=404, detail="Camera not found")

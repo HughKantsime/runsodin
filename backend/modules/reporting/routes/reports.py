@@ -10,6 +10,7 @@ import json
 import logging
 
 from core.db import get_db
+from modules.reporting.recipient_policy import normalize_recipients
 from core.db_compat import execute_insert_returning_id, sql
 from core.rbac import require_role, require_superadmin, get_org_scope
 
@@ -20,12 +21,37 @@ router = APIRouter(tags=["Reports"])
 REPORT_TYPES = ["fleet_utilization", "job_summary", "filament_consumption", "failure_analysis", "chargeback_summary"]
 
 
+def _validated_schedule_fields(body, *, partial=False):
+    """Validate before any write; apply the same rules to create and edit."""
+    normalized=dict(body)
+    if not partial or 'name' in body:
+        name=body.get('name')
+        if not isinstance(name,str) or not name.strip() or len(name)>200 or any(c in name for c in ('\r','\n')):
+            raise HTTPException(400,'Report name must be a nonempty single line')
+        normalized['name']=name.strip()
+    if not partial or 'frequency' in body:
+        frequency=body.get('frequency','weekly')
+        if frequency not in ('daily','weekly','monthly'):
+            raise HTTPException(400,'Frequency must be daily, weekly, or monthly')
+        normalized['frequency']=frequency
+    if not partial or 'recipients' in body:
+        try:
+            normalized['recipients']=normalize_recipients(body.get('recipients'))
+        except ValueError:
+            raise HTTPException(400,'Each report recipient must contain one mailbox') from None
+    if 'is_active' in body and not isinstance(body['is_active'],bool):
+        raise HTTPException(400,'Active must be a boolean')
+    if 'filters' in body and not isinstance(body['filters'],dict):
+        raise HTTPException(400,'Filters must be an object')
+    return normalized
+
+
 # ============== Chargeback Report ==============
 
 @router.get("/reports/chargebacks")
 async def chargeback_report(
     start_date: str = None, end_date: str = None,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("admin", scope="read:analytics")),
     db: Session = Depends(get_db)
 ):
     """Generate chargeback report — cost summary by user (org-scoped)."""
@@ -49,7 +75,7 @@ async def chargeback_report(
     if end_date:
         query += " AND j.created_at <= :end"
         params["end"] = end_date
-    query += " GROUP BY j.charged_to_user_id ORDER BY total_cost DESC"
+    query += " GROUP BY j.charged_to_user_id, u.username ORDER BY total_cost DESC"
 
     rows = db.execute(text(query), params).fetchall()
     return [{
@@ -63,7 +89,7 @@ async def chargeback_report(
 # ============== Report Schedules ==============
 
 @router.get("/report-schedules")
-async def list_report_schedules(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def list_report_schedules(current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """List all scheduled reports. Superadmin only — system-wide report config."""
     rows = db.execute(text("SELECT * FROM report_schedules ORDER BY created_at DESC")).fetchall()
     return [{
@@ -76,9 +102,10 @@ async def list_report_schedules(current_user: dict = Depends(require_superadmin(
 
 
 @router.post("/report-schedules")
-async def create_report_schedule(body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def create_report_schedule(body: dict, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Create a new scheduled report. Superadmin only."""
-    name = body.get("name", "").strip()
+    body = _validated_schedule_fields(body)
+    name = body["name"]
     report_type = body.get("report_type", "")
     frequency = body.get("frequency", "weekly")
     recipients = body.get("recipients", [])
@@ -102,18 +129,18 @@ async def create_report_schedule(body: dict, current_user: dict = Depends(requir
         next_run = now + timedelta(days=30)
     next_run = next_run.replace(hour=8, minute=0, second=0)
 
-    insert_sql = """INSERT INTO report_schedules (name, report_type, frequency, recipients, filters, next_run_at, created_by)
-                       VALUES (:name, :type, :freq, :recip, :filters, :next, :uid)"""
+    insert_sql = """INSERT INTO report_schedules (name, report_type, frequency, recipients, filters, next_run_at, created_by, is_active)
+                       VALUES (:name, :type, :freq, :recip, :filters, :next, :uid, :active)"""
     params = {"name": name, "type": report_type, "freq": frequency,
               "recip": json.dumps(recipients), "filters": json.dumps(body.get("filters", {})),
-              "next": next_run, "uid": current_user["id"]}
+              "next": next_run, "uid": current_user["id"], "active": body.get("is_active", True)}
     sched_id = execute_insert_returning_id(db, insert_sql, params)
     db.commit()
     return {"id": sched_id, "status": "ok"}
 
 
 @router.delete("/report-schedules/{schedule_id}")
-async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Delete a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
@@ -124,12 +151,13 @@ async def delete_report_schedule(schedule_id: int, current_user: dict = Depends(
 
 
 @router.patch("/report-schedules/{schedule_id}")
-async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def update_report_schedule(schedule_id: int, body: dict, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Update a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT 1 FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
+    body = _validated_schedule_fields(body, partial=True)
     sets = []
     params = {"id": schedule_id}
     for field in ["name", "frequency", "is_active"]:
@@ -147,18 +175,20 @@ async def update_report_schedule(schedule_id: int, body: dict, current_user: dic
 
 
 @router.post("/report-schedules/{schedule_id}/run")
-async def run_report_now(schedule_id: int, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def run_report_now(schedule_id: int, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Immediately generate and email a scheduled report. Superadmin only."""
     row = db.execute(text("SELECT * FROM report_schedules WHERE id = :id"), {"id": schedule_id}).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    from modules.reporting.report_runner import run_report
+    from modules.reporting.report_runner import run_report, ReportDeliveryError
     try:
         run_report(dict(row._mapping))
+    except ReportDeliveryError as e:
+        raise HTTPException(502, detail={"message":"Report was not delivered to every recipient", "sent_count":e.sent, "failed_count":e.failed})
     except RuntimeError as e:
-        log.warning("Report run-now failed (RuntimeError) for schedule %s: %s", schedule_id, e)
+        log.warning("Report run-now failed for schedule %s (%s)", schedule_id, type(e).__name__)
         raise HTTPException(status_code=400, detail="Report generation failed. Check report configuration.")
     except Exception as e:
-        log.error(f"Run-now report {schedule_id} failed: {e}")
+        log.error("Run-now report %s failed (%s)", schedule_id, type(e).__name__)
         raise HTTPException(status_code=500, detail="Report generation failed")
     return {"status": "sent"}
