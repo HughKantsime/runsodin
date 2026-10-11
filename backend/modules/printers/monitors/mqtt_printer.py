@@ -439,6 +439,8 @@ class PrinterMonitor:
                 self._pending_running_state = None
 
             incoming_hms = raw.get('hms')
+            if isinstance(incoming_hms, list) and not incoming_hms:
+                self._last_hms_key = None
             if incoming_hms:
                 hms_process_key = json.dumps(incoming_hms, sort_keys=True)
                 if hms_process_key != getattr(self, '_last_hms_processed_key', None):
@@ -673,9 +675,8 @@ class PrinterMonitor:
                         import json as _json2
                         hms_key = _json2.dumps(hms_raw)
                         if hms_key != getattr(self, '_last_hms_key', None):
-                            self._last_hms_key = hms_key
-                            try:
-                                with get_db() as hconn:
+                            with get_db() as hconn:
+                                try:
                                     parsed = printer_events.parse_hms_errors(hms_raw)
                                     for err in parsed:
                                         hconn.execute(
@@ -684,8 +685,10 @@ class PrinterMonitor:
                                         )
                                     hconn.execute(f"DELETE FROM hms_error_history WHERE occurred_at < {sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
                                     hconn.commit()
-                            except Exception as e:
-                                log.debug(f"[{self.name}] HMS history insert: {e}")
+                                    self._last_hms_key = hms_key
+                                except Exception as e:
+                                    hconn.rollback()
+                                    log.debug(f"[{self.name}] HMS history insert: {e}")
                 except Exception as e:
                     log.warning(f"Failed to update telemetry for printer {self.printer_id}: {e}")
 

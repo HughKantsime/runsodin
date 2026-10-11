@@ -20,6 +20,8 @@ def capture_store(tmp_path, monkeypatch):
         CREATE TABLE printer_telemetry(id INTEGER PRIMARY KEY,printer_id INTEGER,
           bed_temp REAL,nozzle_temp REAL,bed_target REAL,nozzle_target REAL,fan_speed REAL,
           recorded_at TEXT DEFAULT(datetime('now')));
+        CREATE TABLE hms_error_history(id INTEGER PRIMARY KEY,printer_id INTEGER,
+          code TEXT,message TEXT,severity TEXT,source TEXT,occurred_at TEXT DEFAULT(datetime('now')));
         ''')
     @contextmanager
     def database():
@@ -38,12 +40,18 @@ def capture_store(tmp_path, monkeypatch):
     monkeypatch.setattr(monitor, '_on_state_change', lambda *args: None)
     monkeypatch.setattr(monitor, '_check_spool_levels', lambda: None)
     monkeypatch.setattr(monitor, '_update_progress', lambda: None)
-    def send(state='IDLE'):
+    send_hms = object()
+    def send(state='IDLE', hms=send_hms, filename=None):
         monitor._current_job_id = 99 if state == 'RUNNING' else None
-        monitor._on_status(SimpleNamespace(raw_data={'print': {
+        packet = {
             'gcode_state':state, 'bed_temper':60, 'nozzle_temper':210,
             'ams':{'ams':[{'humidity':'3','temp':'22.5'}, {'humidity':'4','temp':'26'}]},
-        }}))
+        }
+        if filename is not None:
+            packet['subtask_name'] = filename
+        if hms is not send_hms:
+            packet['hms'] = hms
+        monitor._on_status(SimpleNamespace(raw_data={'print':packet}))
     send.module = module
     return path, clock, send
 
