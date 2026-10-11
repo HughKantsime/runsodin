@@ -220,7 +220,7 @@ async def resume_printer(
 # ====================================================================
 
 @router.post("/printers/{printer_id}/clear-errors", tags=["Printers"])
-async def clear_printer_errors(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def clear_printer_errors(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Clear HMS/print errors on a Bambu printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -238,7 +238,7 @@ async def clear_printer_errors(printer_id: int, current_user: dict = Depends(req
 async def skip_printer_objects(
     printer_id: int,
     body: dict,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Skip objects during an active Bambu print. Body: {"object_ids": [0, 1]}"""
@@ -250,7 +250,7 @@ async def skip_printer_objects(
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Skip objects is only supported on Bambu printers")
     object_ids = body.get("object_ids", [])
-    if not object_ids or not isinstance(object_ids, list):
+    if not isinstance(object_ids, list) or not object_ids or any(type(value) is not int or value < 0 for value in object_ids):
         raise HTTPException(status_code=422, detail="object_ids must be a non-empty list of integers")
     if _bambu_command_direct(printer, "skip_objects", object_ids):
         return {"success": True, "message": f"Skip command sent for objects {object_ids}"}
@@ -261,7 +261,7 @@ async def skip_printer_objects(
 async def set_printer_speed(
     printer_id: int,
     body: dict,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Set print speed on a Bambu printer. Body: {"speed": 2} (1=Silent, 2=Standard, 3=Sport, 4=Ludicrous)"""
@@ -273,7 +273,7 @@ async def set_printer_speed(
     if printer.api_type != "bambu":
         raise HTTPException(status_code=400, detail="Speed control is only supported on Bambu printers")
     speed = body.get("speed")
-    if speed not in (1, 2, 3, 4):
+    if type(speed) is not int or speed not in (1, 2, 3, 4):
         raise HTTPException(status_code=422, detail="speed must be 1 (Silent), 2 (Standard), 3 (Sport), or 4 (Ludicrous)")
     if _bambu_command_direct(printer, "set_print_speed", speed):
         speed_names = {1: "Silent", 2: "Standard", 3: "Sport", 4: "Ludicrous"}
@@ -289,7 +289,7 @@ async def set_printer_speed(
 async def set_fan_speed(
     printer_id: int,
     body: dict,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Set fan speed on a Bambu printer.
@@ -307,7 +307,7 @@ async def set_fan_speed(
     if fan not in ("part_cooling", "auxiliary", "chamber"):
         raise HTTPException(status_code=422, detail="fan must be 'part_cooling', 'auxiliary', or 'chamber'")
     speed = body.get("speed")
-    if not isinstance(speed, int) or speed < 0 or speed > 255:
+    if type(speed) is not int or speed < 0 or speed > 255:
         raise HTTPException(status_code=422, detail="speed must be integer 0-255")
     if _bambu_command_direct(printer, "set_fan_speed", fan, speed):
         return {"success": True, "message": f"{fan} fan set to {speed}/255"}
@@ -319,7 +319,7 @@ async def set_fan_speed(
 # ====================================================================
 
 @router.post("/printers/{printer_id}/lights", tags=["Printers"])
-def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Toggle chamber lights on/off for a Bambu printer."""
     from datetime import datetime, timezone
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
