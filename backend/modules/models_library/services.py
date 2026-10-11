@@ -36,8 +36,8 @@ DEFAULT_PRICING_CONFIG = {
 def calculate_job_cost(
     db: Session,
     model_id: int = None,
-    filament_grams: float = 0,
-    print_hours: float = 1.0,
+    filament_grams: float = None,
+    print_hours: float = None,
     material_type: str = "PLA",
 ):
     """Calculate estimated cost and suggested price for a job.
@@ -53,9 +53,14 @@ def calculate_job_cost(
     if model_id:
         model = db.query(Model).filter(Model.id == model_id).first()
         if model:
-            filament_grams = filament_grams or model.total_filament_grams or 0
-            print_hours = print_hours or model.build_time_hours or 1.0
+            if filament_grams is None:
+                filament_grams = model.total_filament_grams
+            if print_hours is None:
+                print_hours = model.build_time_hours
             material_type = model.default_filament_type.value if model.default_filament_type else "PLA"
+
+    filament_grams = 0 if filament_grams is None else filament_grams
+    print_hours = 1.0 if print_hours is None else print_hours
 
     # Try to get per-material cost
     filament_entry = db.query(FilamentLibrary).filter(
@@ -63,7 +68,7 @@ def calculate_job_cost(
         FilamentLibrary.cost_per_gram.isnot(None)
     ).first()
 
-    if filament_entry and filament_entry.cost_per_gram:
+    if filament_entry and filament_entry.cost_per_gram is not None:
         cost_per_gram = filament_entry.cost_per_gram
     else:
         cost_per_gram = config["spool_cost"] / config["spool_weight"]
@@ -81,7 +86,7 @@ def calculate_job_cost(
 
     subtotal = base_cost + failure_cost + overhead_cost
 
-    margin = model.markup_percent if model and model.markup_percent else config["default_margin"]
+    margin = model.markup_percent if model and model.markup_percent is not None else config["default_margin"]
     suggested_price = subtotal * (1 + margin / 100)
 
     return (round(subtotal, 2), round(suggested_price, 2), margin)

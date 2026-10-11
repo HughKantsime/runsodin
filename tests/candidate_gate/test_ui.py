@@ -323,3 +323,55 @@ def test_compiled_report_schedule_persistence_and_run_now_failure(role_page_fact
     page.get_by_role('button',name='Delete schedule',exact=True).click()
     expect(page.get_by_text('Synthetic compiled report',exact=True)).to_have_count(0)
     assert all(r['id']!=record['id'] for r in admin.get(f'{BASE_URL}/api/report-schedules',timeout=10).json())
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_pricing_configuration_persists_zero_and_reports_invalid_divisor(role_page_factory,admin,mobile):
+    import re
+    page=role_page_factory('admin')
+    if mobile:page.set_viewport_size({'width':390,'height':844})
+    initialized=admin.put(f'{BASE_URL}/api/pricing-config',json={'hourly_rate':27},timeout=10)
+    assert initialized.status_code==200
+    _goto(page,'/calculator')
+    expect(page.get_by_role('heading',name='Pricing Calculator',exact=True)).to_be_visible()
+    def field(label):
+        return page.locator('label').filter(has_text=re.compile('^'+re.escape(label)+'$')).locator('..').get_by_role('spinbutton')
+    expect(field('Hourly Rate')).to_have_value('27')
+    field('Hourly Rate').fill('0')
+    with page.expect_response(lambda r:r.url.endswith('/api/pricing-config') and r.request.method=='PUT') as completed:
+        page.get_by_role('button',name='Save Config',exact=True).click()
+    assert completed.value.status==200
+    saved=admin.get(f'{BASE_URL}/api/pricing-config',timeout=10).json()
+    assert saved['hourly_rate']==0
+    page.reload(wait_until='domcontentloaded')
+    expect(field('Hourly Rate')).to_have_value('0')
+    field('Spool Weight').fill('0')
+    page.get_by_role('button',name='Save Config',exact=True).click()
+    expect(page.get_by_text(re.compile('Save pricing config failed:'))).to_be_visible()
+    assert admin.get(f'{BASE_URL}/api/pricing-config',timeout=10).json()==saved
+
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_maintenance_template_creation_is_persisted(role_page_factory,admin,mobile):
+    page=role_page_factory('admin')
+    if mobile:page.set_viewport_size({'width':390,'height':844})
+    def feature_facts(route):
+        response=route.fetch();data=response.json()
+        data['tier']='pro';data['features']=list(set(data.get('features',[]))|{'maintenance'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',feature_facts)
+    _goto(page,'/maintenance')
+    page.get_by_role('button',name='Task Templates',exact=True).click()
+    page.get_by_role('button',name='Add Task',exact=True).click()
+    label='Synthetic maintenance '+('mobile' if mobile else 'desktop')
+    page.get_by_placeholder('e.g. Nozzle Change').fill(label)
+    page.get_by_placeholder('e.g. 90').fill('30')
+    page.get_by_role('button',name='Create Task',exact=True).click()
+    expect(page.get_by_text(label,exact=True)).to_be_visible()
+    response=admin.get(f'{BASE_URL}/api/maintenance/tasks',timeout=10)
+    assert response.status_code==200
+    row=next(r for r in response.json() if r['name']==label)
+    assert row['interval_days']==30 and row['estimated_cost']==0
+    page.reload(wait_until='domcontentloaded')
+    page.get_by_role('button',name='Task Templates',exact=True).click()
+    expect(page.get_by_text(label,exact=True)).to_be_visible()

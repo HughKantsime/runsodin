@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, Field, field_validator
 from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 
@@ -39,34 +39,58 @@ def _authorized_printer(db, printer_id, user):
 # ============== Pydantic models ==============
 
 class MaintenanceTaskCreate(PydanticBaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
-    printer_model_filter: Optional[str] = None
-    interval_print_hours: Optional[float] = None
-    interval_days: Optional[int] = None
-    estimated_cost: float = 0
-    estimated_downtime_min: int = 30
+    printer_model_filter: Optional[str] = Field(default=None, max_length=100)
+    interval_print_hours: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+    interval_days: Optional[int] = Field(default=None, gt=0)
+    estimated_cost: float = Field(default=0, ge=0, allow_inf_nan=False)
+    estimated_downtime_min: int = Field(default=30, ge=0)
+
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value
 
 
 class MaintenanceTaskUpdate(PydanticBaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = None
-    printer_model_filter: Optional[str] = None
-    interval_print_hours: Optional[float] = None
-    interval_days: Optional[int] = None
-    estimated_cost: Optional[float] = None
-    estimated_downtime_min: Optional[int] = None
+    printer_model_filter: Optional[str] = Field(default=None, max_length=100)
+    interval_print_hours: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+    interval_days: Optional[int] = Field(default=None, gt=0)
+    estimated_cost: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+    estimated_downtime_min: Optional[int] = Field(default=None, ge=0)
     is_active: Optional[bool] = None
+
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value
 
 
 class MaintenanceLogCreate(PydanticBaseModel):
     printer_id: int
     task_id: Optional[int] = None
-    task_name: str
-    performed_by: Optional[str] = None
+    task_name: str = Field(min_length=1, max_length=200)
+    performed_by: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = None
-    cost: float = 0
-    downtime_minutes: int = 0
+    cost: float = Field(default=0, ge=0, allow_inf_nan=False)
+    downtime_minutes: int = Field(default=0, ge=0)
+
+
+    @field_validator("task_name")
+    @classmethod
+    def valid_name(cls, value):
+        if value is None or not value.strip():
+            raise ValueError("Name must not be empty")
+        return value
 
 
 # ============== Task templates ==============
@@ -143,6 +167,7 @@ def list_maintenance_logs(
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("viewer")),
+    _scope: dict = Depends(require_any_scope("read", AGENT_READ_SCOPE, AGENT_WRITE_SCOPE)),
 ):
     """List maintenance logs, optionally filtered by printer."""
     query = _visible_printer_query(
@@ -248,7 +273,7 @@ def delete_maintenance_log(log_id: int, current_user: dict = Depends(require_rol
 # ============== Maintenance status ==============
 
 @router.get("/maintenance/status", tags=["Maintenance"])
-def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer")), _scope: dict = Depends(require_any_scope("read", AGENT_READ_SCOPE, AGENT_WRITE_SCOPE))):
     """Get maintenance status for all active printers. Returns per-printer task health."""
     printers = _visible_printer_query(db.query(Printer), current_user).filter(Printer.is_active.is_(True)).order_by(Printer.name).all()
     tasks = db.query(MaintenanceTask).filter(MaintenanceTask.is_active.is_(True)).all()
@@ -351,7 +376,7 @@ def get_maintenance_status(db: Session = Depends(get_db), current_user: dict = D
 # ============== Seed defaults ==============
 
 @router.post("/maintenance/seed-defaults", tags=["Maintenance"])
-def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+def seed_default_maintenance_tasks(current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
     """Seed default maintenance tasks for common Bambu Lab printer models."""
     defaults = [
         {"name": "General Cleaning", "description": "Clean build plate, wipe exterior, clear debris from print area",
