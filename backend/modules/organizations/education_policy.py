@@ -1178,6 +1178,7 @@ def terminal_monitor_observation(
     ended_at=None,
     duration_seconds: float | None = None,
     error_code: str | None = None,
+    observed_filename: str | None = None,
 ) -> dict:
     """Atomically apply terminal truth for an Education-owned observation."""
     if terminal_status not in {"completed", "failed", "cancelled"}:
@@ -1194,7 +1195,7 @@ def terminal_monitor_observation(
         "s.id AS submission_id,s.org_id,s.cost_center_id,s.submitted_by,s.job_id,"
         "s.status AS submission_status,s.lifecycle_revision,s.approved_printer_id,"
         "j.status AS job_status,mc.claim_id,mc.state AS claim_state,"
-        "mc.authority_revision FROM print_jobs p "
+        "mc.authority_revision,mc.token_digest FROM print_jobs p "
         "LEFT JOIN education_submissions s ON s.job_id=p.scheduled_job_id "
         "LEFT JOIN jobs j ON j.id=s.job_id AND j.charged_to_org_id=s.org_id "
         "LEFT JOIN education_monitor_claims mc ON mc.job_id=s.job_id AND mc.org_id=s.org_id "
@@ -1207,24 +1208,31 @@ def terminal_monitor_observation(
         token = parse_education_token(context.get("filename") or context.get("job_name"))
         if token is None:
             return {"education_owned": False, "education_reserved": False, "transitioned": False}
-        adapter.execute(
+        if observed_filename is not None and parse_education_token(observed_filename) != token:
+            return {"education_owned": False, "education_reserved": True,
+                    "authorized": False, "transitioned": False}
+        quarantined = adapter.execute(
             "UPDATE print_jobs SET status=:status,ended_at=COALESCE(:ended_at,CURRENT_TIMESTAMP),"
             "error_code=COALESCE(:error_code,error_code) WHERE id=:print_job_id "
-            "AND printer_id=:printer_id AND scheduled_job_id IS NULL",
+            "AND printer_id=:printer_id AND scheduled_job_id IS NULL AND status='running' "
+            "AND COALESCE(filename,'')=COALESCE(:observed_stored_filename,'') "
+            "AND COALESCE(job_name,'')=COALESCE(:observed_stored_job_name,'')",
             {
                 "status": terminal_status,
                 "ended_at": ended_at,
                 "error_code": sanitized_error,
                 "print_job_id": print_job_id,
                 "printer_id": printer_id,
+                "observed_stored_filename": context.get("filename"),
+                "observed_stored_job_name": context.get("job_name"),
             },
         )
         return {
             "education_owned": False,
             "education_reserved": True,
             "authorized": False,
-            "transitioned": True,
-            "quarantined": True,
+            "transitioned": quarantined.rowcount == 1,
+            "quarantined": quarantined.rowcount == 1,
         }
 
     base_result = {
@@ -1234,6 +1242,12 @@ def terminal_monitor_observation(
         "job_id": context["job_id"],
         "lifecycle_revision": context["lifecycle_revision"],
     }
+    expected_digest = None
+    if observed_filename is not None:
+        observed_token = parse_education_token(observed_filename)
+        expected_digest = education_token_digest(observed_token) if observed_token else None
+        if expected_digest is None or expected_digest != context.get("token_digest"):
+            return {**base_result, "transitioned": False, "idempotent": False, "authorized": False}
     if (
         context["submission_status"] == terminal_status
         and context["job_status"] == terminal_status
@@ -1291,8 +1305,9 @@ def terminal_monitor_observation(
             claim_deleted = adapter.execute(
                 "DELETE FROM education_monitor_claims WHERE claim_id=:claim_id "
                 "AND submission_id=:submission_id AND job_id=:job_id AND printer_id=:printer_id "
-                "AND authority_revision=:revision AND state='running'",
-                {**context, "revision": revision, "printer_id": printer_id},
+                "AND authority_revision=:revision AND state='running' "
+                "AND (CAST(:expected_digest AS TEXT) IS NULL OR token_digest=:expected_digest)",
+                {**context, "revision": revision, "printer_id": printer_id, "expected_digest": expected_digest},
             )
             if claim_deleted.rowcount != 1:
                 raise _MonitorTransitionMiss

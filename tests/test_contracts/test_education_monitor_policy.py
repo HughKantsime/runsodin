@@ -614,4 +614,6 @@ def test_hms_reserved_token_stays_suppressed_when_policy_classification_fails(
     )
 
     assert result["education_suppressed"] is True
-    assert recorded and recorded[0]["create_alert"] is False
+    assert recorded == []
+    assert result["classification_state"] == "unresolved"
+    assert result["retryable"] is True

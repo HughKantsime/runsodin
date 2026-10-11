@@ -8,6 +8,7 @@ Normalizes error handling across all printer brands.
 import json
 import logging
 from typing import Optional
+from pathlib import PurePosixPath
 
 from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
                                    ProductionLinkageChanged, retry_production_linkage)
@@ -147,8 +148,20 @@ def parse_hms_errors(hms_data: list) -> list:
     return errors
 
 
+def _hms_filename_matches(observed: str | None, stored: str | None) -> bool:
+    """Match reported file identity without guessing from display names."""
+    from core.interfaces.education_policy import parse_education_token
+    if not isinstance(observed, str) or not isinstance(stored, str) or not observed or not stored:
+        return False
+    observed_token = parse_education_token(observed)
+    stored_token = parse_education_token(stored)
+    if observed_token is not None or stored_token is not None:
+        return observed_token is not None and observed_token == stored_token
+    return PurePosixPath(observed.replace('\\', '/')).name == PurePosixPath(stored.replace('\\', '/')).name
+
+
 @retry_production_linkage
-def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
+def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str, observed_filename: str | None = None):
     """Mark the active print job as failed due to a print-stopping HMS error.
 
     Checks for an active print_jobs record on this printer. If found, marks it
@@ -159,43 +172,64 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
         with get_db() as conn:
             cur = conn.cursor()
 
-            # Find active print_jobs record
-            cur.execute("""
-                SELECT id, scheduled_job_id, job_name, started_at
-                FROM print_jobs
-                WHERE printer_id = ? AND status = 'running'
-                ORDER BY started_at DESC LIMIT 1
-            """, (printer_id,))
-            row = cur.fetchone()
+            statement = "SELECT id,scheduled_job_id,job_name,started_at,filename FROM print_jobs WHERE printer_id=? AND status='running' ORDER BY started_at DESC,id DESC LIMIT 1"
+            row = cur.execute(statement, (printer_id,)).fetchone()
             if not row:
-                return  # No active job
-
-            print_job_id, scheduled_job_id, job_name, started_at = row
+                return
+            print_job_id, scheduled_job_id, job_name, started_at, filename = row
 
             from core.registry import registry
-
+            from core.interfaces.education_policy import is_education_reserved_filename, parse_education_token
             policy = registry.get_provider("EducationPolicyProvider")
-            if policy:
-                education_result = policy.terminal_monitor_observation(
-                    conn,
-                    print_job_id=print_job_id,
-                    printer_id=printer_id,
-                    terminal_status="failed",
-                    error_code=hms_code,
+            reserved = is_education_reserved_filename(observed_filename) or is_education_reserved_filename(filename)
+            if not policy and reserved:
+                return
+            classification = policy.classify_monitor_observation(
+                conn, printer_id=printer_id, print_job_id=print_job_id,
+                observed_filename=observed_filename,
+            ) if policy else {}
+            if classification.get("education_owned") or classification.get("education_reserved") or reserved:
+                if not policy or parse_education_token(observed_filename) is None:
+                    return
+                # A linked print alone does not prove that this packet belongs to it.
+                # Resolve the incoming token independently through canonical claims.
+                authority = policy.classify_monitor_observation(
+                    conn, printer_id=printer_id, observed_filename=observed_filename,
                 )
-                if education_result.get("education_owned") or education_result.get(
-                    "education_reserved"
+                if not authority.get("authorized") or not classification.get("education_owned") or any(
+                    authority.get(key) != classification.get(key)
+                    for key in ("submission_id", "job_id", "lifecycle_revision")
                 ):
-                    conn.commit()
-                    log.warning(
-                        "Printer %s: HMS %s handled by Education terminal policy: %s",
-                        printer_id,
-                        hms_code,
-                        education_result,
-                    )
-                    return education_result
+                    return
+                education_result = policy.terminal_monitor_observation(
+                    conn, print_job_id=print_job_id, printer_id=printer_id,
+                    terminal_status="failed", error_code=hms_code, observed_filename=observed_filename,
+                )
+                conn.commit()
+                return education_result
 
+            # Production parents precede the print row. Education policy must
+            # never run while this generic child-row fence is held.
             scheduled_job_id, production_orders = prepare_print_job_write(conn, print_job_id)
+            row = cur.execute(statement, (printer_id,)).fetchone()
+            if not row or row[0] != print_job_id:
+                return
+            print_job_id, locked_job_id, job_name, started_at, filename = row
+            if locked_job_id != scheduled_job_id:
+                raise ProductionLinkageChanged()
+            if policy:
+                locked_classification = policy.classify_monitor_observation(
+                    conn, printer_id=printer_id, print_job_id=print_job_id,
+                    observed_filename=observed_filename,
+                )
+                if locked_classification.get("education_owned") or locked_classification.get("education_reserved"):
+                    conn.rollback()
+                    raise ProductionLinkageChanged()
+            if is_education_reserved_filename(filename):
+                conn.rollback()
+                raise ProductionLinkageChanged()
+            if not _hms_filename_matches(observed_filename, filename):
+                return
 
             # Mark print_jobs as failed (WHERE status='running' guards against races)
             # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
@@ -277,31 +311,32 @@ def process_hms_errors(
     education_suppressed = is_education_reserved_filename(observed_filename)
     try:
         from core.registry import registry
-
         policy = registry.get_provider("EducationPolicyProvider")
-        if policy:
-            with get_db() as conn:
-                row = conn.execute(
-                    "SELECT id,filename,job_name FROM print_jobs "
-                    "WHERE printer_id=? AND status='running' ORDER BY started_at DESC LIMIT 1",
-                    (printer_id,),
-                ).fetchone()
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id,filename,job_name FROM print_jobs "
+                "WHERE printer_id=? AND status='running' ORDER BY started_at DESC,id DESC LIMIT 1",
+                (printer_id,),
+            ).fetchone()
+            education_suppressed = education_suppressed or is_education_reserved_filename(row[1] if row else None)
+            if not policy and education_suppressed:
+                raise RuntimeError("Reserved observation requires Education policy")
+            if policy:
                 classification = policy.classify_monitor_observation(
-                    conn,
-                    printer_id=printer_id,
-                    print_job_id=row[0] if row else None,
-                    observed_filename=(
-                        observed_filename
-                        or (row[1] if row else None)
-                        or (row[2] if row else None)
-                    ),
+                    conn, printer_id=printer_id, print_job_id=row[0] if row else None,
+                    observed_filename=observed_filename or (row[1] if row else None),
                 )
-                education_suppressed = bool(
-                    classification.get("education_owned")
-                    or classification.get("education_reserved")
-                )
-    except Exception as exc:
-        log.error("Failed to classify HMS observation for printer %s: %s", printer_id, exc)
+                if not isinstance(classification, dict) or not any(key in classification for key in ("education_owned", "education_reserved")):
+                    raise RuntimeError("Missing classification outcome")
+                if any(not isinstance(classification.get(key, False), bool) for key in ("education_owned", "education_reserved")):
+                    raise RuntimeError("Invalid classification outcome")
+                education_suppressed = education_suppressed or classification.get("education_owned", False) or classification.get("education_reserved", False)
+    except Exception:
+        log.error("Failed to classify HMS observation for printer %s; retry required", printer_id)
+        # No external alert or terminal operation has started. Retrying this
+        # unresolved classification cannot repeat partially delivered effects.
+        return {"education_suppressed": True, "errors": errors,
+                "classification_state": "unresolved", "retryable": True}
 
     # Create an external alert only for generic observations.
     worst = max(errors, key=lambda e: {"info": 0, "warning": 1, "error": 2, "critical": 3}.get(e["severity"], 0))
@@ -317,7 +352,7 @@ def process_hms_errors(
     # Check if any HMS code should fail the active print job
     for err in errors:
         if err["code"] in PRINT_STOPPING_HMS_CODES:
-            _fail_active_job_for_hms(printer_id, err["code"], err["message"])
+            _fail_active_job_for_hms(printer_id, err["code"], err["message"], observed_filename=observed_filename)
             break  # Only fail once per HMS batch
 
     return {

@@ -446,13 +446,14 @@ class PrinterMonitor:
                 observed_filename = self._state.get('subtask_name') or self._state.get('gcode_file')
                 hms_process_key = (observed_filename, json.dumps(incoming_hms, sort_keys=True))
                 if hms_process_key != getattr(self, '_last_hms_processed_key', None):
-                    printer_events.process_hms_errors(
+                    processing_result = printer_events.process_hms_errors(
                         self.printer_id,
                         incoming_hms,
                         observed_filename=observed_filename,
                     )
                     # This acknowledges dispatch, not notification delivery.
-                    self._last_hms_processed_key = hms_process_key
+                    if not (isinstance(processing_result, dict) and processing_result.get("classification_state") == "unresolved" and processing_result.get("retryable") is True):
+                        self._last_hms_processed_key = hms_process_key
 
             # Update telemetry + heartbeat (throttled to every 10 seconds)
             if time.time() - getattr(self, '_last_heartbeat', 0) >= 10:
