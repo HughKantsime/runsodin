@@ -438,9 +438,9 @@ export default function Admin() {
                         <div className="flex justify-end gap-1">
                           <button onClick={() => handleEdit(user)} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors" title="Edit"><Edit2 size={14} /></button>
                           {user.email && <button onClick={async () => {
-                            try { await usersApi.resetPasswordEmail(user.id); toast.success('Password reset email sent') }
-                            catch { toast.error('Failed — is SMTP configured?') }
-                          }} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors text-[var(--brand-text-secondary)]" title="Reset password & email"><KeyRound size={14} /></button>}
+                            try { await usersApi.resetPasswordEmail(user.id); toast.success('Password reset link sent. Their password has not changed.') }
+                            catch { toast.error('Unable to send a reset link. Check SMTP and application URL settings.') }
+                          }} className="p-1.5 md:p-2 hover:bg-[var(--brand-input-bg)] rounded-md transition-colors text-[var(--brand-text-secondary)]" title="Send password reset link"><KeyRound size={14} /></button>}
                           <button onClick={() => handleDelete(user)} className="p-1.5 md:p-2 hover:bg-red-900/50 text-[var(--brand-text-secondary)] hover:text-red-400 rounded-md transition-colors" title="Delete"><Trash2 size={14} /></button>
                         </div>
                       </td>

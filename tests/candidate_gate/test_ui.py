@@ -133,3 +133,40 @@ def test_seeded_vision_detection_state(role_page_factory):
     expect(page.get_by_role("heading", name="Vigil AI Detections", exact=True)).to_be_visible(timeout=20_000)
     expect(page.get_by_text("1 detection", exact=True)).to_be_visible(timeout=20_000)
     expect(page.get_by_text("Spaghetti", exact=True).first).to_be_visible()
+
+
+def test_compiled_token_permission_selection_and_real_revoke(role_page_factory):
+    """License presentation is substituted; token HTTP and authentication are real."""
+    import requests
+    page=role_page_factory('admin')
+    page.route('**/api/license',lambda route:route.fulfill(json={
+        'tier':'pro','features':[],'max_users':100,'max_printers':100,
+        'licensee':'Synthetic UI presentation only'}))
+    _goto(page,'/settings')
+    page.get_by_role('button',name='Access',exact=True).click()
+    page.get_by_role('button',name='Tokens & Sessions',exact=True).click()
+    expect(page.get_by_role('heading',name='API Tokens',exact=True)).to_be_visible()
+    page.get_by_role('button',name='New Token',exact=True).click()
+    page.get_by_label('Token name',exact=True).fill('Synthetic browser token')
+    create=page.get_by_role('button',name='Create Token',exact=True)
+    expect(create).to_be_disabled()
+    scope=page.get_by_role('button',name='Read Printers',exact=True)
+    scope.click();expect(scope).to_have_attribute('aria-pressed','true')
+    expect(create).to_be_enabled()
+    create.click()
+    expect(page.get_by_text("Token created. Copy it now. It won't be shown again.",exact=True)).to_be_visible()
+    raw=page.get_by_role('button',name='Copy API token',exact=True).locator('..').locator('code').text_content().strip()
+    opaque=raw.startswith('odin_')
+    assert opaque
+    # Never leave the one-time credential visible in an evidence screenshot.
+    page.get_by_role('button',name='Dismiss',exact=True).click()
+    headers={'X-API-Key':raw}
+    response=requests.get(BASE_URL+'/api/printers',headers=headers,timeout=10)
+    assert response.status_code==200
+    response=requests.post(BASE_URL+'/api/models',headers=headers,json={'name':'Synthetic forbidden write'},timeout=10)
+    assert response.status_code==403
+    page.once('dialog',lambda dialog:dialog.accept())
+    page.get_by_role('button',name='Revoke token Synthetic browser token',exact=True).click()
+    expect(page.get_by_role('button',name='Revoke token Synthetic browser token',exact=True)).to_have_count(0)
+    response=requests.get(BASE_URL+'/api/printers',headers=headers,timeout=10)
+    assert response.status_code==401

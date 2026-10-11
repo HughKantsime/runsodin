@@ -97,7 +97,7 @@ def require_role(required_role: str, scope: str = None):
         # Scope enforcement for scoped per-user API tokens
         if scope is not None:
             token_scopes = current_user.get("_token_scopes", [])
-            if token_scopes:
+            if token_scopes or current_user.get("_auth_kind") == "user_api_token":
                 granted = (
                     scope in token_scopes
                     or any(s.startswith(f"{scope}:") for s in token_scopes)
@@ -152,7 +152,7 @@ def require_scope(scope: str):
         token_scopes = current_user.get("_token_scopes", [])
         # Only enforce scopes when the user authenticated via a scoped per-user token.
         # Empty list means JWT or global API key — no scope restriction.
-        if token_scopes:
+        if token_scopes or current_user.get("_auth_kind") == "user_api_token":
             # Match: exact scope ("write"), umbrella ("write" covers "write:printers"), or "admin"
             granted = (
                 scope in token_scopes
@@ -201,7 +201,7 @@ def require_any_scope(*allowed: str):
                 status=401,
             )
         token_scopes = current_user.get("_token_scopes", []) or []
-        if not token_scopes:
+        if not token_scopes and current_user.get("_auth_kind") != "user_api_token":
             # Non-token auth (JWT, cookie, global key) — full access.
             return current_user
         if "admin" in token_scopes:

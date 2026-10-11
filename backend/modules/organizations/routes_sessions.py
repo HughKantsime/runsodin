@@ -1,5 +1,7 @@
 """Organizations sessions routes — session management, API tokens, quotas, and GDPR."""
 
+from core.rbac import require_scope
+
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -60,7 +62,7 @@ async def list_sessions(request: Request, current_user: dict = Depends(require_r
     } for r in rows]
 
 
-@router.delete("/sessions/{session_id}", tags=["Sessions"])
+@router.delete("/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
 async def revoke_session(session_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke a specific session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id AND user_id = :uid"),
@@ -82,7 +84,7 @@ async def revoke_session(session_id: int, current_user: dict = Depends(require_r
     return {"status": "ok"}
 
 
-@router.delete("/sessions", tags=["Sessions"])
+@router.delete("/sessions", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
 async def revoke_all_sessions(request: Request, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke all sessions except the current one."""
     current_jti = None
@@ -141,7 +143,7 @@ async def admin_list_sessions(current_user: dict = Depends(require_role("admin")
     } for r in rows]
 
 
-@router.delete("/admin/sessions/{session_id}", tags=["Sessions"])
+@router.delete("/admin/sessions/{session_id}", tags=["Sessions"], dependencies=[Depends(require_scope("admin"))])
 async def admin_revoke_session(session_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     """Admin: force-revoke any session."""
     row = db.execute(text("SELECT * FROM active_sessions WHERE id = :id"), {"id": session_id}).fetchone()
@@ -171,22 +173,7 @@ async def admin_revoke_session(session_id: int, current_user: dict = Depends(req
 
 # ============== Scoped API Tokens ==============
 
-VALID_SCOPES = {
-    "read", "write",
-    "read:printers", "write:printers",
-    "read:jobs", "write:jobs",
-    "read:spools", "write:spools",
-    "read:models", "write:models",
-    "read:analytics",
-    # Phase 2 (v1.9.0): agent-surface scopes for the MCP tool layer.
-    # agent:write is strictly narrower than `write` — it grants the
-    # 11 advertised write tools and nothing else. See
-    # core/rbac.py::require_any_scope for enforcement. Minting these
-    # is role-gated below (viewers can mint agent:read; only
-    # operator+ can mint agent:write).
-    "agent:read", "agent:write",
-    "admin",
-}
+from core.api_token_policy import VALID_SCOPES, parse_token_scopes
 
 
 @router.post("/tokens", tags=["API Tokens"])
@@ -194,7 +181,12 @@ VALID_SCOPES = {
 async def create_api_token(request: Request, body: dict, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Create a new scoped API token for the current user."""
     import secrets
-    name = body.get("name", "").strip()
+    if current_user.get("_auth_kind") == "user_api_token" and "admin" not in current_user.get("_token_scopes", []):
+        raise HTTPException(status_code=403, detail="Use an interactive session or an admin-scoped token to create credentials")
+    raw_name = body.get("name", "")
+    if not isinstance(raw_name, str):
+        raise HTTPException(status_code=400, detail="Token name must be text")
+    name = raw_name.strip()
     scopes = body.get("scopes", [])
     expires_days = body.get("expires_days")
 
@@ -202,8 +194,8 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
         raise HTTPException(status_code=400, detail="Token name is required")
     if len(name) > 100:
         raise HTTPException(status_code=400, detail="Token name too long")
-    if not isinstance(scopes, list):
-        raise HTTPException(status_code=400, detail="Scopes must be a list")
+    if not isinstance(scopes, list) or not scopes or any(not isinstance(scope, str) for scope in scopes):
+        raise HTTPException(status_code=400, detail="Select at least one valid token scope")
     invalid = set(scopes) - VALID_SCOPES
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid scopes: {', '.join(invalid)}")
@@ -222,13 +214,29 @@ async def create_api_token(request: Request, body: dict, current_user: dict = De
             status=403,
         )
 
+    expires_at = None
+    if expires_days is not None:
+        if isinstance(expires_days, bool) or not isinstance(expires_days, int) or expires_days <= 0:
+            raise HTTPException(status_code=400, detail="Expiry days must be a positive integer")
+        try:
+            expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
+        except (OverflowError, ValueError):
+            raise HTTPException(status_code=400, detail="Expiry is out of range") from None
+    parent_expiry = current_user.get("_token_expires_at")
+    if current_user.get("_auth_kind") == "user_api_token" and parent_expiry is not None:
+        try:
+            parent = datetime.fromisoformat(parent_expiry) if isinstance(parent_expiry, str) else parent_expiry
+            if parent.tzinfo is None:
+                parent = parent.replace(tzinfo=timezone.utc)
+            if parent <= datetime.now(timezone.utc):
+                raise ValueError("Expired parent")
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(status_code=403, detail="Parent credential expiry is invalid") from None
+        expires_at = min(expires_at, parent) if expires_at is not None else parent
+
     raw_token = f"odin_{secrets.token_urlsafe(32)}"
     token_prefix = raw_token[:10]
     token_hash_val = hash_password(raw_token)
-
-    expires_at = None
-    if expires_days and int(expires_days) > 0:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=int(expires_days))
 
     insert_sql = """INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes, expires_at)
                        VALUES (:user_id, :name, :token_hash, :prefix, :scopes, :expires_at)"""
@@ -255,12 +263,12 @@ async def list_api_tokens(current_user: dict = Depends(require_role("viewer")), 
         {"uid": current_user["id"]}).fetchall()
     return [{
         "id": r.id, "name": r.name, "prefix": r.token_prefix,
-        "scopes": json.loads(r.scopes) if r.scopes else [],
+        "scopes": parse_token_scopes(r.scopes) or [],
         "expires_at": r.expires_at, "last_used_at": r.last_used_at, "created_at": r.created_at,
     } for r in rows]
 
 
-@router.delete("/tokens/{token_id}", tags=["API Tokens"])
+@router.delete("/tokens/{token_id}", tags=["API Tokens"], dependencies=[Depends(require_scope("admin"))])
 async def revoke_api_token(token_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
     """Revoke (delete) an API token."""
     row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id AND user_id = :uid"),
@@ -270,6 +278,9 @@ async def revoke_api_token(token_id: int, current_user: dict = Depends(require_r
             row = db.execute(text("SELECT * FROM api_tokens WHERE id = :id"), {"id": token_id}).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Token not found")
+        target_user = db.execute(text("SELECT group_id FROM users WHERE id = :uid"), {"uid": row.user_id}).fetchone()
+        if not target_user or not _check_org_admin_access(current_user, target_user.group_id):
+            raise HTTPException(status_code=403, detail="Cannot revoke tokens outside your group")
 
     db.execute(text("DELETE FROM api_tokens WHERE id = :id"), {"id": token_id})
     log_audit(db, "api_token_revoked", "api_token", token_id, f"Token '{row.name}' revoked")

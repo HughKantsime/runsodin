@@ -50,31 +50,13 @@ def _get_function_source(source: str, name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _extract_valid_scopes(source: str) -> set[str]:
-    """Parse `VALID_SCOPES = { ... }` out of routes_sessions.py source.
-
-    Source-level extraction so this test doesn't trigger the module's
-    full import chain (which pulls in slowapi and other runtime deps
-    absent from the contract-test venv).
-    """
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "VALID_SCOPES":
-                    value = node.value
-                    if isinstance(value, ast.Set):
-                        return {
-                            el.value for el in value.elts
-                            if isinstance(el, ast.Constant) and isinstance(el.value, str)
-                        }
-    return set()
 
 
 class TestValidScopesIncludesAgent:
     @pytest.fixture(scope="class")
     def scopes(self) -> set[str]:
-        return _extract_valid_scopes(ROUTES_SESSIONS.read_text())
+        from core.api_token_policy import VALID_SCOPES
+        return VALID_SCOPES
 
     def test_agent_read_in_allowlist(self, scopes: set[str]):
         assert "agent:read" in scopes, (

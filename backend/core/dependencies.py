@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 import core.auth as auth_module
 from core.auth import decode_token, verify_password
+from core.api_token_policy import parse_token_scopes
 from core.models import AuditLog
 from core.db import get_db
 
@@ -289,12 +290,10 @@ async def get_current_user(
                         exp = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
                         if exp.tzinfo is None:
                             exp = exp.replace(tzinfo=timezone.utc)
-                        expired = exp < datetime.now(timezone.utc)
+                        expired = exp <= datetime.now(timezone.utc)
                     except Exception:
-                        # Malformed expires_at — don't expire, let it
-                        # through. Worst case: a token that should have
-                        # expired keeps working; operator can revoke.
-                        expired = False
+                        # Invalid stored expiry cannot establish usable credentials.
+                        expired = True
                 usable = not expired
                 if byte_match and usable and matched_candidate is None:
                     matched_candidate = candidate
@@ -327,7 +326,14 @@ async def get_current_user(
                     text("SELECT * FROM users WHERE id = :id"),
                     {"id": candidate.user_id},
                 ).fetchone()
-                scopes = json.loads(candidate.scopes) if candidate.scopes else []
+                scopes = parse_token_scopes(candidate.scopes)
+                if scopes is None or not user:
+                    return None
+                # Stored credentials cannot retain privileges removed from the account.
+                if "admin" in scopes and user.role != "admin":
+                    return None
+                if "agent:write" in scopes and user.role not in {"admin", "operator"}:
+                    return None
                 principal = _principal(
                     user,
                     "user_api_token",
@@ -335,6 +341,7 @@ async def get_current_user(
                     token_scopes=scopes,
                 )
                 if principal:
+                    principal["_token_expires_at"] = candidate.expires_at
                     return principal
 
     return None

@@ -69,7 +69,7 @@ def page(browser_instance: Browser, request) -> Page:
         artifact_dir = Path(_required("ODIN_CANDIDATE_ARTIFACT_DIR"))
         artifact_dir.mkdir(parents=True, exist_ok=True)
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "-", request.node.nodeid).strip("-")
-        candidate_page.screenshot(path=artifact_dir / f"{safe_name}.png", full_page=True)
+        candidate_page.screenshot(path=artifact_dir / f"{safe_name}.png", full_page=True, mask=[candidate_page.locator("code"), candidate_page.locator("input[type=password]")])
     context.close()
 
 
@@ -111,6 +111,7 @@ def role_page_factory(browser_instance: Browser, role_storage_states: dict[str, 
             role_page.screenshot(
                 path=artifact_dir / f"{safe_name}-{index}.png",
                 full_page=True,
+                mask=[role_page.locator("code"), role_page.locator("input[type=password]")],
             )
         context.close()
 

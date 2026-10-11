@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id, sql
 from core.dependencies import log_audit
-from core.rbac import require_role, require_superadmin
+from core.rbac import require_scope, require_role, require_superadmin
 from modules.organizations.education_policy import (
     assert_org_hard_delete_allowed,
     assert_user_hard_delete_allowed,
@@ -110,7 +110,7 @@ async def list_users(current_user: dict = Depends(require_role("admin")), db: Se
     return [dict(u._mapping) for u in users]
 
 
-@router.post("/users", tags=["Users"])
+@router.post("/users", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
 async def create_user(user: UserCreate, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     # Org-scoped admin: enforce group assignment
     if not _is_superadmin(current_user):
@@ -163,45 +163,25 @@ async def create_user(user: UserCreate, current_user: dict = Depends(require_rol
     return {"status": "created"}
 
 
-@router.post("/users/{user_id}/reset-password-email", tags=["Users"])
+@router.post("/users/{user_id}/reset-password-email", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
 async def reset_password_email(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    """Admin action: generate a new random password and email it to the user."""
-    import secrets as _secrets
+    """Admin action: email a reset link without changing the user's password."""
+    from modules.organizations.password_reset import reset_mail_base_url, send_reset_link
 
-    user_row = db.execute(text("SELECT username, email, group_id FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    user_row = db.execute(text("SELECT username, email, group_id, is_active FROM users WHERE id = :id"), {"id": user_id}).fetchone()
     if not user_row:
         raise HTTPException(status_code=404, detail="User not found")
-    # Org-scoped admin: verify target is in their group
-    if not _is_superadmin(current_user):
-        if not _check_org_admin_access(current_user, user_row.group_id):
-            raise HTTPException(status_code=403, detail="Cannot reset password for users outside your group")
-    if not user_row[1]:
+    if not _is_superadmin(current_user) and not _check_org_admin_access(current_user, user_row.group_id):
+        raise HTTPException(status_code=403, detail="Cannot reset password for users outside your group")
+    if not user_row.is_active:
+        raise HTTPException(status_code=400, detail="User account is disabled")
+    if not user_row.email:
         raise HTTPException(status_code=400, detail="User has no email address")
-
-    new_password = _secrets.token_urlsafe(16)
-    password_hash = hash_password(new_password)
-    db.execute(text("UPDATE users SET password_hash = :h WHERE id = :id"), {"h": password_hash, "id": user_id})
-    db.commit()
-
-    html = f"""
-    <html><body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
-    <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
-        <h2 style="color: #3b82f6; margin-top: 0;">Password Reset — O.D.I.N.</h2>
-        <p>Your password has been reset by an administrator.</p>
-        <p><strong>Username:</strong> {user_row[0]}<br>
-           <strong>New Password:</strong> {new_password}</p>
-        <p>Please change your password after logging in.</p>
-        <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
-        <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
-    </div></body></html>
-    """
-    sent = _send_odin_email(db, user_row[1], "O.D.I.N. Password Reset", html)
-    if not sent:
-        raise HTTPException(status_code=503, detail="SMTP is not configured or send failed")
-
-    log_audit(db, "user.password_reset_email", "user", user_id,
-              {"actor_user_id": current_user["id"], "target_user_id": user_id})
-    db.commit()
+    base_url = reset_mail_base_url(db)
+    accepted = send_reset_link(db, user_id, user_row.username, user_row.email, _send_odin_email,
+                              base_url=base_url, actor_user_id=current_user["id"])
+    if not accepted:
+        raise HTTPException(status_code=503, detail="Password reset email could not be sent. Your password has not changed.")
     return {"status": "password_reset_email_sent"}
 
 
@@ -214,7 +194,7 @@ class UserUpdateRequest(PydanticBaseModel):
     group_id: Optional[int] = None
 
 
-@router.patch("/users/{user_id}", tags=["Users"])
+@router.patch("/users/{user_id}", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
 async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     updates = body.model_dump(exclude_unset=True)
     target = db.execute(
@@ -267,7 +247,7 @@ async def update_user(user_id: int, body: UserUpdateRequest, current_user: dict 
     return {"status": "updated"}
 
 
-@router.delete("/users/{user_id}", tags=["Users"])
+@router.delete("/users/{user_id}", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
 async def delete_user(user_id: int, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
     if current_user["id"] == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
@@ -293,7 +273,7 @@ async def delete_user(user_id: int, current_user: dict = Depends(require_role("a
     return {"status": "deleted"}
 
 
-@router.post("/users/import", tags=["Users"])
+@router.post("/users/import", tags=["Users"], dependencies=[Depends(require_scope("admin"))])
 async def import_users_csv(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("admin")),

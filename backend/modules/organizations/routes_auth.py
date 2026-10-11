@@ -453,40 +453,16 @@ def _send_odin_email(db, to_email: str, subject: str, html_body: str):
 @limiter.limit("5/minute")
 async def forgot_password(request: Request, body: ForgotPasswordRequest, db: Session = Depends(get_db)):
     """Request a password reset link. Always returns 200 to prevent user enumeration."""
-    import secrets as _secrets
+    from modules.organizations.password_reset import reset_mail_base_url, send_reset_link
 
-    config = db.query(SystemConfig).filter(SystemConfig.key == "smtp_config").first()
-    smtp = config.value if config else {}
-    if not smtp.get("enabled") or not smtp.get("host"):
-        raise HTTPException(status_code=503, detail="Password reset requires SMTP to be configured.")
-
+    base_url = reset_mail_base_url(db)
     user_row = db.execute(
         text("SELECT id, username FROM users WHERE email = :email AND is_active IS TRUE"),
         {"email": body.email},
     ).fetchone()
-
     if user_row:
-        token = _secrets.token_urlsafe(32)
-        expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-        db.execute(text("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (:uid, :tok, :exp)"),
-                   {"uid": user_row[0], "tok": token, "exp": expires})
-        db.commit()
-
-        base_url_row = db.execute(text("SELECT value FROM system_config WHERE key = 'base_url'")).fetchone()
-        base_url = base_url_row[0].strip('"') if base_url_row else ""
-        reset_link = f"{base_url}/reset-password?token={token}"
-        html = f"""
-        <html><body style="font-family: Arial, sans-serif; padding: 20px; background: #1a1a1a; color: #e0e0e0;">
-        <div style="max-width: 500px; margin: 0 auto; background: #2a2a2a; padding: 20px; border-radius: 8px;">
-            <h2 style="color: #3b82f6; margin-top: 0;">Password Reset — O.D.I.N.</h2>
-            <p>A password reset was requested for your account <strong>{user_row[1]}</strong>.</p>
-            <p><a href="{reset_link}" style="color: #3b82f6;">Click here to reset your password</a></p>
-            <p style="color: #888; font-size: 12px;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
-            <hr style="border: none; border-top: 1px solid #444; margin: 20px 0;">
-            <p style="color: #888; font-size: 12px;">O.D.I.N.</p>
-        </div></body></html>
-        """
-        _send_odin_email(db, body.email, "O.D.I.N. Password Reset", html)
+        send_reset_link(db, user_row.id, user_row.username, body.email, _send_odin_email,
+                        base_url=base_url)
 
     return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
 
@@ -495,32 +471,76 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest, db: Ses
 @limiter.limit("5/minute")
 async def reset_password(request: Request, body: ResetPasswordRequest, db: Session = Depends(get_db)):
     """Reset password using a valid token."""
-    row = db.execute(
-        text("SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token = :tok"),
-        {"tok": body.token},
-    ).fetchone()
+    def invalid():
+        return HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    if not row or row[3]:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-    if datetime.fromisoformat(row[2]) < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    def unexpired(value):
+        try:
+            expiry = datetime.fromisoformat(value) if isinstance(value, str) else value
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+            return expiry.astimezone(timezone.utc) > datetime.now(timezone.utc)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return False
+
+    from modules.organizations.password_reset import reset_token_digest
+    try:
+        digest = reset_token_digest(body.token)
+    except UnicodeError:
+        raise invalid() from None
+    lookup = text("SELECT id, user_id, expires_at, used FROM password_reset_tokens "
+                  "WHERE token = :digest OR (token = :tok AND token NOT LIKE 'sha256:%')")
+    row = db.execute(lookup, {"tok": body.token, "digest": digest}).fetchone()
+    if not row or row.used or not unexpired(row.expires_at):
+        raise invalid()
 
     pw_valid, pw_msg = _validate_password(body.new_password)
     if not pw_valid:
         raise HTTPException(status_code=400, detail=pw_msg)
-
-    user_id = row[1]
     password_hash = hash_password(body.new_password)
-    db.execute(text("UPDATE users SET password_hash = :h WHERE id = :id"), {"h": password_hash, "id": user_id})
-    db.execute(text("UPDATE password_reset_tokens SET used = TRUE WHERE id = :id"), {"id": row[0]})
 
-    sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"), {"uid": user_id}).fetchall()
-    expiry = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
-    for s in sessions:
-        db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-                   {"jti": s[0], "exp": expiry})
-    db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": user_id})
-    db.commit()
+    try:
+        # Serialize resets on the account, including requests using different links.
+        # A conditional no-op UPDATE takes the row lock on both supported databases.
+        active_user = db.execute(text(
+            "UPDATE users SET password_hash = password_hash WHERE id = :uid AND is_active IS TRUE"
+        ), {"uid": row.user_id})
+        if active_user.rowcount != 1:
+            raise invalid()
+        row = db.execute(lookup, {"tok": body.token, "digest": digest}).fetchone()
+        if not row or row.used or not unexpired(row.expires_at):
+            raise invalid()
+        now = datetime.now(timezone.utc)
+        expiry_predicate = (
+            "julianday(expires_at) > julianday(:now)"
+            if db.get_bind().dialect.name == "sqlite" else "expires_at > :now"
+        )
+        claimed = db.execute(text(
+            "UPDATE password_reset_tokens SET used = 1 "
+            "WHERE id = :id AND user_id = :uid AND used = 0 AND " + expiry_predicate
+        ), {"id": row.id, "uid": row.user_id, "now": now.isoformat()}).rowcount
+        if claimed != 1:
+            raise invalid()
+        changed = db.execute(text(
+            "UPDATE users SET password_hash = :h WHERE id = :uid AND is_active IS TRUE"
+        ), {"h": password_hash, "uid": row.user_id}).rowcount
+        if changed != 1:
+            raise invalid()
+        db.execute(text("UPDATE password_reset_tokens SET used = 1 WHERE user_id = :uid AND used = 0"),
+                   {"uid": row.user_id})
+        sessions = db.execute(text("SELECT token_jti FROM active_sessions WHERE user_id = :uid"),
+                              {"uid": row.user_id}).fetchall()
+        expiry = (now + timedelta(hours=auth_module.ACCESS_TOKEN_EXPIRE_HOURS)).isoformat()
+        for session in sessions:
+            db.execute(text(f"{sql.insert_or_ignore_prefix()} token_blacklist (jti, expires_at) VALUES (:jti, :exp){sql.on_conflict_ignore('jti')}"),
+                       {"jti": session.token_jti, "exp": expiry})
+        db.execute(text("DELETE FROM active_sessions WHERE user_id = :uid"), {"uid": row.user_id})
+        log_audit(db, "user.password_reset", "user", row.user_id,
+                  {"target_user_id": row.user_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return {"status": "ok", "message": "Password updated. Please log in."}
 

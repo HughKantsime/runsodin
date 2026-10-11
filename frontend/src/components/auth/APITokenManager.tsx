@@ -31,7 +31,7 @@ export default function APITokenManager() {
     try {
       const data = await apiTokens.list()
       setTokens(data)
-    } catch { /* ignore */ }
+    } catch { setError('Unable to load API tokens. Try again.') }
     setLoading(false)
   }
 
@@ -40,6 +40,10 @@ export default function APITokenManager() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    if (scopes.length === 0) {
+      setError('Select at least one permission for this token.')
+      return
+    }
     setActionLoading(true)
     try {
       const data = await apiTokens.create({
@@ -65,7 +69,7 @@ export default function APITokenManager() {
     try {
       await apiTokens.revoke(id)
       setTokens(tokens.filter(t => t.id !== id))
-    } catch { /* ignore */ }
+    } catch { setError('Unable to revoke this token. Try again.') }
   }
 
   const copyToken = () => {
@@ -102,7 +106,7 @@ export default function APITokenManager() {
       </p>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
+        <div role="alert" className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md flex items-center gap-2 text-sm text-red-400">
           <AlertTriangle size={16} /> {error}
         </div>
       )}
@@ -110,12 +114,12 @@ export default function APITokenManager() {
       {/* New token reveal */}
       {newToken && (
         <div className="mb-4 p-4 bg-green-900/20 border border-green-700 rounded-md">
-          <p className="text-sm text-green-400 mb-2 font-medium">Token created. Copy it now — it won't be shown again.</p>
+          <p className="text-sm text-green-400 mb-2 font-medium">Token created. Copy it now. It won't be shown again.</p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs bg-[var(--brand-card-bg)] px-3 py-2 rounded font-mono text-[var(--brand-text-primary)] select-all break-all">
               {newToken}
             </code>
-            <button onClick={copyToken} className="p-2 rounded hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] shrink-0">
+            <button aria-label="Copy API token" onClick={copyToken} className="p-2 rounded hover:bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)] shrink-0">
               {copied ? <CheckCircle size={16} className="text-green-400" /> : <Copy size={16} />}
             </button>
           </div>
@@ -129,9 +133,10 @@ export default function APITokenManager() {
       {showCreate && (
         <form onSubmit={handleCreate} className="mb-4 p-4 bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] space-y-4">
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Token name</label>
+            <label htmlFor="api-token-name" className="block text-sm text-[var(--brand-text-secondary)] mb-1">Token name</label>
             <input
               type="text"
+              id="api-token-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded px-3 py-2 text-sm"
@@ -147,6 +152,7 @@ export default function APITokenManager() {
                 <button
                   key={s.value}
                   type="button"
+                  aria-pressed={scopes.includes(s.value)}
                   onClick={() => toggleScope(s.value)}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                     scopes.includes(s.value)
@@ -160,9 +166,10 @@ export default function APITokenManager() {
             </div>
           </div>
           <div>
-            <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Expires in (days, blank = never)</label>
+            <label htmlFor="api-token-expiry" className="block text-sm text-[var(--brand-text-secondary)] mb-1">Expires in (days, blank = never)</label>
             <input
               type="number"
+              id="api-token-expiry"
               min="1"
               max="365"
               value={expiresDays}
@@ -174,7 +181,7 @@ export default function APITokenManager() {
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={actionLoading || !name.trim()}
+              disabled={actionLoading || !name.trim() || scopes.length === 0}
               className="flex items-center gap-2 px-4 py-2 rounded bg-[var(--brand-primary)] hover:opacity-90 text-white text-sm disabled:opacity-50"
             >
               {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
@@ -206,7 +213,7 @@ export default function APITokenManager() {
                     <span key={s} className="text-xs px-1.5 py-0.5 rounded bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">{s}</span>
                   ))}
                   {(!t.scopes || t.scopes.length === 0) && (
-                    <span className="text-xs text-[var(--brand-text-muted)] italic">No scopes (global)</span>
+                    <span className="text-xs text-[var(--brand-text-muted)] italic">Invalid legacy token. Revoke it and create one with permissions.</span>
                   )}
                 </div>
                 <div className="flex gap-3 mt-1 text-xs text-[var(--brand-text-muted)]">
@@ -221,6 +228,7 @@ export default function APITokenManager() {
                 </div>
               </div>
               <button
+                aria-label={`Revoke token ${t.name}`}
                 onClick={() => handleRevoke(t.id)}
                 className="p-2 rounded hover:bg-red-900/30 text-[var(--brand-text-muted)] hover:text-red-400"
               >
