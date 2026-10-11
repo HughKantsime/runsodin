@@ -539,7 +539,7 @@ class PrinterMonitor:
 
                         # ---- Timeseries Telemetry Capture ----
                         if gstate in ('RUNNING', 'PREPARE', 'PAUSE') and time.time() - getattr(self, '_last_telemetry_insert', 0) >= 60:
-                            self._last_telemetry_insert = time.time()
+                            telemetry_capture_at = time.time()
                             try:
                                 conn.execute(
                                     "INSERT INTO printer_telemetry (printer_id, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed) VALUES (?, ?, ?, ?, ?, ?)",
@@ -547,12 +547,14 @@ class PrinterMonitor:
                                 )
                                 conn.execute(f"DELETE FROM printer_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}")  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query,python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — sql.* helpers return constant SQL fragments, no user input
                                 conn.commit()
+                                self._last_telemetry_insert = telemetry_capture_at
                             except Exception as e:
+                                conn.rollback()
                                 log.debug(f"[{self.name}] Telemetry insert: {e}")
 
                         # ---- AMS Environmental Data Capture ----
                         if time.time() - getattr(self, '_last_ams_env', 0) >= 300:
-                            self._last_ams_env = time.time()
+                            ams_capture_at = time.time()
                             try:
                                 ams_raw_env = self._state.get('ams', {})
                                 for entry in parse_ams_env(ams_raw_env):
@@ -564,7 +566,9 @@ class PrinterMonitor:
                                     f"DELETE FROM ams_telemetry WHERE recorded_at < {sql.now_offset('-90 days')}"
                                 )
                                 conn.commit()
+                                self._last_ams_env = ams_capture_at
                             except Exception as e:
+                                conn.rollback()
                                 log.debug(f"[{self.name}] AMS env capture: {e}")
 
                         # ---- AMS Filament Slot Auto-Sync ----

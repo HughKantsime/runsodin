@@ -44,6 +44,7 @@ def capture_store(tmp_path, monkeypatch):
             'gcode_state':state, 'bed_temper':60, 'nozzle_temper':210,
             'ams':{'ams':[{'humidity':'3','temp':'22.5'}, {'humidity':'4','temp':'26'}]},
         }}))
+    send.module = module
     return path, clock, send
 
 
@@ -96,3 +97,85 @@ def test_actual_callback_retains_eighty_nine_days_and_deletes_ninety_one(capture
     send('RUNNING')
     assert [r[4] for r in rows(path,'ams_telemetry') if r[1]==2] == [8.0,89.0]
     assert [r[2] for r in rows(path,'printer_telemetry') if r[1]==2] == [8.0,89.0]
+
+
+@pytest.mark.parametrize('table,state', [('ams_telemetry','IDLE'),('printer_telemetry','RUNNING')])
+def test_failed_capture_retries_on_next_heartbeat(capture_store, table, state):
+    path, clock, send = capture_store
+    with sqlite3.connect(path) as db:
+        db.execute(f"CREATE TRIGGER reject_capture BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'synthetic write failure'); END")
+    send(state)
+    assert rows(path,table) == []
+    with sqlite3.connect(path) as db:
+        db.execute('DROP TRIGGER reject_capture')
+    clock[0] = 1010
+    send(state)
+    assert len(rows(path,table)) == (2 if table == 'ams_telemetry' else 1)
+
+
+def test_failed_second_ams_unit_rolls_back_entire_capture(capture_store):
+    path, clock, send = capture_store
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TRIGGER reject_second BEFORE INSERT ON ams_telemetry WHEN NEW.ams_unit=1 BEGIN SELECT RAISE(ABORT,'synthetic second-unit failure'); END")
+    send()
+    assert rows(path,'ams_telemetry') == []
+    with sqlite3.connect(path) as db:
+        db.execute('DROP TRIGGER reject_second')
+    clock[0] = 1010
+    send()
+    assert [(r[2],r[3],r[4]) for r in rows(path,'ams_telemetry')] == [(0,3,22.5),(1,4,26.0)]
+
+
+@pytest.mark.parametrize('table,state', [('ams_telemetry','IDLE'),('printer_telemetry','RUNNING')])
+def test_retention_failure_rolls_back_new_samples_and_retries(capture_store, table, state):
+    path, clock, send = capture_store
+    with sqlite3.connect(path) as db:
+        db.execute(f"INSERT INTO {table}(printer_id,recorded_at) VALUES(2,datetime('now','-91 days'))")
+        db.execute(f"CREATE TRIGGER reject_cleanup BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'synthetic retention failure'); END")
+    original = rows(path,table)
+    send(state)
+    assert rows(path,table) == original
+    with sqlite3.connect(path) as db:
+        assert db.execute('SELECT gcode_state FROM printers WHERE id=1').fetchone()[0] == state
+        db.execute('DROP TRIGGER reject_cleanup')
+    clock[0] = 1010
+    send(state)
+    result = rows(path,table)
+    assert len(result) == (2 if table == 'ams_telemetry' else 1)
+    assert all(row[1] == 1 for row in result)
+
+
+@pytest.mark.parametrize('table,state', [('ams_telemetry','IDLE'),('printer_telemetry','RUNNING')])
+def test_known_precommit_failure_rolls_back_and_retries(capture_store, monkeypatch, table, state):
+    path, clock, send = capture_store
+    original_database = send.module.get_db
+    fail_once = [True]
+    class Connection:
+        def __init__(self, actual):
+            self.actual = actual
+            self.capture_pending = False
+        def execute(self, statement, *args):
+            if statement.startswith('INSERT INTO '+table+' '):
+                self.capture_pending = True
+            return self.actual.execute(statement, *args)
+        def commit(self):
+            if self.capture_pending and fail_once[0]:
+                fail_once[0] = False
+                raise RuntimeError('Synthetic failure before database commit')
+            return self.actual.commit()
+        def rollback(self):
+            self.capture_pending = False
+            return self.actual.rollback()
+        def __getattr__(self, name):
+            return getattr(self.actual, name)
+    @contextmanager
+    def database():
+        with original_database() as actual:
+            yield Connection(actual)
+    monkeypatch.setattr(send.module, 'get_db', database)
+    send(state)
+    assert not fail_once[0]
+    assert rows(path,table) == []
+    clock[0] = 1010
+    send(state)
+    assert len(rows(path,table)) == (2 if table=='ams_telemetry' else 1)
