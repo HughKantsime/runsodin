@@ -5,6 +5,7 @@ Pure functions — no class state dependencies. Extracted from PrinterMonitor._o
 to keep that method focused on state management.
 """
 
+import math
 from typing import Optional
 
 
@@ -48,6 +49,8 @@ def parse_ams_env(ams_raw: dict) -> list:
     """
     results = []
     ams_units = ams_raw.get('ams', []) if isinstance(ams_raw, dict) else []
+    if not isinstance(ams_units, list):
+        return []
     for unit_idx, unit in enumerate(ams_units):
         if not isinstance(unit, dict):
             continue
@@ -56,13 +59,22 @@ def parse_ams_env(ams_raw: dict) -> list:
         # Bambu reports humidity as string "1"-"5" or int
         if humidity is not None:
             try:
-                humidity = int(humidity)
-            except (ValueError, TypeError):
+                if isinstance(humidity, bool):
+                    raise ValueError('Boolean humidity is not a reading')
+                parsed_humidity = int(humidity)
+                if isinstance(humidity, float) and humidity != parsed_humidity:
+                    raise ValueError('Humidity level must be an integer')
+                humidity = parsed_humidity if 1 <= parsed_humidity <= 5 else None
+            except (ValueError, TypeError, OverflowError):
                 humidity = None
         if temperature is not None:
             try:
+                if isinstance(temperature, bool):
+                    raise ValueError('Boolean temperature is not a reading')
                 temperature = float(temperature)
-            except (ValueError, TypeError):
+                if not math.isfinite(temperature):
+                    temperature = None
+            except (ValueError, TypeError, OverflowError):
                 temperature = None
         if humidity is not None or temperature is not None:
             results.append({'unit_idx': unit_idx, 'humidity': humidity, 'temperature': temperature})
