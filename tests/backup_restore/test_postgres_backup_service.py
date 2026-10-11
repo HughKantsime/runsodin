@@ -156,3 +156,28 @@ def test_pending_manifest_rejects_unknown_state(tmp_path: Path) -> None:
     )
     with pytest.raises(BackupValidationError, match="unsupported"):
         _read_pending_manifest(paths)
+
+
+@pytest.mark.parametrize('driver',['postgresql+psycopg','postgresql+psycopg2'])
+def test_sqlalchemy_driver_urls_are_normalized_for_postgres_clients(driver):
+    from sqlalchemy.engine import make_url
+    from modules.system.postgres_backup_service import _credentialless_cli_url
+    actual=_credentialless_cli_url(f'{driver}://synthetic@127.0.0.1:5432/owned?sslmode=require','odin-backup')
+    parsed=make_url(actual)
+    assert parsed.drivername=='postgresql'
+    assert parsed.username=='synthetic' and parsed.host=='127.0.0.1'
+    assert parsed.database=='owned' and parsed.port==5432
+    assert parsed.password is None
+    assert dict(parsed.query)=={'sslmode':'require','application_name':'odin-backup'}
+
+
+@pytest.mark.parametrize('driver',['postgresql','postgres','postgresql+psycopg','postgresql+psycopg2'])
+def test_cli_url_preserves_escaped_identifiers_and_supported_options(driver):
+    from sqlalchemy.engine import URL,make_url
+    from modules.system.postgres_backup_service import _credentialless_cli_url
+    source=URL.create(driver,username='synthetic/name @',host='127.0.0.1',port=5432,database='owned database',query={'sslmode':'require','connect_timeout':'3'})
+    actual=make_url(_credentialless_cli_url(source.render_as_string(),'odin-backup'))
+    assert actual.drivername in ('postgres','postgresql')
+    assert actual.username==source.username and actual.database==source.database
+    assert actual.query['sslmode']=='require' and actual.query['connect_timeout']=='3'
+    assert actual.query['application_name']=='odin-backup' and actual.password is None

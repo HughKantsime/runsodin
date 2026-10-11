@@ -24,7 +24,7 @@ router = APIRouter(prefix="/products", tags=["Products"])
 
 
 @router.get("", response_model=List[ProductResponse])
-def list_products(current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def list_products(current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """List all products."""
     org = get_org_scope(current_user)
     query = db.query(Product)
@@ -56,7 +56,7 @@ def list_products(current_user: dict = Depends(require_role("viewer")), db: Sess
 
 
 @router.post("", response_model=ProductResponse)
-def create_product(data: ProductCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_product(data: ProductCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Create a new product with optional BOM components."""
     # Validate the complete supplied BOM before persisting the parent or any child.
     for component in data.components or []:
@@ -90,7 +90,7 @@ def create_product(data: ProductCreate, current_user: dict = Depends(require_rol
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
-def get_product(product_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_product(product_id: int, current_user: dict = Depends(require_role("viewer", scope="read")), db: Session = Depends(get_db)):
     """Get a product with its BOM components."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -130,7 +130,7 @@ def get_product(product_id: int, current_user: dict = Depends(require_role("view
 
 
 @router.patch("/{product_id}", response_model=ProductResponse)
-def update_product(product_id: int, data: ProductUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_product(product_id: int, data: ProductUpdate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Update a product."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -147,7 +147,7 @@ def update_product(product_id: int, data: ProductUpdate, current_user: dict = De
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_product(product_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_product(product_id: int, current_user: dict = Depends(require_role("admin", scope="write")), db: Session = Depends(get_db)):
     """Delete a product."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -162,7 +162,7 @@ def delete_product(product_id: int, current_user: dict = Depends(require_role("o
 # -------------- Product Components (BOM) --------------
 
 @router.post("/{product_id}/components", response_model=ProductComponentResponse)
-def add_product_component(product_id: int, data: ProductComponentCreate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def add_product_component(product_id: int, data: ProductComponentCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Add a component to a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -190,7 +190,7 @@ def add_product_component(product_id: int, data: ProductComponentCreate, current
 
 
 @router.delete("/{product_id}/components/{component_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_product_component(product_id: int, component_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def remove_product_component(product_id: int, component_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Remove a component from a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -213,7 +213,7 @@ def remove_product_component(product_id: int, component_id: int, current_user: d
 
 @router.post("/{product_id}/consumables")
 def add_product_consumable(product_id: int, data: ProductConsumableCreate,
-                           current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+                           current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Add a consumable to a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -239,7 +239,7 @@ def add_product_consumable(product_id: int, data: ProductConsumableCreate,
 
 @router.delete("/{product_id}/consumables/{consumable_link_id}")
 def remove_product_consumable(product_id: int, consumable_link_id: int,
-                              current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+                              current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Remove a consumable from a product's BOM."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:

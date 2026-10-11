@@ -229,3 +229,32 @@ def test_candidate_websocket_uses_purpose_limited_token(admin, base_url: str):
         assert '"type":"subscribed"' in message.replace(" ", "")
     finally:
         connection.close()
+
+
+
+def test_candidate_metrics_have_parseable_exposition_and_require_auth(viewer,base_url):
+    from prometheus_client.parser import text_string_to_metric_families
+    response=viewer.get(f'{base_url}/api/metrics',timeout=10)
+    assert response.status_code==200
+    assert response.headers['content-type'].startswith('text/plain')
+    samples=[s for f in text_string_to_metric_families(response.text) for s in f.samples]
+    totals={s.name:s.value for s in samples if not s.labels}
+    # The owned candidate seed deliberately disables every synthetic printer.
+    assert totals['odin_printers_total']==0 and totals['odin_queue_depth']>=0
+    assert totals['odin_alerts_unread']>=0
+    assert not any(s.name=='odin_printer_print_count_total' for s in samples)
+    assert requests.get(f'{base_url}/api/metrics',timeout=10).status_code==401
+
+
+def test_candidate_printer_history_remains_readable_and_authenticated(viewer,base_url):
+    printer_rows=_items(_json(viewer.get(f'{base_url}/api/printers',timeout=10)))
+    assert printer_rows
+    identifier=printer_rows[0]['id']
+    for endpoint in ['telemetry','hms-history','nozzle-status']:
+        response=viewer.get(f'{base_url}/api/printers/{identifier}/{endpoint}',timeout=10)
+        assert response.status_code==200
+        payload=_json(response)
+        if endpoint=='telemetry':assert payload==[]
+        if endpoint=='hms-history':assert payload['entries']==[] and payload['total']==0
+        assert requests.get(f'{base_url}/api/printers/{identifier}/{endpoint}',timeout=10).status_code==401
+        assert viewer.get(f'{base_url}/api/printers/999999/{endpoint}',timeout=10).status_code==404

@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { products, models, consumables as consumablesApi } from '../../api'
 import { Package, Plus, Trash2, Pencil, X, Save, Layers } from 'lucide-react'
 import { canDo } from '../../permissions'
@@ -20,13 +20,19 @@ export default function Products() {
   const [newConsumable, setNewConsumable] = useState({ consumable_id: '', quantity_per_product: 1 })
   const [confirmAction, setConfirmAction] = useState(null)
 
+  const editRequest = useRef(0)
+  const closeModal = () => {
+    editRequest.current += 1
+    setShowModal(false)
+  }
+
   useEffect(() => {
     loadData()
   }, [])
 
   useEffect(() => {
     const handleKey = (e) => {
-      if (e.key === 'Escape' && showModal) setShowModal(false)
+      if (e.key === 'Escape') closeModal()
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
@@ -46,6 +52,7 @@ export default function Products() {
   }
 
   const openCreateModal = () => {
+    editRequest.current += 1
     setEditingProduct(null)
     setFormData({ name: '', sku: '', price: '', description: '' })
     setComponents([])
@@ -53,20 +60,22 @@ export default function Products() {
   }
 
   const openEditModal = async (product) => {
-    setEditingProduct(product)
-    setFormData({
-      name: product.name,
-      sku: product.sku || '',
-      price: product.price || '',
-      description: product.description || ''
-    })
+    const request = ++editRequest.current
     try {
       const full = await products.get(product.id)
+      if (request !== editRequest.current) return
+      setEditingProduct(full)
+      setFormData({
+        name: full.name,
+        sku: full.sku || '',
+        price: full.price == null ? '' : String(full.price),
+        description: full.description || ''
+      })
       setComponents(full.components || [])
+      setShowModal(true)
     } catch (err: any) {
-      setComponents([])
+      if (request === editRequest.current) toast.error('Could not load product for editing')
     }
-    setShowModal(true)
   }
 
   const handleSubmit = async (e) => {
@@ -265,7 +274,7 @@ export default function Products() {
                 </div>
                 <div className="text-sm space-y-1 text-[var(--brand-muted)]">
                   <div>SKU: {product.sku || '-'}</div>
-                  <div>Price: {product.price ? `$${product.price.toFixed(2)}` : '-'}</div>
+                  <div>Price: {product.price != null ? `$${product.price.toFixed(2)}` : '-'}</div>
                   <div>Components: {product.component_count || 0} parts</div>
                   {product.estimated_cogs && <div>Est. COGS: ${product.estimated_cogs.toFixed(2)}</div>}
                 </div>
@@ -339,7 +348,7 @@ export default function Products() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-[var(--brand-muted)]">{product.sku || '-'}</td>
-                    <td className="px-4 py-3 text-[var(--brand-text)]">{product.price ? `$${product.price.toFixed(2)}` : '-'}</td>
+                    <td className="px-4 py-3 text-[var(--brand-text)]">{product.price != null ? `$${product.price.toFixed(2)}` : '-'}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 rounded-md text-sm bg-[var(--brand-input-bg)] text-[var(--brand-text-secondary)]">
                         {product.component_count || 0} parts
@@ -427,13 +436,13 @@ export default function Products() {
 
       {/* Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeModal}>
           <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[var(--brand-card-border)] flex justify-between items-center">
               <h2 className="text-lg font-semibold text-[var(--brand-text)]">
                 {editingProduct ? 'Edit Product' : 'New Product'}
               </h2>
-              <button onClick={() => setShowModal(false)} className="p-1 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors">
+              <button onClick={closeModal} className="p-1 text-[var(--brand-muted)] hover:text-[var(--brand-text-secondary)] hover:bg-[var(--brand-input-bg)] rounded-md transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -533,7 +542,7 @@ export default function Products() {
               <div className="flex justify-end gap-2 pt-4 border-t border-[var(--brand-card-border)]">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={closeModal}
                   className="px-4 py-2 bg-[var(--brand-input-bg)] hover:bg-[var(--brand-card-border)] rounded-md transition-colors text-sm"
                 >
                   Cancel

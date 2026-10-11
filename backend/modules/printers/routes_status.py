@@ -9,12 +9,19 @@ from sqlalchemy.orm import Session
 
 from core.db import get_db
 from core.db_compat import sql
-from core.rbac import require_role
+from core.rbac import require_role, check_org_access
 import core.crypto as crypto
 from modules.printers.models import Printer
 
 log = logging.getLogger("odin.api")
 router = APIRouter()
+
+
+def _visible_printer(printer_id: int, db: Session, current_user: dict) -> Printer:
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
+        raise HTTPException(status_code=404, detail="Printer not found")
+    return printer
 
 
 # ====================================================================
@@ -140,8 +147,9 @@ def _fetch_live_status_legacy(printer_id, printer, serial, access_code) -> dict:
 
 
 @router.get("/printers/{printer_id}/live-status", tags=["Printers"])
-def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Get real-time status from printer via MQTT."""
+    _visible_printer(printer_id, db, current_user)
     return _fetch_printer_live_status(printer_id, db)
 
 
@@ -151,8 +159,9 @@ def get_printer_live_status(printer_id: int, db: Session = Depends(get_db), curr
 
 @router.get("/printers/{printer_id}/telemetry", tags=["Telemetry"])
 def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
-                          current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+                          current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Get timeseries telemetry data for a printer (recorded during prints)."""
+    _visible_printer(printer_id, db, current_user)
     cutoff_expr = sql.now_offset(f"-{hours} hours")
     rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         f"SELECT recorded_at, bed_temp, nozzle_temp, bed_target, nozzle_target, fan_speed "
@@ -169,8 +178,9 @@ def get_printer_telemetry(printer_id: int, hours: int = Query(24, ge=1, le=168),
 
 @router.get("/printers/{printer_id}/hms-history", tags=["Telemetry"])
 def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
-                          current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+                          current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """Get HMS error history with occurrence timestamps."""
+    _visible_printer(printer_id, db, current_user)
     cutoff_expr = sql.now_offset(f"-{days} days")
     rows = db.execute(text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
         f"SELECT id, printer_id, code, message, severity, source, occurred_at "
@@ -191,12 +201,10 @@ def get_hms_error_history(printer_id: int, days: int = Query(30, ge=1, le=90),
 # ====================================================================
 
 @router.get("/printers/{printer_id}/nozzle-status", tags=["Printers"])
-def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role("viewer")),
+def get_nozzle_status(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")),
                       db: Session = Depends(get_db)):
     """Get live nozzle temperature status. Returns dual nozzle data for H2D printers."""
-    printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
-        raise HTTPException(status_code=404, detail="Printer not found")
+    printer = _visible_printer(printer_id, db, current_user)
 
     nozzle_0 = {
         "temp": printer.nozzle_temp,

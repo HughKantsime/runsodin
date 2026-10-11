@@ -375,3 +375,52 @@ def test_compiled_maintenance_template_creation_is_persisted(role_page_factory,a
     page.reload(wait_until='domcontentloaded')
     page.get_by_role('button',name='Task Templates',exact=True).click()
     expect(page.get_by_text(label,exact=True)).to_be_visible()
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_product_zero_edit_persists_fields(role_page_factory,admin,mobile):
+    """Real product CRUD and compiled UI; browser license presentation only."""
+    label=f'Synthetic compiled free product {mobile}'
+    created=admin.post(f'{BASE_URL}/api/products',json={'name':label,'sku':f'FREE-{mobile}','price':0,'description':'Synthetic preserved description','components':[]},timeout=10)
+    assert created.status_code==200
+    identifier=created.json()['id']
+    page=role_page_factory('admin',mobile=mobile)
+    def feature_facts(route):
+        response=route.fetch();data=response.json()
+        data['features']=list(set(data.get('features',[]))|{'products'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',feature_facts)
+    _goto(page,'/products')
+    if mobile:
+        card=page.locator('div.p-4').filter(has=page.get_by_role('button',name=label,exact=True)).last
+        expect(card.get_by_text('Price: $0.00',exact=True)).to_be_visible()
+        card.locator('button').nth(1).click()
+    else:
+        row=page.locator('tr').filter(has_text=label)
+        expect(row.get_by_text('$0.00',exact=True)).to_be_visible()
+        row.get_by_title('Edit',exact=True).click()
+    expect(page.get_by_placeholder('15.00')).to_have_value('0')
+    with page.expect_response(lambda r:r.url.endswith(f'/api/products/{identifier}') and r.request.method=='PATCH') as completed:
+        page.get_by_role('button',name='Save Changes',exact=True).click()
+    assert completed.value.status==200
+    expect(page.get_by_role('button',name='Save Changes',exact=True)).not_to_be_visible()
+    saved=admin.get(f'{BASE_URL}/api/products/{identifier}',timeout=10).json()
+    assert saved['price']==0 and saved['sku']==f'FREE-{mobile}' and saved['description']=='Synthetic preserved description'
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')
+    deleted=admin.delete(f'{BASE_URL}/api/products/{identifier}',timeout=10)
+    assert deleted.status_code==204
+    assert admin.get(f'{BASE_URL}/api/products/{identifier}',timeout=10).status_code==404
+
+@pytest.mark.parametrize('mobile',[False,True])
+def test_compiled_printer_telemetry_panel_reads_authorized_history(role_page_factory,mobile):
+    import re
+    page=role_page_factory('viewer',mobile=mobile)
+    _goto(page,'/printers')
+    with page.expect_response(lambda r:'/telemetry?hours=24' in r.url) as first:
+        page.get_by_role('button',name='Print telemetry',exact=True).click()
+    assert first.value.status==200
+    expect(page.get_by_role('heading',name='Print Telemetry',exact=True)).to_be_visible()
+    expect(page.get_by_text(re.compile('^No telemetry data'))).to_be_visible()
+    with page.expect_response(lambda r:'/telemetry?hours=6' in r.url) as narrowed:
+        page.get_by_role('button',name='6h',exact=True).click()
+    assert narrowed.value.status==200 and narrowed.value.json()==[]
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth+1')

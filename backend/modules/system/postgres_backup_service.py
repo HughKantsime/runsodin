@@ -246,7 +246,8 @@ def _credentialless_cli_url(database_url: str, application_name: str) -> str:
         raise BackupValidationError("PostgreSQL URL must include host, username, and database")
     if "application_name" in url.query:
         raise BackupValidationError("PostgreSQL application_name is managed by ODIN")
-    return url.update_query_dict({"application_name": application_name}).render_as_string(
+    # libpq clients cannot interpret SQLAlchemy driver-qualified URI schemes.
+    return url.set(drivername="postgresql").update_query_dict({"application_name": application_name}).render_as_string(
         hide_password=True
     )
 

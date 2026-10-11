@@ -12,7 +12,7 @@ from starlette.responses import Response
 
 from core.db import get_db
 from core.dependencies import log_audit
-from core.rbac import require_role, require_superadmin
+from core.rbac import require_role, require_superadmin, get_org_scope, should_filter_org
 import core.crypto as crypto
 
 log = logging.getLogger("odin.api")
@@ -290,11 +290,25 @@ async def test_mqtt_republish(request: Request, current_user: dict = Depends(req
 # ============== Prometheus Metrics ==============
 
 @router.get("/metrics", tags=["Monitoring"])
-async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
-    """Prometheus-compatible metrics endpoint. Requires viewer role or API key."""
+async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:analytics"))):
+    """Tenant-scoped metrics; scoped alerts count the current recipient only."""
     lines = []
+    org = get_org_scope(current_user)
+    scoped = should_filter_org(current_user, org)
+    params = {"org": org, "user_id": current_user.get("id")}
 
-    printers_all = db.execute(text("SELECT * FROM printers WHERE is_active IS TRUE")).fetchall()
+    def tenant_clause(column, *, shared=False):
+        if not scoped:
+            return ""
+        shared_clause = " OR shared IS TRUE" if shared else ""
+        return f" AND ({column} = :org OR {column} IS NULL{shared_clause})"
+
+    def label_value(value):
+        return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+    printers_all = db.execute(text(
+        "SELECT * FROM printers WHERE is_active IS TRUE" + tenant_clause("org_id", shared=True)
+    ), params).fetchall()
     total_printers = len(printers_all)
     online_count = 0
     printing_count = 0
@@ -312,7 +326,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
                 ls = datetime.fromisoformat(str(last_seen).replace("Z", ""))
                 if ls.tzinfo is None:
                     ls = ls.replace(tzinfo=timezone.utc)
-                is_online = (now - ls).total_seconds() < 90
+                is_online = 0 <= (now - ls).total_seconds() < 90
             except Exception as e:
                 log.debug(f"Failed to parse printer last_seen: {e}")
 
@@ -357,7 +371,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         pm = dict(p._mapping)
         name = pm.get("nickname") or pm.get("name", f"printer_{pm['id']}")
         pid = pm["id"]
-        labels = f'printer="{name}",printer_id="{pid}"'
+        labels = f'printer="{label_value(name)}",printer_id="{pid}"'
         nozzle = pm.get("nozzle_temp")
         bed = pm.get("bed_temp")
         progress = pm.get("print_progress")
@@ -372,14 +386,16 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
         lines.append(f"odin_printer_print_hours_total{{{labels}}} {total_hours}")
         lines.append(f"odin_printer_print_count_total{{{labels}}} {total_prints}")
 
-    job_counts = db.execute(text("SELECT status, COUNT(*) as cnt FROM jobs GROUP BY status")).fetchall()
+    job_counts = db.execute(text("SELECT status, COUNT(*) as cnt FROM jobs WHERE 1=1"
+                                 + tenant_clause("charged_to_org_id") + " GROUP BY status"), params).fetchall()
     lines.append("# HELP odin_jobs_by_status Number of jobs by status")
     lines.append("# TYPE odin_jobs_by_status gauge")
     for row in job_counts:
         r = dict(row._mapping)
-        lines.append(f'odin_jobs_by_status{{status="{r["status"]}"}} {r["cnt"]}')
+        lines.append(f'odin_jobs_by_status{{status="{label_value(r["status"])}"}} {r["cnt"]}')
 
-    queue = db.execute(text("SELECT COUNT(*) as cnt FROM jobs WHERE status IN ('pending', 'scheduled', 'submitted')")).fetchone()
+    queue = db.execute(text("SELECT COUNT(*) as cnt FROM jobs WHERE status IN ('pending', 'scheduled', 'submitted')"
+                            + tenant_clause("charged_to_org_id")), params).fetchone()
     lines.append("# HELP odin_queue_depth Jobs waiting to print")
     lines.append("# TYPE odin_queue_depth gauge")
     lines.append(f"odin_queue_depth {dict(queue._mapping)['cnt']}")
@@ -387,7 +403,7 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     spool_data = db.execute(text("""
         SELECT COUNT(*) as total, SUM(CASE WHEN remaining_weight_g < 100 THEN 1 ELSE 0 END) as low
         FROM spools WHERE remaining_weight_g IS NOT NULL
-    """)).fetchone()
+    """ + tenant_clause("org_id")), params).fetchone()
     sd = dict(spool_data._mapping)
     lines.append("# HELP odin_spools_total Total tracked spools")
     lines.append("# TYPE odin_spools_total gauge")
@@ -396,14 +412,17 @@ async def prometheus_metrics(db: Session = Depends(get_db), current_user: dict =
     lines.append("# TYPE odin_spools_low gauge")
     lines.append(f"odin_spools_low {sd['low'] or 0}")
 
-    order_data = db.execute(text("SELECT status, COUNT(*) as cnt FROM orders GROUP BY status")).fetchall()
+    order_data = db.execute(text("SELECT status, COUNT(*) as cnt FROM orders WHERE 1=1"
+                                 + tenant_clause("org_id") + " GROUP BY status"), params).fetchall()
     lines.append("# HELP odin_orders_by_status Orders by status")
     lines.append("# TYPE odin_orders_by_status gauge")
     for row in order_data:
         r = dict(row._mapping)
-        lines.append(f'odin_orders_by_status{{status="{r["status"]}"}} {r["cnt"]}')
+        lines.append(f'odin_orders_by_status{{status="{label_value(r["status"])}"}} {r["cnt"]}')
 
-    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read IS FALSE")).fetchone()
+    alert_clause = " AND user_id = :user_id" if scoped else ""
+    unread = db.execute(text("SELECT COUNT(*) as cnt FROM alerts WHERE is_read IS FALSE"
+                            + alert_clause), params).fetchone()
     lines.append("# HELP odin_alerts_unread Unread alerts")
     lines.append("# TYPE odin_alerts_unread gauge")
     lines.append(f"odin_alerts_unread {dict(unread._mapping)['cnt']}")
