@@ -72,7 +72,7 @@ def _backup_paths():
 @router.post("/backups/restore", tags=["System"])
 async def restore_backup(
     file: UploadFile = File(...),
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="admin")),
     db: Session = Depends(get_db),
 ):
     """Validate and stage a database restore for the next process start."""
@@ -125,7 +125,7 @@ async def restore_backup(
 
 
 @router.post("/backups", tags=["System"])
-def create_backup(current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+def create_backup(current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Create and verify a restrictive SQLite online backup."""
     try:
         if sql.is_postgres:
@@ -158,7 +158,7 @@ def create_backup(current_user: dict = Depends(require_superadmin()), db: Sessio
 
 
 @router.get("/backups", tags=["System"])
-def list_backups(current_user: dict = Depends(require_superadmin())):
+def list_backups(current_user: dict = Depends(require_superadmin(scope="admin"))):
     paths = _backup_paths()
     if not paths.backups.exists():
         return []
@@ -194,7 +194,7 @@ def _safe_backup_path(filename: str) -> Path:
 
 
 @router.get("/backups/{filename}", tags=["System"])
-def download_backup(filename: str, current_user: dict = Depends(require_superadmin())):
+def download_backup(filename: str, current_user: dict = Depends(require_superadmin(scope="admin"))):
     path = _safe_backup_path(filename)
     return FileResponse(path=path, filename=path.name, media_type="application/octet-stream")
 
@@ -202,7 +202,7 @@ def download_backup(filename: str, current_user: dict = Depends(require_superadm
 @router.delete("/backups/{filename}", status_code=status.HTTP_204_NO_CONTENT, tags=["System"])
 def delete_backup(
     filename: str,
-    current_user: dict = Depends(require_superadmin()),
+    current_user: dict = Depends(require_superadmin(scope="admin")),
     db: Session = Depends(get_db),
 ):
     path = _safe_backup_path(filename)

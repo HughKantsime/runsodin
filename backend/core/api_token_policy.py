@@ -26,3 +26,11 @@ def parse_token_scopes(value):
     if not isinstance(scopes, list) or not scopes or any(not isinstance(scope, str) or scope not in VALID_SCOPES for scope in scopes):
         return None
     return scopes
+
+
+def token_scope_granted(scopes, required):
+    """Broad permissions cover their resources, never the reverse direction."""
+    if required in scopes or "admin" in scopes:
+        return True
+    action, separator, resource = required.partition(":")
+    return bool(separator and resource and action in ("read", "write") and action in scopes)

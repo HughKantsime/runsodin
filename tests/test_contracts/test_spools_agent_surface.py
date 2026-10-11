@@ -44,7 +44,7 @@ def _assert_canonical_write(fn_src: str, handler: str):
         f"{handler}: require_role(operator) missing (JWT floor)."
     )
     assert re.search(
-        r"require_any_scope\(\s*['\"]admin['\"]\s*,\s*AGENT_WRITE_SCOPE\s*\)",
+        r"require_any_scope\(\s*['\"]admin['\"]\s*,\s*AGENT_WRITE_SCOPE(?:\s*,\s*['\"]write:spools['\"])?\s*\)",
         fn_src,
     ), f"{handler}: require_any_scope missing."
     assert "is_dry_run(request)" in fn_src, f"{handler}: no is_dry_run check."

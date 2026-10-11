@@ -24,7 +24,7 @@ router = APIRouter(prefix="/spools", tags=["Spools"])
 
 @router.get("/export", tags=["Spools"])
 def export_spools_csv(
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:spools")),
     db: Session = Depends(get_db),
 ):
     """Export all spools as CSV."""
@@ -71,7 +71,7 @@ def export_spools_csv(
 def generate_batch_labels(
     spool_ids: str,  # Comma-separated IDs
     size: str = "small",
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:spools")),
     db: Session = Depends(get_db)
 ):
     """Generate a page of labels for multiple spools."""
@@ -127,7 +127,7 @@ def generate_batch_labels(
 
 
 @router.get("/lookup/{qr_code}", tags=["Spools"])
-def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Look up spool details by QR code."""
     spool = db.query(Spool).filter(Spool.qr_code == qr_code).first()
     if not spool or not check_org_access(current_user, spool.org_id):
@@ -150,7 +150,7 @@ def lookup_spool_by_qr(qr_code: str, current_user: dict = Depends(require_role("
 @router.post("/scan-assign", response_model=ScanAssignResponse, tags=["Spools"])
 def scan_assign_spool(
     data: ScanAssignRequest,
-    current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)
 ):
     """
     Assign a spool to a printer slot by scanning its QR code.
@@ -252,7 +252,7 @@ def scan_assign_spool(
 
 
 @router.post("/bulk-update", tags=["Spools"])
-async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+async def bulk_update_spools(body: dict, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Bulk update spool fields for multiple spools."""
     spool_ids = body.get("spool_ids", [])
     if not spool_ids or not isinstance(spool_ids, list):
@@ -294,7 +294,7 @@ async def bulk_update_spools(body: dict, current_user: dict = Depends(require_ro
 
 
 @router.get("/{spool_id}/qr", tags=["Spools"])
-def get_spool_qr(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_spool_qr(spool_id: int, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get QR code data for a spool."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool or not check_org_access(current_user, spool.org_id):
@@ -313,7 +313,7 @@ def get_spool_qr(spool_id: int, current_user: dict = Depends(require_role("viewe
 def generate_spool_label(
     spool_id: int,
     size: str = "small",  # small (2x1"), medium (3x2"), large (4x3")
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:spools")),
     db: Session = Depends(get_db)
 ):
     """Generate a printable QR label for a spool."""

@@ -40,7 +40,7 @@ router = APIRouter(prefix="/spools", tags=["Spools"])
 
 @router.get("/low-stock", tags=["Spools"])
 def low_stock_spools(
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:spools")),
     db: Session = Depends(get_db),
 ):
     """List spools below their low-stock threshold."""
@@ -75,7 +75,7 @@ def list_spools(
     # Stacked auth (Phase 2 canonical read shape).
     current_user: dict = Depends(require_role("viewer")),
     _agent_scope: dict = Depends(
-        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE, "read:spools")
     ),
     db: Session = Depends(get_db),
 ):
@@ -129,7 +129,7 @@ def list_spools(
 
 
 @router.post("", tags=["Spools"])
-def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Create a new spool."""
     from modules.inventory.models import FilamentLibrary
     # Verify filament exists
@@ -170,7 +170,7 @@ def create_spool(spool: SpoolCreate, current_user: dict = Depends(require_role("
 
 
 @router.get("/{spool_id}", tags=["Spools"])
-def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get a single spool with details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -215,7 +215,7 @@ def get_spool(spool_id: int, current_user: dict = Depends(require_role("viewer")
 
 
 @router.patch("/{spool_id}", tags=["Spools"])
-def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Update spool details."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -238,7 +238,7 @@ def update_spool(spool_id: int, updates: SpoolUpdate, current_user: dict = Depen
 
 
 @router.delete("/{spool_id}", tags=["Spools"])
-def delete_spool(spool_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def delete_spool(spool_id: int, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Delete a spool (or archive it)."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -258,7 +258,7 @@ def delete_spool(spool_id: int, current_user: dict = Depends(require_role("opera
 # ====================================================================
 
 @router.post("/{spool_id}/load", tags=["Spools"])
-def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Load a spool into a printer slot."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -310,7 +310,7 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
 def unload_spool(
     spool_id: int,
     storage_location: Optional[str] = None,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)
 ):
     """Unload a spool from printer to storage."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
@@ -347,7 +347,7 @@ def use_spool(
     # Stacked auth (Phase 2 canonical) — param name `body` so `request` is
     # the raw FastAPI Request (middleware dry-run flag lives here).
     current_user: dict = Depends(require_role("operator")),
-    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:spools")),
     db: Session = Depends(get_db),
 ):
     """Record filament usage from a spool (consume_spool).
@@ -421,7 +421,7 @@ def use_spool(
 
 
 @router.post("/{spool_id}/weigh", tags=["Spools"])
-def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def weigh_spool(spool_id: int, request: SpoolWeighRequest, current_user: dict = Depends(require_role("operator", scope="write:spools")), db: Session = Depends(get_db)):
     """Update spool weight from scale measurement."""
     spool = db.query(Spool).filter(Spool.id == spool_id).first()
     if not spool:
@@ -469,7 +469,7 @@ def log_drying_session(
     method: str = "dryer",
     notes: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:spools")),
 ):
     """Log a filament drying session for a spool."""
     from modules.inventory.models import DryingLog
@@ -505,7 +505,7 @@ def log_drying_session(
 
 
 @router.get("/{spool_id}/drying-history", tags=["Spools"])
-def get_drying_history(spool_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_drying_history(spool_id: int, current_user: dict = Depends(require_role("viewer", scope="read:spools")), db: Session = Depends(get_db)):
     """Get drying session history for a spool."""
     from modules.inventory.models import DryingLog
     spool = db.query(Spool).filter(Spool.id == spool_id).first()

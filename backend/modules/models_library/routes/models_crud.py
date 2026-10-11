@@ -38,7 +38,7 @@ router = APIRouter(prefix="/models", tags=["Models"])
 def list_models(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:models")),
     db: Session = Depends(get_db)
 ):
     """List all print models."""
@@ -58,7 +58,7 @@ def list_models_with_pricing(
     category: Optional[str] = None,
     org_id: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("viewer"))
+    current_user: dict = Depends(require_role("viewer", scope="read:models"))
 ):
     """List all print models with calculated cost and suggested price."""
     query = db.query(Model)
@@ -157,7 +157,7 @@ def list_models_with_pricing(
 
 
 @router.post("", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
-def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def create_model(model: ModelCreate, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
     """Create a new model definition."""
     # Convert color requirements to dict format
     color_req = None
@@ -187,7 +187,7 @@ def create_model(model: ModelCreate, current_user: dict = Depends(require_role("
 
 
 @router.get("/{model_id}", response_model=ModelResponse)
-def get_model(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_model(model_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     """Get a specific model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -198,7 +198,7 @@ def get_model(model_id: int, current_user: dict = Depends(require_role("viewer")
 
 
 @router.patch("/{model_id}", response_model=ModelResponse)
-def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
     """Update a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -221,7 +221,7 @@ def update_model(model_id: int, updates: ModelUpdate, current_user: dict = Depen
 
 
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_model(model_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def delete_model(model_id: int, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
     """Delete a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -237,7 +237,7 @@ def delete_model(model_id: int, current_user: dict = Depends(require_role("opera
 def schedule_from_model(
     model_id: int,
     printer_id: Optional[int] = None,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)
 ):
     """Create a print job from a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -291,7 +291,7 @@ def schedule_from_model(
 # ──────────────────────────────────────────────
 
 @router.get("/{model_id}/revisions")
-async def list_model_revisions(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+async def list_model_revisions(model_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     """List all revisions for a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
     if not model:
@@ -314,7 +314,7 @@ async def list_model_revisions(model_id: int, current_user: dict = Depends(requi
 @router.post("/{model_id}/revisions")
 async def create_model_revision(
     model_id: int, changelog: str = "", file: UploadFile = File(None),
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)
 ):
     """Upload a new revision for a model."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -354,7 +354,7 @@ async def create_model_revision(
 @router.post("/{model_id}/revisions/{rev_number}/revert")
 async def revert_model_revision(
     model_id: int, rev_number: int,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)
 ):
     """Revert a model to a previous revision by creating a new revision from it."""
     model = db.query(Model).filter(Model.id == model_id).first()
@@ -403,10 +403,10 @@ async def revert_model_revision(
 # ──────────────────────────────────────────────
 
 @router.get("/{model_id}/variants")
-def get_model_variants(model_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def get_model_variants(model_id: int, current_user: dict = Depends(require_role("viewer", scope="read:models")), db: Session = Depends(get_db)):
     """Get all print file variants for a model."""
-    model = db.execute(text("SELECT id, name FROM models WHERE id = :id"), {"id": model_id}).fetchone()
-    if not model:
+    model = db.execute(text("SELECT id, name, org_id FROM models WHERE id = :id"), {"id": model_id}).fetchone()
+    if not model or not check_org_access(current_user, model[2]):
         raise HTTPException(status_code=404, detail="Model not found")
 
     variants = db.execute(text("""
@@ -430,11 +430,14 @@ def get_model_variants(model_id: int, current_user: dict = Depends(require_role(
 
 
 @router.delete("/{model_id}/variants/{variant_id}")
-def delete_model_variant(model_id: int, variant_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def delete_model_variant(model_id: int, variant_id: int, current_user: dict = Depends(require_role("operator", scope="write:models")), db: Session = Depends(get_db)):
     """Delete a variant from a model."""
-    v = db.execute(text("SELECT id FROM print_files WHERE id=:id AND model_id=:mid"),
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model or not check_org_access(current_user, model.org_id):
+        raise HTTPException(status_code=404, detail="Model not found")
+    v = db.execute(text("SELECT id, org_id FROM print_files WHERE id=:id AND model_id=:mid"),
                    {"id": variant_id, "mid": model_id}).fetchone()
-    if not v:
+    if not v or not check_org_access(current_user, v[1]):
         raise HTTPException(status_code=404, detail="Variant not found")
 
     db.execute(text("DELETE FROM print_files WHERE id = :id"), {"id": variant_id})

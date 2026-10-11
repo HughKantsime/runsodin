@@ -10,7 +10,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 
 from core.db import get_db
@@ -73,7 +73,7 @@ def list_printers(
 
 
 @router.get("/printers/tags", tags=["Printers"])
-def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer"))):
+def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(require_role("viewer", scope="read:printers"))):
     """Get all unique tags across all printers."""
     query = db.query(Printer).filter(Printer.tags.isnot(None))
     org = get_org_scope(current_user)
@@ -90,7 +90,7 @@ def list_all_tags(db: Session = Depends(get_db), current_user: dict = Depends(re
 @router.post("/printers", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED, tags=["Printers"])
 def create_printer(
     printer: PrinterCreate,
-    current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Create a new printer."""
     if printer.api_host:
@@ -159,10 +159,17 @@ class ReorderPrintersRequest(PydanticBaseModel):
 @router.post("/printers/reorder", tags=["Printers"])
 def reorder_printers(
     data: ReorderPrintersRequest,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Update printer display order."""
     printer_ids = data.printer_ids
+    if len(set(printer_ids)) != len(printer_ids):
+        raise HTTPException(status_code=400, detail="Printer IDs must be unique")
+    printers = db.query(Printer).filter(Printer.id.in_(printer_ids)).all()
+    if len(printers) != len(printer_ids) or any(
+        not check_org_access(current_user, printer.org_id) for printer in printers
+    ):
+        raise HTTPException(status_code=404, detail="Printer not found")
     for idx, printer_id in enumerate(printer_ids):
         db.execute(
             text("UPDATE printers SET display_order = :order WHERE id = :id"),
@@ -176,15 +183,19 @@ def reorder_printers(
 # from treating "live-status" as a printer_id integer.
 @router.get("/printers/live-status", tags=["Printers"])
 def get_all_printers_live_status_early(
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:printers")),
     db: Session = Depends(get_db),
 ):
     """Get real-time status from all Bambu printers."""
     from modules.printers.routes_status import _fetch_printer_live_status
-    printers = db.query(Printer).filter(
+    query = db.query(Printer).filter(
         Printer.api_host.isnot(None),
         Printer.api_key.isnot(None),
-    ).all()
+    )
+    scope = get_org_scope(current_user)
+    if should_filter_org(current_user, scope):
+        query = query.filter(or_(Printer.org_id == scope, Printer.org_id.is_(None), Printer.shared.is_(True)))
+    printers = query.all()
     return [_fetch_printer_live_status(printer.id, db) for printer in printers]
 
 
@@ -210,7 +221,7 @@ def get_printer(
 def update_printer(
     printer_id: int,
     updates: PrinterUpdate,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Update a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
@@ -274,7 +285,7 @@ def update_printer(
 
 
 @router.delete("/printers/{printer_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Printers"])
-def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def delete_printer(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Delete a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
@@ -298,10 +309,10 @@ def delete_printer(printer_id: int, current_user: dict = Depends(require_role("o
 # ====================================================================
 
 @router.get("/printers/{printer_id}/slots", response_model=List[FilamentSlotResponse], tags=["Filament"])
-def list_filament_slots(printer_id: int, current_user: dict = Depends(require_role("viewer")), db: Session = Depends(get_db)):
+def list_filament_slots(printer_id: int, current_user: dict = Depends(require_role("viewer", scope="read:printers")), db: Session = Depends(get_db)):
     """List filament slots for a printer."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
-    if not printer:
+    if not printer or (not check_org_access(current_user, printer.org_id) and not printer.shared):
         raise HTTPException(status_code=404, detail="Printer not found")
     return printer.filament_slots
 
@@ -311,9 +322,12 @@ def update_filament_slot(
     printer_id: int,
     slot_number: int,
     updates: FilamentSlotUpdate,
-    current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)
+    current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)
 ):
     """Update a filament slot (e.g., load new filament)."""
+    printer = db.query(Printer).filter(Printer.id == printer_id).first()
+    if not printer or not check_org_access(current_user, printer.org_id):
+        raise HTTPException(status_code=404, detail="Printer not found")
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == printer_id,
         FilamentSlot.slot_number == slot_number,
@@ -385,7 +399,7 @@ def get_overlay_data(printer_id: int, db: Session = Depends(get_db)):
 # ====================================================================
 
 @router.post("/printers/bulk-update", tags=["Printers"])
-async def bulk_update_printers(body: dict, current_user: dict = Depends(require_role("admin")), db: Session = Depends(get_db)):
+async def bulk_update_printers(body: dict, current_user: dict = Depends(require_role("admin", scope="write:printers")), db: Session = Depends(get_db)):
     """Bulk update printer fields for multiple printers."""
     printer_ids = body.get("printer_ids", [])
     if not printer_ids or not isinstance(printer_ids, list):
@@ -427,7 +441,7 @@ async def bulk_update_printers(body: dict, current_user: dict = Depends(require_
 # ====================================================================
 
 @router.post("/printers/test-connection", tags=["Printers"])
-def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator"))):
+def test_printer_connection(request: TestConnectionRequest, current_user: dict = Depends(require_role("operator", scope="write:printers"))):
     """Test connection to a printer without saving."""
     _check_ssrf_blocklist(request.api_host)
     api_type = request.api_type.lower()

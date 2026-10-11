@@ -13,6 +13,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException
 
 from core.auth import has_permission
+from core.api_token_policy import token_scope_granted
 
 
 def _get_org_filter(current_user: dict, request_org_id: int = None) -> Optional[int]:
@@ -98,11 +99,7 @@ def require_role(required_role: str, scope: str = None):
         if scope is not None:
             token_scopes = current_user.get("_token_scopes", [])
             if token_scopes or current_user.get("_auth_kind") == "user_api_token":
-                granted = (
-                    scope in token_scopes
-                    or any(s.startswith(f"{scope}:") for s in token_scopes)
-                    or "admin" in token_scopes
-                )
+                granted = token_scope_granted(token_scopes, scope)
                 if not granted:
                     raise HTTPException(
                         status_code=403,
@@ -112,11 +109,12 @@ def require_role(required_role: str, scope: str = None):
     return role_checker
 
 
-def require_superadmin():
+def require_superadmin(scope: str = None):
     """FastAPI dependency that requires superadmin (admin role + no group_id).
 
     Use for system-wide operations: config, backup/restore, license, OIDC, etc.
     Org-scoped admins (admin role + group_id) are rejected with 403.
+    Optional scope applies to actual scoped credentials after the identity floor.
     """
     from core.dependencies import get_current_user
 
@@ -127,6 +125,10 @@ def require_superadmin():
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         if current_user.get("group_id"):
             raise HTTPException(status_code=403, detail="Superadmin access required")
+        token_scopes = current_user.get("_token_scopes", [])
+        if scope is not None and (token_scopes or current_user.get("_auth_kind") == "user_api_token"):
+            if not token_scope_granted(token_scopes, scope):
+                raise HTTPException(status_code=403, detail="Insufficient token scope")
         return current_user
     return superadmin_checker
 
@@ -136,7 +138,7 @@ def require_scope(scope: str):
 
     Only enforced when the request uses a per-user API token (odin_xxx format).
     JWT session auth and the global API key bypass scope checks (they have full access).
-    Scope values: 'read', 'write', 'admin'.
+    Scope values include read/write, resource permissions, and admin.
 
     Usage:
         @router.delete("/things/{id}")
@@ -151,14 +153,10 @@ def require_scope(scope: str):
             raise HTTPException(status_code=401, detail="Not authenticated")
         token_scopes = current_user.get("_token_scopes", [])
         # Only enforce scopes when the user authenticated via a scoped per-user token.
-        # Empty list means JWT or global API key — no scope restriction.
+        # Actual scoped tokens are enforced even if their list is empty.
         if token_scopes or current_user.get("_auth_kind") == "user_api_token":
-            # Match: exact scope ("write"), umbrella ("write" covers "write:printers"), or "admin"
-            granted = (
-                scope in token_scopes
-                or any(s.startswith(f"{scope}:") for s in token_scopes)
-                or "admin" in token_scopes
-            )
+            # Exact scope, admin, or broad action covering its resource.
+            granted = token_scope_granted(token_scopes, scope)
             if not granted:
                 raise HTTPException(
                     status_code=403,
@@ -182,10 +180,9 @@ def require_any_scope(*allowed: str):
     - JWT / cookie / global-API-key sessions bypass the check (full access).
     - Per-user scoped tokens (odin_xxx): grant if any of `allowed` is in
       the token's scopes list OR the token has `admin`.
-    - Umbrella check (`scope:*` matches `scope`) is kept for read/write.
-      agent:* scopes are treated as exact matches only — they don't grant
-      `read` or `write` by themselves, and `read`/`write` don't grant
-      `agent:*`. This is intentional: agent tokens are a narrower grant.
+    - Broad read/write grants its resource permissions; narrow permissions
+      never grant generic or unrelated resource access. Agent scopes match
+      explicitly, without an inferred hierarchy.
 
     Raises OdinError with code `scope_denied` on failure so the MCP
     tool layer can surface a clean "re-auth required" path.
@@ -207,12 +204,7 @@ def require_any_scope(*allowed: str):
         if "admin" in token_scopes:
             return current_user
         for scope in allowed:
-            if scope in token_scopes:
-                return current_user
-            # Umbrella match only for read/write, not agent:*
-            if scope in ("read", "write") and any(
-                s.startswith(f"{scope}:") for s in token_scopes
-            ):
+            if token_scope_granted(token_scopes, scope):
                 return current_user
         raise OdinError(
             ErrorCode.scope_denied,

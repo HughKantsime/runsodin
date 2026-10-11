@@ -30,7 +30,7 @@ router = APIRouter()
 # ====================================================================
 
 @router.post("/printers/{printer_id}/stop", tags=["Printers"])
-async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def stop_printer(printer_id: int, current_user: dict = Depends(require_role("operator", scope="write:printers")), db: Session = Depends(get_db)):
     """Emergency stop - cancel current print."""
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:

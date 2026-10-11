@@ -85,8 +85,8 @@ def test_agent_scope_does_not_grant_legacy_write():
 
 def test_legacy_write_umbrella_still_works_for_write_routes():
     """A 'write' token still grants 'write:printers' style sub-scopes."""
-    user = {"id": 1, "_token_scopes": ["write:printers"]}
-    result = _invoke(["admin", "write"], user)
+    user = {"id": 1, "_token_scopes": ["write"]}
+    result = _invoke(["admin", "write:printers"], user)
     assert result == user
 
 

@@ -63,7 +63,7 @@ def check_filament_compatibility(
     printer_id: int,
     filament_type: Optional[str] = None,
     colors: Optional[str] = None,
-    current_user: dict = Depends(require_role("viewer")),
+    current_user: dict = Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Check if a printer has compatible filament loaded. Advisory only — never blocks job creation."""
@@ -93,7 +93,7 @@ def check_filament_compatibility(
 
 
 @router.post("/bulk", response_model=List[JobResponse], status_code=status.HTTP_201_CREATED, tags=["Jobs"])
-def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Create multiple jobs at once."""
     from modules.models_library.services import calculate_job_cost
 
@@ -148,7 +148,7 @@ def create_jobs_bulk(jobs: List[JobCreate], current_user: dict = Depends(require
 @router.post("/batch", tags=["Jobs"])
 def create_jobs_batch(
     body: JobBatchRequest,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Send the same job to multiple printers at once (batch production).
@@ -204,7 +204,7 @@ def create_jobs_batch(
 # Static route registered before /jobs/{job_id} to prevent FastAPI from
 # treating "reorder" as a job_id integer.
 @router.patch("/reorder", tags=["Jobs"])
-async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Reorder job queue. Sets queue_position on each job based on array index."""
     reordered = 0
     for position, job_id in enumerate(req.job_ids):
@@ -222,7 +222,7 @@ async def reorder_jobs_static(req: JobReorderRequest, current_user: dict = Depen
 
 
 @router.post("/bulk-update", tags=["Jobs"])
-async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Bulk update job fields (status, priority) for multiple jobs."""
     job_ids = body.get("job_ids", [])
     if not job_ids or not isinstance(job_ids, list):
@@ -296,7 +296,7 @@ def list_jobs(
     # Stacked auth (Phase 2 canonical read shape).
     current_user: dict = Depends(require_role("viewer")),
     _agent_scope: dict = Depends(
-        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE, "read:jobs")
     ),
     db: Session = Depends(get_db),
 ):
@@ -325,7 +325,7 @@ def create_job(
     # approval_required branch below). agent:write is the scoped-token
     # gate. See routes_controls.py::pause_printer for full rationale.
     current_user: dict = Depends(require_role("viewer")),
-    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE)),
+    _agent_scope: dict = Depends(require_any_scope("admin", AGENT_WRITE_SCOPE, "write:jobs")),
 ):
     """Create a new print job (queue_job). Agent-surface v1.9.0 Phase 2.
 
@@ -517,7 +517,7 @@ def get_job(
     job_id: int,
     current_user: dict = Depends(require_role("viewer")),
     _agent_scope: dict = Depends(
-        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE)
+        require_any_scope("admin", AGENT_WRITE_SCOPE, AGENT_READ_SCOPE, "read:jobs")
     ),
     db: Session = Depends(get_db),
 ):
@@ -531,7 +531,7 @@ def get_job(
 
 
 @router.patch("/{job_id}", response_model=JobResponse, tags=["Jobs"])
-def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Update a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -553,7 +553,7 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Jobs"])
-def delete_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
+def delete_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Delete a job."""
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
@@ -568,7 +568,7 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
 
 
 @router.post("/{job_id}/repeat", tags=["Jobs"])
-async def repeat_job(job_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+async def repeat_job(job_id: int, current_user: dict = Depends(require_role("operator", scope="write:jobs")), db: Session = Depends(get_db)):
     """Clone a job for printing again. Creates a new pending job with same settings."""
     original = db.query(Job).filter(Job.id == job_id).first()
     if not original:

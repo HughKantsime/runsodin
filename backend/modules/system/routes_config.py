@@ -214,7 +214,7 @@ except ImportError:
 
 
 @router.get("/config/mqtt-republish")
-async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user: dict = Depends(require_superadmin())):
+async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user: dict = Depends(require_superadmin(scope="admin"))):
     """Get MQTT republish settings."""
     keys = [
         "mqtt_republish_enabled", "mqtt_republish_host", "mqtt_republish_port",
@@ -248,7 +248,7 @@ async def get_mqtt_republish_config(db: Session = Depends(get_db), current_user:
 
 
 @router.put("/config/mqtt-republish")
-async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_superadmin()), db: Session = Depends(get_db)):
+async def update_mqtt_republish_config(request: Request, current_user: dict = Depends(require_superadmin(scope="admin")), db: Session = Depends(get_db)):
     """Update MQTT republish settings. Admin only."""
     body = await request.json()
     for short_key, value in body.items():
@@ -271,7 +271,7 @@ async def update_mqtt_republish_config(request: Request, current_user: dict = De
 
 
 @router.post("/config/mqtt-republish/test")
-async def test_mqtt_republish(request: Request, current_user: dict = Depends(require_superadmin())):
+async def test_mqtt_republish(request: Request, current_user: dict = Depends(require_superadmin(scope="admin"))):
     """Test connection to external MQTT broker."""
     if not mqtt_republish:
         raise HTTPException(status_code=503, detail="MQTT republish module not available")
