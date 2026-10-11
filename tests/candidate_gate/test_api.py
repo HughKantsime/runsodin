@@ -44,6 +44,19 @@ def test_candidate_customer_invoice_packaged_fonts_and_permissions(operator, vie
     assert all(value not in text for value in ['Platform Fees','Payment Fees','Cost Analysis','Profit:'])
 
 
+def test_candidate_failure_and_time_reports_are_operational(viewer,base_url):
+    failures=viewer.get(f'{base_url}/api/analytics/failures',timeout=10)
+    assert failures.status_code==200
+    data=_json(failures)
+    assert all(key in data for key in ('total_completed','total_failed','by_printer','by_model','hms_errors'))
+    timing=viewer.get(f'{base_url}/api/analytics/time-accuracy',timeout=10)
+    assert timing.status_code==200
+    data=_json(timing)
+    assert data['estimate_basis']=='retained_schedule_interval'
+    assert isinstance(data['jobs_with_unknown_estimate'],int)
+    assert len(data['recent'])<=50
+
+
 def test_candidate_health_spa_static_setup_and_perimeter(base_url: str, api_key: str, admin):
     live = requests.get(f"{base_url}/health", timeout=10)
     assert live.status_code == 200

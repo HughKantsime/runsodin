@@ -11,6 +11,7 @@ import logging
 import httpx
 
 from core.db import get_db
+from core.db_compat import as_utc_datetime
 from core.rbac import require_role, get_org_scope, check_org_access
 from core.config import settings
 from core.base import JobStatus
@@ -380,7 +381,7 @@ def get_failure_analytics(
     # --- By printer ---
     by_printer = {}
     for j in jobs:
-        if not j.printer_id:
+        if not j.printer_id or not j.printer or not (check_org_access(current_user, j.printer.org_id) or j.printer.shared):
             continue
         p = by_printer.setdefault(j.printer_id, {"name": j.printer.name if j.printer else str(j.printer_id), "completed": 0, "failed": 0, "fail_timestamps": []})
         if j.status.value == "completed":
@@ -411,6 +412,8 @@ def get_failure_analytics(
     # --- By model ---
     by_model = {}
     for j in jobs:
+        if j.model and not check_org_access(current_user, j.model.org_id):
+            continue
         name = j.model.name if j.model else j.item_name
         m = by_model.setdefault(name, {"completed": 0, "failed": 0})
         if j.status.value == "completed":
@@ -456,13 +459,13 @@ def get_failure_analytics(
                 "SELECT h.code, h.message, COUNT(*) as cnt FROM hms_error_history h "
                 "JOIN printers p ON h.printer_id = p.id "
                 "WHERE h.occurred_at >= :cutoff AND (p.org_id = :org OR p.org_id IS NULL OR p.shared IS TRUE) "
-                "GROUP BY h.code ORDER BY cnt DESC LIMIT 10"
+                "GROUP BY h.code, h.message ORDER BY cnt DESC, h.code, h.message LIMIT 10"
             ),
             {"cutoff": cutoff.isoformat(), "org": org},
         ).fetchall()
     else:
         hms_rows = db.execute(
-            text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code ORDER BY cnt DESC LIMIT 10"),
+            text("SELECT code, message, COUNT(*) as cnt FROM hms_error_history WHERE occurred_at >= :cutoff GROUP BY code, message ORDER BY cnt DESC, code, message LIMIT 10"),
             {"cutoff": cutoff.isoformat()},
         ).fetchall()
     hms_errors = [{"code": r[0], "message": r[1], "count": r[2]} for r in hms_rows]
@@ -499,8 +502,6 @@ def get_time_accuracy(
             Job.status == JobStatus.COMPLETED,
             Job.actual_start.isnot(None),
             Job.actual_end.isnot(None),
-            Job.duration_hours.isnot(None),
-            Job.duration_hours > 0,
             Job.actual_end >= cutoff,
         )
     )
@@ -511,32 +512,41 @@ def get_time_accuracy(
     per_printer = {}
     per_model = {}
     records = []
+    unknown_estimate = 0
 
-    for job in completed:
-        actual_sec = (job.actual_end - job.actual_start).total_seconds()
+    # Use the currently retained schedule interval, not an immutable historical estimate.
+    # duration_hours can be overwritten by monitors and cannot prove an estimate.
+    for job in sorted(completed, key=lambda j: (as_utc_datetime(j.actual_end), j.id), reverse=True):
+        actual_sec = (as_utc_datetime(job.actual_end) - as_utc_datetime(job.actual_start)).total_seconds()
         if actual_sec <= 0:
             continue
         actual_h = actual_sec / 3600
-        est_h = float(job.duration_hours)
+        if job.scheduled_start is None or job.scheduled_end is None:
+            unknown_estimate += 1
+            continue
+        est_h = (as_utc_datetime(job.scheduled_end) - as_utc_datetime(job.scheduled_start)).total_seconds() / 3600
+        if est_h <= 0:
+            unknown_estimate += 1
+            continue
         accuracy = min(est_h, actual_h) / max(est_h, actual_h) * 100
 
         records.append({
             "job_id": job.id,
-            "date": job.actual_end.strftime("%Y-%m-%d"),
+            "date": as_utc_datetime(job.actual_end).strftime("%Y-%m-%d"),
             "estimated_hours": round(est_h, 2),
             "actual_hours": round(actual_h, 2),
             "accuracy_pct": round(accuracy, 1),
         })
 
         # Aggregate by printer
-        if job.printer_id:
+        if job.printer_id and job.printer and (check_org_access(current_user, job.printer.org_id) or job.printer.shared):
             p = per_printer.setdefault(job.printer_id, {"name": job.printer.name if job.printer else str(job.printer_id), "est": 0, "act": 0, "count": 0})
             p["est"] += est_h
             p["act"] += actual_h
             p["count"] += 1
 
         # Aggregate by model
-        if job.model_id:
+        if job.model_id and job.model and check_org_access(current_user, job.model.org_id):
             m = per_model.setdefault(job.model_id, {"name": job.model.name if job.model else str(job.model_id), "est": 0, "act": 0, "count": 0})
             m["est"] += est_h
             m["act"] += actual_h
@@ -561,7 +571,9 @@ def get_time_accuracy(
         "avg_accuracy_pct": avg_accuracy,
         "by_printer": summarize(per_printer),
         "by_model": summarize(per_model),
-        "recent": records[-50:],
+        "recent": records[:50],
+        "jobs_with_unknown_estimate": unknown_estimate,
+        "estimate_basis": "retained_schedule_interval",
     }
 
 

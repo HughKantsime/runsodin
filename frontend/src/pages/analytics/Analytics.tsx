@@ -278,12 +278,13 @@ function TopFailureReasons({ data }) {
   )
 }
 
-function TimeAccuracyChart({ data }) {
+export function TimeAccuracyChart({ data }) {
   if (!data || data.by_printer?.length === 0) {
     return (
       <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
-        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Est vs Actual Print Time</h3>
-        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">Not enough completed jobs with timing data</div>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)] mb-4">Scheduled vs Actual Print Time</h3>
+        <div className="text-center py-12 text-[var(--brand-text-muted)] text-sm">No completed jobs with a valid retained schedule interval</div>
+        <p className="text-xs text-[var(--brand-text-muted)]">{data?.jobs_with_unknown_estimate ?? 0} jobs excluded because the schedule interval is missing or invalid.</p>
       </div>
     )
   }
@@ -297,9 +298,10 @@ function TimeAccuracyChart({ data }) {
   return (
     <div className="bg-[var(--brand-card-bg)] rounded-md border border-[var(--brand-card-border)] p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Est vs Actual Print Time</h3>
-        <span className="text-xs text-[var(--brand-text-muted)]">{data.avg_accuracy_pct}% avg accuracy &middot; {data.total_jobs} jobs</span>
+        <h3 className="text-sm font-semibold text-[var(--brand-text-secondary)]">Scheduled vs Actual Print Time</h3>
+        <span className="text-xs text-[var(--brand-text-muted)]">{data.avg_accuracy_pct}% schedule agreement &middot; {data.total_jobs} jobs</span>
       </div>
+      <p className="text-xs text-[var(--brand-text-muted)] mb-3">Uses the currently retained schedule interval. {data.jobs_with_unknown_estimate ?? 0} jobs excluded because the interval is missing or invalid.</p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData} barCategoryGap="20%">
           <CartesianGrid strokeDasharray="3 3" stroke="#1A1D25" />
@@ -310,7 +312,7 @@ function TimeAccuracyChart({ data }) {
             formatter={(value) => [`${value.toFixed(1)}h`, undefined]}
           />
           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-          <Bar dataKey="estimated" fill="#3B82F6" name="Estimated" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="estimated" fill="#3B82F6" name="Retained schedule" radius={[3, 3, 0, 0]} />
           <Bar dataKey="actual" fill="#22C55E" name="Actual" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
