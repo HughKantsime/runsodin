@@ -4,7 +4,7 @@ modules/orders/schemas.py — Pydantic schemas for the orders domain.
 
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, StrictInt
 
 from core.base import OrderStatus
 
@@ -106,12 +106,18 @@ class OrderItemUpdate(BaseModel):
     unit_price: Optional[float] = None
 
 
+class OrderProductionConfirmation(BaseModel):
+    quantity: StrictInt = Field(ge=0)
+
+
 class OrderItemResponse(OrderItemBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     order_id: int
     fulfilled_quantity: int = 0
+    production_mode: Optional[str] = None
+    can_confirm_production: bool = False
     created_at: datetime
 
     # Include product name for display

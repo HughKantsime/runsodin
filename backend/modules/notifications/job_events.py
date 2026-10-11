@@ -8,6 +8,8 @@ monitor compatibility wrappers used by PrusaLink and Elegoo monitors.
 import logging
 from typing import Optional
 
+from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
+                                   ProductionLinkageChanged, retry_production_linkage)
 from core.db_utils import get_db
 from core.db_compat import sql
 from core.event_bus import get_event_bus
@@ -93,6 +95,7 @@ def job_started(
         return None
 
 
+@retry_production_linkage
 def job_completed(
     printer_id: int,
     print_job_id: int,
@@ -128,6 +131,8 @@ def job_completed(
                     return education_result
 
             # Update print_jobs record
+            linked_id, production_orders = prepare_print_job_write(conn, print_job_id)
+
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""UPDATE print_jobs SET
                     status = ?,
@@ -157,6 +162,7 @@ def job_completed(
                     (status, scheduled_job_id)
                 )
 
+            reconcile_job_write(conn, production_orders)
             conn.commit()
 
         # Increment care counters if successful
@@ -215,10 +221,13 @@ def job_completed(
         if success:
             _start_bed_cooled_monitor(printer_id, printer_name)
 
-    except Exception as e:
-        log.error(f"Failed to record job completion for printer {printer_id}: {e}")
+    except ProductionLinkageChanged:
+        raise
+    except Exception:
+        log.error("Failed to record job completion for printer %s; reconciliation required", printer_id)
 
 
+@retry_production_linkage
 def job_cancelled(
     printer_id: int,
     print_job_id: int,
@@ -244,6 +253,8 @@ def job_cancelled(
                 ):
                     conn.commit()
                     return education_result
+
+            linked_id, production_orders = prepare_print_job_write(conn, print_job_id)
 
             cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 f"""UPDATE print_jobs SET
@@ -271,6 +282,7 @@ def job_cancelled(
                     (scheduled_job_id,)
                 )
 
+            reconcile_job_write(conn, production_orders)
             conn.commit()
 
         dispatch_alert(
@@ -298,8 +310,10 @@ def job_cancelled(
             },
         ))
 
-    except Exception as e:
-        log.error(f"Failed to record job cancellation for printer {printer_id}: {e}")
+    except ProductionLinkageChanged:
+        raise
+    except Exception:
+        log.error("Failed to record job cancellation for printer %s; reconciliation required", printer_id)
 
 
 def update_job_progress(

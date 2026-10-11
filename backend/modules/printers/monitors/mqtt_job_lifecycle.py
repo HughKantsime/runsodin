@@ -13,8 +13,10 @@ from datetime import datetime, timezone
 from threading import Thread
 from typing import Optional, Tuple, Dict, Any
 
+from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
+                                   ProductionLinkageChanged, retry_production_linkage)
 from core.db_utils import get_db
-from core.db_compat import sql
+from core.db_compat import as_utc_datetime, sql
 
 log = logging.getLogger('mqtt_monitor')
 
@@ -110,16 +112,28 @@ def record_job_started(
                     conn.execute("COMMIT")
                     return new_job_id, linked_job_id, {}
 
+                # Lock every generic candidate parent in one sorted batch before
+                # any sweep, match, bump or print record mutates the transaction.
+                cur.execute("""
+                    SELECT id FROM jobs WHERE printer_id=? AND status IN ('scheduled','pending')
+                      AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
+                """, (printer_id,))
+                candidate_ids = [row[0] for row in cur.fetchall()]
+                production_orders = prepare_job_write(conn, candidate_ids)
+                candidate_placeholders = ','.join('?' for _ in candidate_ids) or '?'
+                candidate_parameters = candidate_ids or [0]
+
                 # ---- Stale schedule cleanup ----
                 # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                 cur.execute(f"""
                     SELECT id, item_name FROM jobs
                     WHERE printer_id = ? AND status = 'scheduled'
-                      AND scheduled_start < {sql.now_offset('-2 hours', local=True)}
+                      AND scheduled_start < {sql.now_offset('-2 hours')}
+                      AND id IN ({candidate_placeholders})
                       AND NOT EXISTS (
                           SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id
                       )
-                """, (printer_id,))
+                """, [printer_id, *candidate_parameters])
                 stale_rows = cur.fetchall()
                 if stale_rows:
                     stale_ids = [r[0] for r in stale_rows]
@@ -127,16 +141,20 @@ def record_job_started(
                     cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                         "UPDATE jobs SET status = 'pending', printer_id = NULL,"
                         " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
-                        " WHERE id IN ({})".format(','.join('?' * len(stale_ids))),
-                        stale_ids)
-                    log.info(f"[{printer_name}] Swept {len(stale_ids)} stale scheduled job(s): {', '.join(stale_names)}")
-                    pending_alerts.append(dict(
-                        alert_type='schedule_bump', severity='info',
-                        title=f"Stale schedule swept on {printer_name}",
-                        message=f"Jobs reset to pending (past 2hr window): {', '.join(stale_names)}",
-                        metadata={"bumped_job_ids": stale_ids, "reason": "stale_schedule"}
-                    ))
-                    needs_reschedule = True
+                        " WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id".format(','.join('?' * len(stale_ids))),
+                        [printer_id, *stale_ids])
+                    changed_ids = {row[0] for row in cur.fetchall()}
+                    stale_names = [name for row_id,name in zip(stale_ids,stale_names) if row_id in changed_ids]
+                    stale_ids = sorted(changed_ids)
+                    if stale_ids:
+                        log.info(f"[{printer_name}] Swept {len(stale_ids)} stale scheduled job(s): {', '.join(stale_names)}")
+                        pending_alerts.append(dict(
+                            alert_type='schedule_bump', severity='info',
+                            title=f"Stale schedule swept on {printer_name}",
+                            message=f"Jobs reset to pending (past 2hr window): {', '.join(stale_names)}",
+                            metadata={"bumped_job_ids": stale_ids, "reason": "stale_schedule"}
+                        ))
+                        needs_reschedule = True
 
                 # ---- Job matching (3 strategies) ----
                 cur.execute(f"""
@@ -147,12 +165,13 @@ def record_job_started(
                     LEFT JOIN print_files pf ON m.id = pf.model_id
                     WHERE j.printer_id = ?
                     AND j.status IN ('scheduled', 'pending')
+                    AND j.id IN ({candidate_placeholders})
                     AND NOT EXISTS (
                         SELECT 1 FROM education_submissions s WHERE s.job_id=j.id
                     )
                     ORDER BY j.scheduled_start ASC
                     LIMIT 10
-                """, (printer_id,))
+                """, [printer_id, *candidate_parameters])
                 candidates = cur.fetchall()
                 job_base = job_name.lower().replace('.3mf', '').replace('.gcode', '')
 
@@ -186,7 +205,7 @@ def record_job_started(
 
                 # Strategy 3: Sole scheduled candidate within ±2hr window
                 if not linked_job_id:
-                    now_local = datetime.now()
+                    now_utc = datetime.now(timezone.utc)
                     window_candidates = []
                     for cand_id, cand_filename, cand_item_name, cand_model_name, cand_layers, cand_status, cand_sched in candidates:
                         if cand_status != 'scheduled' or not cand_sched:
@@ -198,9 +217,9 @@ def record_job_started(
                                 continue
                         try:
                             sched_dt = datetime.fromisoformat(cand_sched)
-                            if sched_dt.tzinfo is not None:
-                                sched_dt = sched_dt.replace(tzinfo=None)
-                            if abs((now_local - sched_dt).total_seconds()) <= 7200:
+                            sched_dt = (sched_dt.replace(tzinfo=timezone.utc) if sched_dt.tzinfo is None
+                                        else sched_dt.astimezone(timezone.utc))
+                            if abs((now_utc - sched_dt).total_seconds()) <= 7200:
                                 window_candidates.append(cand_id)
                         except (ValueError, TypeError):
                             continue
@@ -210,16 +229,28 @@ def record_job_started(
                     elif len(window_candidates) > 1:
                         log.info(f"[{printer_name}] {len(window_candidates)} scheduled jobs in ±2hr window - cannot auto-link")
 
+                if linked_job_id:
+                    changed = cur.execute("""
+                        UPDATE jobs SET status='printing',actual_start=COALESCE(actual_start,?)
+                        WHERE id=? AND printer_id=? AND status IN ('scheduled','pending')
+                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
+                        RETURNING id
+                    """, (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                          linked_job_id,printer_id)).fetchone()
+                    if changed is None:
+                        linked_job_id = None
+
                 # ---- Ad-hoc print: bump displaced scheduled jobs ----
                 if not linked_job_id and candidates:
                     log.info(f"[{printer_name}] No auto-match for '{job_base}' ({total_layers} layers) - ad-hoc print")
-                    cur.execute("""
+                    cur.execute(f"""
                         SELECT id, item_name FROM jobs
                         WHERE printer_id = ? AND status = 'scheduled'
+                          AND id IN ({candidate_placeholders})
                           AND NOT EXISTS (
                               SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id
                           )
-                    """, (printer_id,))
+                    """, [printer_id, *candidate_parameters])
                     displaced = cur.fetchall()
                     if displaced:
                         displaced_ids = [r[0] for r in displaced]
@@ -227,16 +258,20 @@ def record_job_started(
                         cur.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
                             "UPDATE jobs SET status = 'pending', printer_id = NULL,"
                             " scheduled_start = NULL, scheduled_end = NULL, match_score = NULL"
-                            " WHERE id IN ({})".format(','.join('?' * len(displaced_ids))),
-                            displaced_ids)
-                        log.info(f"[{printer_name}] Bumped {len(displaced_ids)} scheduled job(s) for ad-hoc print: {', '.join(displaced_names)}")
-                        pending_alerts.append(dict(
-                            alert_type='schedule_bump', severity='info',
-                            title=f"Scheduled jobs bumped on {printer_name}",
-                            message=f"Ad-hoc print displaced: {', '.join(displaced_names)}. Jobs reset to pending.",
-                            metadata={"bumped_job_ids": displaced_ids, "reason": "ad_hoc_print", "ad_hoc_file": job_name}
-                        ))
-                        needs_reschedule = True
+                            " WHERE printer_id=? AND status='scheduled' AND id IN ({}) RETURNING id".format(','.join('?' * len(displaced_ids))),
+                            [printer_id, *displaced_ids])
+                        changed_ids = {row[0] for row in cur.fetchall()}
+                        displaced_names = [name for row_id,name in zip(displaced_ids,displaced_names) if row_id in changed_ids]
+                        displaced_ids = sorted(changed_ids)
+                        if displaced_ids:
+                            log.info(f"[{printer_name}] Bumped {len(displaced_ids)} scheduled job(s) for ad-hoc print: {', '.join(displaced_names)}")
+                            pending_alerts.append(dict(
+                                alert_type='schedule_bump', severity='info',
+                                title=f"Scheduled jobs bumped on {printer_name}",
+                                message=f"Ad-hoc print displaced: {', '.join(displaced_names)}. Jobs reset to pending.",
+                                metadata={"bumped_job_ids": displaced_ids, "reason": "ad_hoc_print", "ad_hoc_file": job_name}
+                            ))
+                            needs_reschedule = True
                 elif not linked_job_id:
                     log.info(f"[{printer_name}] No auto-match for '{job_base}' ({total_layers} layers) - no candidates to bump")
 
@@ -278,13 +313,7 @@ def record_job_started(
                 except Exception as e:
                     log.debug(f"Failed to read AMS spool weights: {e}")
 
-                # Update linked job status to 'printing'
-                if linked_job_id:
-                    cur.execute(
-                        "UPDATE jobs SET status = 'printing',"
-                        " actual_start = COALESCE(actual_start, ?) WHERE id = ?",
-                        (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), linked_job_id))
-                    log.info(f"[{printer_name}] Updated job {linked_job_id} status to 'printing'")
+                reconcile_job_write(conn, production_orders)
 
                 conn.execute("COMMIT")
             except Exception:
@@ -304,11 +333,13 @@ def record_job_started(
 
         return new_job_id, linked_job_id, start_weights
 
-    except Exception as e:
-        log.error(f"[{printer_name}] Failed to record job start: {e}")
+    except Exception as failure:
+        log.error("[%s] Failed to record job start (%s); reconciliation required",
+                  printer_name,type(failure).__name__)
         return None, None, {}
 
 
+@retry_production_linkage
 def record_job_ended(
     printer_id: int,
     printer_name: str,
@@ -360,8 +391,8 @@ def record_job_ended(
             duration_seconds = None
             if pj_row and pj_row[0]:
                 try:
-                    started = datetime.fromisoformat(pj_row[0])
-                    ended = datetime.fromisoformat(now_utc)
+                    started = as_utc_datetime(pj_row[0])
+                    ended = as_utc_datetime(now_utc)
                     duration_seconds = (ended - started).total_seconds()
                     duration_hours = round(duration_seconds / 3600, 4)
                 except Exception as e:
@@ -388,6 +419,14 @@ def record_job_ended(
                         education_result,
                     )
                     return education_result.get("job_id") or linked_job_id
+
+            linked_job_id, production_orders = prepare_print_job_write(conn, current_job_id)
+            # The first read was only a hint. Another callback may have
+            # finalized the print while this observation waited for its lock.
+            locked_status = cur.execute('SELECT status FROM print_jobs WHERE id=?',
+                                        (current_job_id,)).fetchone()
+            if locked_status is None or locked_status[0] in ('completed','failed','cancelled'):
+                return linked_job_id
 
             # Calculate filament used by comparing AMS remain percentages
             filament_used_g = None
@@ -441,6 +480,7 @@ def record_job_ended(
                             (linked_job_id, current_job_id))
                 log.info(f"[{printer_name}] Created job {linked_job_id} for '{job_name}' ({job_status}, duration={duration_hours}h)")
 
+            reconcile_job_write(conn, production_orders)
             conn.commit()
 
         log.info(f"[{printer_name}] Job {status}: DB id {current_job_id}")
@@ -467,8 +507,8 @@ def record_job_ended(
                     cur2.execute("SELECT started_at, ended_at FROM print_jobs WHERE id = ?", (current_job_id,))
                     row = cur2.fetchone()
                     if row and row[0] and row[1]:
-                        started = datetime.fromisoformat(row[0])
-                        ended = datetime.fromisoformat(row[1])
+                        started = as_utc_datetime(row[0])
+                        ended = as_utc_datetime(row[1])
                         duration_sec = (ended - started).total_seconds()
                         printer_events.increment_care_counters(printer_id, duration_sec / 3600.0, 1)
             except Exception as ce:
@@ -518,6 +558,8 @@ def record_job_ended(
 
         return linked_job_id
 
-    except Exception as e:
-        log.error(f"[{printer_name}] Failed to record job end: {e}")
+    except ProductionLinkageChanged:
+        raise
+    except Exception:
+        log.error("[%s] Failed to record job end; reconciliation required", printer_name)
         return linked_job_id

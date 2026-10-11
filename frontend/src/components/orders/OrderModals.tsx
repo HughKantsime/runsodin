@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Plus, Truck } from 'lucide-react'
 import { Modal } from '../ui'
 
@@ -178,7 +179,32 @@ export function CreateOrderModal({ isOpen, onClose, onSubmit, formData, setFormD
   )
 }
 
-export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, onCancel, onDownloadInvoice, STATUS_CLASSES, canDo }: { isOpen: boolean; order: any; onClose: () => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDownloadInvoice: (order: any) => void; STATUS_CLASSES: Record<string, string>; canDo: (action: string) => boolean }) {
+export function ProductionConfirmation({ item, onConfirm }: { item: any; onConfirm: (itemId: number, quantity: number) => Promise<void> }) {
+  const [quantity, setQuantity] = useState(String(item.fulfilled_quantity ?? 0))
+  const [busy, setBusy] = useState(false)
+  const amount = Number(quantity)
+  const valid = quantity.trim() !== '' && Number.isInteger(amount) && amount >= 0 && amount <= item.quantity
+  return (
+    <form className="flex flex-wrap items-center gap-2 text-sm" onSubmit={async event => {
+      event.preventDefault()
+      if (!valid || busy) return
+      setBusy(true)
+      try { await onConfirm(item.id, amount) } catch { /* The caller displays the server error. */ }
+      finally { setBusy(false) }
+    }}>
+      <label htmlFor={`production-${item.id}`} className="text-[var(--brand-muted)]">Produced quantity</label>
+      <input id={`production-${item.id}`} type="number" min={0} max={item.quantity} step={1}
+        value={quantity} onChange={event => setQuantity(event.target.value)} disabled={busy}
+        className="w-20 rounded-md px-2 py-1 bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)]" />
+      <button type="submit" disabled={!valid || busy}
+        className="px-3 py-1 rounded-md bg-[var(--brand-primary)] disabled:opacity-50">
+        {busy ? 'Saving…' : 'Confirm production'}
+      </button>
+    </form>
+  )
+}
+
+export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, onCancel, onDownloadInvoice, onConfirmProduction, STATUS_CLASSES, canDo }: { isOpen: boolean; order: any; onClose: () => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDownloadInvoice: (order: any) => void; onConfirmProduction: (itemId: number, quantity: number) => Promise<void>; STATUS_CLASSES: Record<string, string>; canDo: (action: string) => boolean }) {
   if (!isOpen || !order) return null
 
   return (
@@ -233,6 +259,9 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
         {/* Line Items */}
         <div>
           <h3 className="font-medium mb-2 text-[var(--brand-text)]">Items</h3>
+          {order.items?.some(item => item.can_confirm_production) && (
+            <p className="text-sm text-[var(--brand-muted)] mb-2">Confirm quantities produced outside scheduled printing. This records production, separate from shipping.</p>
+          )}
           <div className="rounded-md p-3 space-y-2 bg-[var(--brand-content-bg)]">
             {order.items?.map(item => (
               <div key={item.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
@@ -240,6 +269,9 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
                   <span className="font-medium">{item.quantity}x</span> {item.product_name || `Product #${item.product_id}`}
                   {item.product_sku && <span className="text-sm ml-2 text-[var(--brand-muted)]">({item.product_sku})</span>}
                 </div>
+                {item.can_confirm_production && canDo('orders.ship') && (
+                  <ProductionConfirmation key={`${order.id}-${item.id}-${item.fulfilled_quantity}`} item={item} onConfirm={onConfirmProduction} />
+                )}
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-[var(--brand-text-secondary)]">${item.subtotal?.toFixed(2)}</span>
                   <span className={item.is_fulfilled ? 'text-status-printing' : 'text-status-pending'}>

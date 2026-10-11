@@ -12,6 +12,7 @@ import json
 import logging
 
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed, assert_generic_model_reference_allowed
+from core.order_production import prepare_job_write, reconcile_job_write
 from core.db import get_db
 from core.dependencies import get_current_user, log_audit
 from core.errors import ErrorCode, OdinError
@@ -230,8 +231,26 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
     if len(job_ids) > 100:
         raise HTTPException(status_code=400, detail="Maximum 100 jobs per batch")
 
+    if any(isinstance(identifier, bool) or not isinstance(identifier, int) or identifier <= 0 for identifier in job_ids):
+        raise HTTPException(400, 'job_ids must contain positive integers')
+    job_ids = list(dict.fromkeys(job_ids))
+
     action = body.get("action", "")
+    if action not in {'cancel', 'set_priority', 'delete', 'hold', 'unhold'}:
+        raise HTTPException(400, f'Unknown action: {action}')
+    priority = body.get('priority', 3)
+    if action == 'set_priority' and (type(priority) is not int or not 1 <= priority <= 5):
+        raise HTTPException(400, 'Priority must be an integer from 1 to 5')
     count = 0
+    authorized_ids = []
+    for identifier in set(job_ids):
+        candidate = db.query(Job).filter(Job.id == identifier).first()
+        if candidate and check_org_access(current_user, candidate.charged_to_org_id):
+            assert_generic_job_mutation_allowed(db, identifier)
+            authorized_ids.append(identifier)
+    production_orders = prepare_job_write(db, authorized_ids)
+    db.expire_all()
+
 
     if action == "cancel":
         for jid in job_ids:
@@ -239,49 +258,47 @@ async def bulk_update_jobs(body: dict, current_user: dict = Depends(require_role
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
+            changed = db.execute(text("UPDATE jobs SET status = 'cancelled' WHERE id = :id AND status IN ('pending','submitted')"),
                        {"id": jid})
-            count += 1
+            count += changed.rowcount
     elif action == "set_priority":
-        priority = body.get("priority", 3)
-        if priority not in range(1, 6):
-            raise HTTPException(status_code=400, detail="Priority must be 1-5")
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id"), {"p": priority, "id": jid})
-            count += 1
+            changed = db.execute(text("UPDATE jobs SET priority = :p WHERE id = :id AND (priority IS NULL OR priority != :p)"), {"p": priority, "id": jid})
+            count += changed.rowcount
     elif action == "delete":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
+            changed = db.execute(text("DELETE FROM jobs WHERE id = :id AND status IN ('pending','submitted','cancelled')"),
                        {"id": jid})
-            count += 1
+            count += changed.rowcount
     elif action == "hold":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id"), {"id": jid})
-            count += 1
+            changed = db.execute(text("UPDATE jobs SET hold = TRUE WHERE id = :id AND hold IS NOT TRUE"), {"id": jid})
+            count += changed.rowcount
     elif action == "unhold":
         for jid in job_ids:
             job = db.query(Job).filter(Job.id == jid).first()
             if not job or not check_org_access(current_user, job.charged_to_org_id):
                 continue
             assert_generic_job_mutation_allowed(db, jid)
-            db.execute(text("UPDATE jobs SET hold = FALSE WHERE id = :id"), {"id": jid})
-            count += 1
+            changed = db.execute(text("UPDATE jobs SET hold = FALSE WHERE id = :id AND hold IS NOT FALSE"), {"id": jid})
+            count += changed.rowcount
     else:
         raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
 
     log_audit(db, f"bulk_{action}", "jobs", details=f"{count} jobs")
+    reconcile_job_write(db, production_orders)
     db.commit()
     return {"status": "ok", "affected": count}
 
@@ -539,6 +556,10 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
     assert_generic_job_mutation_allowed(db, job_id)
+    production_orders = prepare_job_write(db, [job_id], updates.model_dump(exclude_unset=True))
+    job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
+    if not job or not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
 
     if (job.print_file_id is not None and "model_id" in updates.model_fields_set
             and updates.model_id != job.model_id):
@@ -547,6 +568,7 @@ def update_job(job_id: int, updates: JobUpdate, current_user: dict = Depends(req
     for field, value in updates.model_dump(exclude_unset=True).items():
         setattr(job, field, value)
 
+    reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)
     return job
@@ -561,9 +583,14 @@ def delete_job(job_id: int, current_user: dict = Depends(require_role("operator"
     if not check_org_access(current_user, job.charged_to_org_id):
         raise HTTPException(status_code=404, detail="Job not found")
     assert_generic_job_mutation_allowed(db, job_id)
+    production_orders = prepare_job_write(db, [job_id])
+    job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
+    if not job or not check_org_access(current_user, job.charged_to_org_id):
+        raise HTTPException(status_code=404, detail="Job not found")
 
     log_audit(db, "job.deleted", "job", job.id, {"item_name": job.item_name})
     db.delete(job)
+    reconcile_job_write(db, production_orders)
     db.commit()
 
 

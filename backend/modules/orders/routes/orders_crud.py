@@ -5,13 +5,14 @@ from core.rbac import should_filter_org
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import Response as FastAPIResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import update
+from sqlalchemy import update, text
 import math
 from typing import List, Optional
 from datetime import datetime, timezone
 import logging
 
 from core.db import get_db
+from core.dependencies import log_audit
 from core.rbac import (
     AGENT_READ_SCOPE,
     AGENT_WRITE_SCOPE,
@@ -21,17 +22,32 @@ from core.rbac import (
     require_role,
 )
 from core.base import OrderStatus, JobStatus
-from modules.orders.models import Product, Order, OrderItem
-from modules.inventory.models import Consumable, ConsumableUsage
+from modules.orders.models import Product, ProductComponent, Order, OrderItem
+from modules.inventory.models import Consumable, ConsumableUsage, ProductConsumable
 from modules.jobs.models import Job
 from modules.orders.schemas import (
     OrderResponse, OrderCreate, OrderUpdate, OrderSummary,
-    OrderItemResponse, OrderItemCreate, OrderItemUpdate, OrderShipRequest,
+    OrderItemResponse, OrderItemCreate, OrderItemUpdate, OrderShipRequest, OrderProductionConfirmation,
 )
 
 log = logging.getLogger("odin.api")
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
+
+
+def _fulfillment():
+    from core.registry import registry
+    provider=registry.get_provider("OrderFulfillmentProvider")
+    if provider is None:raise HTTPException(503,"Order production service unavailable")
+    return provider
+
+
+def _locked_order(db, order_id, current_user):
+    _fulfillment().lock_orders(db, [order_id])
+    order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).populate_existing().first()
+    if not order or not check_org_access(current_user, order.org_id):
+        raise HTTPException(404, "Order not found")
+    return order
 
 
 # -------------- Helper Functions --------------
@@ -45,6 +61,7 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
     total_items = 0
     fulfilled_items = 0
 
+    modes = dict(db.execute(text('SELECT order_item_id,mode FROM order_production_items WHERE order_id=:id'), {'id': order.id}).all())
     for item in order.items:
         item_resp = OrderItemResponse.model_validate(item)
         product = db.query(Product).filter(Product.id == item.product_id).first()
@@ -53,6 +70,9 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
             item_resp.product_sku = product.sku
         item_resp.subtotal = (item.unit_price or 0) * item.quantity
         item_resp.is_fulfilled = item.fulfilled_quantity >= item.quantity
+        item_resp.production_mode = modes.get(item.id)
+        item_resp.can_confirm_production = (item.quantity > 0 and modes.get(item.id) not in ('printed', 'mixed')
+                                            and order.status not in ('shipped', 'cancelled'))
         enriched_items.append(item_resp)
 
         total_items += item.quantity
@@ -74,11 +94,12 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
     # Add fees and shipping
     total_fees = (order.platform_fees or 0) + (order.payment_fees or 0) + (order.shipping_cost or 0)
 
-    resp.estimated_cost = round(estimated_cost + total_fees, 2) if estimated_cost else None
-    resp.actual_cost = round(actual_cost + total_fees, 2) if actual_cost else None
+    has_recorded_fees = any(value is not None for value in (order.platform_fees, order.payment_fees, order.shipping_cost))
+    resp.estimated_cost = round(estimated_cost + total_fees, 2) if any(j.estimated_cost is not None for j in jobs) or has_recorded_fees else None
+    resp.actual_cost = round(actual_cost + total_fees, 2) if any(j.estimated_cost is not None and j.status == JobStatus.COMPLETED for j in jobs) or has_recorded_fees else None
 
     # Calculate profit
-    if order.revenue and resp.actual_cost:
+    if order.revenue is not None and resp.actual_cost is not None:
         resp.profit = round(order.revenue - resp.actual_cost, 2)
         resp.margin_percent = round((resp.profit / order.revenue) * 100, 1) if order.revenue > 0 else None
 
@@ -200,9 +221,19 @@ def update_order(order_id: int, data: OrderUpdate, current_user: dict = Depends(
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
+    order = _locked_order(db, order_id, current_user)
+    if data.status == OrderStatus.FULFILLED:
+        _fulfillment().reconcile_orders(db, [order_id])
+        db.expire_all()
+        order = _locked_order(db, order_id, current_user)
+        if not order.items or not all(item.quantity > 0 and item.fulfilled_quantity >= item.quantity for item in order.items):
+            raise HTTPException(409, "Complete scheduled jobs or explicitly confirm production before marking this order fulfilled")
+
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(order, key, value)
 
+    db.flush()
+    _fulfillment().reconcile_orders(db, [order_id])
     db.commit()
     db.refresh(order)
     return _enrich_order_response(order, db)
@@ -216,6 +247,7 @@ def delete_order(order_id: int, current_user: dict = Depends(require_role("opera
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
+    _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
     db.delete(order)
     db.commit()
@@ -231,6 +263,7 @@ def add_order_item(order_id: int, data: OrderItemCreate, current_user: dict = De
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
+    _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
     product = db.query(Product).filter(Product.id == data.product_id).first()
     if not product or not check_org_access(current_user, product.org_id):
@@ -262,6 +295,9 @@ def update_order_item(order_id: int, item_id: int, data: OrderItemUpdate, curren
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
+    _fulfillment().lock_orders(db,[order_id])
+    if "quantity" in data.model_fields_set:
+        _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,
@@ -294,6 +330,7 @@ def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(
         raise HTTPException(status_code=404, detail="Order not found")
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
+    _fulfillment().assert_order_structure_edit_allowed(db,order_id)
 
     item = db.query(OrderItem).filter(
         OrderItem.id == item_id,
@@ -309,7 +346,7 @@ def delete_order_item(order_id: int, item_id: int, current_user: dict = Depends(
 # -------------- Order Actions --------------
 
 @router.post("/{order_id}/schedule")
-def schedule_order(order_id: int, current_user: dict = Depends(require_role("operator")), db: Session = Depends(get_db)):
+def schedule_order(order_id: int, current_user: dict = Depends(require_role("operator", scope="write")), db: Session = Depends(get_db)):
     """Generate jobs for an order based on BOM."""
     order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     if not order:
@@ -317,6 +354,15 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
+    provider=_fulfillment()
+    provider.lock_orders(db,[order_id])
+    db.expire_all()
+    order=db.query(Order).options(
+        joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.components).joinedload(ProductComponent.model),
+        joinedload(Order.items).joinedload(OrderItem.product).joinedload(Product.consumable_links).joinedload(ProductConsumable.consumable),
+    ).filter(Order.id==order_id).populate_existing().first()
+    if not order or not check_org_access(current_user, order.org_id):
+        raise HTTPException(status_code=404, detail="Order not found")
     if order.status != OrderStatus.PENDING:
         raise HTTPException(status_code=409, detail="Only a pending order can generate production")
     historical_jobs = db.query(Job.id).join(OrderItem).filter(OrderItem.order_id == order.id).first()
@@ -327,18 +373,21 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
     # Resolve the complete authorized graph and demand before any writes.
     planned_jobs = []
     demand = {}
+    requirements = {}
     for item in order.items:
         product = item.product
         if not product or not check_org_access(current_user, product.org_id):
             raise HTTPException(status_code=404, detail="Product not found")
         if item.quantity <= 0:
             raise HTTPException(status_code=409, detail="Order quantities must be positive")
+        requirements[item.id]={}
         for component in product.components:
             model = component.model
             if not model or not check_org_access(current_user, model.org_id):
                 raise HTTPException(status_code=404, detail="Model not found")
             if component.quantity_needed <= 0:
                 raise HTTPException(status_code=409, detail="BOM quantities must be positive")
+            requirements[item.id][model.id]=requirements[item.id].get(model.id,0)+component.quantity_needed
             pieces_needed = item.quantity * component.quantity_needed
             pieces_per_job = model.quantity_per_bed if model.quantity_per_bed is not None else 1
             if pieces_per_job <= 0:
@@ -399,14 +448,19 @@ def schedule_order(order_id: int, current_user: dict = Depends(require_role("ope
             consumable_deductions.append({"consumable": consumable.name,
                 "quantity_deducted": needed, "remaining_stock": remaining})
 
+        for item in order.items:
+            provider.record_item(db,item,requirements[item.id],bool(item.product.consumable_links))
         for item, model, quantity in planned_jobs:
-            db.add(Job(model_id=model.id,
+            job=Job(model_id=model.id,
                 item_name=f"{model.name} (Order #{order.order_number or order.id})",
                 quantity=1, order_item_id=item.id, quantity_on_bed=quantity,
                 status=JobStatus.PENDING, duration_hours=model.build_time_hours,
                 filament_type=model.default_filament_type,
                 charged_to_org_id=order.org_id, charged_to_user_id=current_user.get("id"),
-                submitted_by=current_user.get("id")))
+                submitted_by=current_user.get("id"))
+            db.add(job)
+            db.flush()
+            provider.bind_job(db,job)
             jobs_created.append({"model": model.name, "quantity_on_bed": quantity})
         db.commit()
     except Exception:
@@ -462,10 +516,30 @@ def ship_order(order_id: int, data: OrderShipRequest, current_user: dict = Depen
     if not check_org_access(current_user, order.org_id):
         raise HTTPException(status_code=404, detail="Order not found")
 
+    order = _locked_order(db, order_id, current_user)
     order.status = OrderStatus.SHIPPED
     order.tracking_number = data.tracking_number
     order.shipped_date = data.shipped_date or datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(order)
+    return _enrich_order_response(order, db)
+
+
+@router.post("/{order_id}/items/{item_id}/confirm-production", response_model=OrderResponse)
+def confirm_order_item_production(order_id: int, item_id: int, data: OrderProductionConfirmation,
+                                  current_user: dict = Depends(require_role("operator", scope="write")),
+                                  db: Session = Depends(get_db)):
+    """Explicitly record production without reconstructing historical requirements."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order or not check_org_access(current_user, order.org_id):
+        raise HTTPException(404, "Order not found")
+    order = _locked_order(db, order_id, current_user)
+    changed = _fulfillment().confirm_item(db, order_id, item_id, data.quantity)
+    if changed:
+        log_audit(db, 'order.production_confirmed', 'order_item', item_id,
+                  {'order_id': order_id, 'quantity': data.quantity, 'actor_id': current_user['id']})
+    db.commit()
+    db.expire_all()
+    order = db.query(Order).options(selectinload(Order.items)).filter(Order.id == order_id).first()
     return _enrich_order_response(order, db)

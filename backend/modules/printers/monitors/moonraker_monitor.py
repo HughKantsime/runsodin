@@ -29,8 +29,10 @@ from typing import Optional, Dict, Any
 from sqlalchemy import text
 
 from modules.printers.adapters.moonraker import MoonrakerPrinter, MoonrakerState
+from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
+                                   ProductionLinkageChanged, retry_production_linkage)
 from core.db import engine
-from core.db_compat import execute_insert_returning_id, sql
+from core.db_compat import as_utc_datetime, execute_insert_returning_id, sql
 
 # WebSocket push (same as mqtt_monitor)
 try:
@@ -471,6 +473,7 @@ class MoonrakerMonitor:
             self._current_job_db_id = None
             log.error(f"[{self.name}] Failed to record job start: {e}")
     
+    @retry_production_linkage
     def _job_ended(
         self, end_status: str, status, *, education_terminal_status: str | None = None
     ) -> bool:
@@ -491,8 +494,8 @@ class MoonrakerMonitor:
                     {"jid": self._current_job_db_id}).fetchone()
                 if pj_row and pj_row[0]:
                     try:
-                        started = datetime.fromisoformat(pj_row[0])
-                        ended = datetime.fromisoformat(now_utc)
+                        started = as_utc_datetime(pj_row[0])
+                        ended = as_utc_datetime(now_utc)
                         duration_seconds = int((ended - started).total_seconds())
                     except Exception as e:
                         log.debug(f"Failed to parse duration: {e}")
@@ -536,6 +539,14 @@ class MoonrakerMonitor:
                         self._last_filename = ""
                         return True
 
+                _, production_orders = prepare_print_job_write(conn, self._current_job_db_id)
+                prior = conn.execute(text('SELECT status FROM print_jobs WHERE id=:id'),
+                                     {'id':self._current_job_db_id}).first()
+                if prior is None or prior[0] in ('completed','failed','cancelled'):
+                    self._current_job_db_id = None
+                    self._last_filename = ''
+                    return False  # Duplicate observations produce no effects.
+
                 # Calculate filament used (Klipper reports mm extruded)
                 # Convert mm to grams: PLA ~1.24 g/cm³, 1.75mm filament ≈ 2.98g/m
                 filament_used_g = None
@@ -555,7 +566,7 @@ class MoonrakerMonitor:
                     SELECT scheduled_job_id FROM print_jobs WHERE id = :jid
                 """), {"jid": self._current_job_db_id}).fetchone()
                 if row and row[0]:
-                    sched_status = "completed" if end_status == "completed" else "failed"
+                    sched_status = end_status if end_status in ('completed','failed','cancelled') else 'failed'
                     duration_hours = round(duration_seconds / 3600, 4) if duration_seconds else None
                     conn.execute(text("""
                         UPDATE jobs SET status = :status, actual_end = :ended,
@@ -566,7 +577,8 @@ class MoonrakerMonitor:
 
                     # Auto-deduct filament if completed
                     if end_status == "completed":
-                        self._auto_deduct_filament(conn, row[0])
+                        self._auto_deduct_filament(conn, row[0], observed_grams=filament_used_g)
+                reconcile_job_write(conn, production_orders)
             log.info(f"[{self.name}] Job {end_status}: DB id {self._current_job_db_id}")
 
             # Increment care counters on successful completion
@@ -578,8 +590,8 @@ class MoonrakerMonitor:
                             {"jid": self._current_job_db_id}).fetchone()
                         if pj_row and pj_row[0] and pj_row[1]:
                             from datetime import datetime as dt
-                            started = dt.fromisoformat(pj_row[0])
-                            ended = dt.fromisoformat(pj_row[1])
+                            started = as_utc_datetime(pj_row[0])
+                            ended = as_utc_datetime(pj_row[1])
                             duration_sec = (ended - started).total_seconds()
                             printer_events.increment_care_counters(self.printer_id, duration_sec / 3600.0, 1)
                 except Exception as ce:
@@ -628,8 +640,11 @@ class MoonrakerMonitor:
             self._last_filename = ""
             return False
             
-        except Exception as e:
-            log.error(f"[{self.name}] Failed to record job end: {e}")
+        except ProductionLinkageChanged:
+            raise
+        except Exception as failure:
+            log.error("[%s] Failed to record job end (%s); reconciliation required",
+                      self.name, type(failure).__name__)
             return False
     
     def _update_progress(self, status):
@@ -728,6 +743,10 @@ class MoonrakerMonitor:
                 if not candidates:
                     return
 
+                # Lock all candidate parents once in sorted order before trying
+                # alternatives, avoiding candidate-order parent deadlocks.
+                prepare_job_write(conn, [candidate['job_id'] for candidate in candidates])
+
                 # Strategy 1: Name match
                 fname_lower = filename.lower() if filename else ""
                 for c in candidates:
@@ -737,9 +756,9 @@ class MoonrakerMonitor:
                         (c["model_name"] or "").lower(),
                     ]
                     if fname_lower and any(fname_lower in n or n in fname_lower for n in match_names if n):
-                        self._link_job(conn, c["job_id"])
-                        log.info(f"[{self.name}] Auto-linked to job #{c['job_id']} (name match)")
-                        return
+                        if self._link_job(conn, c["job_id"]):
+                            log.info(f"[{self.name}] Auto-linked to job #{c['job_id']} (name match)")
+                            return
 
                 # Strategy 2: Layer count fingerprint
                 if total_layers and total_layers > 0:
@@ -751,9 +770,9 @@ class MoonrakerMonitor:
 
                     if len(layer_matches) == 1:
                         job_id = list(layer_matches.keys())[0]
-                        self._link_job(conn, job_id)
-                        log.info(f"[{self.name}] Auto-linked to job #{job_id} (layer count: {total_layers})")
-                        return
+                        if self._link_job(conn, job_id):
+                            log.info(f"[{self.name}] Auto-linked to job #{job_id} (layer count: {total_layers})")
+                            return
                     elif len(layer_matches) > 1:
                         log.warning(
                             f"[{self.name}] Ambiguous layer match ({total_layers} layers) "
@@ -764,46 +783,87 @@ class MoonrakerMonitor:
             log.warning(f"[{self.name}] Auto-link failed: {e}")
     
     def _link_job(self, conn, scheduled_job_id: int):
-        """Link the current print_job to a scheduled job."""
-        if self._current_job_db_id:
-            conn.execute(text("""
-                UPDATE print_jobs SET scheduled_job_id = :sjid WHERE id = :jid
-            """), {"sjid": scheduled_job_id, "jid": self._current_job_db_id})
-            conn.execute(text("""
-                UPDATE jobs SET status = 'printing' WHERE id = :jid
-            """), {"jid": scheduled_job_id})
-    
-    def _auto_deduct_filament(self, conn, scheduled_job_id: int):
-        """Auto-deduct filament weight when a linked job completes."""
-        try:
-            row = conn.execute(text("""
-                SELECT j.spool_id, pf.filament_weight_grams
-                FROM jobs j
-                JOIN print_files pf ON j.print_file_id = pf.id
-                WHERE j.id = :jid
-            """), {"jid": scheduled_job_id}).fetchone()
+        """Link only current generic queued work, inside the caller transaction."""
+        if not self._current_job_db_id:
+            return False
+        from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
+                                   ProductionLinkageChanged, retry_production_linkage)
+        parents = prepare_job_write(conn, [scheduled_job_id])
+        # Parent -> print record -> job is the same order as terminal handlers.
+        print_query = text("SELECT printer_id,scheduled_job_id,status FROM print_jobs WHERE id=:id")
+        if conn.dialect.name == 'postgresql':
+            print_query = text(str(print_query) + " FOR UPDATE")
+        current = conn.execute(print_query, {'id':self._current_job_db_id}).first()
+        if (not current or current[0] != self.printer_id or current[2] not in ('running', 'printing')
+                or current[1] not in (None, scheduled_job_id)):
+            return False
+        changed = conn.execute(text("""
+            UPDATE jobs SET status='printing' WHERE id=:id AND printer_id=:pid
+              AND status IN ('scheduled','pending')
+              AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
+              AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.print_file_id=jobs.print_file_id)
+            RETURNING id
+        """), {'id':scheduled_job_id,'pid':self.printer_id}).first()
+        if changed is None:
+            return False
+        linked = conn.execute(text("""
+            UPDATE print_jobs SET scheduled_job_id=:job WHERE id=:id AND printer_id=:pid
+              AND status IN ('running','printing') AND (scheduled_job_id IS NULL OR scheduled_job_id=:job)
+            RETURNING id
+        """), {'job':scheduled_job_id,'id':self._current_job_db_id,'pid':self.printer_id}).first()
+        if linked is None:
+            raise RuntimeError('Print linkage changed; transaction must roll back')
+        reconcile_job_write(conn, parents)
+        return True
 
-            if row and row[0] and row[1]:
-                spool_id = row[0]
-                grams_used = row[1]
+    def _auto_deduct_filament(self, conn, scheduled_job_id: int, *, observed_grams=None):
+        """Account for one unambiguous loaded spool using actual schema fields.
 
-                conn.execute(text("""
-                    UPDATE spools
-                    SET remaining_weight = MAX(0, remaining_weight - :grams)
-                    WHERE id = :sid
-                """), {"grams": grams_used, "sid": spool_id})
-
-                # Log to spool_usage
-                conn.execute(text("""
-                    INSERT INTO spool_usage (spool_id, job_id, printer_id, grams_used, created_at)
-                    VALUES (:sid, :jid, :pid, :grams, :ts)
-                """), {"sid": spool_id, "jid": scheduled_job_id, "pid": self.printer_id,
-                       "grams": grams_used, "ts": datetime.now(timezone.utc).isoformat()})
-
-                log.info(f"[{self.name}] Deducted {grams_used}g from spool #{spool_id}")
-
-        except Exception as e:
-            log.warning(f"[{self.name}] Filament deduction failed: {e}")
+        Klipper's measured extrusion is preferred. A stored sliced weight is an
+        estimate fallback. Multi-spool attribution requires explicit mapping;
+        never guess which spool supplied a multi-material print.
+        """
+        import math
+        job = conn.execute(text("""
+            SELECT j.printer_id,j.charged_to_org_id,pf.filament_weight_grams,pf.filaments_json
+            FROM jobs j LEFT JOIN print_files pf ON j.print_file_id=pf.id WHERE j.id=:id
+        """), {'id':scheduled_job_id}).first()
+        if not job or job[0] != self.printer_id:
+            return
+        if job[3]:
+            import json
+            try:
+                materials = json.loads(job[3]) if isinstance(job[3],str) else job[3]
+                if not isinstance(materials,list) or len(materials)>1:
+                    return
+            except (ValueError, TypeError):
+                return
+        grams = observed_grams if observed_grams is not None else job[2]
+        if grams is None or not math.isfinite(float(grams)) or grams <= 0:
+            return
+        spools = conn.execute(text("""
+            SELECT id FROM spools WHERE location_printer_id=:printer AND status='active'
+              AND (org_id IS NULL OR org_id=:org) ORDER BY id
+        """), {'printer':self.printer_id,'org':job[1]}).fetchall()
+        if len(spools) != 1:
+            return
+        spool_id = spools[0][0]
+        existing = conn.execute(text('SELECT 1 FROM spool_usage WHERE job_id=:job LIMIT 1'),
+                                {'job':scheduled_job_id}).first()
+        if existing:
+            return
+        updated = conn.execute(text("""
+            UPDATE spools SET remaining_weight_g=CASE
+                WHEN remaining_weight_g > :grams THEN remaining_weight_g-:grams ELSE 0 END
+            WHERE id=:id AND remaining_weight_g IS NOT NULL RETURNING id
+        """), {'id':spool_id,'grams':grams}).first()
+        if updated is None:
+            return
+        conn.execute(text("""
+            INSERT INTO spool_usage(spool_id,job_id,weight_used_g,notes)
+            VALUES(:spool,:job,:grams,:note)
+        """), {'spool':spool_id,'job':scheduled_job_id,'grams':grams,
+                'note':'Moonraker observed extrusion' if observed_grams is not None else 'Moonraker sliced estimate'})
 
 
 # ------------------------------------------------------------------

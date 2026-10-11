@@ -190,6 +190,19 @@ export default function Orders() {
 
   const handleSchedule = async (id) => { try { const r = await orders.schedule(id); toast.success(`Created ${r.jobs_created} jobs for this order`); loadData(); if (selectedOrder?.id === id) { const full = await orders.get(id); setSelectedOrder(full) } } catch { toast.error('Failed to schedule order') } }
 
+  const handleConfirmProduction = async (itemId: number, quantity: number) => {
+    const orderId = selectedOrder.id
+    try {
+      const updated = await orders.confirmProduction(orderId, itemId, quantity)
+      setSelectedOrder(current => current?.id === orderId ? updated : current)
+      toast.success('Production quantity confirmed')
+      await loadData()
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to confirm production')
+      throw error
+    }
+  }
+
   const handleShip = (order) => { setShippingForm({ tracking_number: order.tracking_number || '', carrier: '' }); setShippingOrder(order) }
 
   const submitShipping = async () => { try { await orders.ship(shippingOrder.id, { tracking_number: shippingForm.tracking_number || null }); toast.success('Order marked as shipped'); loadData(); if (selectedOrder?.id === shippingOrder.id) { const full = await orders.get(shippingOrder.id); setSelectedOrder(full) } setShippingOrder(null) } catch { toast.error('Failed to mark as shipped') } }
@@ -281,11 +294,12 @@ export default function Orders() {
       <OrderDetailModal
         isOpen={showDetailModal}
         order={selectedOrder}
-        onClose={() => setShowDetailModal(false)}
+        onClose={() => { setShowDetailModal(false); setSelectedOrder(null) }}
         onSchedule={handleSchedule}
         onShip={handleShip}
         onCancel={handleCancel}
         onDownloadInvoice={handleDownloadInvoice}
+        onConfirmProduction={handleConfirmProduction}
         STATUS_CLASSES={STATUS_CLASSES}
         canDo={canDo}
       />

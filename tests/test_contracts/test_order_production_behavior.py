@@ -99,7 +99,8 @@ def test_two_scheduling_sessions_cannot_duplicate_production(production_order,re
     barrier=Barrier(2)
     original=Session.execute
     def synchronized(session,statement,*args,**kwargs):
-        if str(statement).lstrip().upper().startswith('UPDATE ORDERS'):
+        if str(statement).lstrip().upper().startswith('UPDATE ORDERS') and not session.info.get('schedule_race_arrived'):
+            session.info['schedule_race_arrived'] = True
             barrier.wait(timeout=10)
         return original(session,statement,*args,**kwargs)
     monkeypatch.setattr(Session,'execute',synchronized)

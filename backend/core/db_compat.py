@@ -24,6 +24,13 @@ from core.db import IS_SQLITE, IS_POSTGRES
 from sqlalchemy import text
 
 
+def as_utc_datetime(value):
+    """Normalize database timestamps from SQLite strings or PostgreSQL objects."""
+    from datetime import datetime, timezone
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(value)
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
 def execute_insert_returning_id(executor, statement: str, parameters: dict) -> int:
     """Execute an INSERT and return its integer identity on either dialect."""
     dialect = executor.bind.dialect.name

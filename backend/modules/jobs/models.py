@@ -9,6 +9,7 @@ table name string to avoid cross-module model imports.
 
 from datetime import datetime
 from typing import List
+from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
     ForeignKey, Enum as SQLEnum, Text, JSON
@@ -125,8 +126,10 @@ class Job(Base):
         return [c.strip().lower() for c in self.colors_required.split(",") if c.strip()]
 
     @property
-    def effective_duration(self) -> float:
-        """Get duration, falling back to model default."""
+    def effective_duration(self) -> Optional[float]:
+        """Get duration without inventing a count for unknown legacy quantity."""
+        if self.quantity is None:
+            return None
         if self.duration_hours:
             return self.duration_hours * self.quantity
         if self.model and self.model.build_time_hours:

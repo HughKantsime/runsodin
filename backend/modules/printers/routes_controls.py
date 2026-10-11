@@ -413,7 +413,7 @@ def toggle_printer_lights(printer_id: int, current_user: dict = Depends(require_
 @router.post("/printers/{printer_id}/plate-cleared", tags=["Printers"])
 async def plate_cleared(
     printer_id: int,
-    current_user: dict = Depends(require_role("operator")),
+    current_user: dict = Depends(require_role("operator", scope="write:printers")),
     db: Session = Depends(get_db),
 ):
     """Confirm plate is cleared, allowing the next queued job to dispatch."""
@@ -435,9 +435,24 @@ async def plate_cleared(
     if not waiting:
         return {"success": True, "message": "No jobs waiting for plate clear"}
 
-    db.execute(
-        text("UPDATE jobs SET status = 'pending' WHERE id = :jid"),
-        {"jid": waiting[0]},
-    )
+    from core.order_production import prepare_job_write, reconcile_job_write
+    from core.registry import registry
+    policy = registry.get_provider("EducationPolicyProvider")
+    if policy is None:
+        raise HTTPException(status_code=503, detail="Education policy unavailable")
+    policy.assert_generic_job_mutation_allowed(db, waiting[0])
+    parents = prepare_job_write(db, [waiting[0]])
+    owner = db.execute(text("SELECT charged_to_org_id FROM jobs WHERE id=:id"),
+                       {'id':waiting[0]}).first()
+    if owner is None or not check_org_access(current_user, owner[0]):
+        raise HTTPException(404, 'Job not found')
+    changed = db.execute(
+        text("UPDATE jobs SET status = 'pending' WHERE id = :jid AND printer_id=:pid"
+             " AND status='waiting_plate_clear' RETURNING id"),
+        {"jid":waiting[0],"pid":printer_id},
+    ).first()
+    reconcile_job_write(db, parents)
     db.commit()
+    if changed is None:
+        return {"success": True, "message": "Waiting job changed; current state preserved"}
     return {"success": True, "message": f"Job {waiting[0]} released for dispatch"}

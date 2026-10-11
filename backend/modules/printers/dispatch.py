@@ -736,19 +736,38 @@ def dispatch_job(printer_id: int, job_id: int) -> tuple[bool, str]:
             _ws(job_id, "failed", message)
             return False, message
     else:
-        # Generic jobs retain their existing best-effort state update.
+        # No database lock is held during transport. Revalidate after acceptance
+        # so a delayed acknowledgment cannot reopen a completed/cancelled job.
         try:
             from datetime import datetime, timezone
             from core.db import engine
+            from core.order_production import prepare_job_write, reconcile_job_write
             from sqlalchemy import text as _text
             with engine.begin() as conn:
-                conn.execute(
+                parents = prepare_job_write(conn, [job_id])
+                transitioned = conn.execute(
                     _text("UPDATE jobs SET status = 'printing',"
-                          " actual_start = COALESCE(actual_start, :now) WHERE id = :jid"),
-                    {"now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), "jid": job_id},
-                )
-        except Exception as e:
-            log.warning(f"[dispatch] DB status update failed (print already started): {e}")
+                          " actual_start = COALESCE(actual_start, :now)"
+                          " WHERE id = :jid AND printer_id = :pid"
+                          " AND status IN ('pending','scheduled','printing') RETURNING id"),
+                    {"now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                     "jid": job_id, "pid": printer_id},
+                ).first()
+                reconcile_job_write(conn, parents)
+                if transitioned is None:
+                    current = conn.execute(_text("SELECT status,printer_id FROM jobs WHERE id=:id"),
+                                           {"id":job_id}).first()
+                    if current and current[0] == 'completed' and current[1] == printer_id:
+                        return True, "Printer accepted the print; newer completed state preserved"
+                    message = "Printer accepted the print, but the job changed; physical action requires reconciliation"
+                    _ws(job_id, "failed", message)
+                    return False, message
+        except Exception:
+            # Do not expose SQL parameters or credentials in an adapter error.
+            log.warning("[dispatch] Accepted print requires database reconciliation for job %s", job_id)
+            message = "Printer accepted the print, but recording its state failed; physical action requires reconciliation"
+            _ws(job_id, "failed", message)
+            return False, message
 
     _ws(job_id, "dispatched", f"'{job['item_name']}' sent to printer successfully")
     log.info(f"[dispatch] Job {job_id} dispatched successfully ({api_type})")

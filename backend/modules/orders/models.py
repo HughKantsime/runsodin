@@ -7,7 +7,7 @@ Owns tables: orders, order_items, products, product_components
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    ForeignKey, Enum as SQLEnum, Text
+    ForeignKey, ForeignKeyConstraint, CheckConstraint, Enum as SQLEnum, Text
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -147,3 +147,40 @@ class OrderItem(Base):
 
     def __repr__(self):
         return f"<OrderItem {self.order_id}:{self.product_id} x{self.quantity}>"
+
+
+class OrderProductionItem(Base):
+    """Immutable scheduled requirements; explicit confirmation is separate."""
+    __tablename__ = "order_production_items"
+    order_item_id = Column(Integer, ForeignKey("order_items.id", ondelete="RESTRICT"), primary_key=True, autoincrement=False)
+    order_id = Column(Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False)
+    product_id = Column(Integer, nullable=False)
+    ordered_quantity = Column(Integer, nullable=False)
+    mode = Column(Text, nullable=False)
+    confirmed_quantity = Column(Integer, nullable=False, server_default="0")
+    __table_args__ = (
+        CheckConstraint("ordered_quantity > 0", name="opi_positive_quantity"),
+        CheckConstraint("confirmed_quantity >= 0 AND confirmed_quantity <= ordered_quantity", name="opi_confirmation_bounds"),
+        CheckConstraint("mode IN ('printed','mixed','consumable_only','historical')", name="opi_mode"),
+    )
+
+
+class OrderProductionComponent(Base):
+    __tablename__ = "order_production_components"
+    order_item_id = Column(Integer, ForeignKey("order_production_items.order_item_id", ondelete="RESTRICT"), primary_key=True, autoincrement=False)
+    model_id = Column(Integer, primary_key=True, autoincrement=False)
+    pieces_per_unit = Column(Integer, nullable=False)
+    __table_args__ = (CheckConstraint("pieces_per_unit > 0", name="opc_positive_pieces"),)
+
+
+class OrderProductionJob(Base):
+    """Original job identity survives deletion; replacements are not inferred."""
+    __tablename__ = "order_production_jobs"
+    job_id = Column(Integer, primary_key=True, autoincrement=False)
+    order_item_id = Column(Integer, nullable=False)
+    model_id = Column(Integer, nullable=False)
+    piece_count = Column(Integer, nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(["order_item_id", "model_id"], ["order_production_components.order_item_id", "order_production_components.model_id"], ondelete="RESTRICT"),
+        CheckConstraint("piece_count > 0", name="opj_positive_pieces"),
+    )

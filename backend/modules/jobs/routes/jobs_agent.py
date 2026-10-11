@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from core.base import AlertSeverity, AlertType, JobStatus
 from modules.jobs.education_guard import assert_generic_job_mutation_allowed
+from core.order_production import prepare_job_write, reconcile_job_write
 from core.db import get_db
 from core.dependencies import log_audit
 from core.errors import ErrorCode, OdinError
@@ -103,9 +104,17 @@ def cancel_job(
             notes="Would set jobs.status=cancelled and is_locked=True.",
         )
 
+    production_orders = prepare_job_write(db, [job_id])
+    job = db.query(Job).filter(Job.id == job_id).populate_existing().first()
+    if not job or not check_org_access(current_user, job.charged_to_org_id):
+        raise OdinError(ErrorCode.job_not_found, f"Job {job_id} not found", status=404)
+    if job.status not in [JobStatus.PENDING, JobStatus.SCHEDULED]:
+        raise OdinError(ErrorCode.invalid_state_transition,
+                        'Job state changed before cancellation', status=400, retriable=False)
     job.status = JobStatus.CANCELLED
     job.is_locked = True
     log_audit(db, "job.cancelled", "job", job.id)
+    reconcile_job_write(db, production_orders)
     db.commit()
     db.refresh(job)
     response = JobResponse.model_validate(job, from_attributes=True).model_dump(mode="json")

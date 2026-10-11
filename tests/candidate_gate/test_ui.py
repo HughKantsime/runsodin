@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import pytest
 
 from playwright.sync_api import Page, expect
 
@@ -170,3 +171,53 @@ def test_compiled_token_permission_selection_and_real_revoke(role_page_factory):
     expect(page.get_by_role('button',name='Revoke token Synthetic browser token',exact=True)).to_have_count(0)
     response=requests.get(BASE_URL+'/api/printers',headers=headers,timeout=10)
     assert response.status_code==401
+
+
+@pytest.mark.parametrize('mobile', [False, True])
+def test_compiled_order_confirmation_persists_bounded_corrections(role_page_factory, admin, mobile):
+    """Compiled UI and real HTTP/database; only browser license facts substituted.
+
+    This Community candidate does not certify Pro license validation. The
+    explicit feature-facts substitution exposes the orders UI, while every
+    product/order/confirmation request executes against the isolated server.
+    """
+    product = admin.post(f'{BASE_URL}/api/products', json={'name':f'Synthetic manual product {mobile}'}, timeout=10)
+    assert product.status_code == 200
+    label = f'Synthetic compiled production {mobile}'
+    order = admin.post(f'{BASE_URL}/api/orders',json={'order_number':label,
+        'items':[{'product_id':product.json()['id'],'quantity':3}]},timeout=10)
+    assert order.status_code == 200
+    order_id = order.json()['id']
+    page = role_page_factory('admin',mobile=mobile)
+    def browser_feature_facts(route):
+        response = route.fetch()
+        data = response.json()
+        data['tier'] = 'pro'
+        data['features'] = list(set(data.get('features',[])) | {'orders','products'})
+        route.fulfill(response=response,json=data)
+    page.route('**/api/license',browser_feature_facts)
+    _goto(page,'/orders')
+    page.get_by_role('button',name=label,exact=True).click()
+    quantity = page.get_by_label('Produced quantity',exact=True)
+    expect(quantity).to_be_visible()
+    quantity.fill('4')
+    expect(page.get_by_role('button',name='Confirm production',exact=True)).to_be_disabled()
+    quantity.fill('3')
+    with page.expect_response(lambda response: response.url.endswith('/confirm-production')) as receipt:
+        page.get_by_role('button',name='Confirm production',exact=True).click()
+    assert receipt.value.status == 200
+    assert receipt.value.json()['status'] == 'fulfilled'
+    expect(page.get_by_text('Production quantity confirmed',exact=True)).to_be_visible()
+    quantity = page.get_by_label('Produced quantity',exact=True)
+    expect(quantity).to_have_value('3')
+    quantity.fill('0')
+    with page.expect_response(lambda response: response.url.endswith('/confirm-production')) as receipt:
+        page.get_by_role('button',name='Confirm production',exact=True).click()
+    assert receipt.value.status == 200
+    assert receipt.value.json()['items'][0]['fulfilled_quantity'] == 0
+    expect(page.get_by_label('Produced quantity',exact=True)).to_have_value('0')
+    persisted = admin.get(f'{BASE_URL}/api/orders/{order_id}',timeout=10).json()
+    assert persisted['status']=='in_progress' and persisted['items'][0]['production_mode']=='historical'
+    assert persisted['items'][0]['fulfilled_quantity']==0
+    dimensions = page.evaluate('() => ({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth})')
+    assert dimensions['scroll']<=dimensions['client']+1

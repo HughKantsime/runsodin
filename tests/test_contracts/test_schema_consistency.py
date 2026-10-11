@@ -235,6 +235,7 @@ class TestORMTablesRegistered:
         "models",
         # orders
         "orders", "order_items", "products", "product_components",
+        "order_production_items", "order_production_components", "order_production_jobs",
         # notifications
         "alerts", "alert_preferences", "push_subscriptions",
         # push

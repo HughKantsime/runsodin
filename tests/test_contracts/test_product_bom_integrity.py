@@ -7,10 +7,13 @@ from sqlalchemy.orm import Session
 from tests.test_contracts.test_education_review_workflow import review_db
 
 @pytest.fixture
-def bom_client(review_db):
+def bom_client(review_db,monkeypatch):
     from core.db import get_db
     from core.dependencies import get_current_user
     from modules.orders.routes import products, orders_crud
+    from modules.orders.production import OrderFulfillmentService
+    from core.registry import registry
+    monkeypatch.setitem(registry._providers,"OrderFulfillmentProvider",OrderFulfillmentService())
     review_db.execute(text("INSERT INTO models(id,name,org_id,cost_per_item) VALUES(101,'Own model',1,2.5),(102,'Foreign private model',2,19),(103,'Shared model',NULL,1)"))
     review_db.execute(text("INSERT INTO products(id,name,org_id,price) VALUES(101,'Own product',1,20),(102,'Foreign product',2,30)"))
     review_db.commit()

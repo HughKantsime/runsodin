@@ -9,6 +9,8 @@ import json
 import logging
 from typing import Optional
 
+from core.order_production import (prepare_job_write, reconcile_job_write, prepare_print_job_write,
+                                   ProductionLinkageChanged, retry_production_linkage)
 from core.db_utils import get_db
 from core.db_compat import sql
 from modules.notifications.alert_dispatch import dispatch_alert
@@ -145,6 +147,7 @@ def parse_hms_errors(hms_data: list) -> list:
     return errors
 
 
+@retry_production_linkage
 def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
     """Mark the active print job as failed due to a print-stopping HMS error.
 
@@ -192,6 +195,8 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
                     )
                     return education_result
 
+            scheduled_job_id, production_orders = prepare_print_job_write(conn, print_job_id)
+
             # Mark print_jobs as failed (WHERE status='running' guards against races)
             # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- verified safe — params bound via ?, f-string interpolates only sql.* dialect helpers or allowlisted symbols
             cur.execute(f"""
@@ -209,6 +214,7 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
                     f"UPDATE jobs SET status = 'failed', actual_end = {sql.now()} WHERE id = ?",
                     (scheduled_job_id,))
 
+            reconcile_job_write(conn, production_orders)
             conn.commit()
 
         log.warning(f"Printer {printer_id}: HMS {hms_code} failed active job "
@@ -232,8 +238,10 @@ def _fail_active_job_for_hms(printer_id: int, hms_code: str, hms_message: str):
             metadata={"hms_code": hms_code, "reason": "hms_error"}
         )
 
-    except Exception as e:
-        log.error(f"Failed to check/fail active job for HMS on printer {printer_id}: {e}")
+    except ProductionLinkageChanged:
+        raise
+    except Exception:
+        log.error("Failed to check/fail active job for HMS on printer %s; reconciliation required", printer_id)
 
 
 def process_hms_errors(

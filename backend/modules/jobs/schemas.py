@@ -65,9 +65,20 @@ class JobUpdate(BaseModel):
     is_locked: Optional[bool] = None
     due_date: Optional[datetime] = None
 
+    @field_validator('quantity', 'hold', 'is_locked', mode='before')
+    @classmethod
+    def require_explicit_operational_value(cls, value):
+        if value is None:
+            raise ValueError('Choose an explicit quantity, hold or lock value')
+        return value
+
 
 class JobResponse(JobBase):
     model_config = ConfigDict(from_attributes=True)
+
+    # Legacy NULLs are unknown read values, never fabricated production facts.
+    quantity: Optional[int] = Field(default=None, ge=1, le=10000)
+    hold: Optional[bool] = None
 
     # Override: relax min_length for response — DB may contain empty strings from
     # MQTT auto-created jobs or legacy data. Input validation stays on JobBase.
@@ -95,11 +106,11 @@ class JobResponse(JobBase):
     actual_start: Optional[datetime] = None
     actual_end: Optional[datetime] = None
     match_score: Optional[int] = None
-    is_locked: bool = False
+    is_locked: Optional[bool] = None
     created_at: datetime
     updated_at: datetime
     colors_list: List[str] = []
-    effective_duration: float = 1.0
+    effective_duration: Optional[float] = None
 
     # Cost tracking
     estimated_cost: Optional[float] = None

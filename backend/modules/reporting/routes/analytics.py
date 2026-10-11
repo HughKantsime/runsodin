@@ -216,10 +216,19 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
     total_cost = 0
     total_print_hours = 0
     jobs_with_cost_data = 0
+    jobs_with_unknown_quantity = sum(
+        job.quantity is None or job.quantity <= 0
+        for job in completed_jobs + pending_jobs
+    )
 
     for job in completed_jobs:
+        # Legacy unknown quantities cannot be treated as one or valued reliably.
+        if job.quantity is None or job.quantity <= 0:
+            if job.duration_hours:
+                total_print_hours += job.duration_hours
+            continue
         # Use job's stored cost data if available
-        if job.suggested_price:
+        if job.suggested_price is not None:
             total_revenue += job.suggested_price * job.quantity
             jobs_with_cost_data += 1
         elif job.model_id:
@@ -228,28 +237,30 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             if model and model.cost_per_item:
                 total_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
 
-        if job.estimated_cost:
+        if job.estimated_cost is not None:
             total_cost += job.estimated_cost * job.quantity
 
         if job.duration_hours:
             total_print_hours += job.duration_hours
 
     # Calculate margin
-    total_margin = total_revenue - total_cost if total_cost > 0 else 0
+    total_margin = total_revenue - total_cost
     margin_percent = (total_margin / total_revenue * 100) if total_revenue > 0 else 0
 
     # Projected revenue from pending jobs
     projected_revenue = 0
     projected_cost = 0
     for job in pending_jobs:
-        if job.suggested_price:
+        if job.quantity is None or job.quantity <= 0:
+            continue
+        if job.suggested_price is not None:
             projected_revenue += job.suggested_price * job.quantity
         elif job.model_id:
             model = db.query(Model).filter(Model.id == job.model_id).first()
             if model and model.cost_per_item:
                 projected_revenue += model.cost_per_item * (model.markup_percent or 300) / 100 * job.quantity
 
-        if job.estimated_cost:
+        if job.estimated_cost is not None:
             projected_cost += job.estimated_cost * job.quantity
 
     # Printer utilization
@@ -338,6 +349,7 @@ def get_analytics(db: Session = Depends(get_db), current_user: dict = Depends(re
             "total_print_hours": round(total_print_hours, 1),
             "avg_value_per_hour": round(avg_value_per_hour, 2),
             "jobs_with_cost_data": jobs_with_cost_data,
+            "jobs_with_unknown_quantity": jobs_with_unknown_quantity,
         },
         "printer_stats": printer_stats,
         "jobs_by_date": jobs_by_date,

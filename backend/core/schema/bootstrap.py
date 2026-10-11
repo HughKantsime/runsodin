@@ -350,6 +350,10 @@ def bootstrap_database(
             connection.execute(text("SELECT pg_advisory_xact_lock(71403114720480978)"))
         if apply_python_migration(connection, "core.schema.migrations.004_quiet_hours_scoped_claims"):
             applied.append("python:004-quiet-hours-scoped-claims")
+        if apply_python_migration(connection, "core.schema.migrations.005_order_production_snapshots"):
+            applied.append("python:005-order-production-snapshots")
+        if apply_python_migration(connection, "core.schema.migrations.006_print_job_measurements"):
+            applied.append("python:006-print-job-measurements")
 
     with engine.begin() as connection:
         if connection.dialect.name == "postgresql":

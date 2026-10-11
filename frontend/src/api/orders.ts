@@ -46,6 +46,7 @@ export const orders = {
   delete: (id: number): Promise<void> => fetchAPI(`/orders/${id}`, { method: 'DELETE' }),
   addItem: (orderId: number, data: OrderItemCreate): Promise<unknown> => fetchAPI(`/orders/${orderId}/items`, { method: 'POST', body: JSON.stringify(data) }),
   updateItem: (orderId: number, itemId: number, data: OrderItemUpdate): Promise<unknown> => fetchAPI(`/orders/${orderId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  confirmProduction: (orderId: number, itemId: number, quantity: number): Promise<Order> => fetchAPI(`/orders/${orderId}/items/${itemId}/confirm-production`, { method: 'POST', body: JSON.stringify({ quantity }) }),
   removeItem: (orderId: number, itemId: number): Promise<void> => fetchAPI(`/orders/${orderId}/items/${itemId}`, { method: 'DELETE' }),
   schedule: (id: number): Promise<unknown> => fetchAPI(`/orders/${id}/schedule`, { method: 'POST' }),
   ship: (id: number, data: OrderShipRequest): Promise<Order> => fetchAPI(`/orders/${id}/ship`, { method: 'PATCH', body: JSON.stringify(data) }),

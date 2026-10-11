@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from core.base import JobStatus
 from core.registry import registry
+from core.order_production import prepare_job_write, reconcile_job_write
 from modules.printers.models import Printer
 from modules.printers.services import evaluate_submission_compatibility
 from modules.jobs.models import Job, SchedulerRun
@@ -237,13 +238,16 @@ class Scheduler:
         job.scheduled_end = None
         job.match_score = None
 
-    def _cleanup_stale_schedules(self, db: Session) -> int:
+    def _cleanup_stale_schedules(self, db: Session, candidate_ids=None) -> int:
         """Reset stale schedules while preserving Education lifecycle policy."""
         cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
-        stale = db.query(Job).filter(
-            Job.status == JobStatus.SCHEDULED,
-            Job.scheduled_start < cutoff
-        ).all()
+        query = db.query(Job).filter(Job.status == JobStatus.SCHEDULED,
+                                     Job.scheduled_start < cutoff)
+        if candidate_ids is not None:
+            query = query.filter(Job.id.in_(candidate_ids))
+        stale = query.populate_existing().all()
+        generic_ids = [job.id for job in stale if not self._is_education_job(db, job.id)]
+        parents = prepare_job_write(db, generic_ids) if generic_ids else []
         policy = registry.get_provider("EducationPolicyProvider")
         reset_count = 0
         for job in stale:
@@ -298,14 +302,19 @@ class Scheduler:
                     reset_count += 1
                 continue
 
-            job.status = JobStatus.PENDING
-            job.printer_id = None
-            job.scheduled_start = None
-            job.scheduled_end = None
-            job.match_score = None
-            reset_count += 1
+            changed = db.execute(text("""
+                UPDATE jobs SET status='pending',printer_id=NULL,
+                    scheduled_start=NULL,scheduled_end=NULL,match_score=NULL
+                WHERE id=:id AND status='scheduled' AND scheduled_start < :cutoff
+                  AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
+                RETURNING id
+            """), {'id':job.id,'cutoff':cutoff}).first()
+            db.expire(job)
+            if changed is not None:
+                reset_count += 1
         if reset_count:
             db.flush()
+        reconcile_job_write(db, parents)
         return reset_count
 
     def run(self, db: Session, start_date: Optional[datetime] = None) -> SchedulerResult:
@@ -325,8 +334,16 @@ class Scheduler:
         if start_date is None:
             start_date = self._round_up_to_next_slot(datetime.now(timezone.utc))
 
+        # All generic production parents are locked in one sorted batch before
+        # cleanup or assignment can dirty a child. Education keeps its own CAS.
+        candidates = list(db.execute(text("""
+            SELECT id FROM jobs WHERE status IN ('pending','scheduled')
+        """)).scalars())
+        generic_ids = [identifier for identifier in candidates if not self._is_education_job(db, identifier)]
+        production_orders = prepare_job_write(db, generic_ids) if generic_ids else []
+
         # Proactive stale schedule cleanup — reset SCHEDULED jobs past their window
-        self._cleanup_stale_schedules(db)
+        self._cleanup_stale_schedules(db, candidate_ids=candidates)
 
         # Calculate total slots in horizon
         total_slots = self.config.horizon_days * 24 * (60 // self.slot_minutes)
@@ -363,6 +380,17 @@ class Scheduler:
                 
             state = printer_states[job.printer_id]
             start_slot = self._time_to_slot(job.scheduled_start, start_date)
+            if job.effective_duration is None:
+                if job.status == JobStatus.COMPLETED:
+                    # Completed history cannot occupy future capacity solely
+                    # because its original production count is unknown.
+                    continue
+                # A scheduled/printing job of unknown duration cannot free any
+                # projected capacity safely. Keep this printer unavailable.
+                for slot in range(total_slots):
+                    usage_map[(job.printer_id, slot)] = str(job.id)
+                result.errors.append(f'Printer {job.printer_id} has job {job.id} with unknown quantity; capacity cannot be established')
+                continue
             duration_slots = max(1, int(job.effective_duration * (60 / self.slot_minutes)))
             end_slot = start_slot + duration_slots
             
@@ -380,8 +408,9 @@ class Scheduler:
         # Get pending jobs to schedule
         pending_jobs = db.query(Job).filter(
             Job.status == JobStatus.PENDING,
-            Job.hold.is_(False)
-        ).order_by(Job.priority, Job.created_at).all()
+            Job.hold.is_(False),
+            Job.id.in_(candidates)
+        ).order_by(Job.priority, Job.created_at).populate_existing().all()
         
         # Pre-fetch printer model requirements from uploaded print files.
         # This is the safety gate data: a job that uses an H2D file must not
@@ -408,6 +437,10 @@ class Scheduler:
         # Schedule each job
         education_policy = registry.get_provider("EducationPolicyProvider")
         for job in pending_jobs:
+            if job.effective_duration is None:
+                result.skipped_count += 1
+                result.errors.append(f'Could not schedule job {job.id}: quantity is unknown')
+                continue
             education_context = None
             approved_printer_id = None
             if self._is_education_job(db, job.id):
@@ -494,21 +527,33 @@ class Scheduler:
                             f"Could not schedule Education job {job.id}: revision changed"
                         )
                         continue
-                # Apply the assignment
-                self._apply_assignment(
-                    job=job,
-                    fit=best_fit,
-                    printer_states=printer_states,
-                    usage_map=usage_map
-                )
-                
-                # Update the job in database
-                job.status = JobStatus.SCHEDULED
-                job.printer_id = best_fit["printer_id"]
-                job.scheduled_start = best_fit["start_time"]
-                job.scheduled_end = best_fit["end_time"]
-                job.match_score = best_fit["match_score"]
-                
+                else:
+                    changed = db.execute(text("""
+                        UPDATE jobs SET status='scheduled',printer_id=:printer,
+                            scheduled_start=:start,scheduled_end=:end,match_score=:score
+                        WHERE id=:id AND status='pending' AND hold IS FALSE
+                          AND quantity=:quantity
+                          AND NOT EXISTS (SELECT 1 FROM education_submissions s WHERE s.job_id=jobs.id)
+                        RETURNING id
+                    """), {'printer':best_fit['printer_id'],'start':best_fit['start_time'],
+                            'end':best_fit['end_time'],'score':best_fit['match_score'],
+                            'id':job.id,'quantity':job.quantity}).first()
+                    if changed is None:
+                        db.expire(job)
+                        result.skipped_count += 1
+                        result.errors.append(f'Could not schedule job {job.id}: current state changed')
+                        continue
+                    db.expire(job)
+                # Reserve projected capacity only after the database accepted it.
+                self._apply_assignment(job=job, fit=best_fit,
+                                       printer_states=printer_states, usage_map=usage_map)
+                if education_context is not None:
+                    job.status = JobStatus.SCHEDULED
+                    job.printer_id = best_fit['printer_id']
+                    job.scheduled_start = best_fit['start_time']
+                    job.scheduled_end = best_fit['end_time']
+                    job.match_score = best_fit['match_score']
+
                 # Track metrics
                 result.scheduled_count += 1
                 result.total_match_score += best_fit["match_score"]
@@ -535,7 +580,8 @@ class Scheduler:
                 else:
                     result.errors.append(f"Could not schedule job {job.id}: {job.item_name}")
         
-        # Commit changes
+        # Reconcile in the same transaction as all generic state writes.
+        reconcile_job_write(db, production_orders)
         db.commit()
         
         # Log the run
@@ -574,6 +620,8 @@ class Scheduler:
         Returns dict with assignment details or None if no fit found.
         """
         candidates = []
+        if job.effective_duration is None:
+            return None
 
         required_colors = job.colors_list or []
         required_tags = job.required_tags or []

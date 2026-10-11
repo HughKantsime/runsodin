@@ -78,6 +78,8 @@ export interface OrderItem {
   quantity: number;
   unit_price: number | null;
   fulfilled_quantity: number;
+  production_mode?: string | null;
+  can_confirm_production?: boolean;
   created_at: string;
   product_name: string | null;
   product_sku: string | null;

@@ -51,6 +51,11 @@ export default function JobRow({ job, onAction, dragProps, isSelected, onToggleS
       </td>
       <td className="px-3 md:px-4 py-3">
         <div className="font-medium text-sm">{job.item_name}</div>
+        {(job.quantity == null || job.hold == null || job.is_locked == null) && (
+          <div className="text-xs text-[var(--brand-text-muted)]">
+            {[job.quantity == null && 'Quantity unknown', job.hold == null && 'Hold state unknown', job.is_locked == null && 'Lock state unknown'].filter(Boolean).join(' · ')}
+          </div>
+        )}
         {job.order_item_id && (
           <div className="text-xs text-[var(--brand-primary)] flex items-center gap-1">
             <ShoppingCart size={10} />

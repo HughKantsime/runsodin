@@ -306,7 +306,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
     if (job) {
       setFormData({
         item_name: job.item_name || '',
-        quantity: job.quantity || 1,
+        quantity: job.quantity ?? '',
         priority: job.priority || 3,
         duration_hours: job.duration_hours || '',
         colors_required: job.colors_list?.join(', ') || '',
@@ -322,7 +322,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
     e.preventDefault()
     onSubmit(job.id, {
       item_name: formData.item_name,
-      quantity: formData.quantity ? Number(formData.quantity) : null,
+      ...(formData.quantity !== '' && formData.quantity != null ? { quantity: Number(formData.quantity) } : {}),
       priority: Number(formData.priority),
       duration_hours: formData.duration_hours ? Number(formData.duration_hours) : null,
       colors_required: formData.colors_required || null,
@@ -354,7 +354,7 @@ export function EditJobModal({ isOpen, onClose, onSubmit, job, printersData, mod
           </div>
           <div>
             <label className="block text-sm text-[var(--brand-text-secondary)] mb-1">Quantity</label>
-            <input type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
+            <input aria-label="Quantity" placeholder={job.quantity == null ? "Unknown" : undefined} type="number" min="1" value={formData.quantity} onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))} className="w-full bg-[var(--brand-input-bg)] border border-[var(--brand-card-border)] rounded-md px-3 py-2 text-sm" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">

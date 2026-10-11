@@ -15,6 +15,22 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/order_production.py": (
+        "dialect-neutral",
+        "ORM named parameters and raw qmark operations use the shared DBAPI adapter; owned PostgreSQL production tests cover both boundaries",
+    ),
+    "backend/modules/orders/production.py": (
+        "dialect-neutral",
+        "Caller-owned ORM or DBAPI transaction; named parameters translate to shared adapter qmark SQL for SQLite and PostgreSQL",
+    ),
+    "backend/core/schema/migrations/005_order_production_snapshots.py": (
+        "sqlite-provider-only",
+        "SQLite-only BEGIN IMMEDIATE guards DDL transactions; frozen SQLAlchemy tables and inspection run on both database providers",
+    ),
+    "backend/core/schema/migrations/006_print_job_measurements.py": (
+        "sqlite-provider-only",
+        "SQLite-only explicit BEGIN guards transactional ALTER; fixed nullable REAL additions and adopted-shape validation run on both providers",
+    ),
     "backend/modules/system/sanitize.py": (
         "dialect-neutral",
         "Secret-filter regular expressions contain question marks; this utility executes no SQL",
