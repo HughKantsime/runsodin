@@ -20,8 +20,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 from core.db import get_db
 from core.db_compat import execute_insert_returning_id
@@ -74,6 +75,59 @@ def _check_project_org_access(db, project_row, current_user):
         raise HTTPException(status_code=404, detail="Project not found")
 
 
+def _locked_project(db, project_id):
+    dialect = db.get_bind().dialect.name
+    if dialect == 'sqlite':
+        # Even an existing deferred transaction must acquire a real write lock.
+        try:
+            db.execute(text("UPDATE projects SET id = id WHERE 1 = 0"))
+        except OperationalError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Project changed concurrently; retry") from None
+    suffix = " FOR UPDATE" if dialect == 'postgresql' else ""
+    return db.execute(text("SELECT * FROM projects WHERE id = :id" + suffix), {"id": project_id}).fetchone()
+
+
+def _lock_assignment_owners(db, archive_ids):
+    suffix = " FOR UPDATE" if db.get_bind().dialect.name == 'postgresql' else ""
+    rows = db.execute(
+        text("SELECT id, printer_id FROM print_archives WHERE id IN :archive_ids ORDER BY id" + suffix)
+        .bindparams(bindparam("archive_ids", expanding=True)),
+        {"archive_ids": archive_ids},
+    ).fetchall()
+    printer_ids = sorted({row.printer_id for row in rows if row.printer_id is not None})
+    locked_printers = set()
+    if printer_ids:
+        locked_rows = db.execute(
+            text("SELECT id FROM printers WHERE id IN :printer_ids ORDER BY id" + suffix)
+            .bindparams(bindparam("printer_ids", expanding=True)),
+            {"printer_ids": printer_ids},
+        ).fetchall()
+        locked_printers = {row.id for row in locked_rows}
+    return locked_printers
+
+
+def _archive_visibility(user):
+    """Read shared records; explicitly retain NULL-parent legacy archives."""
+    org = get_org_scope(user)
+    if not should_filter_org(user, org):
+        return "1=1", {}
+    return (
+        "(a.printer_id IS NULL OR (ap.id IS NOT NULL AND "
+        "(ap.org_id = :_archive_org OR ap.org_id IS NULL OR ap.shared IS TRUE)))",
+        {"_archive_org": org},
+    )
+
+
+def _check_assignment_archive(row, user):
+    if not should_filter_org(user, get_org_scope(user)):
+        return
+    if row.printer_id is None:
+        return  # Preserve explicitly unowned legacy records.
+    if row.owner_printer_id is None or not check_org_access(user, row.owner_org):
+        raise HTTPException(status_code=404, detail="Archive not found")
+
+
 # ──────────────────────────────────────────────
 # CRUD
 # ──────────────────────────────────────────────
@@ -81,7 +135,7 @@ def _check_project_org_access(db, project_row, current_user):
 @router.get("/projects", tags=["Projects"])
 def list_projects(
     status: Optional[str] = Query(None),
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """List all projects with archive counts."""
@@ -97,12 +151,15 @@ def list_projects(
         conditions.append("(p.org_id = :_org OR p.org_id IS NULL)")
         params["_org"] = org
 
+    archive_scope, archive_params = _archive_visibility(user)
+    params.update(archive_params)
     where = " AND ".join(conditions) if conditions else "1=1"
 
     rows = db.execute(
         text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
             f"SELECT p.*, "
-            f"(SELECT COUNT(*) FROM print_archives a WHERE a.project_id = p.id) AS archive_count "
+            f"(SELECT COUNT(*) FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
+            f"WHERE a.project_id = p.id AND {archive_scope}) AS archive_count "
             f"FROM projects p WHERE {where} ORDER BY p.updated_at DESC"
         ),
         params,
@@ -113,13 +170,15 @@ def list_projects(
 @router.post("/projects", tags=["Projects"])
 def create_project(
     body: ProjectCreate,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Create a new project."""
     uid = user.get("id") if isinstance(user, dict) else getattr(user, "id", None)
     # Default org_id to user's org scope if not explicitly provided
     org_id = body.org_id if body.org_id is not None else get_org_scope(user)
+    if not check_org_access(user, org_id):
+        raise HTTPException(status_code=404, detail="Organization not found")
     pid = execute_insert_returning_id(
         db,
         """
@@ -138,7 +197,7 @@ def create_project(
 @router.get("/projects/{project_id}", tags=["Projects"])
 def get_project(
     project_id: int,
-    user=Depends(require_role("viewer")),
+    user=Depends(require_role("viewer", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Get project detail with linked archives."""
@@ -150,14 +209,16 @@ def get_project(
     _check_project_org_access(db, row, user)
     d = dict(row._mapping)
 
+    archive_scope, archive_params = _archive_visibility(user)
     archives = db.execute(
         text(
             "SELECT a.*, p.name AS printer_name, p.nickname AS printer_nickname "
             "FROM print_archives a "
             "LEFT JOIN printers p ON p.id = a.printer_id "
-            "WHERE a.project_id = :pid ORDER BY a.created_at DESC"
+            "LEFT JOIN printers ap ON ap.id = a.printer_id "
+            f"WHERE a.project_id = :pid AND {archive_scope} ORDER BY a.created_at DESC, a.id DESC"
         ),
-        {"pid": project_id},
+        {"pid": project_id, **archive_params},
     ).fetchall()
     d["archives"] = [dict(a._mapping) for a in archives]
     d["archive_count"] = len(archives)
@@ -168,13 +229,11 @@ def get_project(
 def update_project(
     project_id: int,
     body: ProjectUpdate,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Update a project."""
-    existing = db.execute(
-        text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
-    ).fetchone()
+    existing = _locked_project(db, project_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
     _check_project_org_access(db, existing, user)
@@ -197,13 +256,11 @@ def update_project(
 @router.delete("/projects/{project_id}", tags=["Projects"])
 def delete_project(
     project_id: int,
-    user=Depends(require_role("admin")),
+    user=Depends(require_role("admin", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Soft-delete a project (set status to 'archived'). Admin only."""
-    existing = db.execute(
-        text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
-    ).fetchone()
+    existing = _locked_project(db, project_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
     _check_project_org_access(db, existing, user)
@@ -223,13 +280,11 @@ def delete_project(
 def assign_archives(
     project_id: int,
     body: BulkAssign,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Bulk assign archives to a project."""
-    existing = db.execute(
-        text("SELECT * FROM projects WHERE id = :id"), {"id": project_id}
-    ).fetchone()
+    existing = _locked_project(db, project_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Project not found")
     _check_project_org_access(db, existing, user)
@@ -237,22 +292,28 @@ def assign_archives(
     if not body.archive_ids:
         raise HTTPException(status_code=400, detail="archive_ids cannot be empty")
 
-    # Validate all archive IDs exist
-    placeholders = ",".join(str(int(aid)) for aid in body.archive_ids)
+    archive_ids = sorted(set(body.archive_ids))
+    locked_printers = _lock_assignment_owners(db, archive_ids)
     found = db.execute(
-        text(f"SELECT id FROM print_archives WHERE id IN ({placeholders})")  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
+        text("SELECT a.id, a.printer_id, ap.id AS owner_printer_id, ap.org_id AS owner_org "
+             "FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
+             "WHERE a.id IN :archive_ids").bindparams(bindparam("archive_ids", expanding=True)),
+        {"archive_ids": archive_ids},
     ).fetchall()
-    found_ids = {r[0] for r in found}
-    missing = set(body.archive_ids) - found_ids
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Archive IDs not found: {sorted(missing)}")
-
+    if len(found) != len(archive_ids):
+        raise HTTPException(status_code=404, detail="Archive not found")
+    for row in found:
+        if (should_filter_org(user, get_org_scope(user))
+                and row.printer_id is not None and row.printer_id not in locked_printers):
+            raise HTTPException(status_code=404, detail="Archive not found")
+        _check_assignment_archive(row, user)
     db.execute(
-        text(f"UPDATE print_archives SET project_id = :pid WHERE id IN ({placeholders})"),  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
-        {"pid": project_id},
+        text("UPDATE print_archives SET project_id = :pid WHERE id IN :archive_ids")
+        .bindparams(bindparam("archive_ids", expanding=True)),
+        {"pid": project_id, "archive_ids": archive_ids},
     )
     db.commit()
-    return {"assigned": len(body.archive_ids)}
+    return {"assigned": len(archive_ids)}
 
 
 # ──────────────────────────────────────────────
@@ -262,7 +323,7 @@ def assign_archives(
 @router.get("/projects/{project_id}/export", tags=["Projects"])
 def export_project(
     project_id: int,
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="read:jobs")),
     db: Session = Depends(get_db),
 ):
     """Export project as ZIP containing metadata JSON and linked 3MF files."""
@@ -274,9 +335,11 @@ def export_project(
     _check_project_org_access(db, row, user)
 
     project = dict(row._mapping)
+    archive_scope, archive_params = _archive_visibility(user)
     archives = db.execute(
-        text("SELECT * FROM print_archives WHERE project_id = :pid"),
-        {"pid": project_id},
+        text("SELECT a.* FROM print_archives a LEFT JOIN printers ap ON ap.id = a.printer_id "
+             f"WHERE a.project_id = :pid AND {archive_scope} ORDER BY a.id"),
+        {"pid": project_id, **archive_params},
     ).fetchall()
 
     buf = io.BytesIO()
@@ -304,7 +367,7 @@ def export_project(
 @router.post("/projects/import", tags=["Projects"])
 async def import_project(
     file: UploadFile = File(...),
-    user=Depends(require_role("operator")),
+    user=Depends(require_role("operator", scope="write:jobs")),
     db: Session = Depends(get_db),
 ):
     """Import a project from a ZIP export."""

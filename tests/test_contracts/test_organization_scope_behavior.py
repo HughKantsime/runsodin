@@ -119,7 +119,7 @@ def test_shared_printer_and_archive_remain_visible(scope_client,review_db):
 
 def test_foreign_archive_write_denied_and_tags_scoped(scope_client,review_db):
     client,identity=scope_client;identity.update(group_id=None)
-    response=client.patch('/archives/102/notes',json={'notes':'Denied overwrite'})
+    response=client.patch('/archives/102',json={'notes':'Denied overwrite'})
     assert response.status_code==404,response.text
     with Session(review_db.get_bind()) as fresh:
         assert fresh.execute(text('SELECT notes FROM print_archives WHERE id=102')).scalar_one() is None
