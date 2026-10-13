@@ -18,6 +18,7 @@ import core.crypto as crypto
 from modules.printers.models import Printer, FilamentSlot
 from modules.inventory.models import Spool, FilamentLibrary
 from modules.printers.schemas import FilamentSlotResponse
+from modules.printers.ledger_display import ensure_local_filaments
 from core.base import FilamentType, SpoolStatus
 
 # Bambu Lab Integration
@@ -83,6 +84,7 @@ def sync_ams_state(printer_id: int, current_user: dict = Depends(require_role("o
     printer = db.query(Printer).filter(Printer.id == printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    ensure_local_filaments(printer_id)
 
     if not printer.api_type:
         raise HTTPException(status_code=400, detail="Printer api_type not configured")

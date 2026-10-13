@@ -42,6 +42,9 @@ class FilamentSlotResponse(FilamentSlotBase):
     loaded_at: Optional[datetime] = None
     remaining: Optional[float] = None
     material_type: Optional[str] = None
+    display_name: Optional[str] = None
+    mapping_status: Optional[str] = None
+    external_spool_id: Optional[str | int] = None
 
 
 # ============== Printer Schemas ==============
@@ -120,6 +123,8 @@ class PrinterResponse(PrinterBase):
     created_at: datetime
     updated_at: datetime
     filament_slots: List[FilamentSlotResponse] = []
+    filament_source: Optional[str] = None
+    filament_source_status: Optional[str] = None
     loaded_colors: List[str] = []
     tags: List[str] = []
     shared: bool = False

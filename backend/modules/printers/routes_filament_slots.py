@@ -37,6 +37,7 @@ from core.rbac import (
 from core.responses import build_next_actions, next_action
 from modules.inventory.models import Spool
 from modules.printers.models import FilamentSlot, Printer
+from modules.printers.ledger_display import ensure_local_filaments
 
 log = logging.getLogger("odin.api")
 router = APIRouter(tags=["Filament"])
@@ -79,6 +80,7 @@ def assign_spool_to_slot(
             status=404,
         )
 
+    ensure_local_filaments(body.printer_id)
     slot_number = body.ams_slot if body.ams_slot is not None else 1
     slot = db.query(FilamentSlot).filter(
         FilamentSlot.printer_id == body.printer_id,

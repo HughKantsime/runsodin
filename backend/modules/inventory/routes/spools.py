@@ -23,6 +23,7 @@ from core.responses import build_next_actions, next_action
 from core.base import SpoolStatus
 from modules.inventory.models import Spool, SpoolUsage
 from modules.printers.models import FilamentSlot, Printer
+from modules.printers.ledger_display import ensure_local_filaments
 from ._helpers import (
     SpoolCreate, SpoolUpdate,
     SpoolLoadRequest, SpoolUseRequest, SpoolWeighRequest,
@@ -267,6 +268,7 @@ def load_spool(spool_id: int, request: SpoolLoadRequest, current_user: dict = De
     printer = db.query(Printer).filter(Printer.id == request.printer_id).first()
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
+    ensure_local_filaments(request.printer_id)
 
     if request.slot_number < 1 or request.slot_number > printer.slot_count:
         raise HTTPException(status_code=400, detail=f"Invalid slot number (1-{printer.slot_count})")
@@ -319,6 +321,7 @@ def unload_spool(
 
     # Clear slot assignment
     if spool.location_printer_id and spool.location_slot:
+        ensure_local_filaments(spool.location_printer_id)
         slot = db.query(FilamentSlot).filter(
             FilamentSlot.printer_id == spool.location_printer_id,
             FilamentSlot.slot_number == spool.location_slot,
