@@ -471,6 +471,7 @@ _ENERGY_START_LIMIT = 512
 _ENERGY_APPLY_ATTEMPTS = 10
 _ENERGY_APPLY_INTERVAL = 1.0
 _energy_starts: Dict[int, tuple] = {}
+_energy_ended: Dict[int, float] = {}  # prints that ended before their delayed start reading
 _energy_lock = threading.Lock()
 
 
@@ -490,6 +491,8 @@ def record_energy_start(printer_id: int, print_job_id: int) -> None:
     if reading is None:
         return
     with _energy_lock:
+        if _energy_ended.pop(print_job_id, None) is not None:
+            return
         if len(_energy_starts) >= _ENERGY_START_LIMIT:
             _energy_starts.pop(next(iter(_energy_starts)))
         _energy_starts[print_job_id] = (printer_id, reading)
@@ -503,6 +506,10 @@ def record_energy_for_print(printer_id: int, print_job_id: int) -> Optional[floa
     """
     with _energy_lock:
         start = _energy_starts.pop(print_job_id, None)
+        if start is None:
+            if len(_energy_ended) >= _ENERGY_START_LIMIT:
+                _energy_ended.pop(next(iter(_energy_ended)))
+            _energy_ended[print_job_id] = time.monotonic()
     if start is None or start[0] != printer_id:
         return None
     end_kwh = _energy_counter(printer_id)
@@ -541,6 +548,8 @@ def _apply_energy(printer_id, print_job_id, consumed, cost, attempts):
     except Exception:
         log.warning("Failed to record plug energy")
         return
+    if applied is None and attempts <= 1:
+        log.warning("Plug energy measured but no print archive appeared to store it")
     if applied is None and attempts > 1:
         timer = threading.Timer(_ENERGY_APPLY_INTERVAL, _apply_energy,
                                 (printer_id, print_job_id, consumed, cost, attempts - 1))
@@ -620,5 +629,6 @@ def register_subscribers(bus) -> None:
 
     bus.subscribe(ev.JOB_STARTED, _on_job_started_event)
     bus.subscribe(ev.JOB_COMPLETED, _on_job_completed_event)
+    bus.subscribe(ev.JOB_FAILED, _on_energy_end_event)
     bus.subscribe(ev.JOB_CANCELLED, _on_energy_end_event)
     log.debug("smart_plug subscribed to event bus")

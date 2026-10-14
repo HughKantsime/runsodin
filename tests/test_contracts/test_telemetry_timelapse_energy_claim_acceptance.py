@@ -35,6 +35,7 @@ def metered(review_db,monkeypatch):
     from modules.printers import smart_plug
     monkeypatch.setattr(smart_plug,'engine',review_db.get_bind())
     monkeypatch.setattr(smart_plug,'_energy_starts',{})
+    monkeypatch.setattr(smart_plug,'_energy_ended',{})
     reading={'total':12.0}
     monkeypatch.setattr(smart_plug,'_http_request',lambda url:(200,'{"StatusSNS":{"ENERGY":{"Total":%s,"Power":40,"Voltage":230,"Current":0.2}}}'%reading['total']))
     monkeypatch.setattr(smart_plug,'get_energy',lambda printer:smart_plug.tasmota_energy('owned.invalid'))
@@ -121,7 +122,9 @@ def test_chargeback_actual_http_dates_and_users_and_advertised_grams(analytics_c
     from modules.reporting.routes import reports
     analytics_client.app.include_router(reports.router)
     review_db.execute(text('UPDATE jobs SET charged_to_user_id=NULL'))
-    review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,estimated_cost,duration_hours,created_at) VALUES('Owned in window',1,1,5,2,'2026-10-11 12:00:00'),('Owned second',1,1,7,3,'2026-10-11 13:00:00'),('Owned outside',1,1,99,9,'2026-01-01 12:00:00')"));review_db.commit()
+    review_db.execute(text("INSERT INTO jobs(item_name,charged_to_user_id,charged_to_org_id,estimated_cost,duration_hours,created_at) VALUES('Owned in window',1,1,5,2,'2026-10-11 12:00:00'),('Owned second',1,1,7,3,'2026-10-11 13:00:00'),('Owned outside',1,1,99,9,'2026-01-01 12:00:00')"))
+    review_db.execute(text("UPDATE jobs SET status='completed' WHERE item_name LIKE 'Owned%' AND charged_to_user_id IS NOT NULL"))  # chargebacks cover consumed (terminal) jobs
+    review_db.commit()
     response=analytics_client.get('/reports/chargebacks',params={'start_date':'2026-10-10','end_date':'2026-10-12'})
     assert response.status_code==200
     row=response.json()[0]
@@ -156,3 +159,25 @@ def test_job_events_drive_energy_metering_through_the_real_bus(metered,review_db
     reading['total']=13.0;_archive(review_db,'cancelled')
     bus.publish(Event(events.JOB_CANCELLED,'synthetic',{'printer_id':9,'print_job_id':993}))
     assert _energy(review_db)==((1.0,.2),1.0)
+
+
+def test_failed_print_records_energy_through_the_real_bus(metered,review_db,monkeypatch):
+    from core.event_bus import InMemoryEventBus
+    from core.interfaces.event_bus import Event
+    from core import events
+    smart_plug,reading=metered
+    monkeypatch.setattr(smart_plug,'_in_background',lambda function,*args:function(*args))
+    monkeypatch.setattr(smart_plug,'_ENERGY_START_DELAY',0)
+    monkeypatch.setattr(smart_plug,'on_print_start',lambda *a,**k:None)
+    bus=InMemoryEventBus();smart_plug.register_subscribers(bus)
+    bus.publish(Event(events.JOB_STARTED,'synthetic',{'printer_id':9,'print_job_id':993}))
+    reading['total']=12.3;_archive(review_db,'failed')
+    bus.publish(Event(events.JOB_FAILED,'synthetic',{'printer_id':9,'print_job_id':993,'success':False}))
+    assert _energy(review_db)==((.3,.06),.3)
+
+
+def test_print_ending_before_the_delayed_start_reading_leaves_no_orphan(metered,review_db):
+    smart_plug,reading=metered
+    assert smart_plug.record_energy_for_print(9,993) is None   # end arrives first
+    smart_plug.record_energy_start(9,993)                       # late start reading is skipped
+    assert smart_plug._energy_starts=={} and smart_plug._energy_ended=={}
