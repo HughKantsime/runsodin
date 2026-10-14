@@ -1,6 +1,254 @@
 {
   "entries": [
     {
+      "classification": "sqlite-provider-only",
+      "line": 50,
+      "path": "backend/core/account_bound_session_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if s.one(c,\"SELECT count(*) FROM pg_catalog.pg_class WHERE relnamespace=pg_catalog.pg_my_temp_schema() AND relname=?\",(t,))[0]:raise s.AccountLifetimeError('Temporary account session relation refused')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 51,
+      "path": "backend/core/account_bound_session_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "r=s.one(c,\"SELECT r.oid,n.oid,r.relkind,r.relpersistence FROM pg_catalog.pg_class r JOIN pg_catalog.pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='public' AND r.relname=?\",(t,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 40,
+      "path": "backend/core/account_bound_session_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if s.dialect(c)=='sqlite' and s.rows(c,'PRAGMA foreign_key_check(active_sessions)'):_refuse('Account session foreign data differs')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 100,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "row=s.one(c,\"SELECT u.username,u.role,u.group_id,l.born_at FROM users u JOIN account_bindings b ON b.user_id=u.id AND b.account_nonce=u.account_nonce JOIN account_lifetimes l ON l.account_nonce=b.account_nonce AND l.current_user_id=u.id WHE"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 135,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "s.execute(c,'INSERT INTO account_authorities(jti,account_nonce,purpose,issued_at,expires_at) VALUES(?,?,?,?,?)',(jti,account_nonce,purpose,serialize(issued),serialize(expires)))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 136,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "row=s.one(c,'SELECT account_nonce,purpose,issued_at,expires_at FROM account_authorities WHERE jti=?',(jti,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 149,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "row=s.one(c,'SELECT account_nonce,purpose,issued_at,expires_at FROM account_authorities WHERE jti=?',(staged.jti,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 165,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if schema.one(c,'SELECT 1 FROM token_blacklist WHERE jti=?',(staged.jti,)) is not None:raise AccountTokenError('Staged token revoked')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 166,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "row=schema.one(c,'INSERT INTO active_sessions(user_id,token_jti,account_nonce,ip_address,user_agent) VALUES(?,?,?,?,?) RETURNING id',(staged.user_id,staged.jti,staged.account_nonce,ip,None if user_agent is None else user_agent[:500]))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 167,
+      "path": "backend/core/account_bound_tokens.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "proof=schema.one(c,'SELECT id,user_id,token_jti,account_nonce FROM active_sessions WHERE id=?',(row[0],))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 74,
+      "path": "backend/core/account_lifetime_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "execute(c,\"INSERT INTO account_lifetimes(account_nonce,birth_user_id,current_user_id,state,born_at) VALUES(?,?,?,'active',?)\",(nonce,uid,uid,born))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 75,
+      "path": "backend/core/account_lifetime_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "execute(c,'INSERT INTO account_bindings(account_nonce,user_id) VALUES(?,?)',(nonce,uid))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 76,
+      "path": "backend/core/account_lifetime_creation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if tuple(one(c,'SELECT u.id,l.account_nonce FROM users u JOIN account_bindings b ON b.user_id=u.id AND b.account_nonce=u.account_nonce JOIN account_lifetimes l ON l.account_nonce=b.account_nonce AND l.current_user_id=u.id WHERE u.id=?',(uid"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 3,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "sqlite3",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "import sqlite3"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 39,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if driver.execute('PRAGMA foreign_keys').fetchone()[0]!=1:raise AccountLifetimeError('Foreign-key enforcement required')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 40,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if driver.execute('PRAGMA read_uncommitted').fetchone()[0]!=0:raise AccountLifetimeError('Account transaction isolation differs')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 72,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if one(executor,\"SELECT count(*) FROM pg_catalog.pg_class WHERE relnamespace=pg_catalog.pg_my_temp_schema() AND relname=?\",(table,))[0]:raise AccountLifetimeError('Temporary account relation refused')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 73,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "value=one(executor,\"SELECT c.oid,c.relkind,c.relpersistence,n.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=?\",(table,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 164,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "usercols=rows(c,\"SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users'\" if pg else 'PRAGMA table_xinfo(users)')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 168,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "unique=rows(c,'PRAGMA index_list(users)')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 170,
+      "path": "backend/core/account_lifetime_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if row[2] and tuple(r[2] for r in rows(c,'PRAGMA index_info(\"'+row[1]+'\")')) not in (('username',),('id','group_id'),('oidc_issuer','oidc_subject')):raise AccountLifetimeError('Unsupported original users unique key')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 53,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if dialect(c)=='sqlite' and rows(c,'PRAGMA foreign_key_check'):_refuse('Account foreign data differs')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 59,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "actual=one(c,\"SELECT sql FROM sqlite_schema WHERE type='table' AND name=?\",(table,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 64,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "row=one(c,\"SELECT sql FROM sqlite_schema WHERE type='index' AND name=?\",(name,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 71,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if rows(c,\"SELECT name FROM sqlite_schema WHERE tbl_name=? AND type='index' AND sql IS NOT NULL\",(table,)):_refuse('Unexpected account index')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 72,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if any(r[0] not in expected for r in rows(c,\"SELECT name FROM sqlite_schema WHERE tbl_name=? AND type='trigger'\",(table,))):_refuse('Unexpected account guard')"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 77,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "actual_columns=rows(c,\"SELECT column_name,data_type,is_nullable,column_default,collation_name FROM information_schema.columns WHERE table_schema='public' AND table_name=? ORDER BY ordinal_position\",(table,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 79,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "actual_constraints=rows(c,\"SELECT conname,contype,pg_get_constraintdef(oid),convalidated,condeferrable,condeferred,pg_get_expr(conbin,conrelid) FROM pg_constraint WHERE conrelid=to_regclass(?) ORDER BY conname\",('public.'+table,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 82,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "actual_indexes=rows(c,\"SELECT r.relname,pg_get_indexdef(i.indexrelid),i.indisvalid,i.indisready,i.indimmediate FROM pg_index i JOIN pg_class r ON r.oid=i.indexrelid WHERE i.indrelid=to_regclass(?) ORDER BY r.relname\",('public.'+table,))"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 84,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "actual_references=rows(c,\"SELECT x.conname,n.nspname,r.relname,x.confkey,x.conkey FROM pg_constraint x JOIN pg_class r ON r.oid=x.confrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE x.contype='f' AND x.conrelid=to_regclass(?) ORDER "
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 86,
+      "path": "backend/core/account_lifetime_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "actual_triggers=rows(c,\"SELECT t.tgname,pg_get_triggerdef(t.oid),t.tgenabled,t.tgtype,p.proname,n.nspname FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace n ON n.oid=p.pronamespace WHERE NOT t.tgisinternal AND t.tgrelid="
+    },
+    {
       "classification": "dialect-neutral",
       "line": 70,
       "path": "backend/core/ams_source_inspection.py",
@@ -506,6 +754,70 @@
     },
     {
       "classification": "sqlite-provider-only",
+      "line": 211,
+      "path": "backend/core/priced_estimate_schema.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if not connection.connection.driver_connection.in_transaction or connection.exec_driver_sql('PRAGMA foreign_keys').scalar_one()!=1 or connection.exec_driver_sql('PRAGMA ignore_check_constraints').scalar_one()!=0:refuse()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 199,
+      "path": "backend/core/priced_estimate_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if db.exec_driver_sql('PRAGMA foreign_keys').scalar_one()!=1 or db.exec_driver_sql('PRAGMA ignore_check_constraints').scalar_one()!=0:_fail()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 206,
+      "path": "backend/core/priced_estimate_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if db.exec_driver_sql('PRAGMA foreign_key_check('+table+')').first():_fail()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 3,
+      "path": "backend/core/project_import_transaction.py",
+      "pattern": "sqlite3",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "import sqlite3"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 124,
+      "path": "backend/core/project_import_transaction.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if self.driver.execute('PRAGMA foreign_keys').fetchone()[0] != 1 or self.driver.execute('PRAGMA ignore_check_constraints').fetchone()[0] != 0:"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 19,
+      "path": "backend/core/project_import_validation.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "match=re.fullmatch(r'FOREIGN KEY\\(([^)]+)\\) REFERENCES (\\w+)\\(([^)]+)\\) ON UPDATE (RESTRICT|NO ACTION) ON DELETE (RESTRICT|NO ACTION)( DEFERRABLE INITIALLY DEFERRED)?',constraint)"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 44,
+      "path": "backend/core/project_import_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if connection.exec_driver_sql('PRAGMA foreign_key_check('+table+')').first():_refuse()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 209,
+      "path": "backend/core/project_import_validation.py",
+      "pattern": "PRAGMA",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "if not driver.in_transaction or driver.execute('PRAGMA foreign_keys').fetchone()[0]!=1 or driver.execute('PRAGMA ignore_check_constraints').fetchone()[0]!=0:_refuse()"
+    },
+    {
+      "classification": "sqlite-provider-only",
       "line": 37,
       "path": "backend/core/schema/mfa_enrollments.py",
       "pattern": "PRAGMA",
@@ -695,6 +1007,14 @@
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite branches use PRAGMA for schema inspection, migration FK toggling, and pre-commit integrity verification",
       "source": "connection.exec_driver_sql(\"PRAGMA foreign_keys\").scalar_one()"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 12,
+      "path": "backend/core/schema/prepriced_restore_contract.py",
+      "pattern": "qmark-parameter",
+      "reason": "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+      "source": "PROFILE_JSON = '{\"constraints\":[[\"public\",\"active_sessions\",\"active_sessions_pkey\",\"p\",false,false,true,\" \",\" \",\" \",\"\",\"\",[1],null,\"PRIMARY KEY (id)\"],[\"public\",\"active_sessions\",\"active_sessions_token_jti_key\",\"u\",false,false,true,\" \",\" \","
     },
     {
       "classification": "sqlite-provider-only",
@@ -1010,7 +1330,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 120,
+      "line": 132,
       "path": "backend/modules/archives/timelapse_action_authority.py",
       "pattern": "PRAGMA",
       "reason": "SQLite foreign-key enforcement and BEGIN IMMEDIATE are dialect guarded; PostgreSQL action authority uses its own caller transaction and source locks.",
@@ -1150,11 +1470,11 @@
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?\","
+      "source": "\"SELECT job_name, scheduled_job_id, ended_at FROM print_jobs WHERE id = ?\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 166,
+      "line": 169,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1162,19 +1482,19 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 173,
+      "line": 176,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = ? WHERE id = ?\","
+      "source": "\"UPDATE jobs SET status = ?, actual_end = ? WHERE id = ?\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 286,
+      "line": 288,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "f\"\"\"UPDATE print_jobs SET"
+      "source": "\"SELECT printer_id,status FROM print_jobs WHERE id=?\", (print_job_id,)"
     },
     {
       "classification": "dialect-neutral",
@@ -1182,11 +1502,19 @@
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"SELECT job_name, scheduled_job_id FROM print_jobs WHERE id = ?\","
+      "source": "f\"\"\"UPDATE print_jobs SET"
     },
     {
       "classification": "dialect-neutral",
-      "line": 301,
+      "line": 302,
+      "path": "backend/modules/notifications/job_events.py",
+      "pattern": "qmark-parameter",
+      "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
+      "source": "\"SELECT job_name, scheduled_job_id, ended_at FROM print_jobs WHERE id = ?\","
+    },
+    {
+      "classification": "dialect-neutral",
+      "line": 312,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1194,15 +1522,15 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 307,
+      "line": 318,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
-      "source": "\"UPDATE jobs SET status = 'cancelled' WHERE id = ?\","
+      "source": "\"UPDATE jobs SET status = 'cancelled', actual_end = ? WHERE id = ?\","
     },
     {
       "classification": "dialect-neutral",
-      "line": 360,
+      "line": 371,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1210,7 +1538,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 363,
+      "line": 374,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1218,7 +1546,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 366,
+      "line": 377,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1226,7 +1554,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 378,
+      "line": 389,
       "path": "backend/modules/notifications/job_events.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark and insert identity paths use the dialect-aware shared DBAPI adapter",
@@ -1682,7 +2010,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 592,
+      "line": 595,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1690,7 +2018,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 625,
+      "line": 628,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1698,7 +2026,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 632,
+      "line": 635,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1706,7 +2034,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 638,
+      "line": 641,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1714,7 +2042,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 650,
+      "line": 653,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1722,7 +2050,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 663,
+      "line": 666,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1730,7 +2058,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 692,
+      "line": 695,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1738,7 +2066,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 709,
+      "line": 712,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1746,7 +2074,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 743,
+      "line": 746,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1754,7 +2082,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 784,
+      "line": 787,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1762,7 +2090,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 853,
+      "line": 856,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1770,7 +2098,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 912,
+      "line": 915,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1778,7 +2106,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 961,
+      "line": 964,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1786,7 +2114,7 @@
     },
     {
       "classification": "dialect-neutral",
-      "line": 1005,
+      "line": 1008,
       "path": "backend/modules/printers/monitors/mqtt_printer.py",
       "pattern": "qmark-parameter",
       "reason": "Qmark statements execute through the dialect-aware shared DBAPI adapter",
@@ -1802,7 +2130,15 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 190,
+      "line": 195,
+      "path": "backend/modules/system/backup_service.py",
+      "pattern": "qmark-parameter",
+      "reason": "Dedicated SQLite backup, validation, and offline restore provider",
+      "source": "header = re.match(r'CREATE\\s+TRIGGER\\s+([a-z_][a-z0-9_]*)\\s+BEFORE\\s+(?:INSERT|UPDATE|DELETE)\\s+ON\\s+([a-z_][a-z0-9_]*)\\b', definition, re.I)"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 371,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1810,7 +2146,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 193,
+      "line": 374,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1818,7 +2154,23 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 210,
+      "line": 388,
+      "path": "backend/modules/system/backup_service.py",
+      "pattern": "PRAGMA",
+      "reason": "Dedicated SQLite backup, validation, and offline restore provider",
+      "source": "\"SELECT name FROM pragma_table_info(?)\", (table,)).fetchall()}"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 388,
+      "path": "backend/modules/system/backup_service.py",
+      "pattern": "qmark-parameter",
+      "reason": "Dedicated SQLite backup, validation, and offline restore provider",
+      "source": "\"SELECT name FROM pragma_table_info(?)\", (table,)).fetchall()}"
+    },
+    {
+      "classification": "sqlite-provider-only",
+      "line": 394,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1826,7 +2178,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 210,
+      "line": 394,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1834,7 +2186,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 347,
+      "line": 535,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "qmark-parameter",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",
@@ -1842,7 +2194,7 @@
     },
     {
       "classification": "sqlite-provider-only",
-      "line": 485,
+      "line": 673,
       "path": "backend/modules/system/backup_service.py",
       "pattern": "PRAGMA",
       "reason": "Dedicated SQLite backup, validation, and offline restore provider",

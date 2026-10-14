@@ -28,7 +28,7 @@ def test_real_jwt_trim_replay_and_superseded_version_read412(http_edit):
     headers={'Authorization':'Bearer '+token,'If-Match':'"'+nonce+'"'}
     body={'operation_id':'a'*32,'start_seconds':0,'end_seconds':.09}
     response=client.post(f'/timelapses/{tid}/trim',headers=headers,json=body)
-    status=response.status_code;assert status==200
+    status=response.status_code;assert status==200,response.text
     first=response.json()
     response=client.post(f'/timelapses/{tid}/trim',headers=headers,json=body)
     status=response.status_code;assert status==200

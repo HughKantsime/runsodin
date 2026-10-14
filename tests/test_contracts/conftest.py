@@ -19,6 +19,8 @@ if str(_BACKEND) not in sys.path:
 # real tokens with this — it's only consumed at import time. Using the
 # same value across tests keeps cached module state consistent.
 os.environ.setdefault("JWT_SECRET_KEY", "test-key-for-contract-tests-only")
+# TestClient speaks plain HTTP; Secure cookies would never be sent back.
+os.environ.setdefault("COOKIE_SECURE", "false")
 
 
 import pytest
@@ -31,3 +33,20 @@ def _clear_rate_limits():
     Individual owned HTTP fixtures reset their own limiter when necessary.
     """
     yield
+
+
+@pytest.fixture(autouse=True)
+def _startup_providers(monkeypatch):
+    """Mirror app startup provider registration (no routes, no database).
+
+    Contract tests mount bare routers without running module registration, so
+    routes that require startup-registered services (queue staging, timelapse
+    media, attempt valuation) would otherwise fail closed with 503. Each test
+    gets its own registry copy; tests needing an absent provider remove it.
+    """
+    from core.registry import registry
+    monkeypatch.setattr(registry, "_providers", dict(registry._providers))
+    from modules.archives import register_providers as archives_providers
+    from modules.jobs import register_providers as jobs_providers
+    for register in (jobs_providers, archives_providers):
+        register(registry)

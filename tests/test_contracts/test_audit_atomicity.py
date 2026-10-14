@@ -30,12 +30,18 @@ DEPENDENCIES = BACKEND_DIR / "core" / "dependencies.py"
 AUDIT_IMPL = BACKEND_DIR / "core" / "audit.py"
 
 
+PRESERVED_BUNDLE = BACKEND_DIR / "core/schema/preserved027/bundle"
+
+
 def _enumerate_log_audit_call_sites() -> list[tuple[Path, int, str]]:
     """Return [(file, line_no, function_name)] for every log_audit() call in backend/."""
     sites = []
     for py in BACKEND_DIR.rglob("*.py"):
         # Skip the definition itself
         if py == DEPENDENCIES:
+            continue
+        # Hash-pinned frozen source used only to restore pre-027 databases; not live code.
+        if PRESERVED_BUNDLE in py.parents:
             continue
         try:
             source = py.read_text()

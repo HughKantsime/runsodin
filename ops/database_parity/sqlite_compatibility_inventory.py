@@ -15,6 +15,50 @@ INVENTORY = ROOT / "ops" / "database_parity" / "sqlite_compatibility_inventory.j
 
 
 CLASSIFICATIONS: dict[str, tuple[str, str]] = {
+    "backend/core/account_bound_session_schema.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/account_bound_session_validation.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/account_bound_tokens.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/account_lifetime_creation.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/account_lifetime_schema.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/account_lifetime_validation.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/priced_estimate_schema.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/priced_estimate_validation.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/project_import_transaction.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/project_import_validation.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
+    "backend/core/schema/prepriced_restore_contract.py": (
+        "sqlite-provider-only",
+        "Unregistered prototype: not imported by bootstrap, the app or any live module. SQLite branch of a dual-dialect contract; reclassify when wired into a runtime path.",
+    ),
     "backend/modules/archives/project_zip_manifest.py": (
         "dialect-neutral",
         "The bounded UTC timestamp regular expression contains a qmark-like fragment; this closed ZIP metadata parser performs no database operations or SQL.",
@@ -347,9 +391,15 @@ def scan_file(path: Path) -> list[dict[str, object]]:
     return scan_source(relative, path.read_text(encoding="utf-8"))
 
 
+# Hash-pinned frozen source used only to restore pre-027 databases; not live code.
+PRESERVED_BUNDLE = BACKEND / "core/schema/preserved027/bundle"
+
+
 def generate() -> dict[str, object]:
     entries: list[dict[str, object]] = []
     for path in sorted(BACKEND.rglob("*.py")):
+        if PRESERVED_BUNDLE in path.parents:
+            continue
         entries.extend(scan_file(path))
     return {
         "schema_version": 1,

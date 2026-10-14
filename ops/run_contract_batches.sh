@@ -18,7 +18,7 @@ for list in "$out"/batch-*; do
   name=$(basename "$list")
   temp=$(mktemp -d "${TMPDIR:-/tmp}/odin-contract-$name.XXXXXX")
   # shellcheck disable=SC2046
-  "$python" -m pytest $(cat "$list") -q -p no:cacheprovider --tb=short -rfE \
+  PYTHONPATH="$root/backend:$root" "$python" -m pytest $(cat "$list") -q -p no:cacheprovider --tb=short -rfE \
     --basetemp="$temp/t" --junitxml="$out/$name.xml" > "$out/$name.log" 2>&1
   code=$?
   echo "$name exit=$code $(tail -1 "$out/$name.log")" >> "$out/summary.txt"

@@ -261,7 +261,8 @@ def test_repeat_preserves_archived_payload(reprint_client,review_db,monkeypatch)
     from core.registry import registry
     from modules.organizations.services import EducationPolicyService
     client,_,source=reprint_client
-    monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else None)
+    original_provider=registry.get_provider
+    monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else original_provider(name))
     response=client.post('/archives/101/reprint',json={'printer_id':9})
     assert response.status_code==200,response.text
     original=response.json()['job_id']
@@ -300,7 +301,8 @@ def test_staged_file_becomes_education_owned(reprint_client,review_db,monkeypatc
     identifier=response.json()['job_id']
     review_db.execute(text('UPDATE print_files SET org_id=1 WHERE id=101'))
     review_db.execute(text('UPDATE education_submissions SET print_file_id=101 WHERE id=14'));review_db.commit()
-    monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else None)
+    original_provider=registry.get_provider
+    monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else original_provider(name))
     monkeypatch.setattr(core_db,'engine',review_db.get_bind())
     monkeypatch.setattr(dispatch,'_dispatch_bambu',lambda *a,**k:pytest.fail('Education alias reached transport'))
     before=review_db.execute(text('SELECT count(*) FROM jobs')).scalar_one()
@@ -315,7 +317,8 @@ def test_repeat_rechecks_tenant_and_rejects_model_swap(change,reprint_client,rev
     from core.registry import registry
     from modules.organizations.services import EducationPolicyService
     client,_,_=reprint_client
-    monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else None)
+    original_provider=registry.get_provider
+    monkeypatch.setattr(registry,'get_provider',lambda name:EducationPolicyService() if name=='EducationPolicyProvider' else original_provider(name))
     response=client.post('/archives/101/reprint',json={'printer_id':9})
     assert response.status_code==200,response.text
     identifier=response.json()['job_id']
