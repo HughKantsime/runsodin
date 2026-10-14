@@ -124,6 +124,10 @@ export interface Order {
   actual_cost: number | null;
   profit: number | null;
   margin_percent: number | null;
+  /** BOM estimates (filament + consumables), never measured actuals. */
+  estimated_cogs: number | null;
+  estimated_profit: number | null;
+  estimated_margin_percent: number | null;
   jobs_total: number | null;
   jobs_complete: number | null;
 }

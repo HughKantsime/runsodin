@@ -23,3 +23,14 @@ it('treats invalid actual financial values as unknown',()=>{
  show({actual_cost:Infinity,profit:NaN,margin_percent:Infinity})
  for(const label of ['Actual Cost','Profit','Margin'])expect(row(label)).toHaveTextContent('Unknown')
 })
+it('labels BOM estimates separately from unknown actuals',()=>{
+ show({estimated_cogs:21,estimated_profit:-1.5,estimated_margin_percent:-5})
+ expect(row('Estimated COGS (BOM)')).toHaveTextContent('$21.00')
+ expect(row('Est. Profit')).toHaveTextContent('-$1.50')
+ expect(row('Est. Margin')).toHaveTextContent('-5%')
+ for(const label of ['Actual Cost','Profit','Margin'])expect(row(label)).toHaveTextContent('Unknown')
+})
+it('shows unknown estimates when the BOM cost is incomplete',()=>{
+ show({estimated_cogs:null,estimated_profit:null,estimated_margin_percent:null})
+ for(const label of ['Estimated COGS (BOM)','Est. Profit','Est. Margin'])expect(row(label)).toHaveTextContent('Unknown')
+})

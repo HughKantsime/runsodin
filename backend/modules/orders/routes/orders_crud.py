@@ -24,6 +24,7 @@ from core.rbac import (
 )
 from core.base import OrderStatus, JobStatus
 from modules.orders.models import Product, ProductComponent, Order, OrderItem
+from modules.orders.product_costing import estimated_order_financials
 from modules.inventory.models import Consumable, ConsumableUsage, ProductConsumable
 from modules.jobs.models import Job
 from modules.orders.schemas import (
@@ -102,6 +103,13 @@ def _enrich_order_response(order: Order, db: Session) -> OrderResponse:
     resp.actual_cost = None
     resp.profit = None
     resp.margin_percent = None
+    products = {}
+    def product_for(product_id):
+        if product_id not in products:
+            products[product_id] = db.query(Product).filter(Product.id == product_id).first()
+        return products[product_id]
+    for name, value in estimated_order_financials(order, product_for).items():
+        setattr(resp, name, value)
 
     return resp
 
@@ -137,9 +145,15 @@ def list_orders(
 
     orders = query.options(selectinload(Order.items)).order_by(Order.created_at.desc()).all()
 
+    products = {}
+    def product_for(product_id):
+        if product_id not in products:
+            products[product_id] = db.query(Product).filter(Product.id == product_id).first()
+        return products[product_id]
     result = []
     for o in orders:
         summary = OrderSummary(
+            **estimated_order_financials(o, product_for),
             id=o.id,
             order_number=o.order_number,
             platform=o.platform,

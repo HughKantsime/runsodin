@@ -160,17 +160,22 @@ it('keeps global order statistics when the visible status filter changes',async(
 
 
 it.each([
-  [[0, 0], '0.0%'], [[-10, 20], '5.0%'],
-  [[10, null], 'Unknown'], [[10, undefined], 'Unknown'],
-  [[NaN, 10], 'Unknown'], [[Infinity, 10], 'Unknown'],
-  [[1e308, 1e308], 'Unknown'], [['10', 20], 'Unknown'],
-])('average margin formats only complete finite server values (%j)', async (values, expected) => {
-  vi.mocked(orders.list).mockResolvedValue(values.map((margin, index) => ({
-    id: index + 1, order_number: `Synthetic margin ${index}`, status: 'pending',
-    revenue: 10, margin_percent: margin,
+  // [ [revenue, estimated_profit, status], ... ] -> card value, subtitle count
+  [[[100, 50, 'pending'], [10, -10, 'pending']], '36.4%', '2 of 2'],   // (50-10)/(100+10)
+  [[[100, 25, 'pending'], [50, null, 'pending']], '25.0%', '1 of 2'],
+  [[[100, 25, 'pending'], [900, 900, 'cancelled']], '25.0%', '1 of 1'],
+  [[[0, -5, 'pending'], [null, 3, 'pending']], 'Unknown', '0 of 2'],
+  [[[10, NaN, 'pending'], [10, Infinity, 'pending']], 'Unknown', '0 of 2'],
+  [[[1e308, 1e308, 'pending'], [1e308, 1e308, 'pending']], 'Unknown', '2 of 2'],
+  [[[20, 0, 'pending']], '0.0%', '1 of 1'],
+])('average margin is the revenue-weighted BOM estimate (%j)', async (rows, expected, count) => {
+  vi.mocked(orders.list).mockResolvedValue(rows.map(([revenue, profit, status], index) => ({
+    id: index + 1, order_number: `Synthetic margin ${index}`, status,
+    revenue, estimated_profit: profit, margin_percent: null,
   })) as any)
   render(<MemoryRouter initialEntries={['/orders']}><Orders /></MemoryRouter>)
   await screen.findAllByText('Synthetic margin 0')
   const label = screen.getByText('Average Margin', { exact: true })
   expect(label.parentElement!.nextElementSibling!.textContent).toBe(expected)
+  expect(screen.getByText(`Revenue-weighted estimate · ${count} orders`)).toBeInTheDocument()
 })

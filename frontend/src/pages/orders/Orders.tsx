@@ -30,9 +30,17 @@ function OrderStatsBar({ orders: ordersList }) {
   if (!ordersList.length) return null
   const knownRevenue = ordersList.every(order => typeof order.revenue === 'number' && Number.isFinite(order.revenue))
   const revenueTotal = knownRevenue ? ordersList.reduce((sum, order) => sum + order.revenue, 0) : null
-  const knownMargins = ordersList.every(order => typeof order.margin_percent === 'number' && Number.isFinite(order.margin_percent))
-  const marginSum = knownMargins ? ordersList.reduce((sum, order) => sum + order.margin_percent, 0) : null
-  const averageMargin = marginSum != null && Number.isFinite(marginSum) ? `${(marginSum / ordersList.length).toFixed(1)}%` : 'Unknown'
+  // Revenue-weighted estimate: sum of BOM-estimated profit over sum of revenue, for
+  // non-cancelled orders whose revenue and estimate are both known.
+  const finite = (value) => typeof value === 'number' && Number.isFinite(value)
+  const marginEligible = ordersList.filter(order => order.status !== 'cancelled')
+  const marginKnown = marginEligible.filter(order => finite(order.revenue) && order.revenue > 0 && finite(order.estimated_profit))
+  const weightedRevenue = marginKnown.reduce((sum, order) => sum + order.revenue, 0)
+  const weightedProfit = marginKnown.reduce((sum, order) => sum + order.estimated_profit, 0)
+  const weightedMargin = marginKnown.length && Number.isFinite(weightedRevenue) && Number.isFinite(weightedProfit) && weightedRevenue > 0
+    ? (weightedProfit / weightedRevenue) * 100 : null
+  const averageMargin = weightedMargin != null && Number.isFinite(weightedMargin) ? `${weightedMargin.toFixed(1)}%` : 'Unknown'
+  const marginSubtitle = `Revenue-weighted estimate · ${marginKnown.length} of ${marginEligible.length} orders`
   const revenue = revenueTotal != null && Number.isFinite(revenueTotal) ? `$${revenueTotal.toFixed(2)}` : 'Unknown'
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 md:gap-3 mb-6">
@@ -42,7 +50,7 @@ function OrderStatsBar({ orders: ordersList }) {
       <StatCard label="Fulfilled" value={ordersList.filter(o => o.status === 'fulfilled').length} icon={Package} color="green" />
       <StatCard label="Shipped" value={ordersList.filter(o => o.status === 'shipped').length} icon={Truck} color="purple" />
       <StatCard label="Revenue" value={revenue} icon={DollarSign} color="green" />
-      <StatCard label="Average Margin" value={averageMargin} subtitle="Mean of per-order margins" icon={TrendingUp} color="default" />
+      <StatCard label="Average Margin" value={averageMargin} subtitle={marginSubtitle} icon={TrendingUp} color="default" />
     </div>
   )
 }

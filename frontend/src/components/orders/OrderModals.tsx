@@ -204,6 +204,9 @@ export function ProductionConfirmation({ item, onConfirm }: { item: any; onConfi
   )
 }
 
+const finiteMoney = (value) => typeof value === 'number' && Number.isFinite(value)
+  ? `${value < 0 ? '-' : ''}$${Math.abs(value).toFixed(2)}` : 'Unknown'
+
 export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, onCancel, onDownloadInvoice, onConfirmProduction, STATUS_CLASSES, canDo }: { isOpen: boolean; order: any; onClose: () => void; onSchedule: (id: number) => void; onShip: (order: any) => void; onCancel: (order: any) => void; onDownloadInvoice: (order: any) => void; onConfirmProduction: (itemId: number, quantity: number) => Promise<void>; STATUS_CLASSES: Record<string, string>; canDo: (action: string) => boolean }) {
   if (!isOpen || !order) return null
 
@@ -338,6 +341,19 @@ export function OrderDetailModal({ isOpen, order, onClose, onSchedule, onShip, o
             <div className="flex justify-between text-[var(--brand-muted)]">
               <span>Margin</span>
               <span>{typeof order.margin_percent === 'number' && Number.isFinite(order.margin_percent) ? `${order.margin_percent}%` : 'Unknown'}</span>
+            </div>
+            {/* BOM estimates: filament + consumables per component, labeled as estimates. */}
+            <div className="flex justify-between text-[var(--brand-muted)] pt-1 mt-1 border-t border-[var(--brand-card-border)]">
+              <span>Estimated COGS (BOM)</span>
+              <span>{finiteMoney(order.estimated_cogs)}</span>
+            </div>
+            <div className="flex justify-between text-[var(--brand-muted)]">
+              <span>Est. Profit</span>
+              <span>{finiteMoney(order.estimated_profit)}</span>
+            </div>
+            <div className="flex justify-between text-[var(--brand-muted)]">
+              <span>Est. Margin</span>
+              <span>{typeof order.estimated_margin_percent === 'number' && Number.isFinite(order.estimated_margin_percent) ? `${order.estimated_margin_percent}%` : 'Unknown'}</span>
             </div>
           </div>
         </div>

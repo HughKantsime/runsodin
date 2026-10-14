@@ -41,3 +41,42 @@ def estimated_product_cogs(product):
             if not math.isfinite(amount) or not math.isfinite(total):
                 return None
     return round(total, 2)
+
+
+def estimated_order_financials(order, product_for):
+    """BOM-estimated COGS, profit and margin for an order (never measured actuals).
+
+    ``product_for(product_id)`` returns the Product or None. COGS is None when the
+    order has no items or any line's BOM cost is unknown, so a partial sum is never
+    reported as the order total. Unrecorded fees count as zero.
+    """
+    unknown = {"estimated_cogs": None, "estimated_profit": None, "estimated_margin_percent": None}
+    items = list(order.items or [])
+    if not items:
+        return unknown
+    cogs = 0.0
+    for item in items:
+        quantity = _number(item.quantity, integer=True)
+        product = product_for(item.product_id) if item.product_id is not None else None
+        unit = estimated_product_cogs(product) if product is not None else None
+        if quantity is None or unit is None:
+            return unknown
+        cogs += unit * quantity
+    if not math.isfinite(cogs):
+        return unknown
+    result = dict(unknown, estimated_cogs=round(cogs, 2))
+    fees = 0.0
+    for value in (order.platform_fees, order.payment_fees, order.shipping_cost):
+        if value is not None:
+            fee = _number(value)
+            if fee is None:
+                return result
+            fees += fee
+    revenue = _number(order.revenue)
+    if revenue is None:
+        return result
+    profit = revenue - cogs - fees
+    result["estimated_profit"] = round(profit, 2)
+    if revenue > 0:
+        result["estimated_margin_percent"] = round(profit / revenue * 100, 1)
+    return result

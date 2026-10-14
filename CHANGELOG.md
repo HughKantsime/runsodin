@@ -18,6 +18,10 @@ All notable changes to O.D.I.N. are documented here.
   native-app credentials in one transaction. Users with retained history are
   refused with guidance to deactivate or erase. Tokens are bound to their
   account's creation time, so a recreated username never inherits an old login.
+- Orders show BOM-estimated COGS (filament + consumables for every component),
+  estimated profit and estimated margin, labeled as estimates next to the
+  still-unknown measured actuals. The Average Margin card is now a
+  revenue-weighted estimate across orders with known costs.
 
 ## [1.9.24] - Protected Bambu transfer session reuse
 

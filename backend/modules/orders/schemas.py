@@ -188,6 +188,10 @@ class OrderResponse(OrderBase):
     actual_cost: Optional[float] = None
     profit: Optional[float] = None
     margin_percent: Optional[float] = None
+    # BOM estimates (filament + consumables per component), never measured actuals.
+    estimated_cogs: Optional[float] = None
+    estimated_profit: Optional[float] = None
+    estimated_margin_percent: Optional[float] = None
     jobs_total: Optional[int] = None
     jobs_complete: Optional[int] = None
 
@@ -205,6 +209,9 @@ class OrderSummary(BaseModel):
     order_date: Optional[datetime] = None
     item_count: int = 0
     fulfilled: bool = False
+    estimated_cogs: Optional[float] = None
+    estimated_profit: Optional[float] = None
+    estimated_margin_percent: Optional[float] = None
 
 
 class OrderShipRequest(BaseModel):
