@@ -17,6 +17,8 @@ def auto_power(monkeypatch):
     monkeypatch.setattr(module,'_auto_off_safe',lambda pid:True)
     monkeypatch.setattr(module,'power_off',lambda pid,**kwargs:calls.append(('off',pid)))
     monkeypatch.setattr(module,'power_on',lambda pid:calls.append(('on',pid)))
+    # Energy metering threads are exercised separately; no device reads here.
+    monkeypatch.setattr(module,'_in_background',lambda *args:None)
     return module,config,timers,calls
 
 
@@ -157,3 +159,18 @@ def test_auto_off_disabled_at_final_config_fetch_sends_no_device_command(monkeyp
     # The setting controls automation, not an explicit manual command.
     assert module.power_off(599) is False
     assert calls==[('192.0.2.1','OFF')]
+
+
+def test_completion_powers_off_after_the_configured_cooldown(auto_power):
+    """Advertised cycle: completion schedules OFF after cooldown_minutes, then the plug turns off."""
+    from core.event_bus import InMemoryEventBus
+    from core.interfaces.event_bus import Event
+    from core import events
+    module,config,timers,calls=auto_power
+    config.update(cooldown_minutes=15)
+    bus=InMemoryEventBus();module.register_subscribers(bus)
+    bus.publish(Event(events.JOB_COMPLETED,'synthetic',{'printer_id':7,'success':True}))
+    assert [timer.delay for timer in timers]==[900]
+    assert calls==[]
+    timers[0].callback()
+    assert calls==[('off',7)] and module._cooldown_timers=={}

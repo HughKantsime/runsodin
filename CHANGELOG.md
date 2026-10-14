@@ -26,6 +26,12 @@ All notable changes to O.D.I.N. are documented here.
   grams per user, and disclose print attempts that reported no measurement.
 - Usage and chargeback reports price jobs as labeled estimates in the
   organization's configured currency, per user and per printer and model.
+- Smart-plug energy is recorded per print: the plug's kWh counter is read at
+  start and end, and the consumption and cost are stored on the print archive
+  and shown by the Analytics energy widget. Unknown readings stay unknown.
+- Bambu HMS errors are retried after a processing failure on prints that ODIN
+  is not tracking, instead of staying suppressed.
+- The Utilization range selector now filters per-printer job counts.
 
 ## [1.9.24] - Protected Bambu transfer session reuse
 

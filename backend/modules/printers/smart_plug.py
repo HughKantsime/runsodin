@@ -9,6 +9,7 @@ Each printer can optionally have a smart plug configured for:
 """
 
 import json
+import math
 import logging
 import threading
 import time
@@ -464,43 +465,93 @@ def on_print_complete(printer_id: int):
             log.warning("Automatic power-off timer could not start")
 
 
-def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
-    """
-    Calculate energy consumed during a job and store it.
-    Call at job start to capture start_kwh, then at job end with the same start_kwh.
-    """
-    energy = get_energy(printer_id)
-    if not energy:
+# Per-print energy: cumulative plug counter read at start and end of a print.
+# Start readings are process-local; a restart mid-print leaves that print unknown.
+_ENERGY_START_LIMIT = 512
+_ENERGY_APPLY_ATTEMPTS = 10
+_ENERGY_APPLY_INTERVAL = 1.0
+_energy_starts: Dict[int, tuple] = {}
+_energy_lock = threading.Lock()
+
+
+def _energy_counter(printer_id: int) -> Optional[float]:
+    try:
+        energy = get_energy(printer_id)
+    except Exception:
+        return None
+    value = energy.get("total_kwh") if isinstance(energy, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
+
+
+def record_energy_start(printer_id: int, print_job_id: int) -> None:
+    reading = _energy_counter(printer_id)
+    if reading is None:
         return
-    
-    end_kwh = energy.get("total_kwh", 0)
-    consumed = max(0, end_kwh - start_kwh)
-    
-    if consumed <= 0:
-        return
-    
+    with _energy_lock:
+        if len(_energy_starts) >= _ENERGY_START_LIMIT:
+            _energy_starts.pop(next(iter(_energy_starts)))
+        _energy_starts[print_job_id] = (printer_id, reading)
+
+
+def record_energy_for_print(printer_id: int, print_job_id: int) -> Optional[float]:
+    """Measure consumption since the print's start reading and store it on its archive.
+
+    Returns the consumed kWh that will be written, or None when unknown (no start
+    reading, no current reading, or a counter reset).
+    """
+    with _energy_lock:
+        start = _energy_starts.pop(print_job_id, None)
+    if start is None or start[0] != printer_id:
+        return None
+    end_kwh = _energy_counter(printer_id)
+    if end_kwh is None or end_kwh < start[1]:
+        return None
+    consumed = round(end_kwh - start[1], 4)
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")).fetchone()
+        rate = float(row[0]) if row else 0.12
+        if not math.isfinite(rate) or rate < 0:
+            rate = None
+    except Exception:
+        rate = None
+    cost = round(consumed * rate, 4) if rate is not None else None
+    _apply_energy(printer_id, print_job_id, consumed, cost, _ENERGY_APPLY_ATTEMPTS)
+    return consumed
+
+
+def _apply_energy(printer_id, print_job_id, consumed, cost, attempts):
+    """Write once to the print's archive; retry while the archive row does not exist yet."""
     try:
         with engine.begin() as conn:
-            # Get energy cost rate
-            row = conn.execute(text("SELECT value FROM system_config WHERE key = 'energy_cost_per_kwh'")).fetchone()
-            rate = float(row[0]) if row else 0.12
+            exists = conn.execute(text("SELECT 1 FROM print_archives WHERE print_job_id = :pj LIMIT 1"),
+                                  {"pj": print_job_id}).first()
+            if exists is None:
+                applied = None
+            else:
+                applied = conn.execute(text(
+                    "UPDATE print_archives SET energy_kwh = :kwh, energy_cost = :cost "
+                    "WHERE print_job_id = :pj AND energy_kwh IS NULL"),
+                    {"kwh": consumed, "cost": cost, "pj": print_job_id}).rowcount
+                if applied:
+                    conn.execute(text("UPDATE printers SET plug_energy_kwh = COALESCE(plug_energy_kwh, 0) + :kwh WHERE id = :pid"),
+                                 {"kwh": consumed, "pid": printer_id})
+    except Exception:
+        log.warning("Failed to record plug energy")
+        return
+    if applied is None and attempts > 1:
+        timer = threading.Timer(_ENERGY_APPLY_INTERVAL, _apply_energy,
+                                (printer_id, print_job_id, consumed, cost, attempts - 1))
+        timer.daemon = True
+        timer.start()
 
-            cost = round(consumed * rate, 4)
 
-            conn.execute(
-                text("UPDATE jobs SET energy_kwh = :kwh, energy_cost = :cost WHERE id = :jid"),
-                {"kwh": round(consumed, 4), "cost": cost, "jid": job_id}
-            )
-
-            # Update printer cumulative
-            conn.execute(
-                text("UPDATE printers SET plug_energy_kwh = plug_energy_kwh + :kwh WHERE id = :pid"),
-                {"kwh": round(consumed, 4), "pid": printer_id}
-            )
-
-            log.info(f"Energy recorded for job {job_id}: {consumed:.4f} kWh (${cost:.4f})")
-    except Exception as e:
-        log.error("Failed to record plug energy")
+def _in_background(function, *args):
+    worker = threading.Thread(target=function, args=args, daemon=True)
+    worker.start()
+    return worker
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +559,8 @@ def record_energy_for_job(printer_id: int, job_id: int, start_kwh: float):
 # ---------------------------------------------------------------------------
 
 def _on_job_started_event(event) -> None:
-    """Handle job.started event — auto power-on if configured."""
+    """Handle job.started event — energy start reading, auto power-on if configured."""
+    _on_energy_start_event(event)
     printer_id = event.data.get("printer_id")
     if printer_id is not None:
         try:
@@ -517,8 +569,24 @@ def _on_job_started_event(event) -> None:
             log.warning("Smart plug start hook failed")
 
 
+def _on_energy_start_event(event) -> None:
+    printer_id = event.data.get("printer_id")
+    print_job_id = event.data.get("print_job_id")
+    if type(printer_id) is int and type(print_job_id) is int:
+        _in_background(record_energy_start, printer_id, print_job_id)
+
+
+def _on_energy_end_event(event) -> None:
+    """Completed, failed and cancelled prints all consumed energy."""
+    printer_id = event.data.get("printer_id")
+    print_job_id = event.data.get("print_job_id")
+    if type(printer_id) is int and type(print_job_id) is int:
+        _in_background(record_energy_for_print, printer_id, print_job_id)
+
+
 def _on_job_completed_event(event) -> None:
-    """Handle job.completed / job.failed event — auto power-off if configured."""
+    """Handle job.completed / job.failed event — energy reading, auto power-off if configured."""
+    _on_energy_end_event(event)
     printer_id = event.data.get("printer_id")
     success = event.data.get("success", True)
     if printer_id is not None and success:
@@ -538,4 +606,5 @@ def register_subscribers(bus) -> None:
 
     bus.subscribe(ev.JOB_STARTED, _on_job_started_event)
     bus.subscribe(ev.JOB_COMPLETED, _on_job_completed_event)
+    bus.subscribe(ev.JOB_CANCELLED, _on_energy_end_event)
     log.debug("smart_plug subscribed to event bus")

@@ -96,7 +96,11 @@ def get_print_jobs(
     org = get_org_scope(current_user)
     # Build query dynamically
     sql = """
-        SELECT pj.*, p.name as printer_name
+        SELECT pj.*, p.name as printer_name,
+               (SELECT pa.energy_kwh FROM print_archives pa WHERE pa.print_job_id = pj.id
+                AND pa.energy_kwh IS NOT NULL ORDER BY pa.id LIMIT 1) AS energy_kwh,
+               (SELECT pa.energy_cost FROM print_archives pa WHERE pa.print_job_id = pj.id
+                AND pa.energy_kwh IS NOT NULL ORDER BY pa.id LIMIT 1) AS energy_cost
         FROM print_jobs pj
         JOIN printers p ON p.id = pj.printer_id
         WHERE 1=1
