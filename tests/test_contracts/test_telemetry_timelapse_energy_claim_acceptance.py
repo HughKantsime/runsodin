@@ -148,6 +148,7 @@ def test_job_events_drive_energy_metering_through_the_real_bus(metered,review_db
     from core import events
     smart_plug,reading=metered
     monkeypatch.setattr(smart_plug,'_in_background',lambda function,*args:function(*args))
+    monkeypatch.setattr(smart_plug,'_ENERGY_START_DELAY',0)
     monkeypatch.setattr(smart_plug,'on_print_start',lambda *a,**k:None)
     monkeypatch.setattr(smart_plug,'on_print_complete',lambda *a,**k:None)
     bus=InMemoryEventBus();smart_plug.register_subscribers(bus)

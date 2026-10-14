@@ -41,12 +41,16 @@ def _startup_providers(monkeypatch):
 
     Contract tests mount bare routers without running module registration, so
     routes that require startup-registered services (queue staging, timelapse
-    media, attempt valuation) would otherwise fail closed with 503. Each test
+    media) would otherwise fail closed with 503. Each test
     gets its own registry copy; tests needing an absent provider remove it.
     """
     from core.registry import registry
     monkeypatch.setattr(registry, "_providers", dict(registry._providers))
-    from modules.archives import register_providers as archives_providers
-    from modules.jobs import register_providers as jobs_providers
-    for register in (jobs_providers, archives_providers):
-        register(registry)
+    from modules.archives.timelapse_media_provider import TimelapseMediaService
+    from modules.jobs.queue_creation_provider import QueueCreationService
+    # Only stateless request-path services; valuation/accounting providers stay
+    # opt-in because their absence is a tested, distinct code path.
+    for name, factory in (("QueueCreationProvider", QueueCreationService),
+                          ("TimelapseMediaProvider", TimelapseMediaService)):
+        if not registry.has_provider(name):
+            registry.register_provider(name, factory())

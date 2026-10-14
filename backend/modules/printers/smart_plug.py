@@ -569,11 +569,25 @@ def _on_job_started_event(event) -> None:
             log.warning("Smart plug start hook failed")
 
 
+_ENERGY_START_DELAY = 2.0
+
+
 def _on_energy_start_event(event) -> None:
+    """Read the start counter shortly after the publisher's start transaction commits.
+
+    JOB_STARTED is published from inside monitor transactions; an immediate
+    concurrent read of plug configuration could contend with that writer on
+    non-WAL SQLite. The delay costs at most a couple of seconds of metering.
+    """
     printer_id = event.data.get("printer_id")
     print_job_id = event.data.get("print_job_id")
     if type(printer_id) is int and type(print_job_id) is int:
-        _in_background(record_energy_start, printer_id, print_job_id)
+        _in_background(_delayed_energy_start, printer_id, print_job_id)
+
+
+def _delayed_energy_start(printer_id, print_job_id):
+    time.sleep(_ENERGY_START_DELAY)
+    record_energy_start(printer_id, print_job_id)
 
 
 def _on_energy_end_event(event) -> None:
