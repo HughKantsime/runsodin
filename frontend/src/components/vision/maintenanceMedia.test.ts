@@ -47,3 +47,14 @@ it('refuses insecure-context hashing with useful guidance and releases all reser
   expect([budget.encoded, budget.decoded, budget.working]).toEqual([0, 0, 0])
   expect(fetch).not.toHaveBeenCalled(); expect(URL.createObjectURL).not.toHaveBeenCalled()
 })
+it('loads collected training samples from their training subpath only', async () => {
+  urls(); vi.stubGlobal('crypto', webcrypto)
+  const fetcher = vi.fn(async () => new Response(ownedJpeg, { headers: { 'content-type': 'image/jpeg' } })); vi.stubGlobal('fetch', fetcher)
+  const budget = new ImageBudget(), lease = budget.reserve('owner', true, vi.fn())
+  await preview('9/training/frame.jpg', lease)
+  expect(fetcher).toHaveBeenCalledWith('/api/vision/frames/9/training/frame.jpg', expect.anything()); lease.release()
+  for (const path of ['9/other/frame.jpg', '9/training/../frame.jpg', 'training/frame.jpg']) {
+    const invalid = budget.reserve('owner', true, vi.fn()); await expect(preview(path, invalid)).rejects.toThrow(/path/); invalid.release()
+  }
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})

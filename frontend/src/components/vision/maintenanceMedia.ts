@@ -59,7 +59,8 @@ export function jpegDimensions(bytes: Uint8Array) {
 }
 export type Preview = { url: string; digest: string; width: number; height: number }
 export async function preview(path: string, lease: ReturnType<ImageBudget['reserve']>, current = () => true): Promise<Preview> {
-  if (!/^[1-9][0-9]*\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}$/.test(path)) throw new Error('Invalid frame path')
+  // <printer>/<frame> for detections, <printer>/training/<frame> for collected samples.
+  if (!/^[1-9][0-9]*\/(?:training\/)?[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}$/.test(path)) throw new Error('Invalid frame path')
   const timer = setTimeout(() => lease.controller.abort(), 10_000)
   try {
     if (!globalThis.crypto?.subtle) {

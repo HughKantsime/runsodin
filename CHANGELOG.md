@@ -32,6 +32,9 @@ All notable changes to O.D.I.N. are documented here.
 - Bambu HMS errors are retried after a processing failure on prints that ODIN
   is not tracking, instead of staying suppressed.
 - The Utilization range selector now filters per-printer job counts.
+- Frames collected with Vigil "collect training data" now appear in the
+  training workspace for labeling and export instead of only on disk.
+- Vigil model uploads honour the configured models directory.
 
 ## [1.9.24] - Protected Bambu transfer session reuse
 

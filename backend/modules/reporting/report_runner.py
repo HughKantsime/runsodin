@@ -220,7 +220,7 @@ def generate_failure_analysis(session, filters):
     rows = session.execute(text(f"""
         SELECT detection_type, COUNT(*) as cnt, AVG(confidence) as avg_conf
         FROM vision_detections
-        WHERE created_at >= {sql.now_offset('-30 days')}
+        WHERE created_at >= {sql.now_offset('-30 days')} AND status != 'training'
         GROUP BY detection_type ORDER BY cnt DESC
     """)).fetchall()
 

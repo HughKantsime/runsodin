@@ -32,6 +32,9 @@ log = logging.getLogger('vision_monitor')
 GO2RTC_BASE = 'http://127.0.0.1:1984'
 ALERT_COOLDOWN = 60  # minimum seconds between same-type alerts per printer
 DETECTION_TYPES = ['spaghetti', 'first_layer', 'detachment', 'build_plate_empty']
+# Collected training frames are stored as status='training' rows, never as detections.
+TRAINING_SAMPLE = 'training_sample'
+TRAINING_STATUS = 'training'
 
 
 class PrinterVisionThread(threading.Thread):
@@ -100,7 +103,8 @@ class PrinterVisionThread(threading.Thread):
 
         # Save training data if enabled (every frame, not just detections)
         if collect:
-            frame_storage.save_training_frame(self.printer_id, frame)
+            path = frame_storage.save_training_frame(self.printer_id, frame)
+            self._insert_training_sample(path)
 
         if not hasattr(self, '_history_generations'):
             self._history_generations = {}
@@ -327,6 +331,17 @@ class PrinterVisionThread(threading.Thread):
                 and detection_type in ('spaghetti', 'first_layer', 'detachment')
                 and self.gcode_state == 'RUNNING'):
             self._auto_pause()
+
+    def _insert_training_sample(self, frame_path: str) -> None:
+        """Index a collected frame for annotation; not a detection (status 'training')."""
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "INSERT INTO vision_detections (printer_id, print_job_id, detection_type, confidence, "
+                    f"status, frame_path, created_at) VALUES (:pid, :jid, '{TRAINING_SAMPLE}', 0, 'training', :fpath, {sql.now()})"),
+                    {"pid": self.printer_id, "jid": self.print_job_id, "fpath": frame_path})
+        except Exception:
+            log.warning(f"[{self.printer_name}] Training sample could not be indexed")
 
     def _insert_detection(
         self, detection_type: str, confidence: float,

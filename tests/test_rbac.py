@@ -745,6 +745,7 @@ ENDPOINT_MATRIX = [
     ("GET",    "/api/vision/detections/{detection_id}",          _api_read(),   None, "Get detection"),
     ("PATCH",  "/api/vision/detections/{detection_id}",          _op_write(), {"status": "confirmed"},   "Update detection (operator+)"),
     ("GET",    "/api/vision/frames/{printer_id}/{filename}",     _api_read(),   None, "Get vision frame"),
+    ("GET",    "/api/vision/frames/{printer_id}/training/{filename}", _api_read(), None, "Get vision training frame"),
     ("GET",    "/api/vision/models",                             _admin_read(), None, "List vision models"),
     ("POST",   "/api/vision/models",                             _admin_only(), None, "Upload vision model"),
     ("PATCH",  "/api/vision/models/{model_id}/activate",         _admin_only(), None, "Activate vision model"),

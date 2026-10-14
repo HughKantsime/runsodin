@@ -120,7 +120,9 @@ def _save_frame(printer_id, frame, detection_type=None):
             temp_owned = False
             os.fsync(target_fd)
             _verify_namespace(root_path, directories)
-            return f"{printer_name}/{filename}" if detection_type is not None else None
+            if detection_type is None:
+                return f"{printer_name}/training/{filename}"
+            return f"{printer_name}/{filename}"
         except BaseException:
             # Remove only names created by this call, through its pinned directory.
             for name, owned in ((temporary, temp_owned), (filename, published)):
@@ -139,9 +141,9 @@ def save_detection_frame(printer_id: int, frame, detection_type: str) -> str:
     return _save_frame(printer_id, frame, detection_type)
 
 
-def save_training_frame(printer_id: int, frame) -> None:
-    """Publish a unique training JPEG; raise on failure and retain the None contract."""
-    _save_frame(printer_id, frame)
+def save_training_frame(printer_id: int, frame) -> str:
+    """Publish a unique training JPEG and return its relative path; raise on failure."""
+    return _save_frame(printer_id, frame)
 
 
 def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
@@ -187,6 +189,8 @@ def cleanup_old_frames(frames_dir: str = VISION_FRAMES_DIR) -> None:
                     text(f"UPDATE vision_detections SET frame_path = NULL "  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text -- verified safe — see docs/SEMGREP_TRIAGE.md (params bound, f-string interpolates only allowlisted/internal symbols)
                     f"WHERE id IN ({','.join(ids)})")
                 )
+            # A training sample is only its frame; drop samples whose frame expired.
+            conn.execute(text("DELETE FROM vision_detections WHERE status = 'training' AND frame_path IS NULL"))
 
         if deleted:
             log.info(f"Cleaned up {deleted} old vision frames (>{retention_days} days)")

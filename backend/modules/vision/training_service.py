@@ -37,13 +37,18 @@ def snapshot(printer_id,relative):
     if isinstance(printer_id,bool) or not isinstance(printer_id,int) or printer_id<=0:raise ValueError('path')
     if not isinstance(relative,str):raise ValueError('path')
     parts=relative.split('/')
-    if len(parts)!=2 or parts[0]!=str(printer_id) or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}',parts[1]):raise ValueError('path')
+    # <printer>/<frame>.jpg for detections, <printer>/training/<frame>.jpg for collected samples.
+    directories,name=parts[:-1],parts[-1]
+    if (directories not in ([str(printer_id)],[str(printer_id),'training'])
+            or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}',name)):raise ValueError('path')
     fds=[]
     try:
         flags=os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK
         root=os.open(VISION_FRAMES_DIR,flags|os.O_DIRECTORY);fds.append(root)
-        directory=os.open(parts[0],flags|os.O_DIRECTORY,dir_fd=root);fds.append(directory)
-        fd=os.open(parts[1],flags,dir_fd=directory);fds.append(fd)
+        directory=root
+        for part in directories:
+            directory=os.open(part,flags|os.O_DIRECTORY,dir_fd=directory);fds.append(directory)
+        fd=os.open(name,flags,dir_fd=directory);fds.append(fd)
         info=os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or not 0<info.st_size<=MAX_IMAGE_BYTES:raise ValueError('size')
         with os.fdopen(os.dup(fd),'rb') as stream:data=stream.read(MAX_IMAGE_BYTES+1)

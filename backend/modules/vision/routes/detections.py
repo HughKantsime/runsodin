@@ -107,6 +107,10 @@ async def list_vision_detections(
     if status_filter:
         query = query.filter(VisionDetection.status == status_filter)
         count_query = count_query.filter(VisionDetection.status == status_filter)
+    else:
+        # Collected training samples are not detections; list them only on request.
+        query = query.filter(VisionDetection.status != 'training')
+        count_query = count_query.filter(VisionDetection.status != 'training')
 
     total = count_query.scalar()
     rows = (
@@ -306,6 +310,27 @@ async def update_global_vision_settings(
 
 # ============== Vigil AI: Frames ==============
 
+def _frame_response(current_user, printer_id, relative):
+    from fastapi.responses import Response
+    from modules.vision.training_service import maintenance,snapshot
+    # Current printer membership cannot establish historical image ownership.
+    if not maintenance(current_user):raise HTTPException(404,"Frame not found")
+    try:
+        data,_,_,_=snapshot(printer_id,relative)
+    except (ValueError,OSError):raise HTTPException(404,"Frame not found") from None
+    return Response(data,media_type="image/jpeg")
+
+
+@router.get("/vision/frames/{printer_id}/training/{filename}", tags=["Vigil AI"])
+async def serve_training_frame(
+    printer_id: int,
+    filename: str,
+    current_user: dict = Depends(require_role("viewer",scope="read")),
+    db: Session = Depends(get_db),
+):
+    return _frame_response(current_user, printer_id, f"{printer_id}/training/{filename}")
+
+
 @router.get("/vision/frames/{printer_id}/{filename}", tags=["Vigil AI"])
 async def serve_vision_frame(
     printer_id: int,
@@ -313,14 +338,7 @@ async def serve_vision_frame(
     current_user: dict = Depends(require_role("viewer",scope="read")),
     db: Session = Depends(get_db),
 ):
-    from fastapi.responses import Response
-    from modules.vision.training_service import maintenance,snapshot
-    # Current printer membership cannot establish historical image ownership.
-    if not maintenance(current_user):raise HTTPException(404,"Frame not found")
-    try:
-        data,_,_,_=snapshot(printer_id,f"{printer_id}/{filename}")
-    except (ValueError,OSError):raise HTTPException(404,"Frame not found") from None
-    return Response(data,media_type="image/jpeg")
+    return _frame_response(current_user, printer_id, f"{printer_id}/{filename}")
 
 
 # ============== Vigil AI: Stats ==============
@@ -340,7 +358,7 @@ async def get_vision_stats(
     # By type
     type_rows = (
         db.query(VisionDetection.detection_type, sa_func.count(VisionDetection.id))
-        .filter(VisionDetection.created_at > cutoff)
+        .filter(VisionDetection.created_at > cutoff, VisionDetection.status != 'training')
         .group_by(VisionDetection.detection_type)
         .all()
     )
@@ -349,7 +367,7 @@ async def get_vision_stats(
     # By status
     status_rows = (
         db.query(VisionDetection.status, sa_func.count(VisionDetection.id))
-        .filter(VisionDetection.created_at > cutoff)
+        .filter(VisionDetection.created_at > cutoff, VisionDetection.status != 'training')
         .group_by(VisionDetection.status)
         .all()
     )
@@ -364,7 +382,7 @@ async def get_vision_stats(
             sa_func.count(VisionDetection.id).label("count"),
         )
         .outerjoin(Printer, Printer.id == VisionDetection.printer_id)
-        .filter(VisionDetection.created_at > cutoff)
+        .filter(VisionDetection.created_at > cutoff, VisionDetection.status != 'training')
         .group_by(VisionDetection.printer_id)
         .order_by(sa_func.count(VisionDetection.id).desc())
         .limit(10)
